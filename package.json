@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "description": "Local-first MCP context broker for agentic AI knowledge matching and reflection memory.",
   "type": "module",
-  "main": "dist/index.js",
+  "packageManager": "pnpm@11.1.2",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "mcp": "tsx src/mcp-stdio.ts",
     "worker": "tsx src/worker.ts",
     "migrate": "tsx scripts/migrate.ts",
@@ -18,12 +19,18 @@
     "redis": "^4.7.0"
   },
   "devDependencies": {
-    "@types/node": "^20.17.10",
+    "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13",
+    "pnpm": ">=11.1.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

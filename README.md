@@ -12,11 +12,14 @@ Tuberosa is a local-first context broker for agentic AI workflows. It stores pro
 
 ## Quick Start
 
+Use Node.js `22.13` or newer. This repo includes `.nvmrc` pinned to Node `22.21.1`.
+
 ```bash
-npm install
+corepack enable
+pnpm install
 cp .env.example .env
-npm run migrate
-npm run dev
+pnpm run migrate
+pnpm run dev
 ```
 
 Docker is supported through `docker-compose.yml`:
@@ -28,8 +31,8 @@ docker compose up --build
 This WSL environment does not currently expose Docker, so local verification can use:
 
 ```bash
-npm run build
-npm test
+pnpm run build
+pnpm test
 ```
 
 ## MCP Usage
@@ -37,7 +40,7 @@ npm test
 Run the stdio MCP server:
 
 ```bash
-npm run mcp
+pnpm run mcp
 ```
 
 Primary tools:
