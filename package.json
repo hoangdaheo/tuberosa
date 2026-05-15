@@ -12,6 +12,7 @@
     "mcp": "tsx src/mcp-stdio.ts",
     "worker": "tsx src/worker.ts",
     "migrate": "tsx scripts/migrate.ts",
+    "eval:retrieval": "tsx scripts/eval-retrieval.ts",
     "test": "node --test --import tsx test/*.test.ts"
   },
   "dependencies": {

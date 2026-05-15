@@ -120,7 +120,7 @@ function inferTaskType(lower: string): TaskType {
     return 'debugging';
   }
 
-  if (/\b(implement|build|add|create|feature)\b/.test(lower)) {
+  if (/\b(implement|build|add|create|update|change|modify|feature)\b/.test(lower)) {
     return 'implementation';
   }
 

@@ -146,6 +146,7 @@ pnpm start         # Run built HTTP app
 pnpm run mcp       # MCP stdio server
 pnpm run worker    # Worker process placeholder
 pnpm run migrate   # Apply SQL migrations
+pnpm run eval:retrieval # Deterministic retrieval quality eval
 ```
 
 If your shell defaults to an older Node version:
@@ -158,6 +159,24 @@ or prefix commands explicitly:
 
 ```bash
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
+```
+
+## Retrieval Evaluation
+
+Run the deterministic retrieval eval suite before changing classification, fusion weights, reranking, or context pack assembly:
+
+```bash
+pnpm run eval:retrieval
+```
+
+The default fixture lives at `eval/retrieval-fixtures.json`. It seeds an in-memory store, runs each prompt through the normal ingestion and retrieval services, and reports hit rate, MRR, precision@k, stale rejection, unexpected-result avoidance, and exact file/symbol/error classification checks.
+
+Useful options:
+
+```bash
+pnpm run eval:retrieval -- --top-k 3
+pnpm run eval:retrieval -- --json
+pnpm run eval:retrieval -- --fixture eval/retrieval-fixtures.json --fail-under-hit-rate 0.95
 ```
 
 ## HTTP API
@@ -497,9 +516,9 @@ This hybrid design is the right baseline for code and operational memory because
 
 Implement matching improvements in this order:
 
-1. Retrieval eval harness.
-   - Add fixtures with prompts, expected knowledge ids, and negative examples.
-   - Track hit rate, MRR, precision@k, and stale-context rejection.
+1. Retrieval eval coverage.
+   - Expand fixtures with real project prompts, expected knowledge ids, and negative examples.
+   - Track hit rate, MRR, precision@k, stale-context rejection, unexpected-result avoidance, and exact classification checks.
    - Include exact file/symbol matching, business-domain matching, prior-error recovery, and missing-context scenarios.
 2. Query rewriting.
    - Add a provider hook that can expand vague prompts into structured search queries.
@@ -559,7 +578,7 @@ Suggested first UI stack:
 
 - Expand README and examples as the source of truth for setup and API usage.
 - Add integration tests for Postgres/pgvector and Redis, gated behind Docker availability.
-- Add retrieval eval fixtures and a `pnpm run eval:retrieval` command.
+- Expand retrieval eval fixtures with real-project regression cases.
 - Add source-level debug output for matching: metadata, lexical, vector, memory, fusion, rerank.
 - Build the admin/debug UI for knowledge browsing, search testing, and reflection approval.
 
