@@ -114,6 +114,37 @@ test('feedback rejection retries without rejected knowledge', async () => {
   ok(!retryIds.includes(first.id));
 });
 
+test('selected feedback records pack status without retrying', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'wiki',
+    sourceUri: 'docs/current.md',
+    itemType: 'wiki',
+    title: 'Current auth flow',
+    summary: 'Current auth flow.',
+    content: 'Auth flow uses OAuth bearer tokens and refresh token rotation.',
+    trustLevel: 90,
+    labels: [{ type: 'business_area', value: 'auth', weight: 1 }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Explain the auth flow',
+  });
+
+  const result = await retrieval.recordFeedback({
+    contextPackId: pack.id,
+    project: 'agent-memory',
+    feedbackType: 'selected',
+  });
+  const storedPack = await retrieval.getContextPack(pack.id);
+
+  deepEqual(result, {});
+  equal(storedPack?.status, 'selected');
+});
+
 test('reflection drafts are reviewable and approval creates searchable memory', async () => {
   const { retrieval, reflection } = createTestServices();
 

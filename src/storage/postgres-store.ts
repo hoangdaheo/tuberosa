@@ -178,7 +178,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
             OR lower(ki.metadata::text) LIKE ANY($1::text[])
             OR EXISTS (
               SELECT 1
-              FROM references r
+              FROM knowledge_references r
               WHERE r.knowledge_id = ki.id AND lower(r.uri) LIKE ANY($1::text[])
             )
             OR EXISTS (
@@ -427,7 +427,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     for (const reference of references) {
       await client.query(
         `
-          INSERT INTO references (knowledge_id, ref_type, uri, line_start, line_end, commit_sha, metadata)
+          INSERT INTO knowledge_references (knowledge_id, ref_type, uri, line_start, line_end, commit_sha, metadata)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
         `,
         [
@@ -497,7 +497,7 @@ function knowledgeSelect(): string {
           'commitSha', r.commit_sha,
           'metadata', r.metadata
         ))
-        FROM references r
+        FROM knowledge_references r
         WHERE r.knowledge_id = ki.id
       ), '[]'::jsonb) AS references
     FROM knowledge_items ki
@@ -537,7 +537,7 @@ function candidateSelect(source: string, scoreExpression: string): string {
           'commitSha', r.commit_sha,
           'metadata', r.metadata
         ))
-        FROM references r
+        FROM knowledge_references r
         WHERE r.knowledge_id = ki.id
       ), '[]'::jsonb) AS references
     FROM knowledge_chunks kc

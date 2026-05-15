@@ -1,108 +1,171 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
+import type { IngestFileInput } from '../ingest/service.js';
 import type { ContextSearchInput, FeedbackInput, KnowledgeInput, ReflectionDraftInput } from '../types.js';
 
+type RouteParams = Record<string, string>;
+type RouteMatcher = (url: URL) => RouteParams | undefined;
+type RouteHandler = (context: RouteContext) => Promise<unknown> | unknown;
+
+interface RouteContext {
+  services: AppServices;
+  request: IncomingMessage;
+  url: URL;
+  params: RouteParams;
+}
+
+interface HttpRoute {
+  method: string;
+  match: RouteMatcher;
+  handle: RouteHandler;
+}
+
 export function createHttpServer(services: AppServices) {
+  const router = new HttpRouter(services);
+
   return createServer(async (request, response) => {
+    await router.handle(request, response);
+  });
+}
+
+class HttpRouter {
+  private readonly routes: HttpRoute[];
+
+  constructor(private readonly services: AppServices) {
+    this.routes = createRoutes();
+  }
+
+  async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const method = request.method?.toUpperCase() ?? 'GET';
+    const url = new URL(request.url ?? '/', 'http://localhost');
+
     try {
-      await route(services, request, response);
+      const matched = this.matchRoute(method, url);
+      if (!matched) {
+        throw new HttpError(404, `No route for ${method} ${url.pathname}`);
+      }
+
+      const body = await matched.route.handle({
+        services: this.services,
+        request,
+        url,
+        params: matched.params,
+      });
+      sendJson(response, 200, body);
     } catch (error) {
       sendJson(response, error instanceof HttpError ? error.status : 500, {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
-  });
+  }
+
+  private matchRoute(method: string, url: URL): { route: HttpRoute; params: RouteParams } | undefined {
+    for (const route of this.routes) {
+      if (route.method !== method) {
+        continue;
+      }
+
+      const params = route.match(url);
+      if (params) {
+        return { route, params };
+      }
+    }
+
+    return undefined;
+  }
 }
 
-async function route(services: AppServices, request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const method = request.method ?? 'GET';
-  const url = new URL(request.url ?? '/', 'http://localhost');
+function createRoutes(): HttpRoute[] {
+  return [
+    {
+      method: 'GET',
+      match: exactPath('/health'),
+      handle: ({ services }) => ({
+        ok: true,
+        service: 'tuberosa',
+        store: services.config.store,
+        cache: services.config.cache,
+        modelProvider: services.config.modelProvider,
+      }),
+    },
+    {
+      method: 'POST',
+      match: exactPath('/context/search'),
+      handle: async ({ services, request }) => {
+        const body = await readJson<ContextSearchInput>(request);
+        return services.retrieval.searchContext(body);
+      },
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/context\/packs\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const pack = await services.retrieval.getContextPack(params.id);
+        if (!pack) {
+          throw new HttpError(404, 'Context pack not found.');
+        }
 
-  if (method === 'GET' && url.pathname === '/health') {
-    sendJson(response, 200, {
-      ok: true,
-      service: 'tuberosa',
-      store: services.config.store,
-      cache: services.config.cache,
-      modelProvider: services.config.modelProvider,
-    });
-    return;
-  }
+        return pack;
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/context/feedback'),
+      handle: async ({ services, request }) => {
+        const body = await readJson<FeedbackInput>(request);
+        return services.retrieval.recordFeedback(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/ingest/files'),
+      handle: async ({ services, request }) => {
+        const body = await readJson<{ project?: string; files?: IngestFileInput[] }>(request);
+        if (!body.project || !Array.isArray(body.files)) {
+          throw new HttpError(400, 'Expected { project, files }.');
+        }
 
-  if (method === 'POST' && url.pathname === '/context/search') {
-    const body = await readJson<ContextSearchInput>(request);
-    sendJson(response, 200, await services.retrieval.searchContext(body));
-    return;
-  }
+        return services.ingestion.ingestFiles(body.project, body.files);
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/knowledge'),
+      handle: async ({ services, request }) => {
+        const body = await readJson<KnowledgeInput>(request);
+        return services.ingestion.ingestKnowledge(body);
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/knowledge'),
+      handle: ({ services, url }) => services.store.listKnowledge({
+        project: url.searchParams.get('project') ?? undefined,
+        query: url.searchParams.get('q') ?? undefined,
+        limit: readLimit(url),
+      }),
+    },
+    {
+      method: 'POST',
+      match: exactPath('/reflection-drafts'),
+      handle: async ({ services, request }) => {
+        const body = await readJson<ReflectionDraftInput>(request);
+        return services.reflection.createDraft(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/reflection-drafts\/([^/]+)\/approve$/, ['id']),
+      handle: async ({ services, params }) => {
+        const draft = await services.reflection.approveDraft(params.id);
+        if (!draft) {
+          throw new HttpError(404, 'Reflection draft not found.');
+        }
 
-  if (method === 'GET' && url.pathname.startsWith('/context/packs/')) {
-    const id = url.pathname.split('/').at(-1);
-    if (!id) {
-      throw new HttpError(400, 'Missing context pack id.');
-    }
-
-    const pack = await services.retrieval.getContextPack(id);
-    if (!pack) {
-      throw new HttpError(404, 'Context pack not found.');
-    }
-
-    sendJson(response, 200, pack);
-    return;
-  }
-
-  if (method === 'POST' && url.pathname === '/context/feedback') {
-    const body = await readJson<FeedbackInput>(request);
-    sendJson(response, 200, await services.retrieval.recordFeedback(body));
-    return;
-  }
-
-  if (method === 'POST' && url.pathname === '/ingest/files') {
-    const body = await readJson<{ project: string; files: unknown[] }>(request);
-    if (!body.project || !Array.isArray(body.files)) {
-      throw new HttpError(400, 'Expected { project, files }.');
-    }
-
-    sendJson(response, 200, await services.ingestion.ingestFiles(body.project, body.files as Parameters<typeof services.ingestion.ingestFiles>[1]));
-    return;
-  }
-
-  if (method === 'POST' && url.pathname === '/knowledge') {
-    const body = await readJson<KnowledgeInput>(request);
-    sendJson(response, 200, await services.ingestion.ingestKnowledge(body));
-    return;
-  }
-
-  if (method === 'GET' && url.pathname === '/knowledge') {
-    sendJson(response, 200, await services.store.listKnowledge({
-      project: url.searchParams.get('project') ?? undefined,
-      query: url.searchParams.get('q') ?? undefined,
-      limit: Number(url.searchParams.get('limit') ?? 25),
-    }));
-    return;
-  }
-
-  if (method === 'POST' && url.pathname === '/reflection-drafts') {
-    const body = await readJson<ReflectionDraftInput>(request);
-    sendJson(response, 200, await services.reflection.createDraft(body));
-    return;
-  }
-
-  if (method === 'POST' && url.pathname.startsWith('/reflection-drafts/') && url.pathname.endsWith('/approve')) {
-    const id = url.pathname.split('/').at(-2);
-    if (!id) {
-      throw new HttpError(400, 'Missing reflection draft id.');
-    }
-
-    const draft = await services.reflection.approveDraft(id);
-    if (!draft) {
-      throw new HttpError(404, 'Reflection draft not found.');
-    }
-
-    sendJson(response, 200, draft);
-    return;
-  }
-
-  throw new HttpError(404, `No route for ${method} ${url.pathname}`);
+        return draft;
+      },
+    },
+  ];
 }
 
 async function readJson<T = Record<string, unknown>>(request: IncomingMessage): Promise<T> {
@@ -115,7 +178,11 @@ async function readJson<T = Record<string, unknown>>(request: IncomingMessage): 
     return {} as T;
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
+  } catch {
+    throw new HttpError(400, 'Invalid JSON body.');
+  }
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
@@ -134,4 +201,43 @@ class HttpError extends Error {
   ) {
     super(message);
   }
+}
+
+function exactPath(pathname: string): RouteMatcher {
+  return (url) => (url.pathname === pathname ? {} : undefined);
+}
+
+function pathPattern(pattern: RegExp, keys: string[]): RouteMatcher {
+  return (url) => {
+    const match = pattern.exec(url.pathname);
+    if (!match) {
+      return undefined;
+    }
+
+    try {
+      return Object.fromEntries(
+        keys.map((key, index) => [key, decodeURIComponent(match[index + 1])]),
+      );
+    } catch {
+      throw new HttpError(400, 'Invalid path parameter.');
+    }
+  };
+}
+
+function readLimit(url: URL): number {
+  const rawLimit = url.searchParams.get('limit');
+  if (!rawLimit) {
+    return 25;
+  }
+
+  if (!/^\d+$/.test(rawLimit)) {
+    throw new HttpError(400, 'Query parameter "limit" must be a positive integer.');
+  }
+
+  const limit = Number.parseInt(rawLimit, 10);
+  if (!Number.isFinite(limit) || limit < 1) {
+    throw new HttpError(400, 'Query parameter "limit" must be a positive integer.');
+  }
+
+  return Math.min(limit, 100);
 }

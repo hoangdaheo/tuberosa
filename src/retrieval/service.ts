@@ -1,12 +1,30 @@
 import type { Cache } from '../cache.js';
 import type { AppConfig } from '../config.js';
 import type { ModelProvider } from '../model/provider.js';
-import type { ContextPack, ContextSearchInput, FeedbackInput, KnowledgeSearchResult } from '../types.js';
+import type {
+  ClassifiedQuery,
+  ContextPack,
+  ContextSearchInput,
+  FeedbackInput,
+  KnowledgeSearchResult,
+  RankedCandidate,
+  SearchOptions,
+} from '../types.js';
 import { sha256, stableJson } from '../util/hash.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { assembleContextPack } from './context-pack.js';
 import { classifyQuery } from './classifier.js';
 import { fuseCandidates } from './fusion.js';
+
+const DEFAULT_TOKEN_BUDGET = 4000;
+const SEARCH_LIMIT = 18;
+const RERANK_LIMIT = 24;
+const RETRY_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>(['rejected', 'irrelevant', 'stale']);
+
+type NormalizedContextSearchInput = ContextSearchInput & {
+  tokenBudget: number;
+  rejectedKnowledgeIds: string[];
+};
 
 export class RetrievalService {
   constructor(
@@ -17,72 +35,29 @@ export class RetrievalService {
   ) {}
 
   async searchContext(input: ContextSearchInput): Promise<ContextPack> {
-    const normalized: ContextSearchInput = {
-      ...input,
-      tokenBudget: input.tokenBudget ?? 4000,
-      rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
-    };
-    const fingerprint = sha256(stableJson({
-      prompt: normalized.prompt,
-      project: normalized.project,
-      repoHint: normalized.repoHint,
-      cwd: normalized.cwd,
-      taskType: normalized.taskType,
-      files: normalized.files ?? [],
-      symbols: normalized.symbols ?? [],
-      errors: normalized.errors ?? [],
-      tokenBudget: normalized.tokenBudget,
-      rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
-    }));
+    const normalized = normalizeSearchInput(input);
+    const fingerprint = fingerprintSearch(normalized);
     const cacheKey = `context:${fingerprint}`;
 
-    if (!normalized.bypassCache) {
-      const cached = await this.cache.getJson<ContextPack>(cacheKey);
-      if (cached) {
-        return cached;
-      }
+    const cached = await this.getCachedContextPack(cacheKey, normalized);
+    if (cached) {
+      return cached;
     }
 
     const classified = classifyQuery(normalized);
     const project = normalized.project ?? classified.project;
-    const queryId = await this.store.createContextQuery({
-      project,
-      prompt: normalized.prompt,
-      fingerprint,
-      classified,
-      tokenBudget: normalized.tokenBudget ?? 4000,
-    });
-
-    const embedding = await this.models.embed(`${classified.lexicalQuery}\n\n${normalized.prompt}`);
-    const options = {
-      project,
-      limit: 18,
-      rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
-    };
-    const candidates: KnowledgeSearchResult = {
-      metadata: await this.store.searchMetadata(classified, options),
-      lexical: await this.store.searchLexical(classified, options),
-      vector: await this.store.searchVector(embedding, options),
-      memory: await this.store.searchMemories(classified, options),
-    };
-
-    const fused = fuseCandidates(
-      [candidates.metadata, candidates.lexical, candidates.memory, candidates.vector],
-      classified,
-    ).slice(0, 24);
-    const reranked = await this.models.rerank(normalized.prompt, fused);
-    const pack = assembleContextPack({
+    const queryId = await this.createContextQuery(normalized, classified, fingerprint, project);
+    const candidates = await this.findCandidates(normalized, classified, project);
+    const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, classified);
+    const pack = this.buildContextPack({
       queryId,
       project,
-      prompt: normalized.prompt,
       classified,
-      candidates: reranked,
-      tokenBudget: normalized.tokenBudget ?? 4000,
-      rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
+      candidates: rankedCandidates,
+      input: normalized,
     });
 
-    await this.store.saveContextPack(pack);
-    await this.cache.setJson(cacheKey, pack, this.config.contextCacheTtlSeconds);
+    await this.saveContextPack(cacheKey, pack);
     return pack;
   }
 
@@ -93,26 +68,149 @@ export class RetrievalService {
   async recordFeedback(input: FeedbackInput): Promise<{ retry?: ContextPack }> {
     await this.store.recordFeedback(input);
 
-    if (input.feedbackType === 'rejected' || input.feedbackType === 'irrelevant' || input.feedbackType === 'stale') {
-      const pack = input.contextPackId ? await this.store.getContextPack(input.contextPackId) : undefined;
-      if (pack) {
-        const rejectedKnowledgeIds = [
-          ...new Set([
-            ...pack.sections.flatMap((section) => section.items.map((item) => item.knowledgeId)),
-            ...(input.rejectedKnowledgeIds ?? []),
-          ]),
-        ];
-        const retry = await this.searchContext({
-          prompt: pack.prompt,
-          project: input.project ?? pack.project,
-          tokenBudget: pack.sections.reduce((sum, section) => sum + section.tokenEstimate, 0) || 4000,
-          rejectedKnowledgeIds,
-          bypassCache: true,
-        });
-        return { retry };
-      }
+    if (!shouldRetry(input.feedbackType) || !input.contextPackId) {
+      return {};
     }
 
-    return {};
+    const pack = await this.store.getContextPack(input.contextPackId);
+    if (!pack) {
+      return {};
+    }
+
+    const retry = await this.searchContext(buildRetryInput(pack, input));
+    return { retry };
   }
+
+  private async getCachedContextPack(
+    cacheKey: string,
+    input: NormalizedContextSearchInput,
+  ): Promise<ContextPack | undefined> {
+    return input.bypassCache ? undefined : this.cache.getJson<ContextPack>(cacheKey);
+  }
+
+  private async createContextQuery(
+    input: NormalizedContextSearchInput,
+    classified: ClassifiedQuery,
+    fingerprint: string,
+    project?: string,
+  ): Promise<string> {
+    return this.store.createContextQuery({
+      project,
+      prompt: input.prompt,
+      fingerprint,
+      classified,
+      tokenBudget: input.tokenBudget,
+    });
+  }
+
+  private async findCandidates(
+    input: NormalizedContextSearchInput,
+    classified: ClassifiedQuery,
+    project?: string,
+  ): Promise<KnowledgeSearchResult> {
+    const options: SearchOptions = {
+      project,
+      limit: SEARCH_LIMIT,
+      rejectedKnowledgeIds: input.rejectedKnowledgeIds,
+    };
+
+    const vectorResults = this.models
+      .embed(`${classified.lexicalQuery}\n\n${input.prompt}`)
+      .then((embedding) => this.store.searchVector(embedding, options));
+
+    const [metadata, lexical, memory, vector] = await Promise.all([
+      this.store.searchMetadata(classified, options),
+      this.store.searchLexical(classified, options),
+      this.store.searchMemories(classified, options),
+      vectorResults,
+    ]);
+
+    return { metadata, lexical, memory, vector };
+  }
+
+  private async rankCandidates(
+    prompt: string,
+    candidates: KnowledgeSearchResult,
+    classified: ClassifiedQuery,
+  ): Promise<RankedCandidate[]> {
+    const fused = fuseCandidates(
+      [candidates.metadata, candidates.lexical, candidates.memory, candidates.vector],
+      classified,
+    ).slice(0, RERANK_LIMIT);
+
+    return this.models.rerank(prompt, fused);
+  }
+
+  private buildContextPack(input: {
+    queryId: string;
+    project?: string;
+    classified: ClassifiedQuery;
+    candidates: RankedCandidate[];
+    input: NormalizedContextSearchInput;
+  }): ContextPack {
+    return assembleContextPack({
+      queryId: input.queryId,
+      project: input.project,
+      prompt: input.input.prompt,
+      classified: input.classified,
+      candidates: input.candidates,
+      tokenBudget: input.input.tokenBudget,
+      rejectedKnowledgeIds: input.input.rejectedKnowledgeIds,
+    });
+  }
+
+  private async saveContextPack(cacheKey: string, pack: ContextPack): Promise<void> {
+    await this.store.saveContextPack(pack);
+    await this.cache.setJson(cacheKey, pack, this.config.contextCacheTtlSeconds);
+  }
+}
+
+function normalizeSearchInput(input: ContextSearchInput): NormalizedContextSearchInput {
+  return {
+    ...input,
+    tokenBudget: input.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+    rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
+  };
+}
+
+function fingerprintSearch(input: NormalizedContextSearchInput): string {
+  return sha256(stableJson({
+    prompt: input.prompt,
+    project: input.project,
+    repoHint: input.repoHint,
+    cwd: input.cwd,
+    taskType: input.taskType,
+    files: input.files ?? [],
+    symbols: input.symbols ?? [],
+    errors: input.errors ?? [],
+    tokenBudget: input.tokenBudget,
+    rejectedKnowledgeIds: input.rejectedKnowledgeIds,
+  }));
+}
+
+function shouldRetry(feedbackType: FeedbackInput['feedbackType']): boolean {
+  return RETRY_FEEDBACK_TYPES.has(feedbackType);
+}
+
+function buildRetryInput(pack: ContextPack, feedback: FeedbackInput): ContextSearchInput {
+  return {
+    prompt: pack.prompt,
+    project: feedback.project ?? pack.project,
+    tokenBudget: contextPackTokenBudget(pack),
+    rejectedKnowledgeIds: rejectedKnowledgeIds(pack, feedback),
+    bypassCache: true,
+  };
+}
+
+function contextPackTokenBudget(pack: ContextPack): number {
+  return pack.sections.reduce((sum, section) => sum + section.tokenEstimate, 0) || DEFAULT_TOKEN_BUDGET;
+}
+
+function rejectedKnowledgeIds(pack: ContextPack, feedback: FeedbackInput): string[] {
+  return [
+    ...new Set([
+      ...pack.sections.flatMap((section) => section.items.map((item) => item.knowledgeId)),
+      ...(feedback.rejectedKnowledgeIds ?? []),
+    ]),
+  ];
 }

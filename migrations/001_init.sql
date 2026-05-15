@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS knowledge_labels (
   PRIMARY KEY (knowledge_id, label_id)
 );
 
-CREATE TABLE IF NOT EXISTS references (
+CREATE TABLE IF NOT EXISTS knowledge_references (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   knowledge_id uuid REFERENCES knowledge_items(id) ON DELETE CASCADE,
   ref_type text NOT NULL,
@@ -143,7 +143,7 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_items_project_status ON knowledge_items
 CREATE INDEX IF NOT EXISTS idx_knowledge_items_type ON knowledge_items(item_type);
 CREATE INDEX IF NOT EXISTS idx_knowledge_items_metadata ON knowledge_items USING gin(metadata);
 CREATE INDEX IF NOT EXISTS idx_labels_type_norm ON labels(label_type, normalized_value);
-CREATE INDEX IF NOT EXISTS idx_references_uri ON references USING gin(uri gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_knowledge_references_uri ON knowledge_references USING gin(uri gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_chunks_project ON knowledge_chunks(project_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_search_vector ON knowledge_chunks USING gin(search_vector);
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding_hnsw ON knowledge_chunks USING hnsw (embedding vector_cosine_ops);
