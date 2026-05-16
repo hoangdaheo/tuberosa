@@ -58,13 +58,33 @@ export class IngestionService {
     const results = [];
 
     for (const file of files) {
-      const inputs = this.buildKnowledgeInputs(project, file, file.mode ?? options.mode ?? 'document');
+      const mode = file.mode ?? options.mode ?? 'document';
+      const inputs = this.buildKnowledgeInputs(project, file, mode);
       for (const input of inputs) {
         results.push(await this.ingestKnowledge(input));
       }
+      await this.deleteStaleAtoms(project, file.path, mode, inputs);
     }
 
     return results;
+  }
+
+  private async deleteStaleAtoms(
+    project: string,
+    sourcePath: string,
+    mode: IngestionMode,
+    inputs: KnowledgeInput[],
+  ): Promise<void> {
+    const atomicInputs = inputs.filter((input) => input.metadata?.ingestionMode === 'atomic');
+    if (mode !== 'atomic' || atomicInputs.length === 0) {
+      return;
+    }
+
+    await this.store.deleteStaleFileAtoms({
+      project,
+      sourcePath,
+      keepSourceUris: atomicInputs.map((input) => input.sourceUri),
+    });
   }
 
   private ensureContentWithinLimit(content: string): void {

@@ -39,7 +39,7 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
   const project = `integration-${randomUUID()}`;
 
   try {
-    await ingestion.ingestKnowledge({
+    const initialPaywall = await ingestion.ingestKnowledge({
       project,
       sourceType: 'file',
       sourceUri: 'src/components/paywall-selection-modal.tsx',
@@ -55,6 +55,24 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
       ],
       references: [{ type: 'file', uri: 'src/components/paywall-selection-modal.tsx' }],
     });
+    const updatedPaywall = await ingestion.ingestKnowledge({
+      project,
+      sourceType: 'file',
+      sourceUri: 'src/components/paywall-selection-modal.tsx',
+      itemType: 'code_ref',
+      title: 'Paywall selection modal',
+      summary: 'React modal for current newsletter paywall product selection.',
+      content: 'PaywallSelectionModal keeps selected product ids stable while editors configure current newsletter paywalls.',
+      trustLevel: 90,
+      labels: [
+        { type: 'business_area', value: 'paywall', weight: 1 },
+        { type: 'technology', value: 'react', weight: 0.8 },
+        { type: 'symbol', value: 'PaywallSelectionModal', weight: 1 },
+      ],
+      references: [{ type: 'file', uri: 'src/components/paywall-selection-modal.tsx' }],
+    });
+
+    equal(updatedPaywall.id, initialPaywall.id);
 
     const unrelated = await ingestion.ingestKnowledge({
       project,
@@ -68,6 +86,41 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
       labels: [{ type: 'business_area', value: 'auth', weight: 1 }],
       references: [{ type: 'file', uri: 'docs/auth.md' }],
     });
+
+    await ingestion.ingestFiles(project, [{
+      project,
+      path: 'docs/postgres-auth.md',
+      content: [
+        '# Auth',
+        '',
+        'Auth documentation for integration replacement behavior.',
+        '',
+        '## Login flow',
+        '',
+        'Users sign in with OAuth.',
+        '',
+        '## Removed section',
+        '',
+        'This section should be deleted on the next import.',
+      ].join('\n'),
+    }], { mode: 'atomic' });
+    await ingestion.ingestFiles(project, [{
+      project,
+      path: 'docs/postgres-auth.md',
+      content: [
+        '# Auth',
+        '',
+        'Auth documentation for integration replacement behavior.',
+        '',
+        '## Login flow',
+        '',
+        'Users sign in with OAuth and PKCE.',
+      ].join('\n'),
+    }], { mode: 'atomic' });
+    const authAtoms = await store.listKnowledge({ project, limit: 20 });
+
+    ok(!authAtoms.some((item) => item.title === 'Auth > Removed section'));
+    equal(authAtoms.find((item) => item.title === 'Auth > Login flow')?.content.includes('PKCE'), true);
 
     const pack = await retrieval.searchContext({
       project,

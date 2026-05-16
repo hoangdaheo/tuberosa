@@ -72,6 +72,35 @@ test('retrieval returns context pack with matched references', async () => {
   equal(pack.debug, undefined);
 });
 
+test('ingestion replaces existing knowledge for the same source uri', async () => {
+  const { ingestion, store } = createTestServices();
+
+  const first = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://auth-flow',
+    itemType: 'wiki',
+    title: 'Auth flow',
+    summary: 'Legacy auth flow.',
+    content: 'The auth flow uses legacy session cookies.',
+  });
+  const second = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://auth-flow',
+    itemType: 'wiki',
+    title: 'Auth flow',
+    summary: 'Current auth flow.',
+    content: 'The auth flow uses OAuth bearer tokens and refresh token rotation.',
+  });
+  const items = await store.listKnowledge({ project: 'agent-memory', limit: 10 });
+
+  equal(second.id, first.id);
+  equal(items.length, 1);
+  equal(items[0].summary, 'Current auth flow.');
+  equal(items[0].content.includes('legacy session cookies'), false);
+});
+
 test('atomic markdown ingestion stores labeled sections as retrievable knowledge', async () => {
   const { ingestion, retrieval } = createTestServices();
 
@@ -112,6 +141,60 @@ test('atomic markdown ingestion stores labeled sections as retrievable knowledge
 
   equal(pack.sections[0].items[0].title, 'Auth > Refresh token rotation');
   equal(pack.sections[0].items[0].references[0].uri, 'docs/auth.md');
+});
+
+test('atomic markdown re-ingestion updates sections and deletes stale atoms', async () => {
+  const { ingestion, retrieval, store } = createTestServices();
+
+  const first = await ingestion.ingestFiles('agent-memory', [{
+    project: 'agent-memory',
+    path: 'docs/auth.md',
+    content: [
+      '# Auth',
+      '',
+      'The auth documentation describes login and token behavior for the application.',
+      '',
+      '## Login flow',
+      '',
+      'Users sign in with OAuth and receive bearer access tokens.',
+      '',
+      '## Refresh token rotation',
+      '',
+      'Refresh tokens rotate on every use.',
+    ].join('\n'),
+  }], { mode: 'atomic' });
+  const firstLogin = first.find((item) => item.title === 'Auth > Login flow');
+
+  ok(firstLogin);
+
+  const second = await ingestion.ingestFiles('agent-memory', [{
+    project: 'agent-memory',
+    path: 'docs/auth.md',
+    content: [
+      '# Auth',
+      '',
+      'The auth documentation describes login and token behavior for the application.',
+      '',
+      '## Login flow',
+      '',
+      'Users sign in with OAuth, complete PKCE verification, and receive bearer access tokens.',
+    ].join('\n'),
+  }], { mode: 'atomic' });
+  const secondLogin = second.find((item) => item.title === 'Auth > Login flow');
+  const items = await store.listKnowledge({ project: 'agent-memory', limit: 10 });
+
+  ok(secondLogin);
+  equal(secondLogin.id, firstLogin.id);
+  equal(items.some((item) => item.title === 'Auth > Refresh token rotation'), false);
+  equal(items.find((item) => item.title === 'Auth > Login flow')?.content.includes('PKCE verification'), true);
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'How does the auth PKCE login flow work?',
+    bypassCache: true,
+  });
+
+  equal(pack.sections[0].items[0].title, 'Auth > Login flow');
 });
 
 test('ingestion redacts secrets before storage and retrieval', async () => {

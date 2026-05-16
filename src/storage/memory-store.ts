@@ -13,7 +13,7 @@ import type {
   StoredKnowledge,
 } from '../types.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
-import type { ChunkInput, KnowledgeStore } from './store.js';
+import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 interface MemoryChunk extends ChunkInput {
   id: string;
@@ -23,13 +23,15 @@ interface MemoryChunk extends ChunkInput {
 export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly knowledge = new Map<string, StoredKnowledge>();
   private readonly chunks = new Map<string, MemoryChunk>();
+  private readonly knowledgeSourceUris = new Map<string, string>();
   private readonly packs = new Map<string, ContextPack>();
   private readonly drafts = new Map<string, ReflectionDraft>();
   private readonly feedback: FeedbackInput[] = [];
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
-    const id = randomUUID();
+    const existing = this.findKnowledgeBySourceUri(input.project, input.sourceUri);
+    const id = existing?.id ?? randomUUID();
     const stored: StoredKnowledge = {
       id,
       project: input.project,
@@ -41,10 +43,12 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       metadata: input.metadata ?? {},
       labels: input.labels ?? [],
       references: input.references ?? [],
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
     this.knowledge.set(id, stored);
+    this.knowledgeSourceUris.set(id, input.sourceUri);
+    this.deleteChunksForKnowledge(id);
 
     chunks.forEach((chunk) => {
       const chunkId = randomUUID();
@@ -52,6 +56,24 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     });
 
     return stored;
+  }
+
+  async deleteStaleFileAtoms(input: StaleFileAtomCleanupInput): Promise<number> {
+    const keep = new Set(input.keepSourceUris);
+    let deleted = 0;
+
+    for (const [id, item] of this.knowledge.entries()) {
+      if (!this.isStaleFileAtom(id, item, input, keep)) {
+        continue;
+      }
+
+      this.knowledge.delete(id);
+      this.knowledgeSourceUris.delete(id);
+      this.deleteChunksForKnowledge(id);
+      deleted += 1;
+    }
+
+    return deleted;
   }
 
   async listKnowledge(options: { project?: string; query?: string; limit: number }): Promise<StoredKnowledge[]> {
@@ -163,6 +185,39 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   }
 
   async close(): Promise<void> {}
+
+  private findKnowledgeBySourceUri(project: string, sourceUri: string): StoredKnowledge | undefined {
+    for (const [id, item] of this.knowledge.entries()) {
+      if (item.project === project && this.knowledgeSourceUris.get(id) === sourceUri) {
+        return item;
+      }
+    }
+
+    return undefined;
+  }
+
+  private isStaleFileAtom(
+    id: string,
+    item: StoredKnowledge,
+    input: StaleFileAtomCleanupInput,
+    keep: Set<string>,
+  ): boolean {
+    const sourceUri = this.knowledgeSourceUris.get(id);
+    return (
+      item.project === input.project &&
+      item.metadata.ingestionMode === 'atomic' &&
+      item.metadata.sourcePath === input.sourcePath &&
+      (!sourceUri || !keep.has(sourceUri))
+    );
+  }
+
+  private deleteChunksForKnowledge(knowledgeId: string): void {
+    for (const [chunkId, chunk] of this.chunks.entries()) {
+      if (chunk.knowledgeId === knowledgeId) {
+        this.chunks.delete(chunkId);
+      }
+    }
+  }
 
   private rankByText(
     terms: Set<string>,

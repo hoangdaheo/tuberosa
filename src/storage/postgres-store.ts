@@ -14,7 +14,7 @@ import type {
 } from '../types.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
-import type { ChunkInput, KnowledgeStore } from './store.js';
+import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 type Queryable = Pool | PoolClient;
 
@@ -32,30 +32,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       await client.query('BEGIN');
       const projectId = await this.ensureProject(client, input.project);
       const sourceId = await this.upsertSource(client, projectId, input);
-
-      const knowledgeResult = await client.query<{ id: string }>(
-        `
-          INSERT INTO knowledge_items (
-            project_id, source_id, item_type, title, summary, content, status,
-            trust_level, freshness_at, metadata
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9)
-          RETURNING id
-        `,
-        [
-          projectId,
-          sourceId,
-          input.itemType,
-          input.title,
-          input.summary ?? '',
-          input.content,
-          input.trustLevel ?? 50,
-          input.freshnessAt ?? null,
-          input.metadata ?? {},
-        ],
-      );
-
-      const knowledgeId = knowledgeResult.rows[0].id;
+      const knowledgeId = await this.saveKnowledgeItem(client, projectId, sourceId, input);
       await this.attachLabels(client, knowledgeId, input.labels ?? []);
       await this.attachReferences(client, knowledgeId, input.references ?? []);
       await this.insertChunks(client, knowledgeId, projectId, chunks);
@@ -73,6 +50,24 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     } finally {
       client.release();
     }
+  }
+
+  async deleteStaleFileAtoms(input: StaleFileAtomCleanupInput): Promise<number> {
+    const result = await this.pool.query(
+      `
+        DELETE FROM knowledge_items ki
+        USING projects p, knowledge_sources ks
+        WHERE ki.project_id = p.id
+          AND ki.source_id = ks.id
+          AND p.name = $1
+          AND ki.metadata->>'ingestionMode' = 'atomic'
+          AND ki.metadata->>'sourcePath' = $2
+          AND NOT (ks.uri = ANY($3::text[]))
+      `,
+      [input.project, input.sourcePath, input.keepSourceUris],
+    );
+
+    return result.rowCount ?? 0;
   }
 
   async listKnowledge(options: { project?: string; query?: string; limit: number }): Promise<StoredKnowledge[]> {
@@ -398,6 +393,121 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     );
 
     return result.rows[0].id;
+  }
+
+  private async knowledgeIdsBySourceUri(client: PoolClient, projectId: string, sourceUri: string): Promise<string[]> {
+    const result = await client.query<{ id: string }>(
+      `
+        SELECT ki.id
+        FROM knowledge_items ki
+        JOIN knowledge_sources ks ON ks.id = ki.source_id
+        WHERE ki.project_id = $1 AND ks.uri = $2
+        ORDER BY ki.updated_at DESC, ki.created_at DESC
+      `,
+      [projectId, sourceUri],
+    );
+
+    return result.rows.map((row) => row.id);
+  }
+
+  private async saveKnowledgeItem(
+    client: PoolClient,
+    projectId: string,
+    sourceId: string,
+    input: KnowledgeInput,
+  ): Promise<string> {
+    const existingIds = await this.knowledgeIdsBySourceUri(client, projectId, input.sourceUri);
+    const existingId = existingIds[0];
+
+    if (!existingId) {
+      return this.insertKnowledgeItem(client, projectId, sourceId, input);
+    }
+
+    await this.deleteDuplicateKnowledgeItems(client, existingIds.slice(1));
+    await this.updateKnowledgeItem(client, existingId, sourceId, input);
+    await this.clearKnowledgeDetails(client, existingId);
+
+    return existingId;
+  }
+
+  private async insertKnowledgeItem(
+    client: PoolClient,
+    projectId: string,
+    sourceId: string,
+    input: KnowledgeInput,
+  ): Promise<string> {
+    const result = await client.query<{ id: string }>(
+      `
+        INSERT INTO knowledge_items (
+          project_id, source_id, item_type, title, summary, content, status,
+          trust_level, freshness_at, metadata
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9)
+        RETURNING id
+      `,
+      [
+        projectId,
+        sourceId,
+        input.itemType,
+        input.title,
+        input.summary ?? '',
+        input.content,
+        input.trustLevel ?? 50,
+        input.freshnessAt ?? null,
+        input.metadata ?? {},
+      ],
+    );
+
+    return result.rows[0].id;
+  }
+
+  private async updateKnowledgeItem(
+    client: PoolClient,
+    knowledgeId: string,
+    sourceId: string,
+    input: KnowledgeInput,
+  ): Promise<void> {
+    await client.query(
+      `
+        UPDATE knowledge_items
+        SET source_id = $2,
+          item_type = $3,
+          title = $4,
+          summary = $5,
+          content = $6,
+          status = 'approved',
+          trust_level = $7,
+          freshness_at = $8,
+          metadata = $9,
+          updated_at = now()
+        WHERE id = $1
+      `,
+      [
+        knowledgeId,
+        sourceId,
+        input.itemType,
+        input.title,
+        input.summary ?? '',
+        input.content,
+        input.trustLevel ?? 50,
+        input.freshnessAt ?? null,
+        input.metadata ?? {},
+      ],
+    );
+  }
+
+  private async deleteDuplicateKnowledgeItems(client: PoolClient, duplicateIds: string[]): Promise<void> {
+    if (duplicateIds.length === 0) {
+      return;
+    }
+
+    await client.query('DELETE FROM knowledge_items WHERE id = ANY($1::uuid[])', [duplicateIds]);
+  }
+
+  private async clearKnowledgeDetails(client: PoolClient, knowledgeId: string): Promise<void> {
+    await client.query('DELETE FROM knowledge_labels WHERE knowledge_id = $1', [knowledgeId]);
+    await client.query('DELETE FROM knowledge_references WHERE knowledge_id = $1', [knowledgeId]);
+    await client.query('DELETE FROM knowledge_chunks WHERE knowledge_id = $1', [knowledgeId]);
   }
 
   private async attachLabels(client: PoolClient, knowledgeId: string, labels: LabelInput[]): Promise<void> {

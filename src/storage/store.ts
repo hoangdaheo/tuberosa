@@ -19,8 +19,15 @@ export interface ChunkInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface StaleFileAtomCleanupInput {
+  project: string;
+  sourcePath: string;
+  keepSourceUris: string[];
+}
+
 export interface KnowledgeStore {
   upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge>;
+  deleteStaleFileAtoms(input: StaleFileAtomCleanupInput): Promise<number>;
   listKnowledge(options: { project?: string; query?: string; limit: number }): Promise<StoredKnowledge[]>;
   getKnowledge(id: string): Promise<StoredKnowledge | undefined>;
   searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]>;
