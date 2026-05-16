@@ -22,6 +22,7 @@ const config: AppConfig = {
   contextCacheTtlSeconds: 0,
   maxRequestBytes: 10 * 1024 * 1024,
   maxIngestContentBytes: 2 * 1024 * 1024,
+  backupDir: '.tuberosa/test-backups',
 };
 
 test('agent sessions start with context, record decisions, retry rejected context, and finish with a reflection draft', async () => {

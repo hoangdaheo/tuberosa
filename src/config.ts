@@ -14,6 +14,7 @@ export interface AppConfig {
   contextCacheTtlSeconds: number;
   maxRequestBytes: number;
   maxIngestContentBytes: number;
+  backupDir: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -33,6 +34,7 @@ export function loadConfig(): AppConfig {
     contextCacheTtlSeconds: Number(process.env.CONTEXT_CACHE_TTL_SECONDS ?? 300),
     maxRequestBytes: Number(process.env.TUBEROSA_MAX_REQUEST_BYTES ?? 10 * 1024 * 1024),
     maxIngestContentBytes: Number(process.env.TUBEROSA_MAX_INGEST_CONTENT_BYTES ?? 2 * 1024 * 1024),
+    backupDir: process.env.TUBEROSA_BACKUP_DIR ?? '.tuberosa/backups',
   };
 }
 

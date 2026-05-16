@@ -404,7 +404,12 @@ Entry points:
 - HTTP `PATCH /reflection-drafts/:id`
 - HTTP `POST /operations/import-files`
 - HTTP `POST /operations/cleanup`
+- HTTP `POST /operations/backups`
+- HTTP `GET /operations/backups`
+- HTTP `POST /operations/backups/:id/restore`
 - CLI `pnpm run import:docs`
+- CLI `pnpm run backup`
+- CLI `pnpm run restore`
 
 Review flow:
 
@@ -434,6 +439,16 @@ Importer flow:
 1. `/operations/import-files` and `pnpm run import:docs` both call `OperationsService.importFiles`.
 2. The service delegates to `IngestionService.ingestFiles`.
 3. Atomic markdown imports reuse existing stale-atom cleanup so refreshing docs does not leave obsolete section atoms behind.
+
+Backup flow:
+
+1. `TUBEROSA_BACKUP_DIR` points at the physical backup folder.
+2. `POST /operations/backups` or `pnpm run backup` asks the store for a full export snapshot.
+3. `OperationsService` writes a `manifest.json` plus table-level JSONL files.
+4. Backups include `knowledge_chunks` because chunks and embeddings are the retrieval units that feed agents.
+5. `GET /operations/backups` reads manifests from the backup folder.
+6. Restore dry runs read the manifest and JSONL files, then return table row counts without mutating storage.
+7. Actual restore requires `replace: true` and reloads the known Tuberosa tables from backup data.
 
 Design rule:
 
@@ -505,6 +520,7 @@ The `KnowledgeStore` interface owns durable operations:
 - finish agent session
 - create, list, update, and approve reflection drafts
 - cleanup operational debris
+- export and restore backup snapshots
 - close resources
 
 Postgres store:
@@ -519,6 +535,7 @@ Memory store:
 - Used for tests and fallback mode.
 - Implements the same interface.
 - Keeps behavior deterministic.
+- Is explicitly ephemeral. It is not a production second-brain store.
 
 Design rule:
 

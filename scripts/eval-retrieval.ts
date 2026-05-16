@@ -34,6 +34,7 @@ const defaultConfig: AppConfig = {
   contextCacheTtlSeconds: 0,
   maxRequestBytes: 10 * 1024 * 1024,
   maxIngestContentBytes: 2 * 1024 * 1024,
+  backupDir: '.tuberosa/test-backups',
 };
 
 async function main(): Promise<void> {

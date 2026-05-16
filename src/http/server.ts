@@ -5,6 +5,7 @@ import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppEr
 import {
   validateContextSearchInput,
   validateCleanupOperationsInput,
+  validateCreateBackupInput,
   validateFeedbackInput,
   validateFinishAgentSessionInput,
   validateIngestFilesRequest,
@@ -15,6 +16,7 @@ import {
   validateRecordAgentContextDecisionInput,
   validateReflectionDraftPatchInput,
   validateReflectionDraftInput,
+  validateRestoreBackupInput,
   validateStartAgentSessionInput,
 } from '../validation.js';
 
@@ -113,6 +115,8 @@ function createRoutes(): HttpRoute[] {
         ok: true,
         service: 'tuberosa',
         store: services.config.store,
+        durability: services.config.store === 'postgres' ? 'persistent' : 'ephemeral',
+        backupDir: services.config.backupDir,
         cache: services.config.cache,
         modelProvider: services.config.modelProvider,
       }),
@@ -334,6 +338,30 @@ function createRoutes(): HttpRoute[] {
       handle: async ({ services, request }) => {
         const body = validateCleanupOperationsInput(await readJsonBody(request, services.config.maxRequestBytes));
         return services.operations.cleanup(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/backups'),
+      handle: async ({ services, request }) => {
+        const body = validateCreateBackupInput(await readJsonBody(request, services.config.maxRequestBytes));
+        return services.operations.createBackup(body);
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/backups'),
+      handle: ({ services }) => services.operations.listBackups(),
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/operations\/backups\/([^/]+)\/restore$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateRestoreBackupInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+          params.id,
+        );
+        return services.operations.restoreBackup(body);
       },
     },
   ];

@@ -1,6 +1,7 @@
 import type { IngestFileInput, IngestionMode } from './ingest/service.js';
 import type {
   AgentSessionOutcome,
+  CreateBackupInput,
   FinishAgentSessionInput,
   ContextSearchInput,
   FeedbackInput,
@@ -16,6 +17,7 @@ import type {
   ReferenceInput,
   ReflectionDraftInput,
   ReflectionDraftPatchInput,
+  RestoreBackupInput,
   StartAgentSessionInput,
   TaskType,
   TriggerType,
@@ -251,6 +253,24 @@ export function validateCleanupOperationsInput(value: unknown): CleanupOperation
   return {
     olderThanDays: readOptionalPositiveInteger(record, 'olderThanDays', 'cleanup input'),
     dryRun: readOptionalBoolean(record, 'dryRun', 'cleanup input'),
+  };
+}
+
+export function validateCreateBackupInput(value: unknown): CreateBackupInput {
+  const record = expectObject(value, 'backup input');
+
+  return {
+    id: readOptionalString(record, 'id', 'backup input'),
+  };
+}
+
+export function validateRestoreBackupInput(value: unknown, backupIdOrPath?: string): RestoreBackupInput {
+  const record = expectObject(value, 'restore backup input');
+
+  return {
+    backupIdOrPath: backupIdOrPath ?? readOptionalString(record, 'backupIdOrPath', 'restore backup input'),
+    dryRun: readOptionalBoolean(record, 'dryRun', 'restore backup input'),
+    replace: readOptionalBoolean(record, 'replace', 'restore backup input'),
   };
 }
 

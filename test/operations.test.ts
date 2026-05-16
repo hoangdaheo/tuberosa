@@ -1,4 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 import { equal, ok } from 'node:assert/strict';
@@ -27,6 +30,7 @@ const config: AppConfig = {
   contextCacheTtlSeconds: 60,
   maxRequestBytes: 10 * 1024 * 1024,
   maxIngestContentBytes: 2 * 1024 * 1024,
+  backupDir: '.tuberosa/test-backups',
 };
 
 test('operations API reviews, updates, imports, and lists audit records', async () => {
@@ -34,6 +38,9 @@ test('operations API reviews, updates, imports, and lists audit records', async 
   const project = 'operations-review';
 
   try {
+    const health = await get(services, '/health') as Record<string, unknown>;
+    equal(health.durability, 'ephemeral');
+
     const imported = await post(services, '/operations/import-files', {
       project,
       mode: 'atomic',
@@ -144,7 +151,58 @@ test('operations API reviews, updates, imports, and lists audit records', async 
   }
 });
 
-function createTestServices(): AppServices {
+test('operations API creates and restores portable JSONL backups', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const services = createTestServices(backupDir);
+  const project = 'backup-review';
+
+  try {
+    const stored = await post(services, '/knowledge', {
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://backup/original',
+      itemType: 'wiki',
+      title: 'Backup original',
+      summary: 'Original backup note.',
+      content: 'Backup restore should keep durable knowledge available for retrieval.',
+      labels: [{ type: 'business_area', value: 'operations', weight: 1 }],
+      references: [{ type: 'file', uri: 'docs/backup.md' }],
+    }) as Record<string, unknown>;
+
+    const backup = await post(services, '/operations/backups', { id: 'unit-backup' }) as Record<string, unknown>;
+    equal(backup.id, 'unit-backup');
+    ok(String(backup.path).startsWith(backupDir));
+
+    const backups = await get(services, '/operations/backups') as Array<Record<string, unknown>>;
+    ok(backups.some((item) => item.id === 'unit-backup'));
+
+    await post(services, '/knowledge', {
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://backup/extra',
+      itemType: 'wiki',
+      title: 'Backup extra',
+      summary: 'Extra note after backup.',
+      content: 'This note should disappear after replace restore.',
+    });
+
+    const dryRun = await post(services, '/operations/backups/unit-backup/restore', { dryRun: true }) as Record<string, unknown>;
+    equal(dryRun.dryRun, true);
+    ok((dryRun.restored as Record<string, number>).knowledge_items >= 1);
+
+    const restored = await post(services, '/operations/backups/unit-backup/restore', { replace: true }) as Record<string, unknown>;
+    equal(restored.replace, true);
+
+    const items = await get(services, `/knowledge?project=${project}&limit=10`) as Array<Record<string, unknown>>;
+    ok(items.some((item) => item.id === stored.id));
+    equal(items.some((item) => item.title === 'Backup extra'), false);
+  } finally {
+    await services.close();
+    await rm(backupDir, { recursive: true, force: true });
+  }
+});
+
+function createTestServices(backupDir = '.tuberosa/test-backups'): AppServices {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
@@ -152,10 +210,10 @@ function createTestServices(): AppServices {
   const retrieval = new RetrievalService(store, cache, models, config);
   const reflection = new ReflectionService(store, ingestion);
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
-  const operations = new OperationsService(store, ingestion);
+  const operations = new OperationsService(store, ingestion, { backupDir, storeKind: 'memory' });
 
   return {
-    config,
+    config: { ...config, backupDir },
     store,
     cache,
     models,

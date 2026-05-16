@@ -29,6 +29,7 @@ const config: AppConfig = {
   contextCacheTtlSeconds: 60,
   maxRequestBytes: 10 * 1024 * 1024,
   maxIngestContentBytes: 2 * 1024 * 1024,
+  backupDir: '.tuberosa/test-backups',
 };
 
 test('FLOW_LOGIC functional smoke sequence works across HTTP and MCP surfaces', async () => {

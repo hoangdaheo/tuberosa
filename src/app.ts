@@ -26,6 +26,9 @@ export interface AppServices {
 
 export async function createAppServices(): Promise<AppServices> {
   const config = loadConfig();
+  if (config.store === 'memory' && config.env !== 'test') {
+    console.error('Tuberosa is running with TUBEROSA_STORE=memory. Knowledge is ephemeral and will disappear when this process exits.');
+  }
   const store = createKnowledgeStore(config);
   const cache = await createCache(config);
   const models = createModelProvider(config);
@@ -37,7 +40,10 @@ export async function createAppServices(): Promise<AppServices> {
   const retrieval = new RetrievalService(store, cache, models, config, safety);
   const reflection = new ReflectionService(store, ingestion, safety);
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
-  const operations = new OperationsService(store, ingestion);
+  const operations = new OperationsService(store, ingestion, {
+    backupDir: config.backupDir,
+    storeKind: config.store,
+  });
 
   return {
     config,

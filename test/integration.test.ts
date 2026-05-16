@@ -234,6 +234,11 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
 
     const cleanup = await store.cleanupOperations({ dryRun: true, olderThanDays: 1 });
     equal(cleanup.dryRun, true);
+
+    const backup = await store.exportBackup();
+    const backupCounts = await store.restoreBackup({ tables: backup.tables, dryRun: true });
+    ok(backup.tables.some((table) => table.name === 'knowledge_chunks' && table.rows.length > 0));
+    ok(backupCounts.knowledge_items > 0);
   } finally {
     await Promise.allSettled([store.close(), cache.close()]);
   }
@@ -324,6 +329,7 @@ function testConfig(): AppConfig {
     contextCacheTtlSeconds: 0,
     maxRequestBytes: 10 * 1024 * 1024,
     maxIngestContentBytes: 2 * 1024 * 1024,
+    backupDir: '.tuberosa/test-backups',
   };
 }
 

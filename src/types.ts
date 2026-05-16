@@ -338,6 +338,71 @@ export interface CleanupOperationsResult {
   };
 }
 
+export type BackupTableName =
+  | 'projects'
+  | 'knowledge_sources'
+  | 'knowledge_items'
+  | 'labels'
+  | 'knowledge_labels'
+  | 'knowledge_references'
+  | 'knowledge_chunks'
+  | 'reflection_drafts'
+  | 'context_queries'
+  | 'context_packs'
+  | 'feedback_events'
+  | 'agent_sessions'
+  | 'agent_context_decisions';
+
+export interface BackupTableData {
+  name: BackupTableName;
+  rows: Array<Record<string, unknown>>;
+}
+
+export interface BackupExportData {
+  tables: BackupTableData[];
+}
+
+export interface BackupManifest {
+  id: string;
+  version: 1;
+  format: 'jsonl';
+  createdAt: string;
+  source: {
+    service: 'tuberosa';
+    store: 'postgres' | 'memory';
+  };
+  tables: Array<{
+    name: BackupTableName;
+    file: string;
+    rows: number;
+  }>;
+}
+
+export interface CreateBackupInput {
+  id?: string;
+}
+
+export interface BackupSummary {
+  id: string;
+  path: string;
+  createdAt: string;
+  format: BackupManifest['format'];
+  tables: BackupManifest['tables'];
+}
+
+export interface RestoreBackupInput {
+  backupIdOrPath?: string;
+  dryRun?: boolean;
+  replace?: boolean;
+}
+
+export interface RestoreBackupResult {
+  backupId: string;
+  dryRun: boolean;
+  replace: boolean;
+  restored: Record<BackupTableName, number>;
+}
+
 export interface StartAgentSessionInput extends ContextSearchInput {
   agentName?: string;
   agentTool?: string;

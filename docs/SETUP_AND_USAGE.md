@@ -82,6 +82,7 @@ Important variables:
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Redis or memory cache TTL for context packs. |
 | `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
 | `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for a single knowledge content field before chunking. |
+| `TUBEROSA_BACKUP_DIR` | `.tuberosa/backups` | Local folder for portable JSONL backups. Do not commit or share this folder because it can contain private project knowledge. |
 
 ## 5. Connect Codex For The Next Session
 
@@ -106,6 +107,8 @@ Expected response:
   "ok": true,
   "service": "tuberosa",
   "store": "postgres",
+  "durability": "persistent",
+  "backupDir": ".tuberosa/backups",
   "cache": "redis",
   "modelProvider": "hash"
 }
@@ -220,6 +223,8 @@ Expected response:
   "ok": true,
   "service": "tuberosa",
   "store": "postgres",
+  "durability": "persistent",
+  "backupDir": ".tuberosa/backups",
   "cache": "redis",
   "modelProvider": "hash"
 }
@@ -260,6 +265,7 @@ TUBEROSA_STORE=memory TUBEROSA_CACHE=memory TUBEROSA_MODEL_PROVIDER=hash pnpm ru
 ```
 
 Memory mode does not persist knowledge after the process exits.
+It exists for tests, evals, and no-service smoke runs only. Use Postgres plus backups for real second-brain data.
 
 ## 8. Common Commands
 
@@ -274,6 +280,8 @@ pnpm run mcp
 pnpm run worker
 pnpm run migrate
 pnpm run import:docs -- --project tuberosa docs/FLOW_LOGIC.md
+pnpm run backup
+pnpm run restore -- --backup <backup-id> --dry-run
 ```
 
 Command purpose:
@@ -288,6 +296,8 @@ Command purpose:
 - `worker`: worker placeholder.
 - `migrate`: apply SQL migrations.
 - `import:docs`: import local docs through the same ingestion path as the HTTP API.
+- `backup`: create a portable JSONL backup in `TUBEROSA_BACKUP_DIR`.
+- `restore`: dry-run or replace-restore from a backup id or path.
 
 ## 9. HTTP API Usage
 
@@ -313,6 +323,8 @@ Knowledge ingestion runs safety checks before embedding or storage:
 ```bash
 curl http://localhost:3027/health
 ```
+
+The health response includes `durability`. `persistent` means Postgres is the active store. `ephemeral` means memory mode is active and stored knowledge disappears when the process exits.
 
 ### Add Knowledge
 
@@ -662,6 +674,48 @@ curl -X POST http://localhost:3027/operations/cleanup \
   -H 'Content-Type: application/json' \
   -d '{ "olderThanDays": 30, "dryRun": true }'
 ```
+
+### Operations Backups
+
+Create a portable JSONL backup:
+
+```bash
+curl -X POST http://localhost:3027/operations/backups \
+  -H 'Content-Type: application/json' \
+  -d '{ "id": "before-paywall-refactor" }'
+```
+
+List existing backups:
+
+```bash
+curl http://localhost:3027/operations/backups
+```
+
+Restore supports a dry run first:
+
+```bash
+curl -X POST http://localhost:3027/operations/backups/before-paywall-refactor/restore \
+  -H 'Content-Type: application/json' \
+  -d '{ "dryRun": true }'
+```
+
+Actual restore is intentionally destructive and requires `replace: true`:
+
+```bash
+curl -X POST http://localhost:3027/operations/backups/before-paywall-refactor/restore \
+  -H 'Content-Type: application/json' \
+  -d '{ "replace": true }'
+```
+
+CLI equivalents:
+
+```bash
+pnpm run backup -- --id before-paywall-refactor
+pnpm run restore -- --backup before-paywall-refactor --dry-run
+pnpm run restore -- --backup before-paywall-refactor --replace
+```
+
+Backups include project records, sources, knowledge items, labels, references, chunks and embeddings, reflection drafts, context queries, packs, feedback events, agent sessions, and agent context decisions. Restoring chunks is necessary because chunks are what retrieval searches and feeds to agents.
 
 ## 10. MCP Usage
 

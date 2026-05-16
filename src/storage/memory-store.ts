@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type {
   AgentContextDecision,
   AgentSession,
+  BackupExportData,
+  BackupTableData,
   ClassifiedQuery,
   CleanupOperationsInput,
   CleanupOperationsResult,
@@ -459,6 +461,86 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return result;
   }
 
+  async exportBackup(): Promise<BackupExportData> {
+    return {
+      tables: [
+        { name: 'projects', rows: uniqueProjectRows([...this.knowledge.values()], [...this.packs.values()], [...this.agentSessions.values()], [...this.drafts.values()]) },
+        { name: 'knowledge_sources', rows: [...this.knowledge.values()].map((item) => ({ knowledgeId: item.id, uri: this.knowledgeSourceUris.get(item.id) ?? item.sourceUri, sourceType: item.sourceType })) },
+        { name: 'knowledge_items', rows: [...this.knowledge.values()].map((item) => ({ ...item })) },
+        { name: 'labels', rows: [] },
+        { name: 'knowledge_labels', rows: [] },
+        { name: 'knowledge_references', rows: [] },
+        { name: 'knowledge_chunks', rows: [...this.chunks.values()].map((chunk) => ({ ...chunk })) },
+        { name: 'reflection_drafts', rows: [...this.drafts.values()].map((draft) => ({ ...draft })) },
+        { name: 'context_queries', rows: [] },
+        { name: 'context_packs', rows: [...this.packs.values()].map((pack) => ({ ...pack })) },
+        { name: 'feedback_events', rows: this.feedback.map((feedback) => ({ ...feedback })) },
+        { name: 'agent_sessions', rows: [...this.agentSessions.values()].map((session) => ({ ...session })) },
+        { name: 'agent_context_decisions', rows: [...this.agentDecisions.values()].map((decision) => ({ ...decision })) },
+      ],
+    };
+  }
+
+  async restoreBackup(input: { tables: BackupTableData[]; dryRun?: boolean; replace?: boolean }): Promise<Record<string, number>> {
+    if (!input.dryRun && !input.replace) {
+      throw new Error('Memory restore requires replace=true unless dryRun=true.');
+    }
+
+    const counts = Object.fromEntries(input.tables.map((table) => [table.name, table.rows.length]));
+    if (input.dryRun) {
+      return counts;
+    }
+
+    this.knowledge.clear();
+    this.chunks.clear();
+    this.knowledgeSourceUris.clear();
+    this.packs.clear();
+    this.drafts.clear();
+    this.agentSessions.clear();
+    this.agentDecisions.clear();
+    this.feedback.length = 0;
+
+    for (const row of tableRows(input.tables, 'knowledge_items')) {
+      const item = row as unknown as StoredKnowledge;
+      this.knowledge.set(item.id, item);
+      if (typeof item.sourceUri === 'string') {
+        this.knowledgeSourceUris.set(item.id, item.sourceUri);
+      }
+    }
+    for (const row of tableRows(input.tables, 'knowledge_sources')) {
+      const knowledgeId = String(row.knowledgeId ?? '');
+      const uri = typeof row.uri === 'string' ? row.uri : undefined;
+      if (knowledgeId && uri) {
+        this.knowledgeSourceUris.set(knowledgeId, uri);
+      }
+    }
+    for (const row of tableRows(input.tables, 'knowledge_chunks')) {
+      const chunk = row as unknown as MemoryChunk;
+      this.chunks.set(chunk.id, chunk);
+    }
+    for (const row of tableRows(input.tables, 'context_packs')) {
+      const pack = row as unknown as ContextPack;
+      this.packs.set(pack.id, pack);
+    }
+    for (const row of tableRows(input.tables, 'feedback_events')) {
+      this.feedback.push(row as unknown as FeedbackEvent);
+    }
+    for (const row of tableRows(input.tables, 'reflection_drafts')) {
+      const draft = row as unknown as ReflectionDraft;
+      this.drafts.set(draft.id, draft);
+    }
+    for (const row of tableRows(input.tables, 'agent_sessions')) {
+      const session = row as unknown as AgentSession;
+      this.agentSessions.set(session.id, session);
+    }
+    for (const row of tableRows(input.tables, 'agent_context_decisions')) {
+      const decision = row as unknown as AgentContextDecision;
+      this.agentDecisions.set(decision.id, decision);
+    }
+
+    return counts;
+  }
+
   async close(): Promise<void> {}
 
   private findKnowledgeBySourceUri(project: string, sourceUri: string): StoredKnowledge | undefined {
@@ -568,6 +650,26 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       metadata: item.metadata,
     };
   }
+}
+
+function tableRows(tables: BackupTableData[], name: BackupTableData['name']): Array<Record<string, unknown>> {
+  return tables.find((table) => table.name === name)?.rows ?? [];
+}
+
+function uniqueProjectRows(
+  knowledge: StoredKnowledge[],
+  packs: ContextPack[],
+  sessions: AgentSession[],
+  drafts: ReflectionDraft[],
+): Array<Record<string, unknown>> {
+  const names = new Set([
+    ...knowledge.map((item) => item.project),
+    ...packs.map((pack) => pack.project).filter((project): project is string => Boolean(project)),
+    ...sessions.map((session) => session.project).filter((project): project is string => Boolean(project)),
+    ...drafts.map((draft) => draft.project).filter((project): project is string => Boolean(project)),
+  ]);
+
+  return [...names].map((name) => ({ name }));
 }
 
 function knowledgeMatchesReview(

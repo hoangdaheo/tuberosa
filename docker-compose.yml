@@ -41,8 +41,11 @@ services:
       EMBEDDING_DIMENSIONS: 1536
       TUBEROSA_MAX_REQUEST_BYTES: ${TUBEROSA_MAX_REQUEST_BYTES:-10485760}
       TUBEROSA_MAX_INGEST_CONTENT_BYTES: ${TUBEROSA_MAX_INGEST_CONTENT_BYTES:-2097152}
+      TUBEROSA_BACKUP_DIR: /data/backups
     ports:
       - "127.0.0.1:3027:3027"
+    volumes:
+      - ./.tuberosa/backups:/data/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,6 +67,9 @@ services:
       EMBEDDING_DIMENSIONS: 1536
       TUBEROSA_MAX_REQUEST_BYTES: ${TUBEROSA_MAX_REQUEST_BYTES:-10485760}
       TUBEROSA_MAX_INGEST_CONTENT_BYTES: ${TUBEROSA_MAX_INGEST_CONTENT_BYTES:-2097152}
+      TUBEROSA_BACKUP_DIR: /data/backups
+    volumes:
+      - ./.tuberosa/backups:/data/backups
     depends_on:
       postgres:
         condition: service_healthy

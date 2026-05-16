@@ -1,6 +1,8 @@
 import type {
   AgentContextDecision,
   AgentSession,
+  BackupExportData,
+  BackupTableData,
   ClassifiedQuery,
   CleanupOperationsInput,
   CleanupOperationsResult,
@@ -86,5 +88,7 @@ export interface KnowledgeStore {
   updateReflectionDraft(id: string, patch: ReflectionDraftPatchInput): Promise<ReflectionDraft | undefined>;
   approveReflectionDraft(id: string): Promise<ReflectionDraft | undefined>;
   cleanupOperations(input: CleanupOperationsInput): Promise<CleanupOperationsResult>;
+  exportBackup(): Promise<BackupExportData>;
+  restoreBackup(input: { tables: BackupTableData[]; dryRun?: boolean; replace?: boolean }): Promise<Record<string, number>>;
   close(): Promise<void>;
 }
