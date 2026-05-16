@@ -137,6 +137,31 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
       },
       approveDraft: async () => undefined,
     },
+    agentSessions: {
+      startSession: async () => ({
+        session: {
+          id: 'session-1',
+          project: 'agent-memory',
+          prompt: 'Find auth guidance',
+          status: 'active',
+          initialContextPackId: 'pack-1',
+          reflectionDraftIds: [],
+          metadata: {},
+          createdAt: new Date().toISOString(),
+        },
+        contextPack: samplePack(),
+        policy: {
+          action: 'proceed',
+          instruction: 'Context fit is ready.',
+        },
+      }),
+      recordContextDecision: async () => {
+        throw new Error('Unexpected session decision call.');
+      },
+      finishSession: async () => {
+        throw new Error('Unexpected session finish call.');
+      },
+    },
     store: {
       listKnowledge: async () => [],
       getKnowledge: async () => undefined,

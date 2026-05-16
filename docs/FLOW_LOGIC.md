@@ -30,6 +30,7 @@ Main services:
 - `src/retrieval/context-fit.ts`: evaluates whether retrieved candidates actually fit the task.
 - `src/retrieval/context-pack.ts`: builds final context sections.
 - `src/retrieval/debug.ts`: builds optional retrieval debug traces.
+- `src/agent-session/service.ts`: coordinates session start, context decisions, finish outcomes, and optional reflection drafts.
 - `src/reflection/service.ts`: creates and approves memory drafts.
 - `src/storage/store.ts`: storage interface.
 - `src/storage/postgres-store.ts`: durable storage implementation.
@@ -50,6 +51,7 @@ Important entities:
 - Context query: stored search prompt, fingerprint, classification, and token budget.
 - Context pack: proposed, selected, or rejected pack of ranked candidates.
 - Feedback event: selected, rejected, irrelevant, stale, or missing-context signal.
+- Agent session: audit record for one agent task, initial context, context decisions, outcome, and reflection draft links.
 - Reflection draft: pending, approved, or rejected learning memory.
 
 Storage note: SQL uses `knowledge_references`, not `references`, because `references` is a reserved identifier.
@@ -297,7 +299,46 @@ Flow:
 
 Missing-context feedback is recorded but does not automatically retry because there may be no known ids to exclude.
 
-## 10. Reflection Flow
+## 10. Agent Session Flow
+
+Entry points:
+
+- HTTP `POST /agent-sessions`
+- HTTP `POST /agent-sessions/:id/context-decision`
+- HTTP `POST /agent-sessions/:id/finish`
+- MCP `tuberosa_start_session`
+- MCP `tuberosa_record_context_decision`
+- MCP `tuberosa_finish_session`
+
+Start flow:
+
+1. Caller provides prompt, project, cwd, agent name/tool, and optional retrieval hints.
+2. `AgentSessionService` calls normal retrieval.
+3. Store creates an active session linked to the initial context pack.
+4. Response includes the context shortlist/full pack and a policy:
+   - `proceed` when context fit is ready
+   - `confirm` when fit needs confirmation
+   - `clarify` when fit is insufficient
+
+Decision flow:
+
+1. Caller records selected, rejected, irrelevant, stale, or missing-context feedback.
+2. Service writes normal retrieval feedback so context-pack status and retry behavior stay consistent.
+3. Store writes an agent context decision linked to the session.
+4. Rejected, irrelevant, and stale decisions may return a retry pack through the existing feedback retry path.
+
+Finish flow:
+
+1. Caller records outcome: completed, failed, blocked, or cancelled.
+2. Caller may include a reflection draft payload.
+3. Service creates a pending reflection draft and links its id to the session.
+4. Store marks the session finished with summary, metadata, timestamps, and reflection draft ids.
+
+Design rule:
+
+- Session orchestration should depend on retrieval, reflection, and `KnowledgeStore`; retrieval ranking and reflection approval remain independent services.
+
+## 11. Reflection Flow
 
 Entry points:
 
@@ -327,7 +368,7 @@ Safety rule:
 
 - Do not save secrets, raw private conversation, or unreviewed prompt-injection content as durable memory.
 
-## 11. Cache Logic
+## 12. Cache Logic
 
 Cache key:
 
@@ -357,7 +398,7 @@ Cache is skipped when:
 
 Saved packs are compact. Debug traces are stripped before saving and caching.
 
-## 12. Model Provider Logic
+## 13. Model Provider Logic
 
 Hash provider:
 
@@ -377,7 +418,7 @@ Provider design rule:
 
 - Keep provider behavior behind `ModelProvider` so retrieval can evolve without changing storage or API code.
 
-## 13. Storage Logic
+## 14. Storage Logic
 
 The `KnowledgeStore` interface owns durable operations:
 
@@ -387,6 +428,9 @@ The `KnowledgeStore` interface owns durable operations:
 - create context query
 - save and get context pack
 - record feedback
+- create and get agent session
+- record agent context decision
+- finish agent session
 - create and approve reflection draft
 - close resources
 
@@ -395,7 +439,7 @@ Postgres store:
 - Uses SQL migrations.
 - Uses pgvector for embeddings.
 - Uses generated tsvector for lexical search.
-- Persists feedback, packs, drafts, labels, references, and chunks.
+- Persists feedback, packs, agent sessions, context decisions, drafts, labels, references, and chunks.
 
 Memory store:
 
@@ -407,7 +451,7 @@ Design rule:
 
 - Retrieval and reflection depend on the store interface, not concrete database code.
 
-## 14. MCP Flow
+## 15. MCP Flow
 
 Initialize:
 
@@ -416,12 +460,15 @@ Initialize:
 
 Tool flow:
 
-1. `tools/list` returns the four Tuberosa tools.
+1. `tools/list` returns direct retrieval tools and session workflow tools.
 2. `tools/call` dispatches by name.
 3. `tuberosa_search_context` returns compact shortlist details, context fit, and candidate fit reasons.
 4. `tuberosa_get_context_pack` returns full pack.
-5. `tuberosa_reflect` creates a pending draft.
-6. `tuberosa_feedback_context` records feedback and may return a retry pack.
+5. `tuberosa_start_session` creates a session and returns a shortlist plus policy.
+6. `tuberosa_record_context_decision` records feedback and a session audit decision.
+7. `tuberosa_finish_session` records outcome and optionally creates a pending reflection draft.
+8. `tuberosa_reflect` creates a pending draft.
+9. `tuberosa_feedback_context` records feedback and may return a retry pack.
 
 Resource flow:
 
@@ -433,7 +480,7 @@ Prompt flow:
 - `tuberosa_bootstrap_session` tells an agent to search and confirm context before work.
 - `tuberosa_reflect_after_task` tells an agent when and how to draft memory.
 
-## 15. QA Flow
+## 16. QA Flow
 
 For code changes:
 
@@ -464,9 +511,12 @@ Functional smoke sequence:
 3. Search context with debug.
 4. Fetch context pack.
 5. Record selected feedback.
-6. Create reflection draft.
-7. Approve reflection draft.
-8. Search for the approved memory.
+6. Start an agent session.
+7. Record a context decision.
+8. Finish the session with an optional reflection draft.
+9. Create reflection draft.
+10. Approve reflection draft.
+11. Search for the approved memory.
 
 Expected behavior:
 
@@ -475,9 +525,10 @@ Expected behavior:
 - Debug output shows all candidate stages.
 - Selected feedback updates pack status.
 - Stale/rejected/irrelevant feedback retries with rejected knowledge excluded.
+- Agent sessions preserve initial context, decisions, outcome, and reflection draft links.
 - Approved reflection memory is retrievable.
 
-## 16. Maintainability Principles
+## 17. Maintainability Principles
 
 - Keep orchestration in services and persistence in stores.
 - Keep optional debug logic outside the core matching algorithm.

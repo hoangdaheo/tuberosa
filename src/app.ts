@@ -1,3 +1,4 @@
+import { AgentSessionService } from './agent-session/service.js';
 import { createCache, type Cache } from './cache.js';
 import { loadConfig, type AppConfig } from './config.js';
 import { IngestionService } from './ingest/service.js';
@@ -17,6 +18,7 @@ export interface AppServices {
   ingestion: IngestionService;
   retrieval: RetrievalService;
   reflection: ReflectionService;
+  agentSessions: AgentSessionService;
   close(): Promise<void>;
 }
 
@@ -32,6 +34,7 @@ export async function createAppServices(): Promise<AppServices> {
   });
   const retrieval = new RetrievalService(store, cache, models, config, safety);
   const reflection = new ReflectionService(store, ingestion, safety);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection);
 
   return {
     config,
@@ -42,6 +45,7 @@ export async function createAppServices(): Promise<AppServices> {
     ingestion,
     retrieval,
     reflection,
+    agentSessions,
     async close() {
       await Promise.allSettled([cache.close(), store.close()]);
     },

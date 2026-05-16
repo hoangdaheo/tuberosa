@@ -3,6 +3,7 @@ import { Socket } from 'node:net';
 import test from 'node:test';
 import { deepEqual, equal, ok } from 'node:assert/strict';
 import { Pool } from 'pg';
+import { AgentSessionService } from '../src/agent-session/service.js';
 import { createCache, MemoryCache } from '../src/cache.js';
 import type { AppConfig } from '../src/config.js';
 import { IngestionService } from '../src/ingest/service.js';
@@ -36,6 +37,7 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
   const ingestion = new IngestionService(store, models);
   const retrieval = new RetrievalService(store, cache, models, testConfig());
   const reflection = new ReflectionService(store, ingestion);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection);
   const project = `integration-${randomUUID()}`;
 
   try {
@@ -146,6 +148,37 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
     const storedPack = await retrieval.getContextPack(pack.id);
 
     equal(storedPack?.status, 'selected');
+
+    const startedSession = await agentSessions.startSession({
+      project,
+      prompt: 'Update PaywallSelectionModal for the React newsletter paywall flow',
+      agentName: 'integration-agent',
+      agentTool: 'node-test',
+      bypassCache: true,
+    });
+    equal(startedSession.session.initialContextPackId, startedSession.contextPack.id);
+
+    const selectedDecision = await agentSessions.recordContextDecision({
+      sessionId: startedSession.session.id,
+      contextPackId: startedSession.contextPack.id,
+      feedbackType: 'selected',
+    });
+    equal(selectedDecision.decision.decision, 'selected');
+
+    const finishedSession = await agentSessions.finishSession({
+      sessionId: startedSession.session.id,
+      outcome: 'completed',
+      summary: 'Verified Postgres-backed agent session lifecycle.',
+      reflectionDraft: {
+        project,
+        title: 'Track agent session context',
+        summary: 'Agent sessions should preserve context decisions for auditability.',
+        content: 'When an agent uses Tuberosa context, the session should record the initial pack, selected decision, final outcome, and any reflection draft.',
+        triggerType: 'manual',
+      },
+    });
+    equal(finishedSession.session.status, 'finished');
+    equal(finishedSession.reflectionDraft?.status, 'pending');
 
     const draft = await reflection.createDraft({
       project,

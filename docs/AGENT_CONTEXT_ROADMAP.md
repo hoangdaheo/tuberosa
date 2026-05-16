@@ -48,6 +48,8 @@ Acceptance:
 
 Goal: make agents collaborate with Tuberosa through a session workflow, not isolated tool calls.
 
+Status: Done on 2026-05-16.
+
 - Add agent session storage:
   - session id, project, cwd, prompt, agent name/tool, status, created/finished timestamps
   - selected, rejected, missing, or stale context pack decisions

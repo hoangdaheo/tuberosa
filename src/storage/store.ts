@@ -1,8 +1,12 @@
 import type {
+  AgentContextDecision,
+  AgentSession,
   ClassifiedQuery,
   ContextPack,
   FeedbackInput,
+  FinishAgentSessionInput,
   KnowledgeInput,
+  RecordAgentContextDecisionInput,
   ReflectionDraft,
   ReflectionDraftInput,
   SearchCandidate,
@@ -44,6 +48,22 @@ export interface KnowledgeStore {
   saveContextPack(pack: ContextPack): Promise<void>;
   getContextPack(id: string): Promise<ContextPack | undefined>;
   recordFeedback(input: FeedbackInput): Promise<void>;
+  createAgentSession(input: {
+    prompt: string;
+    project?: string;
+    cwd?: string;
+    agentName?: string;
+    agentTool?: string;
+    initialContextPackId?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<AgentSession>;
+  getAgentSession(id: string): Promise<AgentSession | undefined>;
+  recordAgentContextDecision(input: RecordAgentContextDecisionInput & {
+    retryContextPackId?: string;
+  }): Promise<AgentContextDecision>;
+  finishAgentSession(input: FinishAgentSessionInput & {
+    reflectionDraftIds?: string[];
+  }): Promise<AgentSession | undefined>;
   createReflectionDraft(input: ReflectionDraftInput, duplicateCandidates: unknown[]): Promise<ReflectionDraft>;
   approveReflectionDraft(id: string): Promise<ReflectionDraft | undefined>;
   close(): Promise<void>;

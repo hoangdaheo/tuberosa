@@ -1,12 +1,15 @@
 import type { AppServices } from '../app.js';
 import { NotFoundError, ValidationError } from '../errors.js';
-import type { ContextFitStatus } from '../types.js';
+import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   expectRecord,
   validateContextPackIdArguments,
   validateContextSearchInput,
   validateFeedbackInput,
+  validateFinishAgentSessionInput,
+  validateRecordAgentContextDecisionInput,
   validateReflectionDraftInput,
+  validateStartAgentSessionInput,
 } from '../validation.js';
 
 interface JsonRpcRequest {
@@ -88,31 +91,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
   switch (name) {
     case 'tuberosa_search_context': {
       const pack = await services.retrieval.searchContext(validateContextSearchInput(args));
-      return toolJson({
-        contextPackId: pack.id,
-        confidence: pack.confidence,
-        contextFit: pack.contextFit,
-        project: pack.project,
-        classified: pack.classified,
-        sections: pack.sections.map((section) => ({
-          name: section.name,
-          tokenEstimate: section.tokenEstimate,
-          items: section.items.map((item) => ({
-            knowledgeId: item.knowledgeId,
-            title: item.title,
-            itemType: item.itemType,
-            project: item.project,
-            score: item.finalScore,
-            reasons: item.matchReasons,
-            fitScore: item.fitScore,
-            fitReasons: item.fitReasons,
-            fitMissingSignals: item.fitMissingSignals,
-            references: item.references,
-          })),
-        })),
-        ...(pack.debug ? { debug: pack.debug } : {}),
-        instruction: searchInstruction(pack.contextFit?.fitStatus),
-      });
+      return toolJson(contextPackShortlist(pack));
     }
 
     case 'tuberosa_get_context_pack': {
@@ -136,9 +115,60 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       return toolJson(await services.retrieval.recordFeedback(validateFeedbackInput(args)));
     }
 
+    case 'tuberosa_start_session': {
+      const result = await services.agentSessions.startSession(validateStartAgentSessionInput(args));
+      return toolJson({
+        session: result.session,
+        context: contextPackShortlist(result.contextPack),
+        policy: result.policy,
+      });
+    }
+
+    case 'tuberosa_record_context_decision': {
+      const result = await services.agentSessions.recordContextDecision(validateRecordAgentContextDecisionInput(args));
+      return toolJson({
+        session: result.session,
+        decision: result.decision,
+        retry: result.retry ? contextPackShortlist(result.retry) : undefined,
+        policy: result.policy,
+      });
+    }
+
+    case 'tuberosa_finish_session': {
+      return toolJson(await services.agentSessions.finishSession(validateFinishAgentSessionInput(args)));
+    }
+
     default:
       throw new ValidationError(`Unknown Tuberosa tool: ${name}`);
   }
+}
+
+function contextPackShortlist(pack: ContextPack) {
+  return {
+    contextPackId: pack.id,
+    confidence: pack.confidence,
+    contextFit: pack.contextFit,
+    project: pack.project,
+    classified: pack.classified,
+    sections: pack.sections.map((section) => ({
+      name: section.name,
+      tokenEstimate: section.tokenEstimate,
+      items: section.items.map((item) => ({
+        knowledgeId: item.knowledgeId,
+        title: item.title,
+        itemType: item.itemType,
+        project: item.project,
+        score: item.finalScore,
+        reasons: item.matchReasons,
+        fitScore: item.fitScore,
+        fitReasons: item.fitReasons,
+        fitMissingSignals: item.fitMissingSignals,
+        references: item.references,
+      })),
+    })),
+    ...(pack.debug ? { debug: pack.debug } : {}),
+    instruction: searchInstruction(pack.contextFit?.fitStatus),
+  };
 }
 
 function searchInstruction(fitStatus: ContextFitStatus | undefined): string {
@@ -269,6 +299,65 @@ function tools() {
         required: ['contextPackId'],
         properties: {
           contextPackId: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_start_session',
+      title: 'Start Tuberosa Agent Session',
+      description: 'Create an agent session and return the initial context shortlist plus fit policy.',
+      inputSchema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          prompt: { type: 'string' },
+          project: { type: 'string' },
+          repoHint: { type: 'string' },
+          cwd: { type: 'string' },
+          taskType: { type: 'string' },
+          files: { type: 'array', items: { type: 'string' } },
+          symbols: { type: 'array', items: { type: 'string' } },
+          errors: { type: 'array', items: { type: 'string' } },
+          tokenBudget: { type: 'number' },
+          rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
+          bypassCache: { type: 'boolean' },
+          debug: { type: 'boolean' },
+          agentName: { type: 'string' },
+          agentTool: { type: 'string' },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_record_context_decision',
+      title: 'Record Tuberosa Session Context Decision',
+      description: 'Record selected, rejected, stale, irrelevant, or missing context for an agent session.',
+      inputSchema: {
+        type: 'object',
+        required: ['sessionId', 'feedbackType'],
+        properties: {
+          sessionId: { type: 'string' },
+          contextPackId: { type: 'string' },
+          feedbackType: { type: 'string' },
+          reason: { type: 'string' },
+          rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_finish_session',
+      title: 'Finish Tuberosa Agent Session',
+      description: 'Finish an agent session and optionally create a reviewable reflection draft.',
+      inputSchema: {
+        type: 'object',
+        required: ['sessionId', 'outcome'],
+        properties: {
+          sessionId: { type: 'string' },
+          outcome: { type: 'string' },
+          summary: { type: 'string' },
+          metadata: { type: 'object' },
+          reflectionDraft: { type: 'object' },
         },
       },
     },

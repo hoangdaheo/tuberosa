@@ -465,6 +465,62 @@ Feedback types:
 
 Rejected, irrelevant, and stale feedback trigger one retry with rejected knowledge excluded.
 
+### Start An Agent Session
+
+Use sessions when an agent should leave an audit trail for context selection and task outcome:
+
+```bash
+curl -X POST http://localhost:3027/agent-sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "project": "newsletter-app",
+    "cwd": "/work/newsletter-app",
+    "prompt": "Update PaywallSelectionModal for the newsletter paywall flow",
+    "symbols": ["PaywallSelectionModal"],
+    "agentName": "Codex",
+    "agentTool": "mcp"
+  }'
+```
+
+The response includes an active session, the initial context pack, and a policy action:
+
+- `proceed`: context fit is ready.
+- `confirm`: review the shortlist before relying on it.
+- `clarify`: ask for clarification or continue with fresh context.
+
+### Record A Session Context Decision
+
+```bash
+curl -X POST http://localhost:3027/agent-sessions/<session-id>/context-decision \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "contextPackId": "<context-pack-id>",
+    "feedbackType": "selected",
+    "reason": "This context matches the current paywall flow."
+  }'
+```
+
+Use `rejected`, `irrelevant`, or `stale` to trigger the existing retry behavior with rejected knowledge excluded.
+
+### Finish An Agent Session
+
+```bash
+curl -X POST http://localhost:3027/agent-sessions/<session-id>/finish \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "outcome": "completed",
+    "summary": "Updated the paywall selection flow.",
+    "reflectionDraft": {
+      "title": "Keep paywall selection stable",
+      "summary": "Paywall session work should preserve selected products.",
+      "content": "When changing PaywallSelectionModal, record the selected context and draft any durable lesson before finishing the agent session.",
+      "triggerType": "complex_task_success"
+    }
+  }'
+```
+
+The reflection draft remains pending until it is approved.
+
 ### Create A Reflection Draft
 
 ```bash
@@ -503,6 +559,9 @@ Tools:
 
 - `tuberosa_search_context`
 - `tuberosa_get_context_pack`
+- `tuberosa_start_session`
+- `tuberosa_record_context_decision`
+- `tuberosa_finish_session`
 - `tuberosa_reflect`
 - `tuberosa_feedback_context`
 
@@ -518,13 +577,13 @@ Prompts:
 
 Recommended agent flow:
 
-1. Call `tuberosa_search_context` before implementation or debugging.
+1. Prefer `tuberosa_start_session` before implementation or debugging.
 2. Include prompt, project, cwd, files, symbols, errors, and task type when known.
-3. Review the shortlist confidence and references.
-4. Check `contextFit.fitStatus`; ask a clarifying question when it is `insufficient`, and confirm before using `needs_confirmation` context.
-5. Call `tuberosa_get_context_pack` after the shortlist looks relevant.
-6. If context is wrong, call `tuberosa_feedback_context` and retry once.
-7. After a useful lesson, call `tuberosa_reflect`.
+3. Follow the returned policy: proceed, confirm, or clarify.
+4. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.
+5. If a retry pack is returned, review its context fit before using it.
+6. Finish with `tuberosa_finish_session` and include a reflection draft when the task produced a durable lesson.
+7. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, and `tuberosa_reflect`) for manual or one-off workflows.
 8. Approve reflection drafts before they become searchable memory.
 
 Use `debug: true` in `tuberosa_search_context` only when diagnosing retrieval quality.
@@ -599,9 +658,12 @@ Then run:
 2. `POST /context/search` for that symbol.
 3. `POST /context/search` again with `debug: true`.
 4. `POST /context/feedback` with `feedbackType: "selected"`.
-5. `POST /reflection-drafts`.
-6. `POST /reflection-drafts/:id/approve`.
-7. `POST /context/search` for the reflection memory.
+5. `POST /agent-sessions`.
+6. `POST /agent-sessions/:id/context-decision`.
+7. `POST /agent-sessions/:id/finish`.
+8. `POST /reflection-drafts`.
+9. `POST /reflection-drafts/:id/approve`.
+10. `POST /context/search` for the reflection memory.
 
 Expected QA outcome:
 
@@ -614,6 +676,7 @@ Expected QA outcome:
 - Search returns context fit metadata for ready, confirmation-needed, or insufficient context.
 - Debug search returns stages and selected candidates.
 - Feedback updates context pack status or returns a retry.
+- Agent sessions store initial context, decisions, final outcome, and optional reflection draft ids.
 - Approved reflection becomes searchable memory.
 
 ## 13. Troubleshooting

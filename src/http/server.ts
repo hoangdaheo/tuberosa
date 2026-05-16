@@ -5,9 +5,12 @@ import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppEr
 import {
   validateContextSearchInput,
   validateFeedbackInput,
+  validateFinishAgentSessionInput,
   validateIngestFilesRequest,
   validateKnowledgeInput,
+  validateRecordAgentContextDecisionInput,
   validateReflectionDraftInput,
+  validateStartAgentSessionInput,
 } from '../validation.js';
 
 type RouteParams = Record<string, string>;
@@ -135,6 +138,36 @@ function createRoutes(): HttpRoute[] {
       handle: async ({ services, request }) => {
         const body = validateFeedbackInput(await readJsonBody(request, services.config.maxRequestBytes));
         return services.retrieval.recordFeedback(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/agent-sessions'),
+      handle: async ({ services, request }) => {
+        const body = validateStartAgentSessionInput(await readJsonBody(request, services.config.maxRequestBytes));
+        return services.agentSessions.startSession(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/agent-sessions\/([^/]+)\/context-decision$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateRecordAgentContextDecisionInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+          params.id,
+        );
+        return services.agentSessions.recordContextDecision(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/agent-sessions\/([^/]+)\/finish$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateFinishAgentSessionInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+          params.id,
+        );
+        return services.agentSessions.finishSession(body);
       },
     },
     {

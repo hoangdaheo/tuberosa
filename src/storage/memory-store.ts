@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AgentContextDecision,
+  AgentSession,
   ClassifiedQuery,
   ContextPack,
   FeedbackInput,
+  FinishAgentSessionInput,
   KnowledgeInput,
   LabelInput,
+  RecordAgentContextDecisionInput,
   ReferenceInput,
   ReflectionDraft,
   ReflectionDraftInput,
@@ -26,6 +30,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly knowledgeSourceUris = new Map<string, string>();
   private readonly packs = new Map<string, ContextPack>();
   private readonly drafts = new Map<string, ReflectionDraft>();
+  private readonly agentSessions = new Map<string, AgentSession>();
+  private readonly agentDecisions = new Map<string, AgentContextDecision>();
   private readonly feedback: FeedbackInput[] = [];
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
@@ -157,6 +163,86 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     }
   }
 
+  async createAgentSession(input: {
+    prompt: string;
+    project?: string;
+    cwd?: string;
+    agentName?: string;
+    agentTool?: string;
+    initialContextPackId?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<AgentSession> {
+    const now = new Date().toISOString();
+    const session: AgentSession = {
+      id: randomUUID(),
+      project: input.project,
+      cwd: input.cwd,
+      prompt: input.prompt,
+      agentName: input.agentName,
+      agentTool: input.agentTool,
+      status: 'active',
+      initialContextPackId: input.initialContextPackId,
+      reflectionDraftIds: [],
+      metadata: input.metadata ?? {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.agentSessions.set(session.id, session);
+    return session;
+  }
+
+  async getAgentSession(id: string): Promise<AgentSession | undefined> {
+    return this.agentSessions.get(id);
+  }
+
+  async recordAgentContextDecision(input: RecordAgentContextDecisionInput & {
+    retryContextPackId?: string;
+  }): Promise<AgentContextDecision> {
+    const decision: AgentContextDecision = {
+      id: randomUUID(),
+      sessionId: input.sessionId,
+      contextPackId: input.contextPackId,
+      decision: input.feedbackType,
+      reason: input.reason,
+      rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
+      retryContextPackId: input.retryContextPackId,
+      metadata: input.metadata ?? {},
+      createdAt: new Date().toISOString(),
+    };
+    this.agentDecisions.set(decision.id, decision);
+    this.touchAgentSession(input.sessionId);
+    return decision;
+  }
+
+  async finishAgentSession(input: FinishAgentSessionInput & {
+    reflectionDraftIds?: string[];
+  }): Promise<AgentSession | undefined> {
+    const session = this.agentSessions.get(input.sessionId);
+    if (!session) {
+      return undefined;
+    }
+
+    const now = new Date().toISOString();
+    const updated: AgentSession = {
+      ...session,
+      status: 'finished',
+      outcome: input.outcome,
+      summary: input.summary,
+      reflectionDraftIds: [
+        ...session.reflectionDraftIds,
+        ...(input.reflectionDraftIds ?? []),
+      ],
+      metadata: {
+        ...session.metadata,
+        ...(input.metadata ?? {}),
+      },
+      updatedAt: now,
+      finishedAt: now,
+    };
+    this.agentSessions.set(updated.id, updated);
+    return updated;
+  }
+
   async createReflectionDraft(input: ReflectionDraftInput, duplicateCandidates: unknown[]): Promise<ReflectionDraft> {
     const draft: ReflectionDraft = {
       id: randomUUID(),
@@ -217,6 +303,16 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       if (chunk.knowledgeId === knowledgeId) {
         this.chunks.delete(chunkId);
       }
+    }
+  }
+
+  private touchAgentSession(sessionId: string): void {
+    const session = this.agentSessions.get(sessionId);
+    if (session) {
+      this.agentSessions.set(sessionId, {
+        ...session,
+        updatedAt: new Date().toISOString(),
+      });
     }
   }
 

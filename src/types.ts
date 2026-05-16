@@ -212,6 +212,88 @@ export interface FeedbackInput {
   metadata?: Record<string, unknown>;
 }
 
+export type AgentSessionStatus = 'active' | 'finished';
+
+export type AgentSessionOutcome = 'completed' | 'failed' | 'blocked' | 'cancelled';
+
+export type AgentContextDecisionType = FeedbackInput['feedbackType'];
+
+export interface AgentSession {
+  id: string;
+  project?: string;
+  cwd?: string;
+  prompt: string;
+  agentName?: string;
+  agentTool?: string;
+  status: AgentSessionStatus;
+  initialContextPackId?: string;
+  outcome?: AgentSessionOutcome;
+  summary?: string;
+  reflectionDraftIds: string[];
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt?: string;
+  finishedAt?: string;
+}
+
+export interface AgentContextDecision {
+  id: string;
+  sessionId: string;
+  contextPackId?: string;
+  decision: AgentContextDecisionType;
+  reason?: string;
+  rejectedKnowledgeIds: string[];
+  retryContextPackId?: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface StartAgentSessionInput extends ContextSearchInput {
+  agentName?: string;
+  agentTool?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RecordAgentContextDecisionInput {
+  sessionId: string;
+  contextPackId?: string;
+  feedbackType: AgentContextDecisionType;
+  reason?: string;
+  rejectedKnowledgeIds?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface FinishAgentSessionInput {
+  sessionId: string;
+  outcome: AgentSessionOutcome;
+  summary?: string;
+  metadata?: Record<string, unknown>;
+  reflectionDraft?: ReflectionDraftInput;
+}
+
+export interface AgentSessionStartResult {
+  session: AgentSession;
+  contextPack: ContextPack;
+  policy: AgentSessionPolicy;
+}
+
+export interface AgentSessionDecisionResult {
+  session: AgentSession;
+  decision: AgentContextDecision;
+  retry?: ContextPack;
+  policy?: AgentSessionPolicy;
+}
+
+export interface AgentSessionFinishResult {
+  session: AgentSession;
+  reflectionDraft?: ReflectionDraft;
+}
+
+export interface AgentSessionPolicy {
+  action: 'proceed' | 'confirm' | 'clarify';
+  instruction: string;
+}
+
 export interface SearchOptions {
   project?: string;
   limit: number;

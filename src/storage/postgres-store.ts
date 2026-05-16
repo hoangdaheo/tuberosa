@@ -1,11 +1,15 @@
 import { Pool, type PoolClient } from 'pg';
 import { StoreError } from '../errors.js';
 import type {
+  AgentContextDecision,
+  AgentSession,
   ClassifiedQuery,
   ContextPack,
   FeedbackInput,
+  FinishAgentSessionInput,
   KnowledgeInput,
   LabelInput,
+  RecordAgentContextDecisionInput,
   ReferenceInput,
   ReflectionDraft,
   ReflectionDraftInput,
@@ -295,6 +299,116 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         [status, input.contextPackId],
       );
     }
+  }
+
+  async createAgentSession(input: {
+    prompt: string;
+    project?: string;
+    cwd?: string;
+    agentName?: string;
+    agentTool?: string;
+    initialContextPackId?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<AgentSession> {
+    const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
+    const result = await this.pool.query(
+      `
+        INSERT INTO agent_sessions (
+          project_id, prompt, cwd, agent_name, agent_tool,
+          initial_context_pack_id, metadata
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, prompt, cwd, agent_name, agent_tool, status,
+          initial_context_pack_id, outcome, summary, reflection_draft_ids,
+          metadata, created_at, updated_at, finished_at
+      `,
+      [
+        projectId,
+        input.prompt,
+        input.cwd ?? null,
+        input.agentName ?? null,
+        input.agentTool ?? null,
+        input.initialContextPackId ?? null,
+        input.metadata ?? {},
+      ],
+    );
+
+    return mapAgentSessionRow(result.rows[0], input.project);
+  }
+
+  async getAgentSession(id: string): Promise<AgentSession | undefined> {
+    const result = await this.pool.query(
+      `
+        SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
+          s.status, s.initial_context_pack_id, s.outcome, s.summary,
+          s.reflection_draft_ids, s.metadata, s.created_at, s.updated_at, s.finished_at
+        FROM agent_sessions s
+        LEFT JOIN projects p ON p.id = s.project_id
+        WHERE s.id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? mapAgentSessionRow(result.rows[0]) : undefined;
+  }
+
+  async recordAgentContextDecision(input: RecordAgentContextDecisionInput & {
+    retryContextPackId?: string;
+  }): Promise<AgentContextDecision> {
+    const result = await this.pool.query(
+      `
+        INSERT INTO agent_context_decisions (
+          session_id, context_pack_id, decision, reason, rejected_knowledge_ids,
+          retry_context_pack_id, metadata
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, session_id, context_pack_id, decision, reason,
+          rejected_knowledge_ids, retry_context_pack_id, metadata, created_at
+      `,
+      [
+        input.sessionId,
+        input.contextPackId ?? null,
+        input.feedbackType,
+        input.reason ?? null,
+        input.rejectedKnowledgeIds ?? [],
+        input.retryContextPackId ?? null,
+        input.metadata ?? {},
+      ],
+    );
+    await this.pool.query('UPDATE agent_sessions SET updated_at = now() WHERE id = $1', [input.sessionId]);
+
+    return mapAgentContextDecisionRow(result.rows[0]);
+  }
+
+  async finishAgentSession(input: FinishAgentSessionInput & {
+    reflectionDraftIds?: string[];
+  }): Promise<AgentSession | undefined> {
+    const result = await this.pool.query(
+      `
+        UPDATE agent_sessions s
+        SET status = 'finished',
+          outcome = $2,
+          summary = $3,
+          reflection_draft_ids = s.reflection_draft_ids || $4::uuid[],
+          metadata = s.metadata || $5::jsonb,
+          updated_at = now(),
+          finished_at = now()
+        WHERE s.id = $1
+        RETURNING s.id, s.prompt, s.cwd, s.agent_name, s.agent_tool, s.status,
+          s.initial_context_pack_id, s.outcome, s.summary, s.reflection_draft_ids,
+          s.metadata, s.created_at, s.updated_at, s.finished_at,
+          (SELECT p.name FROM projects p WHERE p.id = s.project_id) AS project
+      `,
+      [
+        input.sessionId,
+        input.outcome,
+        input.summary ?? null,
+        input.reflectionDraftIds ?? [],
+        input.metadata ?? {},
+      ],
+    );
+
+    return result.rows[0] ? mapAgentSessionRow(result.rows[0]) : undefined;
   }
 
   async createReflectionDraft(input: ReflectionDraftInput, duplicateCandidates: unknown[]): Promise<ReflectionDraft> {
@@ -713,6 +827,40 @@ function mapReflectionDraftRow(row: Record<string, unknown>, project?: string): 
     status: row.status as ReflectionDraft['status'],
     suggestedLabels: (row.suggested_labels ?? []) as LabelInput[],
     duplicateCandidates: (row.duplicate_candidates ?? []) as ReflectionDraft['duplicateCandidates'],
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function mapAgentSessionRow(row: Record<string, unknown>, project?: string): AgentSession {
+  return {
+    id: String(row.id),
+    project: project ?? (row.project ? String(row.project) : undefined),
+    cwd: row.cwd ? String(row.cwd) : undefined,
+    prompt: String(row.prompt),
+    agentName: row.agent_name ? String(row.agent_name) : undefined,
+    agentTool: row.agent_tool ? String(row.agent_tool) : undefined,
+    status: row.status as AgentSession['status'],
+    initialContextPackId: row.initial_context_pack_id ? String(row.initial_context_pack_id) : undefined,
+    outcome: row.outcome ? row.outcome as AgentSession['outcome'] : undefined,
+    summary: row.summary ? String(row.summary) : undefined,
+    reflectionDraftIds: (row.reflection_draft_ids ?? []) as string[],
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    createdAt: toIso(row.created_at),
+    updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
+    finishedAt: row.finished_at ? toIso(row.finished_at) : undefined,
+  };
+}
+
+function mapAgentContextDecisionRow(row: Record<string, unknown>): AgentContextDecision {
+  return {
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    contextPackId: row.context_pack_id ? String(row.context_pack_id) : undefined,
+    decision: row.decision as AgentContextDecision['decision'],
+    reason: row.reason ? String(row.reason) : undefined,
+    rejectedKnowledgeIds: (row.rejected_knowledge_ids ?? []) as string[],
+    retryContextPackId: row.retry_context_pack_id ? String(row.retry_context_pack_id) : undefined,
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
     createdAt: toIso(row.created_at),
   };
 }

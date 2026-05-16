@@ -1,13 +1,17 @@
 import type { IngestFileInput, IngestionMode } from './ingest/service.js';
 import type {
+  AgentSessionOutcome,
+  FinishAgentSessionInput,
   ContextSearchInput,
   FeedbackInput,
   KnowledgeInput,
   KnowledgeItemType,
   LabelInput,
   LabelType,
+  RecordAgentContextDecisionInput,
   ReferenceInput,
   ReflectionDraftInput,
+  StartAgentSessionInput,
   TaskType,
   TriggerType,
 } from './types.js';
@@ -72,6 +76,7 @@ const LABEL_TYPES = [
 const REFERENCE_TYPES = ['file', 'url', 'commit', 'tool', 'conversation', 'external'] as const;
 const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly IngestionMode[];
 const FEEDBACK_TYPES = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'] as const;
+const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
 
 export function validateKnowledgeInput(value: unknown): KnowledgeInput {
   const record = expectObject(value, 'knowledge input');
@@ -128,6 +133,18 @@ export function validateContextSearchInput(value: unknown): ContextSearchInput {
   };
 }
 
+export function validateStartAgentSessionInput(value: unknown): StartAgentSessionInput {
+  const record = expectObject(value, 'agent session input');
+  const search = validateContextSearchInput(record);
+
+  return {
+    ...search,
+    agentName: readOptionalString(record, 'agentName', 'agent session input'),
+    agentTool: readOptionalString(record, 'agentTool', 'agent session input'),
+    metadata: readOptionalObject(record, 'metadata', 'agent session input'),
+  };
+}
+
 export function validateFeedbackInput(value: unknown): FeedbackInput {
   const record = expectObject(value, 'feedback input');
 
@@ -138,6 +155,37 @@ export function validateFeedbackInput(value: unknown): FeedbackInput {
     reason: readOptionalString(record, 'reason', 'feedback input'),
     rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'feedback input'),
     metadata: readOptionalObject(record, 'metadata', 'feedback input'),
+  };
+}
+
+export function validateRecordAgentContextDecisionInput(
+  value: unknown,
+  sessionId?: string,
+): RecordAgentContextDecisionInput {
+  const record = expectObject(value, 'agent context decision input');
+
+  return {
+    sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'agent context decision input'),
+    contextPackId: readOptionalString(record, 'contextPackId', 'agent context decision input'),
+    feedbackType: readRequiredEnum(record, 'feedbackType', FEEDBACK_TYPES, 'agent context decision input'),
+    reason: readOptionalString(record, 'reason', 'agent context decision input'),
+    rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'agent context decision input'),
+    metadata: readOptionalObject(record, 'metadata', 'agent context decision input'),
+  };
+}
+
+export function validateFinishAgentSessionInput(value: unknown, sessionId?: string): FinishAgentSessionInput {
+  const record = expectObject(value, 'finish agent session input');
+  const reflectionDraft = record.reflectionDraft === undefined
+    ? undefined
+    : validateReflectionDraftInput(record.reflectionDraft);
+
+  return {
+    sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'finish agent session input'),
+    outcome: readRequiredEnum(record, 'outcome', AGENT_SESSION_OUTCOMES, 'finish agent session input'),
+    summary: readOptionalString(record, 'summary', 'finish agent session input'),
+    metadata: readOptionalObject(record, 'metadata', 'finish agent session input'),
+    reflectionDraft,
   };
 }
 
