@@ -100,9 +100,7 @@ Flow:
    - default `tokenBudget` to `4000`
    - default `rejectedKnowledgeIds` to `[]`
    - default `debug` to `false`
-2. It creates a stable fingerprint from prompt, project, repo hint, cwd, task type, files, symbols, errors, token budget, and rejected ids.
-3. It checks the cache unless `bypassCache` or `debug` is true.
-4. `classifyQuery` extracts:
+2. `classifyQuery` extracts:
    - project
    - task type
    - files
@@ -112,33 +110,37 @@ Flow:
    - business areas
    - exact terms
    - lexical query
-5. The store creates a `context_queries` row.
-6. Candidate searches run in parallel:
+3. If the configured model provider supports query rewriting, retrieval asks it for a compact lexical rewrite and extra exact terms.
+4. Query rewrite output is sanitized, merged with deterministic classification, and never allowed to replace the original prompt.
+5. It creates a stable fingerprint from prompt, project, repo hint, cwd, task type, files, symbols, errors, token budget, rejected ids, effective lexical query, exact terms, and rewrite model.
+6. It checks the cache unless `bypassCache` or `debug` is true.
+7. The store creates a `context_queries` row.
+8. Candidate searches run in parallel:
    - metadata search
    - lexical search
    - memory search
    - vector search
-7. Vector search embeds the redacted prompt plus lexical query, then compares against chunk embeddings.
-8. `KnowledgeSafetyService` filters blocked candidates and redacts any legacy unsafe content before ranking.
-9. `fuseCandidates` merges all source lists by knowledge id using weighted reciprocal-rank fusion.
-10. Fusion keeps the strongest chunk per knowledge item and merges match reasons.
-11. Model provider reranks the fused top candidates.
-12. Store feedback summaries are applied to reranked candidates:
+9. Vector search embeds the redacted prompt plus effective lexical query, then compares against chunk embeddings.
+10. `KnowledgeSafetyService` filters blocked candidates and redacts any legacy unsafe content before ranking.
+11. `fuseCandidates` merges all source lists by knowledge id using weighted reciprocal-rank fusion.
+12. Fusion keeps the strongest chunk per knowledge item and merges match reasons.
+13. Model provider reranks the fused top candidates.
+14. Store feedback summaries are applied to reranked candidates:
    - selected feedback gives a modest final-score boost
    - stale, rejected, and irrelevant feedback apply final-score penalties
    - candidate metadata records feedback counts, latest signal, and score adjustment
-13. Retrieval safety checks run again before fit evaluation.
-14. `ContextFitEvaluator` scores candidate and pack fit across project, files, symbols, errors, task type, trust, freshness, safety, and prior feedback signals.
-15. `assembleContextPack` removes weak tail candidates before packing:
+15. Retrieval safety checks run again before fit evaluation.
+16. `ContextFitEvaluator` scores candidate and pack fit across project, files, symbols, errors, task type, trust, freshness, safety, and prior feedback signals.
+17. `assembleContextPack` removes weak tail candidates before packing:
     - anchored searches require a stronger final score
     - general searches use a lower final-score floor
     - the top candidate is preserved so sparse searches still return the best available context
-16. The remaining candidates are split into:
+18. The remaining candidates are split into:
     - `essential`
     - `supporting`
     - `optional`
-17. The pack is saved and cached without debug output.
-18. If `debug: true`, a debug trace is attached only to the returned response.
+19. The pack is saved and cached without debug output.
+20. If `debug: true`, a debug trace is attached only to the returned response.
 
 ## 6. Candidate Search Stages
 
@@ -180,7 +182,7 @@ Fusion:
 Rerank:
 
 - Hash provider reranks deterministically for tests.
-- OpenAI provider currently uses OpenAI embeddings and hash fallback reranking.
+- OpenAI provider can rewrite queries when `OPENAI_REWRITE_MODEL` is set, then uses OpenAI embeddings and hash fallback reranking.
 - Future provider-backed reranking should keep deterministic tests.
 
 ## 7. Debug Trace Flow
@@ -200,7 +202,8 @@ Debug trace fields:
 - `cache`: cache key, hit flag, and bypass flag.
 - `limits`: search limit, rerank limit, and token budget.
 - `filters`: rejected knowledge ids and filter decisions.
-- `timingsMs`: classification, embedding, stage search, fusion, rerank, fit, assembly, save, and total timings.
+- `queryRewrite`: original lexical query, rewritten lexical query, added exact terms, reasons, and model when a provider rewrite was used.
+- `timingsMs`: classification, rewrite, embedding, stage search, fusion, rerank, fit, assembly, save, and total timings.
 - `stages`: metadata, lexical, memory, vector, fusion, rerank, and fit candidate lists.
 - `selected`: final candidates by context-pack section.
 
@@ -496,6 +499,7 @@ Hash provider:
 OpenAI provider:
 
 - Used when `TUBEROSA_MODEL_PROVIDER=openai` and `OPENAI_API_KEY` is set.
+- Calls the configured `OPENAI_REWRITE_MODEL` through the Responses API when query rewriting is enabled.
 - Calls OpenAI embeddings endpoint.
 - Embedding dimensions must match database schema.
 - Reranking currently falls back to deterministic hash rerank.

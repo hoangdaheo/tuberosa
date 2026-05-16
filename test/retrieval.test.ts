@@ -9,7 +9,7 @@ import { classifyQuery } from '../src/retrieval/classifier.js';
 import { ContextFitEvaluator } from '../src/retrieval/context-fit.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
-import type { ClassifiedQuery, RankedCandidate } from '../src/types.js';
+import type { ClassifiedQuery, QueryRewriteInput, QueryRewriteResult, RankedCandidate } from '../src/types.js';
 
 const config: AppConfig = {
   env: 'test',
@@ -359,6 +359,52 @@ test('retrieval debug trace exposes source stages without persisting verbose out
   const allDebugKnowledgeIds = pack.debug.stages
     .flatMap((stage) => stage.candidates.map((candidate) => candidate.knowledgeId));
   ok(!allDebugKnowledgeIds.includes(rejected.id));
+
+  const stored = await retrieval.getContextPack(pack.id);
+  equal(stored?.debug, undefined);
+});
+
+test('provider query rewrite expands search input and debug decisions', async () => {
+  const store = new MemoryKnowledgeStore();
+  const cache = new MemoryCache();
+  const models = new RewritingHashModelProvider(1536, {
+    lexicalQuery: 'schema_migrations pg_advisory_lock migration lock startup race',
+    exactTerms: ['schema_migrations', 'pg_advisory_lock'],
+    reasons: ['Expanded conversational wording to storage migration identifiers.'],
+    model: 'test-rewrite-model',
+  });
+  const ingestion = new IngestionService(store, models);
+  const retrieval = new RetrievalService(store, cache, models, config);
+
+  await ingestion.ingestKnowledge({
+    project: 'tuberosa',
+    sourceType: 'file',
+    sourceUri: 'src/storage/migrations.ts',
+    itemType: 'bugfix',
+    title: 'Migration startup race guard',
+    summary: 'The migration runner serializes schema setup with a Postgres advisory lock.',
+    content: 'Use pg_advisory_lock around schema_migrations before app and worker startup continue.',
+    trustLevel: 90,
+    labels: [
+      { type: 'technology', value: 'postgres', weight: 1 },
+      { type: 'symbol', value: 'pg_advisory_lock', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/storage/migrations.ts' }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'tuberosa',
+    prompt: 'How do we avoid the startup concurrency issue?',
+    debug: true,
+  });
+
+  equal(models.rewriteInputs.length, 1);
+  equal(pack.sections[0].items[0].title, 'Migration startup race guard');
+  ok(pack.classified.exactTerms.includes('pg_advisory_lock'));
+  ok(pack.classified.lexicalQuery.includes('schema_migrations'));
+  equal(pack.debug?.queryRewrite?.model, 'test-rewrite-model');
+  deepEqual(pack.debug?.queryRewrite?.addedExactTerms, ['schema_migrations', 'pg_advisory_lock']);
+  ok(pack.debug?.queryRewrite?.reasons.includes('Expanded conversational wording to storage migration identifiers.'));
 
   const stored = await retrieval.getContextPack(pack.id);
   equal(stored?.debug, undefined);
@@ -738,5 +784,18 @@ class CapturingHashModelProvider extends HashModelProvider {
   override async embed(text: string): Promise<number[]> {
     this.inputs.push(text);
     return super.embed(text);
+  }
+}
+
+class RewritingHashModelProvider extends HashModelProvider {
+  readonly rewriteInputs: QueryRewriteInput[] = [];
+
+  constructor(dimensions: number, private readonly rewrite: QueryRewriteResult) {
+    super(dimensions);
+  }
+
+  override async rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult> {
+    this.rewriteInputs.push(input);
+    return this.rewrite;
   }
 }

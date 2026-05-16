@@ -160,6 +160,18 @@ export interface ClassifiedQuery {
   lexicalQuery: string;
 }
 
+export interface QueryRewriteInput {
+  prompt: string;
+  classified: ClassifiedQuery;
+}
+
+export interface QueryRewriteResult {
+  lexicalQuery: string;
+  exactTerms?: string[];
+  reasons?: string[];
+  model?: string;
+}
+
 export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'reference';
 
 export interface SearchCandidate {
@@ -467,6 +479,7 @@ export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vecto
 export type RetrievalDebugTimingName =
   | RetrievalDebugStageName
   | 'classification'
+  | 'rewrite'
   | 'embedding'
   | 'contextQuery'
   | 'assembly'
@@ -522,6 +535,13 @@ export interface RetrievalDebugTrace {
   filters: {
     rejectedKnowledgeIds: string[];
     decisions: RetrievalFilterDecision[];
+  };
+  queryRewrite?: {
+    originalLexicalQuery: string;
+    rewrittenLexicalQuery: string;
+    addedExactTerms: string[];
+    reasons: string[];
+    model?: string;
   };
   timingsMs: Partial<Record<RetrievalDebugTimingName, number>>;
   stages: RetrievalDebugStage[];

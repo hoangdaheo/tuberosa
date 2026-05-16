@@ -70,7 +70,7 @@ function readOptionValue(args: string[], index: number, option: string): string 
 
 function usage(): string {
   return [
-    'Usage: pnpm run backup -- [--id <backup-id>] [--json]',
+    'Usage: pnpm run backup [--id <backup-id>] [--json]',
     '',
     'Creates a portable JSONL backup under TUBEROSA_BACKUP_DIR.',
   ].join('\n');

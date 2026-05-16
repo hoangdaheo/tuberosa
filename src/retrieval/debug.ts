@@ -1,5 +1,6 @@
 import type {
   ContextPack,
+  QueryRewriteResult,
   RankedCandidate,
   RetrievalDebugCandidate,
   RetrievalDebugStage,
@@ -23,11 +24,16 @@ interface RetrievalDebugBuilderInput {
 export class RetrievalDebugBuilder {
   private readonly timingsMs: Partial<Record<RetrievalDebugTimingName, number>> = {};
   private readonly stages: RetrievalDebugStage[] = [];
+  private queryRewrite?: RetrievalDebugTrace['queryRewrite'];
 
   constructor(private readonly input: RetrievalDebugBuilderInput) {}
 
   recordTiming(name: RetrievalDebugTimingName, startedAt: number): void {
     this.timingsMs[name] = elapsedMs(startedAt);
+  }
+
+  recordElapsed(name: RetrievalDebugTimingName, milliseconds: number): void {
+    this.timingsMs[name] = Math.max(0, milliseconds);
   }
 
   recordStage(name: RetrievalDebugStageName, candidates: Array<SearchCandidate | RankedCandidate>): void {
@@ -36,6 +42,24 @@ export class RetrievalDebugBuilder {
       candidateCount: candidates.length,
       candidates: candidates.map(toDebugCandidate),
     });
+  }
+
+  recordQueryRewrite(input: {
+    originalLexicalQuery: string;
+    rewrite?: QueryRewriteResult;
+    addedExactTerms: string[];
+  }): void {
+    if (!input.rewrite) {
+      return;
+    }
+
+    this.queryRewrite = {
+      originalLexicalQuery: input.originalLexicalQuery,
+      rewrittenLexicalQuery: input.rewrite.lexicalQuery,
+      addedExactTerms: input.addedExactTerms,
+      reasons: input.rewrite.reasons ?? [],
+      model: input.rewrite.model,
+    };
   }
 
   buildTrace(pack: ContextPack): RetrievalDebugTrace {
@@ -68,6 +92,7 @@ export class RetrievalDebugBuilder {
           })),
         ],
       },
+      queryRewrite: this.queryRewrite,
       timingsMs: this.timingsMs,
       stages: this.stages,
       selected: Object.fromEntries(

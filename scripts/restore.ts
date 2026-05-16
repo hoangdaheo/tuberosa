@@ -93,7 +93,7 @@ function readOptionValue(args: string[], index: number, option: string): string 
 
 function usage(): string {
   return [
-    'Usage: pnpm run restore -- --backup <backup-id-or-path> [--dry-run] [--replace] [--json]',
+    'Usage: pnpm run restore --backup <backup-id-or-path> [--dry-run] [--replace] [--json]',
     '',
     'Actual restore requires --replace. Use --dry-run first to inspect row counts.',
   ].join('\n');

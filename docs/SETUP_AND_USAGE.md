@@ -78,6 +78,7 @@ Important variables:
 | `TUBEROSA_MODEL_PROVIDER` | `hash` | `hash` or `openai`. |
 | `OPENAI_API_KEY` | empty | Enables OpenAI embeddings when provider is `openai`. |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model. |
+| `OPENAI_REWRITE_MODEL` | empty | Optional OpenAI Responses model for provider-backed query rewriting before retrieval. |
 | `EMBEDDING_DIMENSIONS` | `1536` | Must match the pgvector column dimension. |
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Redis or memory cache TTL for context packs. |
 | `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
@@ -279,9 +280,9 @@ pnpm start
 pnpm run mcp
 pnpm run worker
 pnpm run migrate
-pnpm run import:docs -- --project tuberosa docs/FLOW_LOGIC.md
+pnpm run import:docs --project tuberosa docs/FLOW_LOGIC.md
 pnpm run backup
-pnpm run restore -- --backup <backup-id> --dry-run
+pnpm run restore --backup <backup-id> --dry-run
 ```
 
 Command purpose:
@@ -479,6 +480,7 @@ The debug trace includes:
 - Search limits and token budget.
 - Rejected knowledge ids and filter decisions.
 - Timing per stage.
+- Query rewrite input/output summary when `OPENAI_REWRITE_MODEL` is configured.
 - Candidate lists for metadata, lexical, memory, vector, fusion, rerank, and fit.
 - Raw, fused, rerank, final, and fit scores when available.
 - Final selected candidates by context-pack section.
@@ -664,7 +666,7 @@ curl -X POST http://localhost:3027/operations/import-files \
 Use the CLI for local files:
 
 ```bash
-pnpm run import:docs -- --project newsletter-app docs/paywall.md docs/runbook.md
+pnpm run import:docs --project newsletter-app docs/paywall.md docs/runbook.md
 ```
 
 Cleanup supports dry runs before deleting old proposed context packs, orphaned feedback rows, old unused queries, and unused sources:
@@ -710,9 +712,9 @@ curl -X POST http://localhost:3027/operations/backups/before-paywall-refactor/re
 CLI equivalents:
 
 ```bash
-pnpm run backup -- --id before-paywall-refactor
-pnpm run restore -- --backup before-paywall-refactor --dry-run
-pnpm run restore -- --backup before-paywall-refactor --replace
+pnpm run backup --id before-paywall-refactor
+pnpm run restore --backup before-paywall-refactor --dry-run
+pnpm run restore --backup before-paywall-refactor --replace
 ```
 
 Backups include project records, sources, knowledge items, labels, references, chunks and embeddings, reflection drafts, context queries, packs, feedback events, agent sessions, and agent context decisions. Restoring chunks is necessary because chunks are what retrieval searches and feeds to agents.
@@ -880,6 +882,10 @@ Check:
 - `OPENAI_API_KEY` is set.
 - `OPENAI_EMBEDDING_MODEL` supports `EMBEDDING_DIMENSIONS`.
 - Postgres `knowledge_chunks.embedding vector(...)` matches the configured embedding length.
+
+### OpenAI query rewriting fails
+
+Query rewriting is optional. Unset `OPENAI_REWRITE_MODEL` to disable it, or check that the configured model supports the Responses API and JSON schema output.
 
 ### MCP client does not see tools
 

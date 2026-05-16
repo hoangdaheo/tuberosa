@@ -10,6 +10,7 @@ export interface AppConfig {
   embeddingDimensions: number;
   openAiApiKey?: string;
   openAiEmbeddingModel: string;
+  openAiRewriteModel?: string;
   openAiRerankModel?: string;
   contextCacheTtlSeconds: number;
   maxRequestBytes: number;
@@ -30,6 +31,7 @@ export function loadConfig(): AppConfig {
     embeddingDimensions: Number(process.env.EMBEDDING_DIMENSIONS ?? 1536),
     openAiApiKey: process.env.OPENAI_API_KEY || undefined,
     openAiEmbeddingModel: process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
+    openAiRewriteModel: process.env.OPENAI_REWRITE_MODEL || undefined,
     openAiRerankModel: process.env.OPENAI_RERANK_MODEL || undefined,
     contextCacheTtlSeconds: Number(process.env.CONTEXT_CACHE_TTL_SECONDS ?? 300),
     maxRequestBytes: Number(process.env.TUBEROSA_MAX_REQUEST_BYTES ?? 10 * 1024 * 1024),

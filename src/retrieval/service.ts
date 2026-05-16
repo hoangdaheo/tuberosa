@@ -9,10 +9,12 @@ import type {
   FeedbackInput,
   KnowledgeFeedbackSummary,
   KnowledgeSearchResult,
+  QueryRewriteResult,
   RankedCandidate,
   SearchOptions,
 } from '../types.js';
 import { sha256, stableJson } from '../util/hash.js';
+import { uniqueStrings } from '../util/text.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { assembleContextPack } from './context-pack.js';
@@ -44,9 +46,16 @@ export class RetrievalService {
 
   async searchContext(input: ContextSearchInput): Promise<ContextPack> {
     const normalized = normalizeSearchInput(redactSearchInput(input, this.safety));
-    const fingerprint = fingerprintSearch(normalized);
-    const cacheKey = `context:${fingerprint}`;
     const totalStartedAt = Date.now();
+    const classificationStartedAt = Date.now();
+    const classified = classifyQuery(normalized);
+    const classificationElapsedMs = Date.now() - classificationStartedAt;
+    const rewriteStartedAt = Date.now();
+    const rewrite = await this.models.rewriteQuery({ prompt: normalized.prompt, classified });
+    const rewriteElapsedMs = Date.now() - rewriteStartedAt;
+    const rewriteResult = applyQueryRewrite(classified, rewrite, this.safety);
+    const fingerprint = fingerprintSearch(normalized, rewriteResult.classified, rewrite);
+    const cacheKey = `context:${fingerprint}`;
     const debug = normalized.debug
       ? new RetrievalDebugBuilder({
         fingerprint,
@@ -59,28 +68,31 @@ export class RetrievalService {
         rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
       })
       : undefined;
+    debug?.recordElapsed('classification', classificationElapsedMs);
+    debug?.recordElapsed('rewrite', rewriteElapsedMs);
+    debug?.recordQueryRewrite({
+      originalLexicalQuery: classified.lexicalQuery,
+      rewrite: rewriteResult.rewrite,
+      addedExactTerms: rewriteResult.addedExactTerms,
+    });
 
     const cached = await this.getCachedContextPack(cacheKey, normalized);
     if (cached) {
       return this.safety.sanitizeContextPack(cached);
     }
 
-    const classificationStartedAt = Date.now();
-    const classified = classifyQuery(normalized);
-    debug?.recordTiming('classification', classificationStartedAt);
-
-    const project = normalized.project ?? classified.project;
+    const project = normalized.project ?? rewriteResult.classified.project;
     const queryId = await timed(
       'contextQuery',
-      this.createContextQuery(normalized, classified, fingerprint, project),
+      this.createContextQuery(normalized, rewriteResult.classified, fingerprint, project),
       debug,
     );
-    const candidates = await this.findCandidates(normalized, classified, project, debug);
-    const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, classified, project, debug);
+    const candidates = await this.findCandidates(normalized, rewriteResult.classified, project, debug);
+    const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, rewriteResult.classified, project, debug);
     const fitStartedAt = Date.now();
     const fitEvaluation = this.fitEvaluator.evaluate({
       project,
-      classified,
+      classified: rewriteResult.classified,
       candidates: rankedCandidates,
       rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
     });
@@ -90,7 +102,7 @@ export class RetrievalService {
     const pack = this.buildContextPack({
       queryId,
       project,
-      classified,
+      classified: rewriteResult.classified,
       candidates: fitEvaluation.candidates,
       contextFit: fitEvaluation.contextFit,
       input: normalized,
@@ -284,7 +296,11 @@ function normalizeSearchInput(input: ContextSearchInput): NormalizedContextSearc
   };
 }
 
-function fingerprintSearch(input: NormalizedContextSearchInput): string {
+function fingerprintSearch(
+  input: NormalizedContextSearchInput,
+  classified: ClassifiedQuery,
+  rewrite?: QueryRewriteResult,
+): string {
   return sha256(stableJson({
     prompt: input.prompt,
     project: input.project,
@@ -296,7 +312,49 @@ function fingerprintSearch(input: NormalizedContextSearchInput): string {
     errors: input.errors ?? [],
     tokenBudget: input.tokenBudget,
     rejectedKnowledgeIds: input.rejectedKnowledgeIds,
+    lexicalQuery: classified.lexicalQuery,
+    exactTerms: classified.exactTerms,
+    queryRewriteModel: rewrite?.model,
   }));
+}
+
+function applyQueryRewrite(
+  classified: ClassifiedQuery,
+  rewrite: QueryRewriteResult | undefined,
+  safety: KnowledgeSafetyService,
+): { classified: ClassifiedQuery; addedExactTerms: string[]; rewrite?: QueryRewriteResult } {
+  if (!rewrite?.lexicalQuery.trim()) {
+    return { classified, addedExactTerms: [] };
+  }
+
+  const sanitizedRewriteQuery = safety.redactSecrets(rewrite.lexicalQuery);
+  const sanitizedRewriteTerms = uniqueStrings((rewrite.exactTerms ?? [])
+    .map((term) => safety.redactSecrets(term))
+    .filter((term) => term.length <= 120));
+  const exactTerms = uniqueStrings([...classified.exactTerms, ...sanitizedRewriteTerms]).slice(0, 48);
+  const lexicalQuery = uniqueStrings([
+    ...exactTerms,
+    ...(sanitizedRewriteQuery.match(/[a-zA-Z0-9_./:-]{3,}/g) ?? []),
+    ...(classified.lexicalQuery.match(/[a-zA-Z0-9_./:-]{3,}/g) ?? []),
+  ]).slice(0, 64).join(' ');
+  const addedExactTerms = exactTerms.filter((term) => !classified.exactTerms.includes(term));
+  const sanitizedRewrite: QueryRewriteResult = {
+    lexicalQuery,
+    exactTerms: sanitizedRewriteTerms,
+    reasons: (rewrite.reasons ?? []).map((reason) => safety.redactSecrets(reason)),
+    model: rewrite.model,
+  };
+
+  return {
+    classified: {
+      ...classified,
+      exactTerms,
+      lexicalQuery,
+      confidence: Math.min(0.98, classified.confidence + (addedExactTerms.length > 0 ? 0.06 : 0.03)),
+    },
+    addedExactTerms,
+    rewrite: sanitizedRewrite,
+  };
 }
 
 function shouldRetry(feedbackType: FeedbackInput['feedbackType']): boolean {

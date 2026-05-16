@@ -112,11 +112,11 @@ function readMode(value: string): IngestionMode {
 
 function usage(): string {
   return [
-    'Usage: pnpm run import:docs -- --project <name> [--mode atomic|document] <file...>',
+    'Usage: pnpm run import:docs --project <name> [--mode atomic|document] <file...>',
     '',
     'Examples:',
-    '  pnpm run import:docs -- --project tuberosa docs/FLOW_LOGIC.md docs/SETUP_AND_USAGE.md',
-    '  pnpm run import:docs -- --project tuberosa --mode document README.md',
+    '  pnpm run import:docs --project tuberosa docs/FLOW_LOGIC.md docs/SETUP_AND_USAGE.md',
+    '  pnpm run import:docs --project tuberosa --mode document README.md',
   ].join('\n');
 }
 

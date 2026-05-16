@@ -2,7 +2,7 @@
 
 This roadmap turns Tuberosa from a retrieval service into a systematic second brain for AI agents. Each phase should be shippable on its own and verified before the next phase starts.
 
-The main priorities are stable API boundaries, better context-quality evaluation, agent-session collaboration, feedback-driven learning, and operational review tools.
+The main priorities are stable API boundaries, better context-quality evaluation, agent-session collaboration, feedback-driven learning, operational review tools, and recoverable durable knowledge.
 
 ## Phase 0: API Boundary And Exception Foundation
 
@@ -136,12 +136,175 @@ Acceptance:
 - Provider-backed mode improves eval quality without breaking hash-mode tests.
 - Retrieval debug shows rewrite/rerank inputs and decisions without storing verbose debug data.
 
+## Phase 6: Backup Sync And Disaster Recovery
+
+Goal: make Postgres and the physical backup folder work as a reliable recovery system, not only manual snapshots.
+
+Current baseline:
+
+- Postgres is the runtime source of truth.
+- `TUBEROSA_BACKUP_DIR` stores portable JSONL snapshots with `manifest.json` plus table-level files.
+- Backups include `knowledge_chunks` and embeddings so restored knowledge remains retrievable.
+- Restore is currently a destructive replace operation guarded by dry-run and `replace: true`.
+
+Planned work:
+
+- Add scheduled backups with configurable interval, startup delay, retention count, and retention age.
+- Add a backup catalog/status endpoint that reports latest backup, row counts, age, source store, manifest version, and health.
+- Add backup verification that reads a backup back from disk, validates manifest/table coverage, checks row counts, and verifies required retrieval tables are present.
+- Add restore preflight checks that compare backup schema/table versions with the running app before allowing replace restore.
+- Add optional write-through backup after important mutations, such as approved reflections or bulk imports, with throttling so normal ingestion is not slowed by disk writes.
+- Add retention pruning that deletes only complete backup directories with valid manifests and never deletes the latest successful backup.
+- Add backup integrity metadata:
+  - checksum per JSONL file
+  - app version or commit when available
+  - schema/migration version
+  - embedding dimensions and model provider metadata
+- Add recovery runbooks for:
+  - dry-run restore
+  - replace restore
+  - restoring on a fresh machine
+  - handling embedding dimension mismatch
+- Keep exact Postgres `pg_dump`/`pg_restore` as a future optional mode for full database disaster recovery, separate from portable JSONL backups.
+
+Acceptance:
+
+- A local stack can automatically create backups without user-triggered CLI or HTTP calls.
+- Backup health is visible through HTTP and CLI without reading files manually.
+- A corrupt, incomplete, or schema-incompatible backup fails verification before restore.
+- Retention pruning is deterministic and covered by tests.
+- Restore dry-run and replace restore continue to preserve retrievable chunks and embeddings.
+- Manual JSONL backup and restore commands remain backward compatible.
+
+## Phase 7: Knowledge Organization Graph
+
+Goal: organize knowledge in a way that agents can navigate by task relevance, provenance, and relationships instead of relying only on flat search results or folder paths.
+
+Design principle:
+
+- Postgres remains the source of truth.
+- The physical folder remains a backup/export/recovery layer.
+- Folder trees are useful for provenance and human inspection.
+- Graph relations are useful for connected task context.
+- Retrieval indexes are what agents consume directly through context packs.
+
+Recommended model:
+
+- Keep the existing hierarchy:
+  - project
+  - source
+  - knowledge item
+  - chunk
+  - label
+  - reference
+- Add explicit `knowledge_relations` records for connections between knowledge items, files, symbols, errors, sessions, and external references.
+- Start with a controlled relation taxonomy:
+  - `contains`
+  - `references`
+  - `mentions_file`
+  - `mentions_symbol`
+  - `resolves_error`
+  - `supersedes`
+  - `depends_on`
+  - `related_to`
+  - `derived_from_session`
+- Generate read-only organization exports:
+  - `project-map.json`
+  - `knowledge-graph.jsonl`
+  - `readable-summary.md`
+- Keep generated exports separate from backups. Backups are for recovery; organization exports are for inspection, debugging, and external tools.
+
+Planned work:
+
+- Add relation storage and validators without making graph edges required for basic ingestion.
+- Infer first-pass relations during ingestion from labels, references, file paths, symbols, errors, source URI, section path, and reflection provenance.
+- Add operations endpoints to list, inspect, create, update, and delete relations.
+- Add graph expansion to retrieval:
+  - exact file/symbol/error matches first
+  - one-hop related knowledge second
+  - optional two-hop expansion only when debug or explicit mode is enabled
+- Add graph-aware context-fit signals showing which files, symbols, errors, and sessions are connected.
+- Add debug trace fields explaining why related knowledge entered a context pack.
+- Add export commands and HTTP endpoints for project maps and graph JSONL.
+- Add stale relation cleanup when document atoms are re-ingested or sources are archived.
+- Keep graph traversal bounded so weakly related knowledge does not flood agent context.
+
+Acceptance:
+
+- Agents can receive context that includes directly matched knowledge plus clearly explained one-hop related knowledge.
+- Users can inspect a project map without reading raw database rows.
+- Retrieval debug shows relation paths used to include graph-expanded candidates.
+- Re-ingesting an atomic document removes stale atom relations.
+- Generated organization exports are reproducible and are not treated as the runtime source of truth.
+- Existing search, backup, restore, and reflection flows continue to work when no relations exist.
+
+## Phase 8: Retrieval Quality Hardening
+
+Goal: make Tuberosa reliable for vague, continuation-style, and high-risk agent tasks where flat semantic search can return plausible but wrong context.
+
+Problems this phase addresses:
+
+- Vague prompts such as "continue the backup work" do not carry enough exact file, symbol, or error signals.
+- Vector search can promote semantically similar but stale or unrelated memories.
+- Classification is heuristic and misses implied intent, workflow stage, and previous-session context.
+- Feedback changes ranking but does not yet create missing labels, relations, or supersession decisions.
+- Conflicting knowledge is not modeled strongly enough; newer or approved knowledge does not explicitly supersede old memories.
+- Context fit can say "insufficient", but the system does not always explain what knowledge should be created or linked next.
+
+Planned work:
+
+- Add a query understanding layer that produces structured retrieval intent:
+  - task goal
+  - workflow stage
+  - implied files, symbols, domains, and recent session references
+  - required evidence types, such as spec, bugfix, workflow, or code reference
+  - uncertainty reasons
+- Add continuation-aware retrieval using agent sessions, latest context decisions, recent reflection drafts, and handoff-style knowledge.
+- Add stale-memory suppression that combines freshness, feedback, supersession relations, and context-fit mismatch before final ranking.
+- Add explicit conflict and supersession handling:
+  - `supersedes` relation support in ranking
+  - conflict detection for knowledge with overlapping labels/references but contradictory summaries or freshness
+  - review queue for unresolved conflicts
+- Add provider-backed reranking prompts that prefer evidence coverage over generic semantic similarity.
+- Add negative feedback learning:
+  - rejected or stale context can propose missing labels, missing relations, or supersession edges
+  - missing-context feedback can create reviewable "knowledge gap" records
+- Add retrieval fallback policy:
+  - exact anchored search first
+  - relation expansion second
+  - provider rewrite/rerank third
+  - ask for clarification when required evidence is missing
+- Add context-pack explanations that tell agents:
+  - why each item was included
+  - what important evidence is missing
+  - whether any returned item may be stale, weakly related, or superseded
+- Expand retrieval evaluation fixtures with hard cases:
+  - vague continuation prompts
+  - stale semantically similar memories
+  - conflicting memories
+  - superseded workflows
+  - missing-context retry behavior
+  - graph-expanded retrieval
+
+Acceptance:
+
+- Vague continuation prompts retrieve recent session, handoff, and related workflow context when available.
+- Stale semantically similar memories do not outrank fresh exact or graph-related context.
+- Superseded knowledge is demoted or excluded unless explicitly requested for history.
+- Missing-context feedback creates actionable review records instead of only lowering confidence.
+- Retrieval debug explains whether ranking was driven by exact match, rewrite, graph relation, feedback, freshness, or fallback.
+- Eval fixtures cover the known failure mode where an unrelated Docker migration memory beat backup or roadmap context.
+- Hash-mode tests remain deterministic; provider-mode behavior is covered with mocked responses.
+
 ## Public API And Type Changes
 
 - Add optional `contextFit` metadata to context pack responses.
 - Add optional candidate fit reasons in MCP shortlist output.
 - Add new session endpoints and MCP tools in Phase 2.
 - Add `metadata.taxonomy` for knowledge and reflection memories in Phase 3.
+- Add backup health, verification, and retention endpoints in Phase 6.
+- Add relation inspection, graph export, and project-map endpoints in Phase 7.
+- Add knowledge-gap and conflict-review records in Phase 8.
 - Keep existing endpoints and MCP tools backward compatible.
 
 ## Test Plan
@@ -162,6 +325,9 @@ Additional checks:
 - Phase 3: retrieval eval before and after feedback scoring changes.
 - Phase 4: integration tests for cleanup/import behavior.
 - Phase 5: retrieval eval in hash mode, plus provider-mode tests with mocked model responses.
+- Phase 6: backup scheduler, verification, retention, and restore preflight tests in memory mode plus Postgres integration coverage when Docker is available.
+- Phase 7: relation inference, stale relation cleanup, graph export determinism, and graph-expanded retrieval tests.
+- Phase 8: hard retrieval eval fixtures for vague continuation, stale semantic matches, supersession, conflict review, missing-context learning, and fallback policy.
 
 ## Assumptions
 
