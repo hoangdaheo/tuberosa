@@ -26,6 +26,35 @@ Tuberosa is not a general chat UI yet. The first-class integration surface is MC
 - [Setup and usage](docs/SETUP_AND_USAGE.md)
 - [Flow logic](docs/FLOW_LOGIC.md)
 
+## Quick Start For Codex
+
+Use this path when you want the next Codex session to connect to Tuberosa as an MCP server.
+
+1. Install dependencies and start the durable local stack:
+
+```bash
+corepack enable
+pnpm install
+test -f .env || cp .env.example .env
+docker compose up --build -d
+curl -fsS http://localhost:3027/health
+```
+
+2. Add Tuberosa to your Codex MCP config, normally `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.tuberosa]
+command = "/usr/bin/zsh"
+args = [
+  "-lc",
+  "cd /home/nash/tuberosa && PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --import tsx src/mcp-stdio.ts"
+]
+```
+
+3. Restart Codex. In the next session, ask Codex to use `tuberosa_search_context` before implementation or debugging, then fetch the selected pack with `tuberosa_get_context_pack`.
+
+The Docker stack supplies Postgres, Redis, migrations, and the HTTP API. Codex starts the MCP stdio process on demand; that process uses the same local Postgres store and defaults to memory cache unless `TUBEROSA_CACHE` is explicitly set. The MCP command must write only JSON-RPC protocol frames to stdout, so the Codex config runs Node directly instead of `pnpm run`.
+
 ## Architecture
 
 The request path is:
@@ -440,19 +469,21 @@ Codex can run local stdio MCP servers. Add Tuberosa to your Codex config, using 
 
 ```toml
 [mcp_servers.tuberosa]
-command = "pnpm"
-args = ["--dir", "/home/nash/tuberosa", "run", "mcp"]
-```
-
-If Codex does not inherit the right Node version, use a shell wrapper:
-
-```toml
-[mcp_servers.tuberosa]
 command = "/usr/bin/zsh"
 args = [
   "-lc",
-  "cd /home/nash/tuberosa && PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run mcp"
+  "cd /home/nash/tuberosa && PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --import tsx src/mcp-stdio.ts"
 ]
+```
+
+This direct Node command avoids package-manager lifecycle output on stdout. The MCP stdio entry point defaults `TUBEROSA_CACHE` to `memory` so Codex can complete the initialize handshake even when Redis is unavailable to the child process.
+
+If your Codex environment already has the right Node version on `PATH`, this shorter command is also valid:
+
+```toml
+[mcp_servers.tuberosa]
+command = "node"
+args = ["--import", "tsx", "/home/nash/tuberosa/src/mcp-stdio.ts"]
 ```
 
 Suggested project instruction:
@@ -466,7 +497,7 @@ Before starting implementation or debugging, call tuberosa_search_context with t
 Add a project-scoped local stdio server:
 
 ```bash
-claude mcp add --transport stdio --scope project tuberosa -- pnpm --dir /home/nash/tuberosa run mcp
+claude mcp add --transport stdio --scope project tuberosa -- pnpm --silent --dir /home/nash/tuberosa run mcp
 ```
 
 Claude Code writes project-scoped MCP config to `.mcp.json`. A manual equivalent is:
@@ -486,7 +517,7 @@ Claude Code writes project-scoped MCP config to `.mcp.json`. A manual equivalent
 For user scope instead of project scope:
 
 ```bash
-claude mcp add --transport stdio --scope user tuberosa -- pnpm --dir /home/nash/tuberosa run mcp
+claude mcp add --transport stdio --scope user tuberosa -- pnpm --silent --dir /home/nash/tuberosa run mcp
 ```
 
 ### GitHub Copilot
@@ -512,7 +543,7 @@ For Copilot cloud agent, use Tuberosa only if the server and its database are av
 Use the MCP Inspector to debug server compatibility:
 
 ```bash
-npx @modelcontextprotocol/inspector pnpm --dir /home/nash/tuberosa run mcp
+npx @modelcontextprotocol/inspector pnpm --silent --dir /home/nash/tuberosa run mcp
 ```
 
 Use it to verify that tools, prompts, and resources list correctly before wiring a new client.

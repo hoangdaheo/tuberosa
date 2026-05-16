@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/src/index.js",
-    "mcp": "tsx src/mcp-stdio.ts",
+    "mcp": "node --import tsx src/mcp-stdio.ts",
     "worker": "tsx src/worker.ts",
     "migrate": "tsx scripts/migrate.ts",
     "eval:retrieval": "tsx scripts/eval-retrieval.ts",

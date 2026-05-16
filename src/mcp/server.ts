@@ -19,7 +19,7 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
   switch (request.method) {
     case 'initialize':
       return {
-        protocolVersion: '2025-06-18',
+        protocolVersion: readProtocolVersion(request.params),
         capabilities: {
           tools: { listChanged: false },
           resources: {},
@@ -73,6 +73,12 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
     default:
       throw new NotFoundError(`Unsupported MCP method: ${request.method}`);
   }
+}
+
+function readProtocolVersion(params: Record<string, unknown> | undefined): string {
+  return typeof params?.protocolVersion === 'string' && params.protocolVersion.trim()
+    ? params.protocolVersion
+    : '2025-06-18';
 }
 
 async function callTool(services: AppServices, params: Record<string, unknown>) {

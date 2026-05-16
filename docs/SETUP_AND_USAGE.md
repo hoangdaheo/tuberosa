@@ -83,7 +83,128 @@ Important variables:
 | `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
 | `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for a single knowledge content field before chunking. |
 
-## 5. Run With Docker
+## 5. Connect Codex For The Next Session
+
+This is the recommended first install path when you are currently using Codex and want the next Codex session to test Tuberosa through MCP.
+
+### 5.1 Start Tuberosa locally
+
+From this repository:
+
+```bash
+corepack enable
+pnpm install
+test -f .env || cp .env.example .env
+docker compose up --build -d
+curl -fsS http://localhost:3027/health
+```
+
+Expected response:
+
+```json
+{
+  "ok": true,
+  "service": "tuberosa",
+  "store": "postgres",
+  "cache": "redis",
+  "modelProvider": "hash"
+}
+```
+
+This starts Postgres, Redis, the HTTP API, and the worker. The app container runs migrations before the HTTP server starts. The MCP stdio server does not need its own port; Codex starts it as a local child process, uses the same Postgres store, and defaults to memory cache unless `TUBEROSA_CACHE` is explicitly set.
+
+### 5.2 Add the MCP server to Codex
+
+Add this to your Codex config, normally `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.tuberosa]
+command = "/usr/bin/zsh"
+args = [
+  "-lc",
+  "cd /home/nash/tuberosa && PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --import tsx src/mcp-stdio.ts"
+]
+```
+
+The shell wrapper is the safest local option because it pins Node to the version from this machine, runs from the Tuberosa repo, and avoids package-manager output on stdout. If your Codex environment already has the correct Node and pnpm on `PATH`, this shorter form is also valid as long as pnpm is silent:
+
+The MCP stdio entry point defaults `TUBEROSA_CACHE` to `memory`. That keeps the Codex initialize handshake independent of Redis availability; durable knowledge still uses the configured store.
+
+```toml
+[mcp_servers.tuberosa]
+command = "pnpm"
+args = ["--silent", "--dir", "/home/nash/tuberosa", "run", "mcp"]
+```
+
+Restart Codex after changing the config so it reloads the MCP server list.
+
+### 5.3 Test from the next Codex session
+
+In the next Codex session, ask:
+
+```text
+Use Tuberosa before starting. Call tuberosa_search_context for this task with project "tuberosa", cwd "/home/nash/tuberosa", and my prompt. Show the shortlist, contextFit, and references before using the context pack.
+```
+
+A healthy connection should expose these MCP tools:
+
+- `tuberosa_search_context`
+- `tuberosa_get_context_pack`
+- `tuberosa_feedback_context`
+- `tuberosa_reflect`
+
+Use this operating rule for agent work:
+
+1. Call `tuberosa_search_context` before implementation or debugging.
+2. If `contextFit.fitStatus` is `ready`, use the shortlist and fetch the full pack with `tuberosa_get_context_pack`.
+3. If it is `needs_confirmation`, confirm the shortlist is relevant before using the full pack.
+4. If it is `insufficient`, ask a clarifying question or continue with fresh context.
+5. If the shortlist is wrong, call `tuberosa_feedback_context` with `rejected`, `stale`, `irrelevant`, or `missing_context`, then retry once.
+6. After a durable correction or workflow lesson, call `tuberosa_reflect`; approve the draft later before it becomes searchable memory.
+
+### 5.4 Seed knowledge for a useful smoke test
+
+Tuberosa is useful only after it has knowledge to retrieve. Add one manual item:
+
+```bash
+curl -X POST http://localhost:3027/knowledge \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "project": "tuberosa",
+    "sourceType": "manual",
+    "sourceUri": "docs/SETUP_AND_USAGE.md",
+    "itemType": "workflow",
+    "title": "Codex connects to Tuberosa through MCP",
+    "summary": "Codex should start the Tuberosa MCP stdio server and search context before work.",
+    "content": "For Codex, configure ~/.codex/config.toml with mcp_servers.tuberosa pointing at the Node-pinned MCP stdio command in /home/nash/tuberosa. Restart Codex, call tuberosa_search_context before implementation, and fetch the full pack only after the shortlist fits.",
+    "trustLevel": 90,
+    "labels": [
+      { "type": "project", "value": "tuberosa", "weight": 1 },
+      { "type": "technology", "value": "mcp", "weight": 1 },
+      { "type": "tool", "value": "codex", "weight": 1 }
+    ],
+    "references": [
+      { "type": "file", "uri": "docs/SETUP_AND_USAGE.md" }
+    ]
+  }'
+```
+
+Then verify retrieval through HTTP:
+
+```bash
+curl -X POST http://localhost:3027/context/search \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "project": "tuberosa",
+    "prompt": "How should Codex connect to Tuberosa through MCP?",
+    "symbols": ["tuberosa_search_context"],
+    "taskType": "workflow"
+  }'
+```
+
+The response should include a context pack with `contextFit`, match reasons, and the setup guide reference.
+
+## 6. Run With Docker
 
 Use Docker for the full production-like local stack:
 
@@ -123,7 +244,7 @@ Remove the database volume as well:
 docker compose down -v
 ```
 
-## 6. Run Without Docker
+## 7. Run Without Docker
 
 Use this when you already have Postgres and Redis running locally:
 
@@ -140,7 +261,7 @@ TUBEROSA_STORE=memory TUBEROSA_CACHE=memory TUBEROSA_MODEL_PROVIDER=hash pnpm ru
 
 Memory mode does not persist knowledge after the process exits.
 
-## 7. Common Commands
+## 8. Common Commands
 
 ```bash
 pnpm run build
@@ -162,11 +283,11 @@ Command purpose:
 - `eval:retrieval`: retrieval quality regression suite.
 - `dev`: HTTP server in watch mode.
 - `start`: built HTTP server.
-- `mcp`: MCP stdio server.
+- `mcp`: MCP stdio server for AI agent clients such as Codex.
 - `worker`: worker placeholder.
 - `migrate`: apply SQL migrations.
 
-## 8. HTTP API Usage
+## 9. HTTP API Usage
 
 All endpoints return JSON.
 
@@ -370,7 +491,7 @@ curl -X POST http://localhost:3027/reflection-drafts/<draft-id>/approve
 
 Approval writes the draft into knowledge as searchable memory.
 
-## 9. MCP Usage
+## 10. MCP Usage
 
 Run the MCP stdio server:
 
@@ -408,14 +529,14 @@ Recommended agent flow:
 
 Use `debug: true` in `tuberosa_search_context` only when diagnosing retrieval quality.
 
-## 10. Agent Configuration
+## 11. Agent Configuration
 
 ### Codex
 
 ```toml
 [mcp_servers.tuberosa]
 command = "pnpm"
-args = ["--dir", "/home/nash/tuberosa", "run", "mcp"]
+args = ["--silent", "--dir", "/home/nash/tuberosa", "run", "mcp"]
 ```
 
 Node-pinned wrapper:
@@ -425,14 +546,14 @@ Node-pinned wrapper:
 command = "/usr/bin/zsh"
 args = [
   "-lc",
-  "cd /home/nash/tuberosa && PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run mcp"
+  "cd /home/nash/tuberosa && PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --import tsx src/mcp-stdio.ts"
 ]
 ```
 
 ### Claude Code
 
 ```bash
-claude mcp add --transport stdio --scope project tuberosa -- pnpm --dir /home/nash/tuberosa run mcp
+claude mcp add --transport stdio --scope project tuberosa -- pnpm --silent --dir /home/nash/tuberosa run mcp
 ```
 
 ### GitHub Copilot
@@ -453,7 +574,7 @@ Workspace MCP config:
 
 For cloud agents, the server and database must exist in the cloud agent environment.
 
-## 11. QA Checklist
+## 12. QA Checklist
 
 Run these checks before handoff after code changes:
 
@@ -495,7 +616,7 @@ Expected QA outcome:
 - Feedback updates context pack status or returns a retry.
 - Approved reflection becomes searchable memory.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 ### pnpm or `node:sqlite` fails under Node 20
 
@@ -532,7 +653,7 @@ Check:
 Verify with MCP Inspector:
 
 ```bash
-npx @modelcontextprotocol/inspector pnpm --dir /home/nash/tuberosa run mcp
+npx @modelcontextprotocol/inspector pnpm --silent --dir /home/nash/tuberosa run mcp
 ```
 
 Then check absolute paths, Node version, pnpm availability, and that the MCP process does not print non-JSON logs to stdout.
