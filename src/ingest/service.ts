@@ -1,5 +1,6 @@
 import type { ModelProvider } from '../model/provider.js';
 import type { KnowledgeInput, KnowledgeItemType, LabelInput, ReferenceInput } from '../types.js';
+import { IngestionLimitAppError } from '../errors.js';
 import { classifyQuery, labelsFromClassification } from '../retrieval/classifier.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { estimateTokens, splitIntoChunks, uniqueStrings } from '../util/text.js';
@@ -28,9 +29,7 @@ export interface IngestionServiceOptions {
   maxContentBytes?: number;
 }
 
-export class IngestionLimitError extends Error {
-  readonly statusCode = 413;
-}
+export class IngestionLimitError extends IngestionLimitAppError {}
 
 export class IngestionService {
   private readonly atomizers: DocumentAtomizer[];

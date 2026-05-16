@@ -8,6 +8,8 @@ The main priorities are stable API boundaries, better context-quality evaluation
 
 Goal: make HTTP and MCP inputs safe, predictable, and easier for agents to use.
 
+Status: Done on 2026-05-16.
+
 - Add shared runtime validators for HTTP and MCP inputs without adding a new production dependency.
 - Validate `KnowledgeInput`, file ingestion input, context search input, feedback input, and reflection draft input.
 - Add typed app errors: validation, not found, safety blocked, ingestion limit, model provider, store, and cache.

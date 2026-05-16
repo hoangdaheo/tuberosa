@@ -1,4 +1,5 @@
 import { createAppServices } from './app.js';
+import { appErrorToJsonRpcError } from './errors.js';
 import { handleMcpRequest } from './mcp/server.js';
 
 const services = await createAppServices();
@@ -49,10 +50,7 @@ async function drain(): Promise<void> {
       writeMessage({
         jsonrpc: '2.0',
         id: message.id,
-        error: {
-          code: -32603,
-          message: error instanceof Error ? error.message : 'Unknown MCP error',
-        },
+        error: appErrorToJsonRpcError(error),
       });
     }
   }

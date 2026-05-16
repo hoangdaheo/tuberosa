@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AppConfig } from '../config.js';
+import { ModelProviderError } from '../errors.js';
 import type { RankedCandidate } from '../types.js';
 import { clamp } from '../util/text.js';
 
@@ -67,28 +68,17 @@ class OpenAiModelProvider implements ModelProvider {
   }
 
   async embed(text: string): Promise<number[]> {
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.config.openAiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: this.config.openAiEmbeddingModel,
-        input: text,
-        dimensions: this.config.embeddingDimensions,
-      }),
-    });
+    const response = await fetchOpenAiEmbedding(this.config, text);
 
     if (!response.ok) {
       const detail = await response.text();
-      throw new Error(`OpenAI embedding request failed: ${response.status} ${detail}`);
+      throw new ModelProviderError(`OpenAI embedding request failed: ${response.status} ${detail}`);
     }
 
     const body = (await response.json()) as { data?: Array<{ embedding?: number[] }> };
     const embedding = body.data?.[0]?.embedding;
     if (!embedding) {
-      throw new Error('OpenAI embedding response did not include an embedding.');
+      throw new ModelProviderError('OpenAI embedding response did not include an embedding.');
     }
 
     return embedding;
@@ -96,5 +86,24 @@ class OpenAiModelProvider implements ModelProvider {
 
   async rerank(prompt: string, candidates: RankedCandidate[]): Promise<RankedCandidate[]> {
     return this.fallback.rerank(prompt, candidates);
+  }
+}
+
+async function fetchOpenAiEmbedding(config: AppConfig, text: string): Promise<Response> {
+  try {
+    return await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.openAiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.openAiEmbeddingModel,
+        input: text,
+        dimensions: config.embeddingDimensions,
+      }),
+    });
+  } catch (error) {
+    throw new ModelProviderError('OpenAI embedding request failed.', error);
   }
 }

@@ -1,8 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
-import type { IngestFileInput, IngestionMode } from '../ingest/service.js';
-import type { ContextSearchInput, FeedbackInput, KnowledgeInput, ReflectionDraftInput } from '../types.js';
+import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
+import {
+  validateContextSearchInput,
+  validateFeedbackInput,
+  validateIngestFilesRequest,
+  validateKnowledgeInput,
+  validateReflectionDraftInput,
+} from '../validation.js';
 
 type RouteParams = Record<string, string>;
 type RouteMatcher = (url: URL) => RouteParams | undefined;
@@ -28,6 +34,15 @@ export function createHttpServer(services: AppServices) {
   return createServer(async (request, response) => {
     await router.handle(request, response);
   });
+}
+
+export async function handleHttpRequest(
+  services: AppServices,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  const router = new HttpRouter(services);
+  await router.handle(request, response);
 }
 
 class HttpRouter {
@@ -59,9 +74,8 @@ class HttpRouter {
       });
       sendJson(response, 200, body);
     } catch (error) {
-      sendJson(response, error instanceof HttpError ? error.status : errorStatusCode(error) ?? 500, {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
+      const appError = toAppError(error);
+      sendJson(response, appError.status, appErrorToHttpBody(appError));
     }
   }
 
@@ -99,7 +113,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/context/search'),
       handle: async ({ services, request }) => {
-        const body = await readJsonBody<ContextSearchInput>(request, services.config.maxRequestBytes);
+        const body = validateContextSearchInput(await readJsonBody(request, services.config.maxRequestBytes));
         return services.retrieval.searchContext(body);
       },
     },
@@ -109,7 +123,7 @@ function createRoutes(): HttpRoute[] {
       handle: async ({ services, params }) => {
         const pack = await services.retrieval.getContextPack(params.id);
         if (!pack) {
-          throw new HttpError(404, 'Context pack not found.');
+          throw new NotFoundError('Context pack not found.');
         }
 
         return pack;
@@ -119,7 +133,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/context/feedback'),
       handle: async ({ services, request }) => {
-        const body = await readJsonBody<FeedbackInput>(request, services.config.maxRequestBytes);
+        const body = validateFeedbackInput(await readJsonBody(request, services.config.maxRequestBytes));
         return services.retrieval.recordFeedback(body);
       },
     },
@@ -127,14 +141,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/ingest/files'),
       handle: async ({ services, request }) => {
-        const body = await readJsonBody<{ project?: string; files?: IngestFileInput[]; mode?: IngestionMode }>(
-          request,
-          services.config.maxRequestBytes,
-        );
-        if (!body.project || !Array.isArray(body.files)) {
-          throw new HttpError(400, 'Expected { project, files }.');
-        }
-
+        const body = validateIngestFilesRequest(await readJsonBody(request, services.config.maxRequestBytes));
         return services.ingestion.ingestFiles(body.project, body.files, { mode: body.mode });
       },
     },
@@ -142,7 +149,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/knowledge'),
       handle: async ({ services, request }) => {
-        const body = await readJsonBody<KnowledgeInput>(request, services.config.maxRequestBytes);
+        const body = validateKnowledgeInput(await readJsonBody(request, services.config.maxRequestBytes));
         return services.ingestion.ingestKnowledge(body);
       },
     },
@@ -159,7 +166,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/reflection-drafts'),
       handle: async ({ services, request }) => {
-        const body = await readJsonBody<ReflectionDraftInput>(request, services.config.maxRequestBytes);
+        const body = validateReflectionDraftInput(await readJsonBody(request, services.config.maxRequestBytes));
         return services.reflection.createDraft(body);
       },
     },
@@ -169,7 +176,7 @@ function createRoutes(): HttpRoute[] {
       handle: async ({ services, params }) => {
         const draft = await services.reflection.approveDraft(params.id);
         if (!draft) {
-          throw new HttpError(404, 'Reflection draft not found.');
+          throw new NotFoundError('Reflection draft not found.');
         }
 
         return draft;
@@ -247,22 +254,22 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(encoded);
 }
 
-export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
+export class HttpError extends AppError {
+  constructor(status: number, message: string) {
+    super({ code: httpErrorCode(status), status, message });
   }
 }
 
-function errorStatusCode(error: unknown): number | undefined {
-  if (!error || typeof error !== 'object') {
-    return undefined;
+function httpErrorCode(status: number): AppErrorCode {
+  if (status === 404) {
+    return 'not_found';
   }
 
-  const statusCode = (error as { statusCode?: unknown }).statusCode;
-  return typeof statusCode === 'number' ? statusCode : undefined;
+  if (status === 413) {
+    return 'ingestion_limit';
+  }
+
+  return 'validation_error';
 }
 
 function exactPath(pathname: string): RouteMatcher {

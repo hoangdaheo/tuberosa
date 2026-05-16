@@ -1,4 +1,5 @@
 import type { KnowledgeInput, RankedCandidate, ReflectionDraftInput, SearchCandidate } from '../types.js';
+import { SafetyBlockedError } from '../errors.js';
 
 export type KnowledgeSafetyStatus = 'safe' | 'suspicious' | 'blocked';
 export type KnowledgeSafetyIssueType = 'secret' | 'prompt_injection' | 'malware_indicator';
@@ -102,11 +103,9 @@ const SUSPICIOUS_PATTERNS: TextPattern[] = [
   },
 ];
 
-export class KnowledgeSafetyError extends Error {
-  readonly statusCode = 400;
-
+export class KnowledgeSafetyError extends SafetyBlockedError {
   constructor(readonly issues: KnowledgeSafetyIssue[]) {
-    super(`Knowledge blocked by safety policy: ${issues.map((issue) => issue.message).join(' ')}`);
+    super(`Knowledge blocked by safety policy: ${issues.map((issue) => issue.message).join(' ')}`, issues);
   }
 }
 

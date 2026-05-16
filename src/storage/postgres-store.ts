@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
+import { StoreError } from '../errors.js';
 import type {
   ClassifiedQuery,
   ContextPack,
@@ -40,7 +41,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
       const stored = await this.getKnowledge(knowledgeId);
       if (!stored) {
-        throw new Error(`Knowledge item ${knowledgeId} was created but could not be read back.`);
+        throw new StoreError(`Knowledge item ${knowledgeId} was created but could not be read back.`);
       }
 
       return stored;

@@ -1,5 +1,6 @@
 import { classifyQuery, labelsFromClassification } from '../retrieval/classifier.js';
 import type { IngestionService } from '../ingest/service.js';
+import { ValidationError } from '../errors.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { ReflectionDraftInput } from '../types.js';
@@ -77,14 +78,14 @@ export class ReflectionService {
 
 function validateDraft(input: ReflectionDraftInput): void {
   if (input.title.trim().length < 6) {
-    throw new Error('Reflection title must be at least 6 characters.');
+    throw new ValidationError('Reflection title must be at least 6 characters.');
   }
 
   if (input.summary.trim().length < 12) {
-    throw new Error('Reflection summary must be at least 12 characters.');
+    throw new ValidationError('Reflection summary must be at least 12 characters.');
   }
 
   if (input.content.trim().length < 24) {
-    throw new Error('Reflection content must be at least 24 characters.');
+    throw new ValidationError('Reflection content must be at least 24 characters.');
   }
 }

@@ -1,4 +1,12 @@
 import type { AppServices } from '../app.js';
+import { NotFoundError, ValidationError } from '../errors.js';
+import {
+  expectRecord,
+  validateContextPackIdArguments,
+  validateContextSearchInput,
+  validateFeedbackInput,
+  validateReflectionDraftInput,
+} from '../validation.js';
 
 interface JsonRpcRequest {
   id?: string | number | null;
@@ -29,7 +37,7 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
       return { tools: tools() };
 
     case 'tools/call':
-      return callTool(services, request.params ?? {});
+      return callTool(services, expectRecord(request.params ?? {}, 'tools/call params'));
 
     case 'resources/list':
       return { resources: [] };
@@ -53,26 +61,26 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
       };
 
     case 'resources/read':
-      return readResource(services, request.params ?? {});
+      return readResource(services, expectRecord(request.params ?? {}, 'resources/read params'));
 
     case 'prompts/list':
       return { prompts: prompts() };
 
     case 'prompts/get':
-      return getPrompt(request.params ?? {});
+      return getPrompt(expectRecord(request.params ?? {}, 'prompts/get params'));
 
     default:
-      throw new Error(`Unsupported MCP method: ${request.method}`);
+      throw new NotFoundError(`Unsupported MCP method: ${request.method}`);
   }
 }
 
 async function callTool(services: AppServices, params: Record<string, unknown>) {
-  const name = String(params.name ?? '');
-  const args = (params.arguments ?? {}) as Record<string, unknown>;
+  const name = readRequiredMcpString(params.name, 'tools/call params.name');
+  const args = expectRecord(params.arguments ?? {}, 'tools/call params.arguments');
 
   switch (name) {
     case 'tuberosa_search_context': {
-      const pack = await services.retrieval.searchContext(args as never);
+      const pack = await services.retrieval.searchContext(validateContextSearchInput(args));
       return toolJson({
         contextPackId: pack.id,
         confidence: pack.confidence,
@@ -97,16 +105,16 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
     }
 
     case 'tuberosa_get_context_pack': {
-      const id = String(args.contextPackId ?? args.id ?? '');
+      const { contextPackId: id } = validateContextPackIdArguments(args);
       const pack = await services.retrieval.getContextPack(id);
       if (!pack) {
-        throw new Error(`Context pack not found: ${id}`);
+        throw new NotFoundError(`Context pack not found: ${id}`);
       }
       return toolJson(pack);
     }
 
     case 'tuberosa_reflect': {
-      const draft = await services.reflection.createDraft(args as never);
+      const draft = await services.reflection.createDraft(validateReflectionDraftInput(args));
       return toolJson({
         ...draft,
         instruction: 'This reflection is pending review. Approve it before it becomes searchable memory.',
@@ -114,11 +122,11 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
     }
 
     case 'tuberosa_feedback_context': {
-      return toolJson(await services.retrieval.recordFeedback(args as never));
+      return toolJson(await services.retrieval.recordFeedback(validateFeedbackInput(args)));
     }
 
     default:
-      throw new Error(`Unknown Tuberosa tool: ${name}`);
+      throw new ValidationError(`Unknown Tuberosa tool: ${name}`);
   }
 }
 
@@ -129,7 +137,7 @@ async function readResource(services: AppServices, params: Record<string, unknow
     const id = uri.replace('tuberosa://packs/', '');
     const pack = await services.retrieval.getContextPack(id);
     if (!pack) {
-      throw new Error(`Context pack not found: ${id}`);
+      throw new NotFoundError(`Context pack not found: ${id}`);
     }
 
     return resourceJson(uri, pack);
@@ -139,13 +147,13 @@ async function readResource(services: AppServices, params: Record<string, unknow
     const id = uri.replace('tuberosa://knowledge/', '');
     const knowledge = await services.store.getKnowledge(id);
     if (!knowledge) {
-      throw new Error(`Knowledge item not found: ${id}`);
+      throw new NotFoundError(`Knowledge item not found: ${id}`);
     }
 
     return resourceJson(uri, knowledge);
   }
 
-  throw new Error(`Unsupported resource URI: ${uri}`);
+  throw new ValidationError(`Unsupported resource URI: ${uri}`);
 }
 
 function getPrompt(params: Record<string, unknown>) {
@@ -191,7 +199,17 @@ function getPrompt(params: Record<string, unknown>) {
     };
   }
 
-  throw new Error(`Unknown prompt: ${name}`);
+  throw new ValidationError(`Unknown prompt: ${name}`);
+}
+
+function readRequiredMcpString(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ValidationError(`${path} must be a non-empty string.`, [
+      { path, message: `${path} must be a non-empty string.` },
+    ]);
+  }
+
+  return value;
 }
 
 function tools() {

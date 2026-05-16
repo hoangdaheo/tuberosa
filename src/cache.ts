@@ -1,5 +1,6 @@
 import { createClient, type RedisClientType } from 'redis';
 import type { AppConfig } from './config.js';
+import { CacheError } from './errors.js';
 
 export interface Cache {
   getJson<T>(key: string): Promise<T | undefined>;
@@ -21,7 +22,11 @@ export async function createCache(config: AppConfig): Promise<Cache> {
   client.on('error', (error) => {
     console.error('[redis]', error.message);
   });
-  await client.connect();
+  try {
+    await client.connect();
+  } catch (error) {
+    throw new CacheError('Redis cache connection failed.', error);
+  }
   return new RedisCache(client as RedisClientType);
 }
 
@@ -29,26 +34,42 @@ class RedisCache implements Cache {
   constructor(private readonly client: RedisClientType) {}
 
   async getJson<T>(key: string): Promise<T | undefined> {
-    const value = await this.client.get(key);
-    return value ? (JSON.parse(value) as T) : undefined;
+    try {
+      const value = await this.client.get(key);
+      return value ? (JSON.parse(value) as T) : undefined;
+    } catch (error) {
+      throw new CacheError('Redis cache read failed.', error);
+    }
   }
 
   async setJson<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
-    const encoded = JSON.stringify(value);
-    if (ttlSeconds && ttlSeconds > 0) {
-      await this.client.set(key, encoded, { EX: ttlSeconds });
-      return;
-    }
+    try {
+      const encoded = JSON.stringify(value);
+      if (ttlSeconds && ttlSeconds > 0) {
+        await this.client.set(key, encoded, { EX: ttlSeconds });
+        return;
+      }
 
-    await this.client.set(key, encoded);
+      await this.client.set(key, encoded);
+    } catch (error) {
+      throw new CacheError('Redis cache write failed.', error);
+    }
   }
 
   async del(key: string): Promise<void> {
-    await this.client.del(key);
+    try {
+      await this.client.del(key);
+    } catch (error) {
+      throw new CacheError('Redis cache delete failed.', error);
+    }
   }
 
   async close(): Promise<void> {
-    await this.client.quit();
+    try {
+      await this.client.quit();
+    } catch (error) {
+      throw new CacheError('Redis cache close failed.', error);
+    }
   }
 }
 
