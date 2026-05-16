@@ -115,7 +115,11 @@
       "id": "symbol-paywall-modal",
       "prompt": "Update the React PaywallSelectionModal in src/components/paywall-selection-modal.tsx for the newsletter paywall flow.",
       "expectedKnowledgeIds": ["paywall-modal"],
+      "expectedSelectedKnowledgeIds": ["paywall-modal"],
       "unexpectedKnowledgeIds": ["current-auth-flow", "legacy-auth-flow"],
+      "minConfidence": 0.78,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.72,
       "expectedClassification": {
         "files": ["src/components/paywall-selection-modal.tsx"],
         "symbols": ["PaywallSelectionModal"],
@@ -128,7 +132,11 @@
       "id": "prior-error-recovery",
       "prompt": "Fix TS-999 in src/components/paywall-selection-modal.tsx around PaywallSelectionModal because selected product ids reset after save.",
       "expectedKnowledgeIds": ["paywall-ts999-fix"],
+      "expectedSelectedKnowledgeIds": ["paywall-ts999-fix"],
       "unexpectedKnowledgeIds": ["current-auth-flow"],
+      "minConfidence": 0.82,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.72,
       "expectedClassification": {
         "files": ["src/components/paywall-selection-modal.tsx"],
         "symbols": ["PaywallSelectionModal"],
@@ -141,7 +149,11 @@
       "id": "selected-feedback-paywall",
       "prompt": "Which prior PaywallSelectionModal fix should guide TS-999 selected product id work?",
       "expectedKnowledgeIds": ["paywall-ts999-fix"],
+      "expectedSelectedKnowledgeIds": ["paywall-ts999-fix"],
       "unexpectedKnowledgeIds": ["current-auth-flow", "legacy-auth-flow"],
+      "minConfidence": 0.78,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.72,
       "expectedClassification": {
         "symbols": ["PaywallSelectionModal"],
         "errors": ["TS-999"],
@@ -153,8 +165,12 @@
       "id": "stale-auth-rejection",
       "prompt": "Explain the current auth flow and token refresh behavior.",
       "expectedKnowledgeIds": ["current-auth-flow"],
+      "expectedSelectedKnowledgeIds": ["current-auth-flow"],
       "unexpectedKnowledgeIds": ["legacy-auth-flow"],
       "rejectedKnowledgeIds": ["legacy-auth-flow"],
+      "minConfidence": 0.68,
+      "expectedContextFitStatus": "insufficient",
+      "minContextFitScore": 0.4,
       "expectedClassification": {
         "businessAreas": ["auth"]
       }
@@ -163,7 +179,11 @@
       "id": "reflection-workflow",
       "prompt": "How should reflection memories be approved before becoming searchable?",
       "expectedKnowledgeIds": ["reflection-review-memory"],
-      "unexpectedKnowledgeIds": ["paywall-modal", "legacy-auth-flow"]
+      "expectedSelectedKnowledgeIds": ["reflection-review-memory"],
+      "unexpectedKnowledgeIds": ["paywall-modal", "legacy-auth-flow"],
+      "minConfidence": 0.7,
+      "expectedContextFitStatus": "needs_confirmation",
+      "minContextFitScore": 0.45
     }
   ]
 }

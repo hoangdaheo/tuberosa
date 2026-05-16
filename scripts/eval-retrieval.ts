@@ -160,8 +160,12 @@ function printMetrics(metrics: RetrievalEvalMetrics, topK: number): void {
   console.log(`  hit@${topK}: ${formatRate(metrics.hitRate)}`);
   console.log(`  MRR: ${formatDecimal(metrics.meanReciprocalRank)}`);
   console.log(`  precision@${topK}: ${formatRate(metrics.precisionAtK)}`);
+  console.log(`  selected coverage: ${formatRate(metrics.selectedCoverageRate)}`);
   console.log(`  stale rejection: ${formatRate(metrics.staleRejectionRate)}`);
   console.log(`  unexpected avoidance: ${formatRate(metrics.unexpectedAvoidanceRate)}`);
+  console.log(`  confidence thresholds: ${formatRate(metrics.confidenceThresholdRate)}`);
+  console.log(`  context fit status: ${formatRate(metrics.contextFitStatusRate)}`);
+  console.log(`  context fit score: ${formatRate(metrics.contextFitScoreRate)}`);
   console.log(`  exact file match: ${formatRate(metrics.exactFileMatchRate)}`);
   console.log(`  exact symbol match: ${formatRate(metrics.exactSymbolMatchRate)}`);
   console.log(`  exact error match: ${formatRate(metrics.exactErrorMatchRate)}`);
@@ -176,7 +180,17 @@ function printCases(cases: RetrievalEvalCaseResult[]): void {
 
     if (!testCase.passed) {
       console.log(`    expected=[${testCase.expectedKnowledgeIds.join(', ')}] matched=[${testCase.matchedExpectedKnowledgeIds.join(', ')}]`);
+      console.log(`    selected=[${testCase.selectedKnowledgeIds.join(', ')}] expectedSelected=[${testCase.expectedSelectedKnowledgeIds.join(', ')}]`);
       console.log(`    unexpected=[${testCase.returnedUnexpectedKnowledgeIds.join(', ')}] rejected=[${testCase.returnedRejectedKnowledgeIds.join(', ')}]`);
+      if (testCase.confidencePassed === false) {
+        console.log(`    confidence: expected>=${testCase.minConfidence} actual=${formatDecimal(testCase.confidence)}`);
+      }
+      if (testCase.contextFitStatusPassed === false) {
+        console.log(`    contextFit.status: expected=${testCase.expectedContextFitStatus} actual=${testCase.contextFitStatus ?? 'missing'}`);
+      }
+      if (testCase.contextFitScorePassed === false) {
+        console.log(`    contextFit.score: expected>=${testCase.minContextFitScore} actual=${formatDecimal(testCase.contextFitScore ?? null)}`);
+      }
       for (const check of testCase.classificationChecks.filter((item) => !item.passed)) {
         console.log(`    ${check.field}: expected=[${check.expected.join(', ')}] actual=[${check.actual.join(', ')}]`);
       }

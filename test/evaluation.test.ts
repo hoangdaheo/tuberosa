@@ -34,12 +34,19 @@ test('retrieval evaluation fixture produces passing quality metrics', async () =
 
   equal(report.totalCases, fixture.cases.length);
   equal(report.metrics.hitRate, 1);
+  equal(report.metrics.selectedCoverageRate, 1);
   equal(report.metrics.staleRejectionRate, 1);
   equal(report.metrics.unexpectedAvoidanceRate, 1);
+  equal(report.metrics.confidenceThresholdRate, 1);
+  equal(report.metrics.contextFitStatusRate, 1);
+  equal(report.metrics.contextFitScoreRate, 1);
   equal(report.metrics.exactFileMatchRate, 1);
   equal(report.metrics.exactSymbolMatchRate, 1);
   equal(report.metrics.exactErrorMatchRate, 1);
   ok((report.metrics.meanReciprocalRank ?? 0) > 0.8);
+  ok(report.cases.every((testCase) => testCase.confidencePassed !== false), failedCases(report));
+  ok(report.cases.every((testCase) => testCase.contextFitStatusPassed !== false), failedCases(report));
+  ok(report.cases.every((testCase) => testCase.contextFitScorePassed !== false), failedCases(report));
   ok(report.cases.every((testCase) => testCase.passed), failedCases(report));
 });
 

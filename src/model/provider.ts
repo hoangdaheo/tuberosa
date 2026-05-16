@@ -1,13 +1,20 @@
 import { createHash } from 'node:crypto';
 import type { AppConfig } from '../config.js';
 import { ModelProviderError } from '../errors.js';
-import type { QueryRewriteInput, QueryRewriteResult, RankedCandidate } from '../types.js';
+import type {
+  QueryRewriteInput,
+  QueryRewriteResult,
+  RankedCandidate,
+  RerankDecision,
+  RerankInput,
+  RerankResult,
+} from '../types.js';
 import { clamp, truncate } from '../util/text.js';
 
 export interface ModelProvider {
   embed(text: string): Promise<number[]>;
   rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult | undefined>;
-  rerank(prompt: string, candidates: RankedCandidate[]): Promise<RankedCandidate[]>;
+  rerank(input: RerankInput): Promise<RerankResult>;
 }
 
 export function createModelProvider(config: AppConfig): ModelProvider {
@@ -40,10 +47,10 @@ export class HashModelProvider implements ModelProvider {
     return undefined;
   }
 
-  async rerank(prompt: string, candidates: RankedCandidate[]): Promise<RankedCandidate[]> {
-    const promptTerms = new Set(prompt.toLowerCase().match(/[a-z0-9_./:-]+/g) ?? []);
+  async rerank(input: RerankInput): Promise<RerankResult> {
+    const promptTerms = new Set(input.prompt.toLowerCase().match(/[a-z0-9_./:-]+/g) ?? []);
 
-    return candidates
+    const candidates = input.candidates
       .map((candidate) => {
         const candidateTerms = new Set(
           `${candidate.title} ${candidate.summary} ${candidate.contextualContent}`
@@ -62,6 +69,8 @@ export class HashModelProvider implements ModelProvider {
         };
       })
       .sort((left, right) => right.finalScore - left.finalScore);
+
+    return { candidates };
   }
 }
 
@@ -94,19 +103,31 @@ class OpenAiModelProvider implements ModelProvider {
       return undefined;
     }
 
-    const response = await fetchOpenAiJson(this.config, this.config.openAiRewriteModel, {
-      prompt: input.prompt,
-      classified: {
-        taskType: input.classified.taskType,
-        files: input.classified.files,
-        symbols: input.classified.symbols,
-        errors: input.classified.errors,
-        technologies: input.classified.technologies,
-        businessAreas: input.classified.businessAreas,
-        exactTerms: input.classified.exactTerms,
-        lexicalQuery: input.classified.lexicalQuery,
+    const response = await fetchOpenAiJson(
+      this.config,
+      this.config.openAiRewriteModel,
+      [
+        'Rewrite retrieval queries for a local project knowledge broker.',
+        'Return compact JSON only.',
+        'Preserve exact file paths, symbols, errors, technologies, and domain terms.',
+        'Do not add facts that are not supported by the prompt or existing classification.',
+      ].join(' '),
+      'query_rewrite',
+      queryRewriteSchema(),
+      {
+        prompt: input.prompt,
+        classified: {
+          taskType: input.classified.taskType,
+          files: input.classified.files,
+          symbols: input.classified.symbols,
+          errors: input.classified.errors,
+          technologies: input.classified.technologies,
+          businessAreas: input.classified.businessAreas,
+          exactTerms: input.classified.exactTerms,
+          lexicalQuery: input.classified.lexicalQuery,
+        },
       },
-    });
+    );
 
     if (!response.ok) {
       const detail = await response.text();
@@ -116,8 +137,45 @@ class OpenAiModelProvider implements ModelProvider {
     return parseQueryRewriteResponse(await response.json(), this.config.openAiRewriteModel);
   }
 
-  async rerank(prompt: string, candidates: RankedCandidate[]): Promise<RankedCandidate[]> {
-    return this.fallback.rerank(prompt, candidates);
+  async rerank(input: RerankInput): Promise<RerankResult> {
+    if (!this.config.openAiRerankModel || input.candidates.length === 0) {
+      return this.fallback.rerank(input);
+    }
+
+    const response = await fetchOpenAiJson(
+      this.config,
+      this.config.openAiRerankModel,
+      [
+        'Rerank candidate knowledge for a coding agent.',
+        'Prefer candidates with concrete evidence for the task files, symbols, errors, workflow stage, and project.',
+        'Penalize generic semantic matches, stale-looking context, and candidates that do not answer the user task.',
+        'Return JSON only with one score from 0 to 1 for each useful candidate.',
+      ].join(' '),
+      'candidate_rerank',
+      rerankSchema(input.candidates.length),
+      {
+        prompt: input.prompt,
+        classified: {
+          taskType: input.classified.taskType,
+          project: input.classified.project,
+          files: input.classified.files,
+          symbols: input.classified.symbols,
+          errors: input.classified.errors,
+          technologies: input.classified.technologies,
+          businessAreas: input.classified.businessAreas,
+          exactTerms: input.classified.exactTerms,
+        },
+        candidates: input.candidates.map(toRerankPayload),
+      },
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new ModelProviderError(`OpenAI rerank request failed: ${response.status} ${detail}`);
+    }
+
+    const decisions = parseRerankResponse(await response.json());
+    return applyProviderRerank(input, decisions, this.config.openAiRerankModel, this.fallback);
   }
 }
 
@@ -140,7 +198,14 @@ async function fetchOpenAiEmbedding(config: AppConfig, text: string): Promise<Re
   }
 }
 
-async function fetchOpenAiJson(config: AppConfig, model: string, input: unknown): Promise<Response> {
+async function fetchOpenAiJson(
+  config: AppConfig,
+  model: string,
+  systemPrompt: string,
+  schemaName: string,
+  schema: Record<string, unknown>,
+  input: unknown,
+): Promise<Response> {
   try {
     return await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -153,12 +218,7 @@ async function fetchOpenAiJson(config: AppConfig, model: string, input: unknown)
         input: [
           {
             role: 'system',
-            content: [
-              'Rewrite retrieval queries for a local project knowledge broker.',
-              'Return compact JSON only.',
-              'Preserve exact file paths, symbols, errors, technologies, and domain terms.',
-              'Do not add facts that are not supported by the prompt or existing classification.',
-            ].join(' '),
+            content: systemPrompt,
           },
           {
             role: 'user',
@@ -168,33 +228,61 @@ async function fetchOpenAiJson(config: AppConfig, model: string, input: unknown)
         text: {
           format: {
             type: 'json_schema',
-            name: 'query_rewrite',
+            name: schemaName,
             strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                lexicalQuery: { type: 'string' },
-                exactTerms: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  maxItems: 16,
-                },
-                reasons: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  maxItems: 6,
-                },
-              },
-              required: ['lexicalQuery', 'exactTerms', 'reasons'],
-            },
+            schema,
           },
         },
       }),
     });
   } catch (error) {
-    throw new ModelProviderError('OpenAI query rewrite request failed.', error);
+    throw new ModelProviderError('OpenAI Responses request failed.', error);
   }
+}
+
+function queryRewriteSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      lexicalQuery: { type: 'string' },
+      exactTerms: {
+        type: 'array',
+        items: { type: 'string' },
+        maxItems: 16,
+      },
+      reasons: {
+        type: 'array',
+        items: { type: 'string' },
+        maxItems: 6,
+      },
+    },
+    required: ['lexicalQuery', 'exactTerms', 'reasons'],
+  };
+}
+
+function rerankSchema(candidateCount: number): Record<string, unknown> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      rankings: {
+        type: 'array',
+        maxItems: Math.min(candidateCount, 24),
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            knowledgeId: { type: 'string' },
+            score: { type: 'number', minimum: 0, maximum: 1 },
+            reason: { type: 'string' },
+          },
+          required: ['knowledgeId', 'score', 'reason'],
+        },
+      },
+    },
+    required: ['rankings'],
+  };
 }
 
 function parseQueryRewriteResponse(body: unknown, model: string): QueryRewriteResult | undefined {
@@ -203,7 +291,7 @@ function parseQueryRewriteResponse(body: unknown, model: string): QueryRewriteRe
     throw new ModelProviderError('OpenAI query rewrite response did not include output text.');
   }
 
-  const parsed = parseJsonObject(outputText);
+  const parsed = parseJsonObject(outputText, 'OpenAI query rewrite response');
   const lexicalQuery = typeof parsed.lexicalQuery === 'string' ? truncate(parsed.lexicalQuery, 600) : '';
   if (!lexicalQuery.trim()) {
     return undefined;
@@ -215,6 +303,105 @@ function parseQueryRewriteResponse(body: unknown, model: string): QueryRewriteRe
     reasons: stringArray(parsed.reasons, 6),
     model,
   };
+}
+
+function parseRerankResponse(body: unknown): RerankDecision[] {
+  const outputText = extractOutputText(body);
+  if (!outputText) {
+    throw new ModelProviderError('OpenAI rerank response did not include output text.');
+  }
+
+  const parsed = parseJsonObject(outputText, 'OpenAI rerank response');
+  const rankings = Array.isArray(parsed.rankings) ? parsed.rankings : [];
+
+  return rankings
+    .filter(isRecord)
+    .map((item) => ({
+      knowledgeId: typeof item.knowledgeId === 'string' ? item.knowledgeId : '',
+      score: typeof item.score === 'number' ? clamp(item.score, 0, 1) : Number.NaN,
+      reason: typeof item.reason === 'string' ? truncate(item.reason, 160).trim() : undefined,
+    }))
+    .filter((item) => item.knowledgeId && Number.isFinite(item.score));
+}
+
+async function applyProviderRerank(
+  input: RerankInput,
+  decisions: RerankDecision[],
+  model: string,
+  fallback: HashModelProvider,
+): Promise<RerankResult> {
+  if (decisions.length === 0) {
+    return fallback.rerank(input);
+  }
+
+  const fallbackResult = await fallback.rerank(input);
+  const candidateById = new Map(input.candidates.map((candidate) => [candidate.knowledgeId, candidate]));
+  const usedIds = new Set<string>();
+  const providerRanked = decisions.flatMap((decision) => {
+    const candidate = candidateById.get(decision.knowledgeId);
+    if (!candidate || usedIds.has(candidate.knowledgeId)) {
+      return [];
+    }
+
+    usedIds.add(candidate.knowledgeId);
+    const trustScore = clamp(candidate.trustLevel / 100, 0, 1);
+    const rerankScore = clamp(decision.score * 0.74 + candidate.fusedScore * 0.18 + trustScore * 0.08, 0, 1);
+    const reason = decision.reason ? `provider rerank: ${decision.reason}` : 'provider rerank';
+
+    return [{
+      ...candidate,
+      rerankScore,
+      finalScore: rerankScore,
+      matchReasons: [...candidate.matchReasons, reason],
+      metadata: {
+        ...(candidate.metadata ?? {}),
+        providerRerank: {
+          model,
+          score: decision.score,
+          reason: decision.reason,
+        },
+      },
+    }];
+  });
+
+  const fallbackOnly = fallbackResult.candidates
+    .filter((candidate) => !usedIds.has(candidate.knowledgeId))
+    .map((candidate) => ({
+      ...candidate,
+      rerankScore: clamp(candidate.rerankScore * 0.78, 0, 1),
+      finalScore: clamp(candidate.finalScore * 0.78, 0, 1),
+    }));
+
+  const candidates = [...providerRanked, ...fallbackOnly]
+    .sort((left, right) => right.finalScore - left.finalScore || left.rank - right.rank)
+    .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+
+  return {
+    candidates,
+    decisions: decisions.filter((decision) => candidateById.has(decision.knowledgeId)),
+    model,
+  };
+}
+
+function toRerankPayload(candidate: RankedCandidate): Record<string, unknown> {
+  return {
+    knowledgeId: candidate.knowledgeId,
+    title: truncate(candidate.title, 160),
+    summary: truncate(candidate.summary, 320),
+    itemType: candidate.itemType,
+    project: candidate.project,
+    source: candidate.source,
+    fusedScore: roundScore(candidate.fusedScore),
+    trustLevel: candidate.trustLevel,
+    matchReasons: candidate.matchReasons.slice(0, 10),
+    labels: candidate.labels.slice(0, 16).map((label) => `${label.type}:${label.value}`),
+    references: candidate.references.slice(0, 10).map((reference) => reference.uri),
+    content: truncate(candidate.contextualContent || candidate.content, 900),
+  };
+}
+
+function roundScore(value: number): number {
+  return Math.round(value * 10000) / 10000;
 }
 
 function extractOutputText(body: unknown): string | undefined {
@@ -242,7 +429,7 @@ function extractOutputText(body: unknown): string | undefined {
   return undefined;
 }
 
-function parseJsonObject(value: string): Record<string, unknown> {
+function parseJsonObject(value: string, description: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value) as unknown;
     if (isRecord(parsed)) {
@@ -252,7 +439,7 @@ function parseJsonObject(value: string): Record<string, unknown> {
     // Fall through to the typed provider error below.
   }
 
-  throw new ModelProviderError('OpenAI query rewrite response was not a JSON object.');
+  throw new ModelProviderError(`${description} was not a JSON object.`);
 }
 
 function stringArray(value: unknown, maxItems: number): string[] {

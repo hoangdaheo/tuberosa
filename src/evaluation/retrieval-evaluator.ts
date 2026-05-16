@@ -1,6 +1,7 @@
 import type {
   ClassifiedQuery,
   ContextPack,
+  ContextFitStatus,
   ContextSearchInput,
   FeedbackInput,
   KnowledgeInput,
@@ -45,8 +46,12 @@ export interface RetrievalEvalCase {
   errors?: string[];
   tokenBudget?: number;
   expectedKnowledgeIds?: string[];
+  expectedSelectedKnowledgeIds?: string[];
   unexpectedKnowledgeIds?: string[];
   rejectedKnowledgeIds?: string[];
+  minConfidence?: number;
+  expectedContextFitStatus?: ContextFitStatus;
+  minContextFitScore?: number;
   expectedClassification?: RetrievalEvalClassificationExpectation;
 }
 
@@ -83,15 +88,26 @@ export interface RetrievalEvalCaseResult {
   prompt: string;
   passed: boolean;
   confidence: number;
+  minConfidence?: number;
+  confidencePassed?: boolean;
+  contextFitStatus?: ContextFitStatus;
+  expectedContextFitStatus?: ContextFitStatus;
+  contextFitStatusPassed?: boolean;
+  contextFitScore?: number;
+  minContextFitScore?: number;
+  contextFitScorePassed?: boolean;
   reciprocalRank: number | null;
   precisionAtK: number | null;
   firstExpectedRank: number | null;
   expectedKnowledgeIds: string[];
   matchedExpectedKnowledgeIds: string[];
+  expectedSelectedKnowledgeIds: string[];
+  matchedSelectedKnowledgeIds: string[];
   unexpectedKnowledgeIds: string[];
   returnedUnexpectedKnowledgeIds: string[];
   rejectedKnowledgeIds: string[];
   returnedRejectedKnowledgeIds: string[];
+  selectedKnowledgeIds: string[];
   topKnowledgeIds: string[];
   classificationChecks: RetrievalEvalClassificationCheck[];
 }
@@ -100,8 +116,12 @@ export interface RetrievalEvalMetrics {
   hitRate: number | null;
   meanReciprocalRank: number | null;
   precisionAtK: number | null;
+  selectedCoverageRate: number | null;
   staleRejectionRate: number | null;
   unexpectedAvoidanceRate: number | null;
+  confidenceThresholdRate: number | null;
+  contextFitStatusRate: number | null;
+  contextFitScoreRate: number | null;
   exactFileMatchRate: number | null;
   exactSymbolMatchRate: number | null;
   exactErrorMatchRate: number | null;
@@ -214,6 +234,7 @@ export class RetrievalEvaluator {
     topK: number,
   ): Promise<RetrievalEvalCaseResult> {
     const expectedIds = resolveEvalIds(index, testCase.expectedKnowledgeIds ?? []);
+    const expectedSelectedIds = resolveEvalIds(index, testCase.expectedSelectedKnowledgeIds ?? []);
     const unexpectedIds = resolveEvalIds(index, testCase.unexpectedKnowledgeIds ?? []);
     const rejectedIds = resolveEvalIds(index, testCase.rejectedKnowledgeIds ?? []);
     const pack = await this.searcher.searchContext({
@@ -229,6 +250,7 @@ export class RetrievalEvaluator {
     });
     const rankedItems = flattenPack(pack);
     const topItems = rankedItems.slice(0, topK);
+    const selectedIds = rankedItems.map((item) => item.knowledgeId);
     const firstExpectedRank = firstRank(rankedItems, expectedIds);
     const matchedExpectedIds = topItems
       .filter((item) => expectedIds.has(item.knowledgeId))
@@ -239,12 +261,23 @@ export class RetrievalEvaluator {
     const returnedRejectedIds = rankedItems
       .filter((item) => rejectedIds.has(item.knowledgeId))
       .map((item) => item.knowledgeId);
+    const matchedSelectedIds = selectedIds.filter((knowledgeId) => expectedSelectedIds.has(knowledgeId));
     const classificationChecks = evaluateClassification(testCase.expectedClassification, pack.classified);
     const hitPassed = expectedIds.size === 0 || (firstExpectedRank !== null && firstExpectedRank <= topK);
+    const selectedPassed = expectedSelectedIds.size === 0 || matchedSelectedIds.length === expectedSelectedIds.size;
+    const confidencePassed = testCase.minConfidence === undefined || pack.confidence >= testCase.minConfidence;
+    const contextFitStatusPassed = testCase.expectedContextFitStatus === undefined
+      || pack.contextFit?.fitStatus === testCase.expectedContextFitStatus;
+    const contextFitScorePassed = testCase.minContextFitScore === undefined
+      || (pack.contextFit?.fitScore ?? 0) >= testCase.minContextFitScore;
     const classificationPassed = classificationChecks.every((check) => check.passed);
     const passed = hitPassed
+      && selectedPassed
       && returnedUnexpectedIds.length === 0
       && returnedRejectedIds.length === 0
+      && confidencePassed
+      && contextFitStatusPassed
+      && contextFitScorePassed
       && classificationPassed;
 
     return {
@@ -252,15 +285,26 @@ export class RetrievalEvaluator {
       prompt: testCase.prompt,
       passed,
       confidence: pack.confidence,
+      minConfidence: testCase.minConfidence,
+      confidencePassed,
+      contextFitStatus: pack.contextFit?.fitStatus,
+      expectedContextFitStatus: testCase.expectedContextFitStatus,
+      contextFitStatusPassed,
+      contextFitScore: pack.contextFit?.fitScore,
+      minContextFitScore: testCase.minContextFitScore,
+      contextFitScorePassed,
       reciprocalRank: firstExpectedRank === null ? null : round(1 / firstExpectedRank),
       precisionAtK: expectedIds.size === 0 ? null : round(matchedExpectedIds.length / topK),
       firstExpectedRank,
       expectedKnowledgeIds: toEvalIds(index, [...expectedIds]),
       matchedExpectedKnowledgeIds: toEvalIds(index, matchedExpectedIds),
+      expectedSelectedKnowledgeIds: toEvalIds(index, [...expectedSelectedIds]),
+      matchedSelectedKnowledgeIds: toEvalIds(index, matchedSelectedIds),
       unexpectedKnowledgeIds: toEvalIds(index, [...unexpectedIds]),
       returnedUnexpectedKnowledgeIds: toEvalIds(index, returnedUnexpectedIds),
       rejectedKnowledgeIds: toEvalIds(index, [...rejectedIds]),
       returnedRejectedKnowledgeIds: toEvalIds(index, returnedRejectedIds),
+      selectedKnowledgeIds: toEvalIds(index, selectedIds),
       topKnowledgeIds: toEvalIds(index, topItems.map((item) => item.knowledgeId)),
       classificationChecks,
     };
@@ -354,8 +398,12 @@ function containsAll(actual: string[], expected: string[]): boolean {
 
 function buildMetrics(cases: RetrievalEvalCaseResult[], topK: number): RetrievalEvalMetrics {
   const casesWithExpected = cases.filter((testCase) => testCase.expectedKnowledgeIds.length > 0);
+  const casesWithSelected = cases.filter((testCase) => testCase.expectedSelectedKnowledgeIds.length > 0);
   const casesWithRejected = cases.filter((testCase) => testCase.rejectedKnowledgeIds.length > 0);
   const casesWithUnexpected = cases.filter((testCase) => testCase.unexpectedKnowledgeIds.length > 0);
+  const confidenceCases = cases.filter((testCase) => testCase.minConfidence !== undefined);
+  const contextFitStatusCases = cases.filter((testCase) => testCase.expectedContextFitStatus !== undefined);
+  const contextFitScoreCases = cases.filter((testCase) => testCase.minContextFitScore !== undefined);
   const classificationCases = cases.filter((testCase) => testCase.classificationChecks.length > 0);
 
   return {
@@ -364,11 +412,21 @@ function buildMetrics(cases: RetrievalEvalCaseResult[], topK: number): Retrieval
     ))),
     meanReciprocalRank: average(casesWithExpected.map((testCase) => testCase.reciprocalRank ?? 0)),
     precisionAtK: average(casesWithExpected.map((testCase) => testCase.precisionAtK ?? 0)),
+    selectedCoverageRate: average(casesWithSelected.map((testCase) => (
+      testCase.matchedSelectedKnowledgeIds.length === testCase.expectedSelectedKnowledgeIds.length ? 1 : 0
+    ))),
     staleRejectionRate: average(casesWithRejected.map((testCase) => (
       testCase.returnedRejectedKnowledgeIds.length === 0 ? 1 : 0
     ))),
     unexpectedAvoidanceRate: average(casesWithUnexpected.map((testCase) => (
       testCase.returnedUnexpectedKnowledgeIds.length === 0 ? 1 : 0
+    ))),
+    confidenceThresholdRate: average(confidenceCases.map((testCase) => (testCase.confidencePassed ? 1 : 0))),
+    contextFitStatusRate: average(contextFitStatusCases.map((testCase) => (
+      testCase.contextFitStatusPassed ? 1 : 0
+    ))),
+    contextFitScoreRate: average(contextFitScoreCases.map((testCase) => (
+      testCase.contextFitScorePassed ? 1 : 0
     ))),
     exactFileMatchRate: checkRate(cases, 'files'),
     exactSymbolMatchRate: checkRate(cases, 'symbols'),

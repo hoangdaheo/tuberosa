@@ -172,6 +172,24 @@ export interface QueryRewriteResult {
   model?: string;
 }
 
+export interface RerankInput {
+  prompt: string;
+  classified: ClassifiedQuery;
+  candidates: RankedCandidate[];
+}
+
+export interface RerankDecision {
+  knowledgeId: string;
+  score: number;
+  reason?: string;
+}
+
+export interface RerankResult {
+  candidates: RankedCandidate[];
+  decisions?: RerankDecision[];
+  model?: string;
+}
+
 export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'reference';
 
 export interface SearchCandidate {
@@ -542,6 +560,12 @@ export interface RetrievalDebugTrace {
     addedExactTerms: string[];
     reasons: string[];
     model?: string;
+  };
+  providerRerank?: {
+    model?: string;
+    candidateCount: number;
+    inputKnowledgeIds: string[];
+    decisions: RerankDecision[];
   };
   timingsMs: Partial<Record<RetrievalDebugTimingName, number>>;
   stages: RetrievalDebugStage[];

@@ -9,7 +9,15 @@ import { classifyQuery } from '../src/retrieval/classifier.js';
 import { ContextFitEvaluator } from '../src/retrieval/context-fit.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
-import type { ClassifiedQuery, QueryRewriteInput, QueryRewriteResult, RankedCandidate } from '../src/types.js';
+import type {
+  ClassifiedQuery,
+  QueryRewriteInput,
+  QueryRewriteResult,
+  RankedCandidate,
+  RerankDecision,
+  RerankInput,
+  RerankResult,
+} from '../src/types.js';
 
 const config: AppConfig = {
   env: 'test',
@@ -410,6 +418,68 @@ test('provider query rewrite expands search input and debug decisions', async ()
   equal(stored?.debug, undefined);
 });
 
+test('provider rerank can reorder fused candidates and records debug decisions', async () => {
+  const store = new MemoryKnowledgeStore();
+  const cache = new MemoryCache();
+  const models = new ProviderRerankHashModelProvider(1536);
+  const ingestion = new IngestionService(store, models);
+  const retrieval = new RetrievalService(store, cache, models, config);
+
+  const generic = await ingestion.ingestKnowledge({
+    project: 'tuberosa',
+    sourceType: 'file',
+    sourceUri: 'docs/auth-overview.md',
+    itemType: 'wiki',
+    title: 'AuthService overview',
+    summary: 'General AuthService notes for login and token refresh.',
+    content: 'AuthService handles login, bearer tokens, refresh, and session storage in a broad overview.',
+    trustLevel: 95,
+    labels: [
+      { type: 'symbol', value: 'AuthService', weight: 1 },
+      { type: 'task_type', value: 'implementation', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'docs/auth-overview.md' }],
+  });
+  const specific = await ingestion.ingestKnowledge({
+    project: 'tuberosa',
+    sourceType: 'file',
+    sourceUri: 'docs/token-refresh-runbook.md',
+    itemType: 'workflow',
+    title: 'Token refresh retry runbook',
+    summary: 'Specific workflow for preserving token refresh retries.',
+    content: 'When changing AuthService token refresh, preserve retry backoff and avoid rotating the bearer token twice.',
+    trustLevel: 92,
+    labels: [
+      { type: 'symbol', value: 'AuthService', weight: 1 },
+      { type: 'workflow_stage', value: 'token-refresh', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'docs/token-refresh-runbook.md' }],
+  });
+  models.setDecisions([
+    { knowledgeId: specific.id, score: 0.98, reason: 'Covers token refresh retry behavior directly.' },
+    { knowledgeId: generic.id, score: 0.2, reason: 'Mostly generic AuthService background.' },
+  ]);
+
+  const pack = await retrieval.searchContext({
+    project: 'tuberosa',
+    prompt: 'Update AuthService token refresh retry behavior',
+    symbols: ['AuthService'],
+    taskType: 'implementation',
+    debug: true,
+  });
+
+  equal(models.rerankInputs.length, 1);
+  equal(models.rerankInputs[0]?.classified.taskType, 'implementation');
+  equal(pack.sections[0].items[0].knowledgeId, specific.id);
+  ok(pack.sections[0].items[0].matchReasons.some((reason) => reason.includes('provider rerank')));
+  equal(pack.debug?.providerRerank?.model, 'test-rerank-model');
+  equal(pack.debug?.providerRerank?.candidateCount, 2);
+  deepEqual(pack.debug?.providerRerank?.decisions.map((decision) => decision.knowledgeId), [specific.id, generic.id]);
+
+  const stored = await retrieval.getContextPack(pack.id);
+  equal(stored?.debug, undefined);
+});
+
 test('context fit marks exact anchored retrieval ready and exposes fit reasons', async () => {
   const { ingestion, retrieval } = createTestServices();
 
@@ -797,5 +867,41 @@ class RewritingHashModelProvider extends HashModelProvider {
   override async rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult> {
     this.rewriteInputs.push(input);
     return this.rewrite;
+  }
+}
+
+class ProviderRerankHashModelProvider extends HashModelProvider {
+  readonly rerankInputs: RerankInput[] = [];
+  private decisions: RerankDecision[] = [];
+
+  setDecisions(decisions: RerankDecision[]): void {
+    this.decisions = decisions;
+  }
+
+  override async rerank(input: RerankInput): Promise<RerankResult> {
+    this.rerankInputs.push(input);
+    const candidatesById = new Map(input.candidates.map((candidate) => [candidate.knowledgeId, candidate]));
+    const candidates = this.decisions
+      .map((decision, index) => {
+        const candidate = candidatesById.get(decision.knowledgeId);
+        if (!candidate) {
+          return undefined;
+        }
+
+        return {
+          ...candidate,
+          rank: index + 1,
+          rerankScore: decision.score,
+          finalScore: decision.score,
+          matchReasons: [...candidate.matchReasons, `provider rerank: ${decision.reason}`],
+        };
+      })
+      .filter((candidate): candidate is RankedCandidate => candidate !== undefined);
+
+    return {
+      candidates,
+      decisions: this.decisions,
+      model: 'test-rerank-model',
+    };
   }
 }

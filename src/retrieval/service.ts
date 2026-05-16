@@ -54,7 +54,7 @@ export class RetrievalService {
     const rewrite = await this.models.rewriteQuery({ prompt: normalized.prompt, classified });
     const rewriteElapsedMs = Date.now() - rewriteStartedAt;
     const rewriteResult = applyQueryRewrite(classified, rewrite, this.safety);
-    const fingerprint = fingerprintSearch(normalized, rewriteResult.classified, rewrite);
+    const fingerprint = fingerprintSearch(normalized, rewriteResult.classified, this.config, rewrite);
     const cacheKey = `context:${fingerprint}`;
     const debug = normalized.debug
       ? new RetrievalDebugBuilder({
@@ -216,7 +216,17 @@ export class RetrievalService {
     debug?.recordTiming('fusion', fusionStartedAt);
     debug?.recordStage('fusion', fused);
 
-    const reranked = this.safety.sanitizeSearchCandidates(await timed('rerank', this.models.rerank(prompt, fused), debug));
+    const rerankResult = await timed(
+      'rerank',
+      this.models.rerank({ prompt, classified, candidates: fused }),
+      debug,
+    );
+    debug?.recordProviderRerank({
+      model: rerankResult.model,
+      inputKnowledgeIds: fused.map((candidate) => candidate.knowledgeId),
+      decisions: rerankResult.decisions,
+    });
+    const reranked = this.safety.sanitizeSearchCandidates(rerankResult.candidates);
     const feedbackAdjusted = await this.applyFeedbackSummaries(reranked, project ?? classified.project);
     debug?.recordStage('rerank', feedbackAdjusted);
     return feedbackAdjusted;
@@ -299,6 +309,7 @@ function normalizeSearchInput(input: ContextSearchInput): NormalizedContextSearc
 function fingerprintSearch(
   input: NormalizedContextSearchInput,
   classified: ClassifiedQuery,
+  config: AppConfig,
   rewrite?: QueryRewriteResult,
 ): string {
   return sha256(stableJson({
@@ -315,6 +326,7 @@ function fingerprintSearch(
     lexicalQuery: classified.lexicalQuery,
     exactTerms: classified.exactTerms,
     queryRewriteModel: rewrite?.model,
+    rerankModel: config.openAiRerankModel,
   }));
 }
 

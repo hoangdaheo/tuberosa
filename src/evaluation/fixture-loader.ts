@@ -68,8 +68,18 @@ function parseCase(value: unknown, path: string): RetrievalEvalCase {
     errors: optionalStringArray(item.errors, `${path}.errors`),
     tokenBudget: optionalNumber(item.tokenBudget, `${path}.tokenBudget`),
     expectedKnowledgeIds: optionalStringArray(item.expectedKnowledgeIds, `${path}.expectedKnowledgeIds`),
+    expectedSelectedKnowledgeIds: optionalStringArray(
+      item.expectedSelectedKnowledgeIds,
+      `${path}.expectedSelectedKnowledgeIds`,
+    ),
     unexpectedKnowledgeIds: optionalStringArray(item.unexpectedKnowledgeIds, `${path}.unexpectedKnowledgeIds`),
     rejectedKnowledgeIds: optionalStringArray(item.rejectedKnowledgeIds, `${path}.rejectedKnowledgeIds`),
+    minConfidence: optionalNumber(item.minConfidence, `${path}.minConfidence`),
+    expectedContextFitStatus: optionalString(
+      item.expectedContextFitStatus,
+      `${path}.expectedContextFitStatus`,
+    ) as RetrievalEvalCase['expectedContextFitStatus'],
+    minContextFitScore: optionalNumber(item.minContextFitScore, `${path}.minContextFitScore`),
     expectedClassification: parseExpectedClassification(
       item.expectedClassification,
       `${path}.expectedClassification`,

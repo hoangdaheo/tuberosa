@@ -79,6 +79,7 @@ Important variables:
 | `OPENAI_API_KEY` | empty | Enables OpenAI embeddings when provider is `openai`. |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model. |
 | `OPENAI_REWRITE_MODEL` | empty | Optional OpenAI Responses model for provider-backed query rewriting before retrieval. |
+| `OPENAI_RERANK_MODEL` | empty | Optional OpenAI Responses model for provider-backed candidate reranking after fusion. |
 | `EMBEDDING_DIMENSIONS` | `1536` | Must match the pgvector column dimension. |
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Redis or memory cache TTL for context packs. |
 | `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
@@ -481,6 +482,7 @@ The debug trace includes:
 - Rejected knowledge ids and filter decisions.
 - Timing per stage.
 - Query rewrite input/output summary when `OPENAI_REWRITE_MODEL` is configured.
+- Provider rerank input ids and scoring decisions when `OPENAI_RERANK_MODEL` is configured.
 - Candidate lists for metadata, lexical, memory, vector, fusion, rerank, and fit.
 - Raw, fused, rerank, final, and fit scores when available.
 - Final selected candidates by context-pack section.
@@ -886,6 +888,10 @@ Check:
 ### OpenAI query rewriting fails
 
 Query rewriting is optional. Unset `OPENAI_REWRITE_MODEL` to disable it, or check that the configured model supports the Responses API and JSON schema output.
+
+### OpenAI reranking fails
+
+Reranking is optional. Unset `OPENAI_RERANK_MODEL` to fall back to deterministic hash reranking, or check that the configured model supports the Responses API and JSON schema output.
 
 ### MCP client does not see tools
 

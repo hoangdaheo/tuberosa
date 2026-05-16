@@ -125,10 +125,18 @@ Acceptance:
 
 Goal: improve quality while keeping deterministic local behavior.
 
-- Add optional provider-backed query rewriting.
-- Add optional provider-backed reranking.
-- Keep hash reranking as deterministic default for tests and local/offline mode.
-- Expand `eval/retrieval-fixtures.json` with expected fit status, selected IDs, rejected IDs, and confidence thresholds.
+Status: Done on 2026-05-17.
+
+Current baseline:
+
+- Optional provider-backed query rewriting is available through `OPENAI_REWRITE_MODEL`.
+- Optional provider-backed reranking is available through `OPENAI_RERANK_MODEL`.
+- Hash reranking remains the deterministic default for tests and local/offline mode.
+- `eval/retrieval-fixtures.json` includes expected fit status, selected IDs, rejected IDs, and confidence thresholds.
+- `pnpm run eval:retrieval` reports selected coverage, confidence threshold pass rate, and context-fit pass rates.
+
+Ongoing rule:
+
 - Require `pnpm run eval:retrieval` before and after any ranking change.
 
 Acceptance:

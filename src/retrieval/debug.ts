@@ -2,6 +2,7 @@ import type {
   ContextPack,
   QueryRewriteResult,
   RankedCandidate,
+  RerankDecision,
   RetrievalDebugCandidate,
   RetrievalDebugStage,
   RetrievalDebugStageName,
@@ -25,6 +26,7 @@ export class RetrievalDebugBuilder {
   private readonly timingsMs: Partial<Record<RetrievalDebugTimingName, number>> = {};
   private readonly stages: RetrievalDebugStage[] = [];
   private queryRewrite?: RetrievalDebugTrace['queryRewrite'];
+  private providerRerank?: RetrievalDebugTrace['providerRerank'];
 
   constructor(private readonly input: RetrievalDebugBuilderInput) {}
 
@@ -62,6 +64,23 @@ export class RetrievalDebugBuilder {
     };
   }
 
+  recordProviderRerank(input: {
+    model?: string;
+    inputKnowledgeIds: string[];
+    decisions?: RerankDecision[];
+  }): void {
+    if (!input.decisions?.length && !input.model) {
+      return;
+    }
+
+    this.providerRerank = {
+      model: input.model,
+      candidateCount: input.inputKnowledgeIds.length,
+      inputKnowledgeIds: input.inputKnowledgeIds,
+      decisions: input.decisions ?? [],
+    };
+  }
+
   buildTrace(pack: ContextPack): RetrievalDebugTrace {
     return {
       fingerprint: this.input.fingerprint,
@@ -93,6 +112,7 @@ export class RetrievalDebugBuilder {
         ],
       },
       queryRewrite: this.queryRewrite,
+      providerRerank: this.providerRerank,
       timingsMs: this.timingsMs,
       stages: this.stages,
       selected: Object.fromEntries(

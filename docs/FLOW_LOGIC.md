@@ -124,7 +124,7 @@ Flow:
 10. `KnowledgeSafetyService` filters blocked candidates and redacts any legacy unsafe content before ranking.
 11. `fuseCandidates` merges all source lists by knowledge id using weighted reciprocal-rank fusion.
 12. Fusion keeps the strongest chunk per knowledge item and merges match reasons.
-13. Model provider reranks the fused top candidates.
+13. Model provider reranks the fused top candidates. Hash mode stays deterministic; OpenAI mode can use `OPENAI_RERANK_MODEL` when configured.
 14. Store feedback summaries are applied to reranked candidates:
    - selected feedback gives a modest final-score boost
    - stale, rejected, and irrelevant feedback apply final-score penalties
@@ -182,8 +182,9 @@ Fusion:
 Rerank:
 
 - Hash provider reranks deterministically for tests.
-- OpenAI provider can rewrite queries when `OPENAI_REWRITE_MODEL` is set, then uses OpenAI embeddings and hash fallback reranking.
-- Future provider-backed reranking should keep deterministic tests.
+- OpenAI provider can rewrite queries when `OPENAI_REWRITE_MODEL` is set.
+- OpenAI provider can rerank fused candidates when `OPENAI_RERANK_MODEL` is set.
+- If rerank is unset, OpenAI provider falls back to deterministic hash reranking.
 
 ## 7. Debug Trace Flow
 
@@ -203,6 +204,7 @@ Debug trace fields:
 - `limits`: search limit, rerank limit, and token budget.
 - `filters`: rejected knowledge ids and filter decisions.
 - `queryRewrite`: original lexical query, rewritten lexical query, added exact terms, reasons, and model when a provider rewrite was used.
+- `providerRerank`: provider rerank model, candidate ids sent for rerank, and provider scoring decisions when provider rerank was used.
 - `timingsMs`: classification, rewrite, embedding, stage search, fusion, rerank, fit, assembly, save, and total timings.
 - `stages`: metadata, lexical, memory, vector, fusion, rerank, and fit candidate lists.
 - `selected`: final candidates by context-pack section.
@@ -500,9 +502,10 @@ OpenAI provider:
 
 - Used when `TUBEROSA_MODEL_PROVIDER=openai` and `OPENAI_API_KEY` is set.
 - Calls the configured `OPENAI_REWRITE_MODEL` through the Responses API when query rewriting is enabled.
+- Calls the configured `OPENAI_RERANK_MODEL` through the Responses API when provider-backed reranking is enabled.
 - Calls OpenAI embeddings endpoint.
 - Embedding dimensions must match database schema.
-- Reranking currently falls back to deterministic hash rerank.
+- Reranking falls back to deterministic hash rerank when `OPENAI_RERANK_MODEL` is unset.
 
 Provider design rule:
 
