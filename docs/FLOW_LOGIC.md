@@ -32,6 +32,7 @@ Main services:
 - `src/retrieval/debug.ts`: builds optional retrieval debug traces.
 - `src/agent-session/service.ts`: coordinates session start, context decisions, finish outcomes, and optional reflection drafts.
 - `src/reflection/service.ts`: creates and approves memory drafts.
+- `src/operations/service.ts`: exposes review, audit, cleanup, and importer operations without coupling them to retrieval.
 - `src/storage/store.ts`: storage interface.
 - `src/storage/postgres-store.ts`: durable storage implementation.
 - `src/storage/memory-store.ts`: in-memory test and fallback implementation.
@@ -385,7 +386,60 @@ Safety rule:
 
 - Do not save secrets, raw private conversation, or unreviewed prompt-injection content as durable memory.
 
-## 12. Cache Logic
+## 12. Knowledge Review And Operations Flow
+
+Entry points:
+
+- HTTP `GET /knowledge`
+- HTTP `GET /knowledge/:id`
+- HTTP `PATCH /knowledge/:id`
+- HTTP `GET /labels`
+- HTTP `GET /context/packs`
+- HTTP `GET /feedback-events`
+- HTTP `GET /agent-sessions`
+- HTTP `GET /agent-sessions/:id`
+- HTTP `GET /agent-sessions/:id/context-decisions`
+- HTTP `GET /reflection-drafts`
+- HTTP `GET /reflection-drafts/:id`
+- HTTP `PATCH /reflection-drafts/:id`
+- HTTP `POST /operations/import-files`
+- HTTP `POST /operations/cleanup`
+- CLI `pnpm run import:docs`
+
+Review flow:
+
+1. `OperationsService` exposes read/update operations over `KnowledgeStore`.
+2. `GET /knowledge` supports normal project/query listing and review filters:
+   - `questionable`
+   - `unsafe`
+   - `low_trust`
+   - `stale`
+   - `rejected`
+   - `irrelevant`
+   - `orphaned`
+3. `PATCH /knowledge/:id` updates review status, trust level, freshness, labels, references, and metadata.
+4. Content updates should use ingestion endpoints or the importer so chunks and embeddings are rebuilt.
+5. Draft review uses list/get/update endpoints before approval turns a draft into searchable memory.
+6. Audit listings expose context packs, feedback events, sessions, and session decisions so users can inspect why context was returned and how it was used.
+
+Cleanup flow:
+
+1. Caller posts `olderThanDays` and optional `dryRun`.
+2. Store computes counts for old proposed context packs, orphaned feedback rows, unused old context queries, and unused knowledge sources.
+3. Dry runs return counts without deleting.
+4. Non-dry runs delete only operational debris, not approved knowledge items.
+
+Importer flow:
+
+1. `/operations/import-files` and `pnpm run import:docs` both call `OperationsService.importFiles`.
+2. The service delegates to `IngestionService.ingestFiles`.
+3. Atomic markdown imports reuse existing stale-atom cleanup so refreshing docs does not leave obsolete section atoms behind.
+
+Design rule:
+
+- Operations code should orchestrate review and maintenance, while retrieval, reflection, ingestion, and persistence keep their own responsibilities.
+
+## 13. Cache Logic
 
 Cache key:
 
@@ -415,7 +469,7 @@ Cache is skipped when:
 
 Saved packs are compact. Debug traces are stripped before saving and caching.
 
-## 13. Model Provider Logic
+## 14. Model Provider Logic
 
 Hash provider:
 
@@ -435,20 +489,22 @@ Provider design rule:
 
 - Keep provider behavior behind `ModelProvider` so retrieval can evolve without changing storage or API code.
 
-## 14. Storage Logic
+## 15. Storage Logic
 
 The `KnowledgeStore` interface owns durable operations:
 
 - upsert knowledge
-- list and get knowledge
+- list, get, and update knowledge review metadata
+- list labels
 - search lexical, vector, metadata, and memories
 - create context query
-- save and get context pack
-- record feedback
-- create and get agent session
-- record agent context decision
+- save, list, and get context packs
+- record and list feedback
+- create, list, and get agent sessions
+- record and list agent context decisions
 - finish agent session
-- create and approve reflection draft
+- create, list, update, and approve reflection drafts
+- cleanup operational debris
 - close resources
 
 Postgres store:
@@ -468,7 +524,7 @@ Design rule:
 
 - Retrieval and reflection depend on the store interface, not concrete database code.
 
-## 15. MCP Flow
+## 16. MCP Flow
 
 Initialize:
 
@@ -497,7 +553,7 @@ Prompt flow:
 - `tuberosa_bootstrap_session` tells an agent to search and confirm context before work.
 - `tuberosa_reflect_after_task` tells an agent when and how to draft memory.
 
-## 16. QA Flow
+## 17. QA Flow
 
 For code changes:
 
@@ -545,7 +601,7 @@ Expected behavior:
 - Agent sessions preserve initial context, decisions, outcome, and reflection draft links.
 - Approved reflection memory is retrievable.
 
-## 17. Maintainability Principles
+## 18. Maintainability Principles
 
 - Keep orchestration in services and persistence in stores.
 - Keep optional debug logic outside the core matching algorithm.

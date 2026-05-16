@@ -101,6 +101,8 @@ Acceptance:
 
 Goal: give users and admins a way to inspect and maintain the second brain.
 
+Status: Done on 2026-05-16.
+
 - Add read/update endpoints for:
   - knowledge atoms
   - labels

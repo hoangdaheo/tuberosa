@@ -4,15 +4,23 @@ import type {
   AgentContextDecision,
   AgentSession,
   ClassifiedQuery,
+  CleanupOperationsInput,
+  CleanupOperationsResult,
   ContextPack,
+  FeedbackEvent,
   FeedbackInput,
   FinishAgentSessionInput,
+  KnowledgePatchInput,
   KnowledgeFeedbackSummary,
   KnowledgeInput,
   LabelInput,
+  LabelRecord,
+  ListKnowledgeOptions,
+  ListRecordsOptions,
   RecordAgentContextDecisionInput,
   ReferenceInput,
   ReflectionDraft,
+  ReflectionDraftPatchInput,
   ReflectionDraftInput,
   SearchCandidate,
   SearchOptions,
@@ -76,10 +84,16 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rowCount ?? 0;
   }
 
-  async listKnowledge(options: { project?: string; query?: string; limit: number }): Promise<StoredKnowledge[]> {
+  async listKnowledge(options: ListKnowledgeOptions): Promise<StoredKnowledge[]> {
     const params: unknown[] = [options.limit];
-    const filters: string[] = ['ki.status = $2'];
-    params.push('approved');
+    const filters: string[] = [];
+
+    if (options.status) {
+      params.push(options.status);
+      filters.push(`ki.status = $${params.length}`);
+    } else if (!options.review) {
+      filters.push("ki.status = 'approved'");
+    }
 
     if (options.project) {
       params.push(options.project);
@@ -91,10 +105,15 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       filters.push(`(lower(ki.title) LIKE $${params.length} OR lower(ki.summary) LIKE $${params.length} OR lower(ki.content) LIKE $${params.length})`);
     }
 
+    const reviewFilter = knowledgeReviewSql(options.review);
+    if (reviewFilter) {
+      filters.push(reviewFilter);
+    }
+
     const result = await this.pool.query(
       `
         ${knowledgeSelect()}
-        WHERE ${filters.join(' AND ')}
+        WHERE ${filters.length ? filters.join(' AND ') : 'true'}
         ORDER BY ki.updated_at DESC
         LIMIT $1
       `,
@@ -114,6 +133,83 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     );
 
     return result.rows[0] ? mapKnowledgeRow(result.rows[0]) : undefined;
+  }
+
+  async updateKnowledge(id: string, patch: KnowledgePatchInput): Promise<StoredKnowledge | undefined> {
+    const current = await this.getKnowledge(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `
+          UPDATE knowledge_items
+          SET status = $2,
+            title = $3,
+            summary = $4,
+            trust_level = $5,
+            freshness_at = $6,
+            metadata = $7,
+            updated_at = now()
+          WHERE id = $1
+        `,
+        [
+          id,
+          patch.status ?? current.status ?? 'approved',
+          patch.title ?? current.title,
+          patch.summary ?? current.summary,
+          patch.trustLevel ?? current.trustLevel,
+          patch.freshnessAt === null ? null : patch.freshnessAt ?? current.freshnessAt ?? null,
+          patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+        ],
+      );
+
+      if (patch.labels) {
+        await client.query('DELETE FROM knowledge_labels WHERE knowledge_id = $1', [id]);
+        await this.attachLabels(client, id, patch.labels);
+      }
+
+      if (patch.references) {
+        await client.query('DELETE FROM knowledge_references WHERE knowledge_id = $1', [id]);
+        await this.attachReferences(client, id, patch.references);
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return this.getKnowledge(id);
+  }
+
+  async listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]> {
+    const result = await this.pool.query(
+      `
+        SELECT l.label_type, l.value, avg(kl.weight)::real AS weight, count(*)::int AS knowledge_count
+        FROM labels l
+        JOIN knowledge_labels kl ON kl.label_id = l.id
+        JOIN knowledge_items ki ON ki.id = kl.knowledge_id
+        JOIN projects p ON p.id = ki.project_id
+        WHERE ($2::text IS NULL OR p.name = $2)
+        GROUP BY l.id, l.label_type, l.value
+        ORDER BY knowledge_count DESC, l.value ASC
+        LIMIT $1
+      `,
+      [options.limit, options.project ?? null],
+    );
+
+    return result.rows.map((row) => ({
+      type: row.label_type as LabelRecord['type'],
+      value: String(row.value),
+      weight: Number(row.weight ?? 1),
+      knowledgeCount: Number(row.knowledge_count ?? 0),
+    }));
   }
 
   async searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {
@@ -263,6 +359,23 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     );
   }
 
+  async listContextPacks(options: ListRecordsOptions): Promise<ContextPack[]> {
+    const result = await this.pool.query<{ pack: ContextPack; status: ContextPack['status'] }>(
+      `
+        SELECT cp.pack, cp.status
+        FROM context_packs cp
+        LEFT JOIN projects p ON p.id = cp.project_id
+        WHERE ($2::text IS NULL OR p.name = $2)
+          AND ($3::text IS NULL OR cp.status = $3)
+        ORDER BY cp.created_at DESC
+        LIMIT $1
+      `,
+      [options.limit, options.project ?? null, options.status ?? null],
+    );
+
+    return result.rows.map((row) => ({ ...row.pack, status: row.status }));
+  }
+
   async getContextPack(id: string): Promise<ContextPack | undefined> {
     const result = await this.pool.query<{ pack: ContextPack; status: ContextPack['status'] }>(
       'SELECT pack, status FROM context_packs WHERE id = $1',
@@ -300,6 +413,35 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         [status, input.contextPackId],
       );
     }
+  }
+
+  async listFeedbackEvents(options: ListRecordsOptions): Promise<FeedbackEvent[]> {
+    const result = await this.pool.query(
+      `
+        SELECT fe.id, cp.id AS context_pack_id, COALESCE(fp.name, pp.name) AS project,
+          fe.feedback_type, fe.reason, fe.rejected_knowledge_ids, fe.metadata, fe.created_at
+        FROM feedback_events fe
+        LEFT JOIN context_packs cp ON cp.id = fe.context_pack_id
+        LEFT JOIN projects fp ON fp.id = fe.project_id
+        LEFT JOIN projects pp ON pp.id = cp.project_id
+        WHERE ($2::text IS NULL OR fp.name = $2 OR pp.name = $2)
+          AND ($3::text IS NULL OR fe.feedback_type = $3)
+        ORDER BY fe.created_at DESC
+        LIMIT $1
+      `,
+      [options.limit, options.project ?? null, options.status ?? null],
+    );
+
+    return result.rows.map((row) => ({
+      id: String(row.id),
+      contextPackId: row.context_pack_id ? String(row.context_pack_id) : undefined,
+      project: row.project ? String(row.project) : undefined,
+      feedbackType: row.feedback_type as FeedbackEvent['feedbackType'],
+      reason: row.reason ? String(row.reason) : undefined,
+      rejectedKnowledgeIds: (row.rejected_knowledge_ids ?? []) as string[],
+      metadata: (row.metadata ?? {}) as Record<string, unknown>,
+      createdAt: toIso(row.created_at),
+    }));
   }
 
   async getFeedbackSummaries(
@@ -413,6 +555,25 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return mapAgentSessionRow(result.rows[0], input.project);
   }
 
+  async listAgentSessions(options: ListRecordsOptions): Promise<AgentSession[]> {
+    const result = await this.pool.query(
+      `
+        SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
+          s.status, s.initial_context_pack_id, s.outcome, s.summary,
+          s.reflection_draft_ids, s.metadata, s.created_at, s.updated_at, s.finished_at
+        FROM agent_sessions s
+        LEFT JOIN projects p ON p.id = s.project_id
+        WHERE ($2::text IS NULL OR p.name = $2)
+          AND ($3::text IS NULL OR s.status = $3)
+        ORDER BY s.created_at DESC
+        LIMIT $1
+      `,
+      [options.limit, options.project ?? null, options.status ?? null],
+    );
+
+    return result.rows.map((row) => mapAgentSessionRow(row));
+  }
+
   async getAgentSession(id: string): Promise<AgentSession | undefined> {
     const result = await this.pool.query(
       `
@@ -457,6 +618,22 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return mapAgentContextDecisionRow(result.rows[0]);
   }
 
+  async listAgentContextDecisions(options: { sessionId?: string; limit: number }): Promise<AgentContextDecision[]> {
+    const result = await this.pool.query(
+      `
+        SELECT id, session_id, context_pack_id, decision, reason,
+          rejected_knowledge_ids, retry_context_pack_id, metadata, created_at
+        FROM agent_context_decisions
+        WHERE ($2::uuid IS NULL OR session_id = $2)
+        ORDER BY created_at DESC
+        LIMIT $1
+      `,
+      [options.limit, options.sessionId ?? null],
+    );
+
+    return result.rows.map(mapAgentContextDecisionRow);
+  }
+
   async finishAgentSession(input: FinishAgentSessionInput & {
     reflectionDraftIds?: string[];
   }): Promise<AgentSession | undefined> {
@@ -488,6 +665,41 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rows[0] ? mapAgentSessionRow(result.rows[0]) : undefined;
   }
 
+  async listReflectionDrafts(options: ListRecordsOptions): Promise<ReflectionDraft[]> {
+    const result = await this.pool.query(
+      `
+        SELECT d.id, p.name AS project, d.title, d.summary, d.content, d.item_type,
+          d.trigger_type, d.status, d.suggested_labels, d.duplicate_candidates,
+          d.metadata, d.created_at
+        FROM reflection_drafts d
+        LEFT JOIN projects p ON p.id = d.project_id
+        WHERE ($2::text IS NULL OR p.name = $2)
+          AND ($3::text IS NULL OR d.status = $3)
+        ORDER BY d.created_at DESC
+        LIMIT $1
+      `,
+      [options.limit, options.project ?? null, options.status ?? null],
+    );
+
+    return result.rows.map((row) => mapReflectionDraftRow(row));
+  }
+
+  async getReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
+    const result = await this.pool.query(
+      `
+        SELECT d.id, p.name AS project, d.title, d.summary, d.content, d.item_type,
+          d.trigger_type, d.status, d.suggested_labels, d.duplicate_candidates,
+          d.metadata, d.created_at
+        FROM reflection_drafts d
+        LEFT JOIN projects p ON p.id = d.project_id
+        WHERE d.id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? mapReflectionDraftRow(result.rows[0]) : undefined;
+  }
+
   async createReflectionDraft(input: ReflectionDraftInput, duplicateCandidates: unknown[]): Promise<ReflectionDraft> {
     const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
     const result = await this.pool.query(
@@ -516,6 +728,33 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return mapReflectionDraftRow(result.rows[0], input.project);
   }
 
+  async updateReflectionDraft(id: string, patch: ReflectionDraftPatchInput): Promise<ReflectionDraft | undefined> {
+    const current = await this.getReflectionDraft(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const result = await this.pool.query(
+      `
+        UPDATE reflection_drafts d
+        SET status = $2,
+          metadata = $3
+        WHERE d.id = $1
+        RETURNING d.id, d.title, d.summary, d.content, d.item_type, d.trigger_type,
+          d.status, d.suggested_labels, d.duplicate_candidates, d.metadata,
+          d.created_at,
+          (SELECT p.name FROM projects p WHERE p.id = d.project_id) AS project
+      `,
+      [
+        id,
+        patch.status ?? current.status,
+        patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      ],
+    );
+
+    return result.rows[0] ? mapReflectionDraftRow(result.rows[0]) : undefined;
+  }
+
   async approveReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
     const result = await this.pool.query(
       `
@@ -540,6 +779,110 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async close(): Promise<void> {
     await this.pool.end();
+  }
+
+  async cleanupOperations(input: CleanupOperationsInput): Promise<CleanupOperationsResult> {
+    const olderThanDays = input.olderThanDays ?? 30;
+    const dryRun = Boolean(input.dryRun);
+    const client = await this.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+      const proposedPacks = await client.query(
+        `
+          SELECT count(*)::int AS count
+          FROM context_packs
+          WHERE status = 'proposed'
+            AND created_at < now() - ($1::int * interval '1 day')
+        `,
+        [olderThanDays],
+      );
+      const orphanFeedback = await client.query(
+        `
+          SELECT count(*)::int AS count
+          FROM feedback_events
+          WHERE context_pack_id IS NULL
+            AND created_at < now() - ($1::int * interval '1 day')
+        `,
+        [olderThanDays],
+      );
+      const unusedSources = await client.query(
+        `
+          SELECT count(*)::int AS count
+          FROM knowledge_sources ks
+          WHERE NOT EXISTS (
+            SELECT 1 FROM knowledge_items ki WHERE ki.source_id = ks.id
+          )
+        `,
+      );
+      const oldQueries = await client.query(
+        `
+          SELECT count(*)::int AS count
+          FROM context_queries
+          WHERE created_at < now() - ($1::int * interval '1 day')
+            AND NOT EXISTS (
+              SELECT 1 FROM context_packs cp WHERE cp.query_id = context_queries.id
+            )
+        `,
+        [olderThanDays],
+      );
+
+      const result: CleanupOperationsResult = {
+        dryRun,
+        olderThanDays,
+        deleted: {
+          contextQueries: Number(oldQueries.rows[0].count ?? 0),
+          contextPacks: Number(proposedPacks.rows[0].count ?? 0),
+          feedbackEvents: Number(orphanFeedback.rows[0].count ?? 0),
+          knowledgeSources: Number(unusedSources.rows[0].count ?? 0),
+        },
+      };
+
+      if (!dryRun) {
+        await client.query(
+          `
+            DELETE FROM context_packs
+            WHERE status = 'proposed'
+              AND created_at < now() - ($1::int * interval '1 day')
+          `,
+          [olderThanDays],
+        );
+        await client.query(
+          `
+            DELETE FROM feedback_events
+            WHERE context_pack_id IS NULL
+              AND created_at < now() - ($1::int * interval '1 day')
+          `,
+          [olderThanDays],
+        );
+        await client.query(
+          `
+            DELETE FROM context_queries
+            WHERE created_at < now() - ($1::int * interval '1 day')
+              AND NOT EXISTS (
+                SELECT 1 FROM context_packs cp WHERE cp.query_id = context_queries.id
+              )
+          `,
+          [olderThanDays],
+        );
+        await client.query(
+          `
+            DELETE FROM knowledge_sources ks
+            WHERE NOT EXISTS (
+              SELECT 1 FROM knowledge_items ki WHERE ki.source_id = ks.id
+            )
+          `,
+        );
+      }
+
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   private async ensureProject(client: Queryable, name: string): Promise<string> {
@@ -777,6 +1120,9 @@ function knowledgeSelect(): string {
       ki.id,
       p.id AS project_id,
       p.name AS project,
+      ks.source_type,
+      ks.uri AS source_uri,
+      ki.status,
       ki.item_type,
       ki.title,
       ki.summary,
@@ -806,6 +1152,7 @@ function knowledgeSelect(): string {
       ), '[]'::jsonb) AS references
     FROM knowledge_items ki
     JOIN projects p ON p.id = ki.project_id
+    LEFT JOIN knowledge_sources ks ON ks.id = ki.source_id
   `;
 }
 
@@ -856,6 +1203,9 @@ function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
     id: String(row.id),
     projectId: row.project_id ? String(row.project_id) : undefined,
     project: String(row.project),
+    sourceType: row.source_type ? String(row.source_type) : undefined,
+    sourceUri: row.source_uri ? String(row.source_uri) : undefined,
+    status: row.status as StoredKnowledge['status'],
     itemType: row.item_type as StoredKnowledge['itemType'],
     title: String(row.title),
     summary: String(row.summary ?? ''),
@@ -868,6 +1218,68 @@ function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
   };
+}
+
+function knowledgeReviewSql(
+  review: ListKnowledgeOptions['review'],
+): string | undefined {
+  if (!review) {
+    return undefined;
+  }
+
+  const unsafe = `
+    (
+      ki.metadata->'safety'->>'status' IN ('suspicious', 'blocked')
+      OR COALESCE((ki.metadata->'safety'->>'redactionCount')::int, 0) > 0
+    )
+  `;
+  const lowTrust = 'ki.trust_level < 50';
+  const stale = feedbackExistsSql('stale');
+  const rejected = feedbackExistsSql('rejected');
+  const irrelevant = feedbackExistsSql('irrelevant');
+  const orphaned = `
+    (
+      NOT EXISTS (SELECT 1 FROM knowledge_references kr WHERE kr.knowledge_id = ki.id)
+      AND NOT EXISTS (SELECT 1 FROM knowledge_labels kl WHERE kl.knowledge_id = ki.id)
+    )
+  `;
+
+  if (review === 'questionable') {
+    return `(${unsafe} OR ${lowTrust} OR ${stale} OR ${rejected} OR ${irrelevant} OR ki.status <> 'approved')`;
+  }
+
+  if (review === 'unsafe') {
+    return unsafe;
+  }
+
+  if (review === 'low_trust') {
+    return lowTrust;
+  }
+
+  if (review === 'stale') {
+    return stale;
+  }
+
+  if (review === 'rejected') {
+    return rejected;
+  }
+
+  if (review === 'irrelevant') {
+    return irrelevant;
+  }
+
+  return orphaned;
+}
+
+function feedbackExistsSql(type: FeedbackEvent['feedbackType']): string {
+  return `
+    EXISTS (
+      SELECT 1
+      FROM feedback_events fe
+      WHERE fe.feedback_type = '${type}'
+        AND ki.id = ANY(fe.rejected_knowledge_ids)
+    )
+  `;
 }
 
 function mapCandidateRow(row: Record<string, unknown>, index: number): SearchCandidate {

@@ -4,6 +4,10 @@ import type {
   FinishAgentSessionInput,
   ContextSearchInput,
   FeedbackInput,
+  CleanupOperationsInput,
+  KnowledgePatchInput,
+  KnowledgeReviewFilter,
+  KnowledgeStatus,
   KnowledgeInput,
   KnowledgeItemType,
   LabelInput,
@@ -11,6 +15,7 @@ import type {
   RecordAgentContextDecisionInput,
   ReferenceInput,
   ReflectionDraftInput,
+  ReflectionDraftPatchInput,
   StartAgentSessionInput,
   TaskType,
   TriggerType,
@@ -77,6 +82,17 @@ const REFERENCE_TYPES = ['file', 'url', 'commit', 'tool', 'conversation', 'exter
 const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly IngestionMode[];
 const FEEDBACK_TYPES = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'] as const;
 const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
+const KNOWLEDGE_STATUSES = ['approved', 'needs_review', 'archived', 'blocked'] as const satisfies readonly KnowledgeStatus[];
+const KNOWLEDGE_REVIEW_FILTERS = [
+  'questionable',
+  'unsafe',
+  'low_trust',
+  'stale',
+  'rejected',
+  'irrelevant',
+  'orphaned',
+] as const satisfies readonly KnowledgeReviewFilter[];
+const REFLECTION_DRAFT_STATUSES = ['pending', 'approved', 'rejected'] as const;
 
 export function validateKnowledgeInput(value: unknown): KnowledgeInput {
   const record = expectObject(value, 'knowledge input');
@@ -95,6 +111,21 @@ export function validateKnowledgeInput(value: unknown): KnowledgeInput {
     references: readOptionalReferences(record.references, 'knowledge input.references'),
     metadata: readOptionalObject(record, 'metadata', 'knowledge input'),
     freshnessAt: readOptionalString(record, 'freshnessAt', 'knowledge input'),
+  };
+}
+
+export function validateKnowledgePatchInput(value: unknown): KnowledgePatchInput {
+  const record = expectObject(value, 'knowledge patch input');
+
+  return {
+    status: readOptionalEnum(record, 'status', KNOWLEDGE_STATUSES, 'knowledge patch input'),
+    title: readOptionalString(record, 'title', 'knowledge patch input'),
+    summary: readOptionalString(record, 'summary', 'knowledge patch input'),
+    trustLevel: readOptionalNumber(record, 'trustLevel', 'knowledge patch input'),
+    freshnessAt: readOptionalNullableString(record, 'freshnessAt', 'knowledge patch input'),
+    metadata: readOptionalObject(record, 'metadata', 'knowledge patch input'),
+    labels: readOptionalLabels(record.labels, 'knowledge patch input.labels'),
+    references: readOptionalReferences(record.references, 'knowledge patch input.references'),
   };
 }
 
@@ -205,6 +236,48 @@ export function validateReflectionDraftInput(value: unknown): ReflectionDraftInp
   };
 }
 
+export function validateReflectionDraftPatchInput(value: unknown): ReflectionDraftPatchInput {
+  const record = expectObject(value, 'reflection draft patch input');
+
+  return {
+    status: readOptionalEnum(record, 'status', REFLECTION_DRAFT_STATUSES, 'reflection draft patch input'),
+    metadata: readOptionalObject(record, 'metadata', 'reflection draft patch input'),
+  };
+}
+
+export function validateCleanupOperationsInput(value: unknown): CleanupOperationsInput {
+  const record = expectObject(value, 'cleanup input');
+
+  return {
+    olderThanDays: readOptionalPositiveInteger(record, 'olderThanDays', 'cleanup input'),
+    dryRun: readOptionalBoolean(record, 'dryRun', 'cleanup input'),
+  };
+}
+
+export function validateKnowledgeReviewFilter(value: string | null): KnowledgeReviewFilter | undefined {
+  if (value === null) {
+    return undefined;
+  }
+
+  if (!KNOWLEDGE_REVIEW_FILTERS.includes(value as KnowledgeReviewFilter)) {
+    throw validationIssue('query.review', `must be one of: ${KNOWLEDGE_REVIEW_FILTERS.join(', ')}.`);
+  }
+
+  return value as KnowledgeReviewFilter;
+}
+
+export function validateKnowledgeStatusQuery(value: string | null): KnowledgeStatus | undefined {
+  if (value === null) {
+    return undefined;
+  }
+
+  if (!KNOWLEDGE_STATUSES.includes(value as KnowledgeStatus)) {
+    throw validationIssue('query.status', `must be one of: ${KNOWLEDGE_STATUSES.join(', ')}.`);
+  }
+
+  return value as KnowledgeStatus;
+}
+
 export function validateContextPackIdArguments(value: unknown): { contextPackId: string } {
   const record = expectObject(value, 'context pack arguments');
   return {
@@ -306,6 +379,23 @@ function readOptionalString(record: Record<string, unknown>, key: string, path: 
 
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw validationIssue(`${path}.${key}`, 'must be a non-empty string when provided.');
+  }
+
+  return value;
+}
+
+function readOptionalNullableString(record: Record<string, unknown>, key: string, path: string): string | null | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw validationIssue(`${path}.${key}`, 'must be a non-empty string or null when provided.');
   }
 
   return value;

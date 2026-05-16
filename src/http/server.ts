@@ -4,11 +4,16 @@ import type { AppServices } from '../app.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
 import {
   validateContextSearchInput,
+  validateCleanupOperationsInput,
   validateFeedbackInput,
   validateFinishAgentSessionInput,
   validateIngestFilesRequest,
   validateKnowledgeInput,
+  validateKnowledgePatchInput,
+  validateKnowledgeReviewFilter,
+  validateKnowledgeStatusQuery,
   validateRecordAgentContextDecisionInput,
+  validateReflectionDraftPatchInput,
   validateReflectionDraftInput,
   validateStartAgentSessionInput,
 } from '../validation.js';
@@ -122,6 +127,11 @@ function createRoutes(): HttpRoute[] {
     },
     {
       method: 'GET',
+      match: exactPath('/context/packs'),
+      handle: ({ services, url }) => services.operations.listContextPacks(readListRecordsOptions(url)),
+    },
+    {
+      method: 'GET',
       match: pathPattern(/^\/context\/packs\/([^/]+)$/, ['id']),
       handle: async ({ services, params }) => {
         const pack = await services.retrieval.getContextPack(params.id);
@@ -147,6 +157,31 @@ function createRoutes(): HttpRoute[] {
         const body = validateStartAgentSessionInput(await readJsonBody(request, services.config.maxRequestBytes));
         return services.agentSessions.startSession(body);
       },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/agent-sessions'),
+      handle: ({ services, url }) => services.operations.listAgentSessions(readListRecordsOptions(url)),
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/agent-sessions\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const session = await services.operations.getAgentSession(params.id);
+        if (!session) {
+          throw new NotFoundError('Agent session not found.');
+        }
+
+        return session;
+      },
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/agent-sessions\/([^/]+)\/context-decisions$/, ['id']),
+      handle: ({ services, params, url }) => services.operations.listAgentContextDecisions({
+        sessionId: params.id,
+        limit: readLimit(url),
+      }),
     },
     {
       method: 'POST',
@@ -189,11 +224,51 @@ function createRoutes(): HttpRoute[] {
     {
       method: 'GET',
       match: exactPath('/knowledge'),
-      handle: ({ services, url }) => services.store.listKnowledge({
+      handle: ({ services, url }) => services.operations.listKnowledge({
         project: url.searchParams.get('project') ?? undefined,
         query: url.searchParams.get('q') ?? undefined,
+        status: validateKnowledgeStatusQuery(url.searchParams.get('status')),
+        review: validateKnowledgeReviewFilter(url.searchParams.get('review')),
         limit: readLimit(url),
       }),
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/knowledge\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const knowledge = await services.operations.getKnowledge(params.id);
+        if (!knowledge) {
+          throw new NotFoundError('Knowledge item not found.');
+        }
+
+        return knowledge;
+      },
+    },
+    {
+      method: 'PATCH',
+      match: pathPattern(/^\/knowledge\/([^/]+)$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateKnowledgePatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const knowledge = await services.operations.updateKnowledge(params.id, body);
+        if (!knowledge) {
+          throw new NotFoundError('Knowledge item not found.');
+        }
+
+        return knowledge;
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/labels'),
+      handle: ({ services, url }) => services.operations.listLabels({
+        project: url.searchParams.get('project') ?? undefined,
+        limit: readLimit(url),
+      }),
+    },
+    {
+      method: 'GET',
+      match: exactPath('/feedback-events'),
+      handle: ({ services, url }) => services.operations.listFeedbackEvents(readListRecordsOptions(url)),
     },
     {
       method: 'POST',
@@ -201,6 +276,36 @@ function createRoutes(): HttpRoute[] {
       handle: async ({ services, request }) => {
         const body = validateReflectionDraftInput(await readJsonBody(request, services.config.maxRequestBytes));
         return services.reflection.createDraft(body);
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/reflection-drafts'),
+      handle: ({ services, url }) => services.operations.listReflectionDrafts(readListRecordsOptions(url)),
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/reflection-drafts\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const draft = await services.operations.getReflectionDraft(params.id);
+        if (!draft) {
+          throw new NotFoundError('Reflection draft not found.');
+        }
+
+        return draft;
+      },
+    },
+    {
+      method: 'PATCH',
+      match: pathPattern(/^\/reflection-drafts\/([^/]+)$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateReflectionDraftPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const draft = await services.operations.updateReflectionDraft(params.id, body);
+        if (!draft) {
+          throw new NotFoundError('Reflection draft not found.');
+        }
+
+        return draft;
       },
     },
     {
@@ -213,6 +318,22 @@ function createRoutes(): HttpRoute[] {
         }
 
         return draft;
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/import-files'),
+      handle: async ({ services, request }) => {
+        const body = validateIngestFilesRequest(await readJsonBody(request, services.config.maxRequestBytes));
+        return services.operations.importFiles(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/cleanup'),
+      handle: async ({ services, request }) => {
+        const body = validateCleanupOperationsInput(await readJsonBody(request, services.config.maxRequestBytes));
+        return services.operations.cleanup(body);
       },
     },
   ];
@@ -342,4 +463,12 @@ function readLimit(url: URL): number {
   }
 
   return Math.min(limit, 100);
+}
+
+function readListRecordsOptions(url: URL) {
+  return {
+    project: url.searchParams.get('project') ?? undefined,
+    status: url.searchParams.get('status') ?? undefined,
+    limit: readLimit(url),
+  };
 }

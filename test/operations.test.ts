@@ -1,0 +1,224 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Readable } from 'node:stream';
+import test from 'node:test';
+import { equal, ok } from 'node:assert/strict';
+import { AgentSessionService } from '../src/agent-session/service.js';
+import type { AppServices } from '../src/app.js';
+import { MemoryCache } from '../src/cache.js';
+import type { AppConfig } from '../src/config.js';
+import { handleHttpRequest } from '../src/http/server.js';
+import { IngestionService } from '../src/ingest/service.js';
+import { HashModelProvider } from '../src/model/provider.js';
+import { OperationsService } from '../src/operations/service.js';
+import { ReflectionService } from '../src/reflection/service.js';
+import { RetrievalService } from '../src/retrieval/service.js';
+import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
+
+const config: AppConfig = {
+  env: 'test',
+  port: 3027,
+  databaseUrl: '',
+  redisUrl: '',
+  store: 'memory',
+  cache: 'memory',
+  modelProvider: 'hash',
+  embeddingDimensions: 1536,
+  openAiEmbeddingModel: 'text-embedding-3-small',
+  contextCacheTtlSeconds: 60,
+  maxRequestBytes: 10 * 1024 * 1024,
+  maxIngestContentBytes: 2 * 1024 * 1024,
+};
+
+test('operations API reviews, updates, imports, and lists audit records', async () => {
+  const services = createTestServices();
+  const project = 'operations-review';
+
+  try {
+    const imported = await post(services, '/operations/import-files', {
+      project,
+      mode: 'atomic',
+      files: [{
+        project,
+        path: 'docs/ops.md',
+        content: [
+          '# Operations',
+          '',
+          'Review APIs expose questionable knowledge.',
+          '',
+          '## Cleanup',
+          '',
+          'Cleanup removes old proposed context packs and orphaned audit rows.',
+        ].join('\n'),
+      }],
+    }) as Array<Record<string, unknown>>;
+
+    ok(imported.length >= 2);
+
+    const lowTrust = await post(services, '/knowledge', {
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://ops/low-trust',
+      itemType: 'wiki',
+      title: 'Questionable ops note',
+      summary: 'Low trust review note.',
+      content: 'This operations note should be listed for review.',
+      trustLevel: 20,
+      labels: [{ type: 'business_area', value: 'operations', weight: 1 }],
+    }) as Record<string, unknown>;
+
+    const patched = await patch(services, `/knowledge/${lowTrust.id}`, {
+      status: 'needs_review',
+      metadata: { reviewer: 'node-test' },
+      labels: [{ type: 'severity', value: 'review', weight: 1 }],
+    }) as Record<string, unknown>;
+    equal(patched.status, 'needs_review');
+    equal((patched.metadata as Record<string, unknown>).reviewer, 'node-test');
+
+    const questionable = await get(services, `/knowledge?project=${project}&review=questionable`) as Array<Record<string, unknown>>;
+    ok(questionable.some((item) => item.id === lowTrust.id));
+
+    const labels = await get(services, `/labels?project=${project}`) as Array<Record<string, unknown>>;
+    ok(labels.some((label) => label.type === 'severity' && label.value === 'review'));
+
+    const search = await post(services, '/context/search', {
+      project,
+      prompt: 'How should operations cleanup work?',
+      bypassCache: true,
+    }) as Record<string, unknown>;
+    ok(search.id);
+
+    await post(services, '/context/feedback', {
+      contextPackId: search.id,
+      project,
+      feedbackType: 'stale',
+      rejectedKnowledgeIds: [lowTrust.id],
+      reason: 'Needs review before reuse.',
+    });
+
+    const stale = await get(services, `/knowledge?project=${project}&review=stale`) as Array<Record<string, unknown>>;
+    ok(stale.some((item) => item.id === lowTrust.id));
+
+    const packs = await get(services, `/context/packs?project=${project}`) as Array<Record<string, unknown>>;
+    ok(packs.some((pack) => pack.id === search.id));
+
+    const feedback = await get(services, `/feedback-events?project=${project}`) as Array<Record<string, unknown>>;
+    ok(feedback.some((event) => event.feedbackType === 'stale'));
+
+    const draft = await post(services, '/reflection-drafts', {
+      project,
+      title: 'Review operations notes',
+      summary: 'Operations notes should remain reviewable.',
+      content: 'When adding operations APIs, list reflection drafts and let reviewers reject stale drafts before approval.',
+      triggerType: 'manual',
+    }) as Record<string, unknown>;
+    const rejectedDraft = await patch(services, `/reflection-drafts/${draft.id}`, {
+      status: 'rejected',
+      metadata: { reason: 'superseded' },
+    }) as Record<string, unknown>;
+    equal(rejectedDraft.status, 'rejected');
+
+    const drafts = await get(services, `/reflection-drafts?project=${project}&status=rejected`) as Array<Record<string, unknown>>;
+    ok(drafts.some((item) => item.id === draft.id));
+
+    const sessionStart = await post(services, '/agent-sessions', {
+      project,
+      prompt: 'Review operations API coverage',
+      bypassCache: true,
+    }) as Record<string, unknown>;
+    const session = sessionStart.session as Record<string, unknown>;
+    await post(services, `/agent-sessions/${session.id}/context-decision`, {
+      feedbackType: 'selected',
+      contextPackId: (sessionStart.contextPack as Record<string, unknown>).id,
+    });
+    const decisions = await get(services, `/agent-sessions/${session.id}/context-decisions`) as Array<Record<string, unknown>>;
+    equal(decisions[0].decision, 'selected');
+
+    const cleanup = await post(services, '/operations/cleanup', {
+      dryRun: true,
+      olderThanDays: 1,
+    }) as Record<string, unknown>;
+    equal(cleanup.dryRun, true);
+    ok(cleanup.deleted);
+  } finally {
+    await services.close();
+  }
+});
+
+function createTestServices(): AppServices {
+  const store = new MemoryKnowledgeStore();
+  const cache = new MemoryCache();
+  const models = new HashModelProvider(1536);
+  const ingestion = new IngestionService(store, models);
+  const retrieval = new RetrievalService(store, cache, models, config);
+  const reflection = new ReflectionService(store, ingestion);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection);
+  const operations = new OperationsService(store, ingestion);
+
+  return {
+    config,
+    store,
+    cache,
+    models,
+    ingestion,
+    retrieval,
+    reflection,
+    agentSessions,
+    operations,
+    safety: {} as AppServices['safety'],
+    async close() {
+      await Promise.allSettled([cache.close(), store.close()]);
+    },
+  };
+}
+
+async function post(services: AppServices, url: string, body: unknown): Promise<unknown> {
+  const response = await dispatchHttp(services, { method: 'POST', url, body });
+  equal(response.status, 200);
+  return response.body;
+}
+
+async function patch(services: AppServices, url: string, body: unknown): Promise<unknown> {
+  const response = await dispatchHttp(services, { method: 'PATCH', url, body });
+  equal(response.status, 200);
+  return response.body;
+}
+
+async function get(services: AppServices, url: string): Promise<unknown> {
+  const response = await dispatchHttp(services, { method: 'GET', url });
+  equal(response.status, 200);
+  return response.body;
+}
+
+async function dispatchHttp(
+  services: AppServices,
+  input: { method: string; url: string; body?: unknown },
+): Promise<{ status: number; body: unknown }> {
+  const encoded = input.body === undefined ? '' : JSON.stringify(input.body);
+  const request = Readable.from(encoded ? [Buffer.from(encoded)] : []) as IncomingMessage;
+  request.method = input.method;
+  request.url = input.url;
+  request.headers = {
+    'content-length': String(Buffer.byteLength(encoded)),
+    'content-type': 'application/json',
+  };
+
+  let status = 0;
+  let rawBody = '';
+  const response = {
+    writeHead(nextStatus: number) {
+      status = nextStatus;
+      return this;
+    },
+    end(chunk?: unknown) {
+      rawBody = typeof chunk === 'string'
+        ? chunk
+        : Buffer.isBuffer(chunk)
+          ? chunk.toString('utf8')
+          : String(chunk ?? '');
+      return this;
+    },
+  } as unknown as ServerResponse;
+
+  await handleHttpRequest(services, request, response);
+  return { status, body: JSON.parse(rawBody) };
+}

@@ -82,6 +82,9 @@ export interface StoredKnowledge {
   id: string;
   projectId?: string;
   project: string;
+  sourceType?: string;
+  sourceUri?: string;
+  status?: KnowledgeStatus;
   itemType: KnowledgeItemType;
   title: string;
   summary: string;
@@ -93,6 +96,40 @@ export interface StoredKnowledge {
   freshnessAt?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export type KnowledgeStatus = 'approved' | 'needs_review' | 'archived' | 'blocked';
+
+export type KnowledgeReviewFilter =
+  | 'questionable'
+  | 'unsafe'
+  | 'low_trust'
+  | 'stale'
+  | 'rejected'
+  | 'irrelevant'
+  | 'orphaned';
+
+export interface ListKnowledgeOptions {
+  project?: string;
+  query?: string;
+  status?: KnowledgeStatus;
+  review?: KnowledgeReviewFilter;
+  limit: number;
+}
+
+export interface KnowledgePatchInput {
+  status?: KnowledgeStatus;
+  title?: string;
+  summary?: string;
+  trustLevel?: number;
+  freshnessAt?: string | null;
+  metadata?: Record<string, unknown>;
+  labels?: LabelInput[];
+  references?: ReferenceInput[];
+}
+
+export interface LabelRecord extends LabelInput {
+  knowledgeCount: number;
 }
 
 export interface ContextSearchInput {
@@ -214,6 +251,11 @@ export interface ReflectionDraft {
   createdAt: string;
 }
 
+export interface ReflectionDraftPatchInput {
+  status?: ReflectionDraft['status'];
+  metadata?: Record<string, unknown>;
+}
+
 export interface FeedbackInput {
   contextPackId?: string;
   project?: string;
@@ -221,6 +263,11 @@ export interface FeedbackInput {
   reason?: string;
   rejectedKnowledgeIds?: string[];
   metadata?: Record<string, unknown>;
+}
+
+export interface FeedbackEvent extends FeedbackInput {
+  id: string;
+  createdAt: string;
 }
 
 export interface KnowledgeFeedbackSummary {
@@ -267,6 +314,28 @@ export interface AgentContextDecision {
   retryContextPackId?: string;
   metadata: Record<string, unknown>;
   createdAt: string;
+}
+
+export interface ListRecordsOptions {
+  project?: string;
+  status?: string;
+  limit: number;
+}
+
+export interface CleanupOperationsInput {
+  olderThanDays?: number;
+  dryRun?: boolean;
+}
+
+export interface CleanupOperationsResult {
+  dryRun: boolean;
+  olderThanDays: number;
+  deleted: {
+    contextQueries: number;
+    contextPacks: number;
+    feedbackEvents: number;
+    knowledgeSources: number;
+  };
 }
 
 export interface StartAgentSessionInput extends ContextSearchInput {

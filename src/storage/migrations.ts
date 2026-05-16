@@ -1,44 +1,59 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 export interface RunMigrationsOptions {
   migrationsDir?: string;
   onApplied?: (filename: string) => void;
 }
 
+const MIGRATION_LOCK_NAMESPACE = 338452971;
+const MIGRATION_LOCK_KEY = 195935983;
+
 export async function runMigrations(pool: Pool, options: RunMigrationsOptions = {}): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      filename text PRIMARY KEY,
-      applied_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
+  const client = await pool.connect();
 
-  const migrationsDir = options.migrationsDir ?? join(process.cwd(), 'migrations');
-  const files = (await readdir(migrationsDir)).filter((file) => file.endsWith('.sql')).sort();
+  try {
+    await client.query('SELECT pg_advisory_lock($1, $2)', [MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY]);
 
-  for (const file of files) {
-    const existing = await pool.query('SELECT 1 FROM schema_migrations WHERE filename = $1', [file]);
-    if (existing.rowCount) {
-      continue;
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          filename text PRIMARY KEY,
+          applied_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+
+      const migrationsDir = options.migrationsDir ?? join(process.cwd(), 'migrations');
+      const files = (await readdir(migrationsDir)).filter((file) => file.endsWith('.sql')).sort();
+
+      for (const file of files) {
+        const existing = await client.query('SELECT 1 FROM schema_migrations WHERE filename = $1', [file]);
+        if (existing.rowCount) {
+          continue;
+        }
+
+        await applyMigration(client, migrationsDir, file);
+        options.onApplied?.(file);
+      }
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1, $2)', [MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY]);
     }
-
-    await applyMigration(pool, migrationsDir, file);
-    options.onApplied?.(file);
+  } finally {
+    client.release();
   }
 }
 
-async function applyMigration(pool: Pool, migrationsDir: string, file: string): Promise<void> {
+async function applyMigration(client: PoolClient, migrationsDir: string, file: string): Promise<void> {
   const sql = await readFile(join(migrationsDir, file), 'utf8');
 
-  await pool.query('BEGIN');
+  await client.query('BEGIN');
   try {
-    await pool.query(sql);
-    await pool.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [file]);
-    await pool.query('COMMIT');
+    await client.query(sql);
+    await client.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [file]);
+    await client.query('COMMIT');
   } catch (error) {
-    await pool.query('ROLLBACK');
+    await client.query('ROLLBACK');
     throw error;
   }
 }

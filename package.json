@@ -12,6 +12,7 @@
     "mcp": "node --import tsx src/mcp-stdio.ts",
     "worker": "tsx src/worker.ts",
     "migrate": "tsx scripts/migrate.ts",
+    "import:docs": "tsx scripts/import-docs.ts",
     "eval:retrieval": "tsx scripts/eval-retrieval.ts",
     "test:integration": "node --test --import tsx test/integration.test.ts",
     "test": "node --test --import tsx test/*.test.ts"

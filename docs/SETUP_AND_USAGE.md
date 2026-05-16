@@ -273,6 +273,7 @@ pnpm start
 pnpm run mcp
 pnpm run worker
 pnpm run migrate
+pnpm run import:docs -- --project tuberosa docs/FLOW_LOGIC.md
 ```
 
 Command purpose:
@@ -286,6 +287,7 @@ Command purpose:
 - `mcp`: MCP stdio server for AI agent clients such as Codex.
 - `worker`: worker placeholder.
 - `migrate`: apply SQL migrations.
+- `import:docs`: import local docs through the same ingestion path as the HTTP API.
 
 ## 9. HTTP API Usage
 
@@ -381,6 +383,42 @@ Atomic markdown ingestion stores each useful heading section as its own knowledg
 curl 'http://localhost:3027/knowledge?project=newsletter-app&q=paywall&limit=25'
 ```
 
+Review filters expose operational queues:
+
+```bash
+curl 'http://localhost:3027/knowledge?project=newsletter-app&review=questionable'
+curl 'http://localhost:3027/knowledge?project=newsletter-app&review=unsafe'
+curl 'http://localhost:3027/knowledge?project=newsletter-app&review=stale'
+```
+
+Supported `review` values are `questionable`, `unsafe`, `low_trust`, `stale`, `rejected`, `irrelevant`, and `orphaned`.
+
+### Inspect Or Update Knowledge
+
+```bash
+curl http://localhost:3027/knowledge/<knowledge-id>
+```
+
+```bash
+curl -X PATCH http://localhost:3027/knowledge/<knowledge-id> \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "status": "needs_review",
+    "trustLevel": 35,
+    "metadata": {
+      "reviewer": "ops"
+    }
+  }'
+```
+
+Knowledge update is intended for review metadata, labels, references, trust, freshness, and status. Re-ingest through `/knowledge`, `/ingest/files`, `/operations/import-files`, or `pnpm run import:docs` when content itself changes so chunks and embeddings stay in sync.
+
+### List Labels
+
+```bash
+curl 'http://localhost:3027/labels?project=newsletter-app'
+```
+
 ### Search Context
 
 ```bash
@@ -441,6 +479,12 @@ Debug traces are returned only for that response. They are not persisted in stor
 curl http://localhost:3027/context/packs/<context-pack-id>
 ```
 
+List recent packs when investigating why context was returned:
+
+```bash
+curl 'http://localhost:3027/context/packs?project=newsletter-app&status=rejected'
+```
+
 ### Record Feedback
 
 ```bash
@@ -466,6 +510,12 @@ Feedback types:
 Rejected, irrelevant, and stale feedback trigger one retry with rejected knowledge excluded.
 
 Feedback also influences later retrieval. Selected context gets a modest ranking boost, while stale, rejected, and irrelevant context is penalized. `missing_context` is stored for review but does not penalize a specific knowledge item.
+
+List feedback events for review:
+
+```bash
+curl 'http://localhost:3027/feedback-events?project=newsletter-app&status=stale'
+```
 
 ### Start An Agent Session
 
@@ -503,6 +553,14 @@ curl -X POST http://localhost:3027/agent-sessions/<session-id>/context-decision 
 ```
 
 Use `rejected`, `irrelevant`, or `stale` to trigger the existing retry behavior with rejected knowledge excluded.
+
+List sessions and context decisions:
+
+```bash
+curl 'http://localhost:3027/agent-sessions?project=newsletter-app'
+curl 'http://localhost:3027/agent-sessions/<session-id>'
+curl 'http://localhost:3027/agent-sessions/<session-id>/context-decisions'
+```
 
 ### Finish An Agent Session
 
@@ -561,6 +619,49 @@ curl -X POST http://localhost:3027/reflection-drafts/<draft-id>/approve
 ```
 
 Approval writes the draft into knowledge as searchable memory. Approved memories preserve `metadata.taxonomy`, trigger/provenance metadata, and references from the draft.
+
+List, inspect, or reject pending drafts:
+
+```bash
+curl 'http://localhost:3027/reflection-drafts?project=newsletter-app&status=pending'
+curl http://localhost:3027/reflection-drafts/<draft-id>
+curl -X PATCH http://localhost:3027/reflection-drafts/<draft-id> \
+  -H 'Content-Type: application/json' \
+  -d '{ "status": "rejected", "metadata": { "reason": "superseded" } }'
+```
+
+### Operations Import And Cleanup
+
+Use `/operations/import-files` for API-driven doc refreshes. It uses the same atomic ingestion and stale-atom cleanup as `/ingest/files`.
+
+```bash
+curl -X POST http://localhost:3027/operations/import-files \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "project": "newsletter-app",
+    "mode": "atomic",
+    "files": [
+      {
+        "path": "docs/paywall.md",
+        "content": "# Paywall\n\n## Selection\n\nKeep selected product ids stable."
+      }
+    ]
+  }'
+```
+
+Use the CLI for local files:
+
+```bash
+pnpm run import:docs -- --project newsletter-app docs/paywall.md docs/runbook.md
+```
+
+Cleanup supports dry runs before deleting old proposed context packs, orphaned feedback rows, old unused queries, and unused sources:
+
+```bash
+curl -X POST http://localhost:3027/operations/cleanup \
+  -H 'Content-Type: application/json' \
+  -d '{ "olderThanDays": 30, "dryRun": true }'
+```
 
 ## 10. MCP Usage
 

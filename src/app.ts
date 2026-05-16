@@ -3,6 +3,7 @@ import { createCache, type Cache } from './cache.js';
 import { loadConfig, type AppConfig } from './config.js';
 import { IngestionService } from './ingest/service.js';
 import { createModelProvider, type ModelProvider } from './model/provider.js';
+import { OperationsService } from './operations/service.js';
 import { ReflectionService } from './reflection/service.js';
 import { RetrievalService } from './retrieval/service.js';
 import { KnowledgeSafetyService } from './security/knowledge-safety.js';
@@ -19,6 +20,7 @@ export interface AppServices {
   retrieval: RetrievalService;
   reflection: ReflectionService;
   agentSessions: AgentSessionService;
+  operations: OperationsService;
   close(): Promise<void>;
 }
 
@@ -35,6 +37,7 @@ export async function createAppServices(): Promise<AppServices> {
   const retrieval = new RetrievalService(store, cache, models, config, safety);
   const reflection = new ReflectionService(store, ingestion, safety);
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
+  const operations = new OperationsService(store, ingestion);
 
   return {
     config,
@@ -46,6 +49,7 @@ export async function createAppServices(): Promise<AppServices> {
     retrieval,
     reflection,
     agentSessions,
+    operations,
     async close() {
       await Promise.allSettled([cache.close(), store.close()]);
     },

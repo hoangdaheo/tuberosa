@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { Socket } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { deepEqual, equal, ok } from 'node:assert/strict';
 import { Pool } from 'pg';
@@ -199,8 +202,90 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
       bypassCache: true,
     });
     ok(memoryPack.sections[0].items.some((item) => item.itemType === 'memory'));
+
+    const reviewed = await store.updateKnowledge(unrelated.id, {
+      status: 'needs_review',
+      trustLevel: 30,
+      metadata: { reviewer: 'integration-test' },
+    });
+    equal(reviewed?.status, 'needs_review');
+    equal(reviewed?.metadata.reviewer, 'integration-test');
+
+    const questionable = await store.listKnowledge({ project, review: 'questionable', limit: 20 });
+    ok(questionable.some((item) => item.id === unrelated.id));
+
+    const labels = await store.listLabels({ project, limit: 20 });
+    ok(labels.some((label) => label.value === 'paywall'));
+
+    const contextPacks = await store.listContextPacks({ project, limit: 20 });
+    ok(contextPacks.some((item) => item.id === pack.id));
+
+    const feedbackEvents = await store.listFeedbackEvents({ project, limit: 20 });
+    ok(feedbackEvents.some((event) => event.feedbackType === 'selected'));
+
+    const sessions = await store.listAgentSessions({ project, limit: 20 });
+    ok(sessions.some((session) => session.id === startedSession.session.id));
+
+    const decisions = await store.listAgentContextDecisions({ sessionId: startedSession.session.id, limit: 20 });
+    ok(decisions.some((decision) => decision.decision === 'selected'));
+
+    const drafts = await store.listReflectionDrafts({ project, limit: 20 });
+    ok(drafts.some((item) => item.id === draft.id));
+
+    const cleanup = await store.cleanupOperations({ dryRun: true, olderThanDays: 1 });
+    equal(cleanup.dryRun, true);
   } finally {
     await Promise.allSettled([store.close(), cache.close()]);
+  }
+});
+
+test('Postgres migrations serialize concurrent runners', async (t) => {
+  const available = await postgresAvailable();
+  if (!available.ok) {
+    t.skip(available.reason);
+    return;
+  }
+
+  const migrationsDir = await mkdtemp(join(tmpdir(), 'tuberosa-migrations-'));
+  const migrationName = `${randomUUID().replaceAll('-', '_')}_concurrent_probe.sql`;
+  const tableName = `migration_probe_${randomUUID().replaceAll('-', '_')}`;
+  await writeFile(
+    join(migrationsDir, migrationName),
+    `CREATE TABLE IF NOT EXISTS ${tableName} (id uuid PRIMARY KEY DEFAULT gen_random_uuid());\n`,
+  );
+
+  const firstPool = new Pool({ connectionString: POSTGRES_URL, connectionTimeoutMillis: 1000 });
+  const secondPool = new Pool({ connectionString: POSTGRES_URL, connectionTimeoutMillis: 1000 });
+  const applied: string[] = [];
+
+  try {
+    await Promise.all([
+      runMigrations(firstPool, { migrationsDir, onApplied: (filename) => applied.push(filename) }),
+      runMigrations(secondPool, { migrationsDir, onApplied: (filename) => applied.push(filename) }),
+    ]);
+
+    const verifyPool = new Pool({ connectionString: POSTGRES_URL, connectionTimeoutMillis: 1000 });
+    try {
+      const result = await verifyPool.query(
+        'SELECT count(*)::int AS count FROM schema_migrations WHERE filename = $1',
+        [migrationName],
+      );
+      equal(result.rows[0].count, 1);
+    } finally {
+      await verifyPool.end();
+    }
+
+    equal(applied.length, 1);
+  } finally {
+    const cleanupPool = new Pool({ connectionString: POSTGRES_URL, connectionTimeoutMillis: 1000 });
+    try {
+      await cleanupPool.query(`DROP TABLE IF EXISTS ${tableName}`);
+      await cleanupPool.query('DELETE FROM schema_migrations WHERE filename = $1', [migrationName]);
+    } finally {
+      await cleanupPool.end();
+    }
+    await Promise.allSettled([firstPool.end(), secondPool.end()]);
+    await rm(migrationsDir, { recursive: true, force: true });
   }
 });
 

@@ -3,15 +3,23 @@ import type {
   AgentContextDecision,
   AgentSession,
   ClassifiedQuery,
+  CleanupOperationsInput,
+  CleanupOperationsResult,
   ContextPack,
+  FeedbackEvent,
   FeedbackInput,
   FinishAgentSessionInput,
   KnowledgeFeedbackSummary,
   KnowledgeInput,
+  KnowledgePatchInput,
   LabelInput,
+  LabelRecord,
+  ListKnowledgeOptions,
+  ListRecordsOptions,
   RecordAgentContextDecisionInput,
   ReferenceInput,
   ReflectionDraft,
+  ReflectionDraftPatchInput,
   ReflectionDraftInput,
   SearchCandidate,
   SearchOptions,
@@ -33,7 +41,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly drafts = new Map<string, ReflectionDraft>();
   private readonly agentSessions = new Map<string, AgentSession>();
   private readonly agentDecisions = new Map<string, AgentContextDecision>();
-  private readonly feedback: FeedbackInput[] = [];
+  private readonly feedback: FeedbackEvent[] = [];
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -42,6 +50,9 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     const stored: StoredKnowledge = {
       id,
       project: input.project,
+      sourceType: input.sourceType,
+      sourceUri: input.sourceUri,
+      status: existing?.status ?? 'approved',
       itemType: input.itemType,
       title: input.title,
       summary: input.summary ?? '',
@@ -84,10 +95,12 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return deleted;
   }
 
-  async listKnowledge(options: { project?: string; query?: string; limit: number }): Promise<StoredKnowledge[]> {
+  async listKnowledge(options: ListKnowledgeOptions): Promise<StoredKnowledge[]> {
     const query = options.query?.toLowerCase();
     return [...this.knowledge.values()]
       .filter((item) => !options.project || item.project === options.project)
+      .filter((item) => !options.status || item.status === options.status)
+      .filter((item) => knowledgeMatchesReview(item, options.review, this.feedback))
       .filter((item) => {
         if (!query) {
           return true;
@@ -100,6 +113,52 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
   async getKnowledge(id: string): Promise<StoredKnowledge | undefined> {
     return this.knowledge.get(id);
+  }
+
+  async updateKnowledge(id: string, patch: KnowledgePatchInput): Promise<StoredKnowledge | undefined> {
+    const current = this.knowledge.get(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const updated: StoredKnowledge = {
+      ...current,
+      status: patch.status ?? current.status,
+      title: patch.title ?? current.title,
+      summary: patch.summary ?? current.summary,
+      trustLevel: patch.trustLevel ?? current.trustLevel,
+      freshnessAt: patch.freshnessAt === null ? undefined : patch.freshnessAt ?? current.freshnessAt,
+      metadata: patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      labels: patch.labels ?? current.labels,
+      references: patch.references ?? current.references,
+      updatedAt: new Date().toISOString(),
+    };
+    this.knowledge.set(id, updated);
+
+    return updated;
+  }
+
+  async listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]> {
+    const counts = new Map<string, LabelRecord>();
+    for (const item of this.knowledge.values()) {
+      if (options.project && item.project !== options.project) {
+        continue;
+      }
+
+      for (const label of item.labels) {
+        const key = `${label.type}:${normalizeLabel(label.value)}`;
+        const existing = counts.get(key);
+        if (existing) {
+          existing.knowledgeCount += 1;
+        } else {
+          counts.set(key, { ...label, knowledgeCount: 1 });
+        }
+      }
+    }
+
+    return [...counts.values()]
+      .sort((left, right) => right.knowledgeCount - left.knowledgeCount || left.value.localeCompare(right.value))
+      .slice(0, options.limit);
   }
 
   async searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {
@@ -150,18 +209,38 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     this.packs.set(pack.id, pack);
   }
 
+  async listContextPacks(options: ListRecordsOptions): Promise<ContextPack[]> {
+    return [...this.packs.values()]
+      .filter((pack) => !options.project || pack.project === options.project)
+      .filter((pack) => !options.status || pack.status === options.status)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
+  }
+
   async getContextPack(id: string): Promise<ContextPack | undefined> {
     return this.packs.get(id);
   }
 
   async recordFeedback(input: FeedbackInput): Promise<void> {
-    this.feedback.push(input);
+    this.feedback.push({
+      ...input,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+    });
     if (input.contextPackId) {
       const pack = this.packs.get(input.contextPackId);
       if (pack) {
         pack.status = input.feedbackType === 'selected' ? 'selected' : 'rejected';
       }
     }
+  }
+
+  async listFeedbackEvents(options: ListRecordsOptions): Promise<FeedbackEvent[]> {
+    return this.feedback
+      .filter((feedback) => !options.project || feedback.project === options.project || this.packs.get(feedback.contextPackId ?? '')?.project === options.project)
+      .filter((feedback) => !options.status || feedback.feedbackType === options.status)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
   }
 
   async getFeedbackSummaries(
@@ -171,7 +250,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     const targetIds = new Set(knowledgeIds);
     const summaries = new Map<string, KnowledgeFeedbackSummary>();
 
-    this.feedback.forEach((feedback, index) => {
+    this.feedback.forEach((feedback) => {
       if (!feedbackMatchesProject(feedback, this.packs.get(feedback.contextPackId ?? ''), options.project)) {
         return;
       }
@@ -182,7 +261,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         }
 
         const summary = ensureFeedbackSummary(summaries, knowledgeId);
-        applyFeedbackToSummary(summary, feedback.feedbackType, new Date(index).toISOString());
+        applyFeedbackToSummary(summary, feedback.feedbackType, feedback.createdAt);
       }
     });
 
@@ -217,6 +296,14 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return session;
   }
 
+  async listAgentSessions(options: ListRecordsOptions): Promise<AgentSession[]> {
+    return [...this.agentSessions.values()]
+      .filter((session) => !options.project || session.project === options.project)
+      .filter((session) => !options.status || session.status === options.status)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
+  }
+
   async getAgentSession(id: string): Promise<AgentSession | undefined> {
     return this.agentSessions.get(id);
   }
@@ -238,6 +325,13 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     this.agentDecisions.set(decision.id, decision);
     this.touchAgentSession(input.sessionId);
     return decision;
+  }
+
+  async listAgentContextDecisions(options: { sessionId?: string; limit: number }): Promise<AgentContextDecision[]> {
+    return [...this.agentDecisions.values()]
+      .filter((decision) => !options.sessionId || decision.sessionId === options.sessionId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
   }
 
   async finishAgentSession(input: FinishAgentSessionInput & {
@@ -289,6 +383,33 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return draft;
   }
 
+  async listReflectionDrafts(options: ListRecordsOptions): Promise<ReflectionDraft[]> {
+    return [...this.drafts.values()]
+      .filter((draft) => !options.project || draft.project === options.project)
+      .filter((draft) => !options.status || draft.status === options.status)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async getReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
+    return this.drafts.get(id);
+  }
+
+  async updateReflectionDraft(id: string, patch: ReflectionDraftPatchInput): Promise<ReflectionDraft | undefined> {
+    const draft = this.drafts.get(id);
+    if (!draft) {
+      return undefined;
+    }
+
+    const updated: ReflectionDraft = {
+      ...draft,
+      status: patch.status ?? draft.status,
+      metadata: patch.metadata ? { ...draft.metadata, ...patch.metadata } : draft.metadata,
+    };
+    this.drafts.set(id, updated);
+    return updated;
+  }
+
   async approveReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
     const draft = this.drafts.get(id);
     if (!draft) {
@@ -297,6 +418,45 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
     draft.status = 'approved';
     return draft;
+  }
+
+  async cleanupOperations(input: CleanupOperationsInput): Promise<CleanupOperationsResult> {
+    const olderThanDays = input.olderThanDays ?? 30;
+    const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+    const stalePackIds = new Set([...this.packs.values()]
+      .filter((pack) => pack.status === 'proposed' && Date.parse(pack.createdAt) < cutoff)
+      .map((pack) => pack.id));
+    const staleFeedback = this.feedback.filter((feedback) => Date.parse(feedback.createdAt) < cutoff && (!feedback.contextPackId || stalePackIds.has(feedback.contextPackId)));
+    const unusedSourceIds = [...this.knowledgeSourceUris.keys()]
+      .filter((id) => !this.knowledge.has(id));
+
+    const result: CleanupOperationsResult = {
+      dryRun: Boolean(input.dryRun),
+      olderThanDays,
+      deleted: {
+        contextQueries: 0,
+        contextPacks: stalePackIds.size,
+        feedbackEvents: staleFeedback.length,
+        knowledgeSources: unusedSourceIds.length,
+      },
+    };
+
+    if (!input.dryRun) {
+      for (const id of stalePackIds) {
+        this.packs.delete(id);
+      }
+      for (const feedback of staleFeedback) {
+        const index = this.feedback.findIndex((item) => item.id === feedback.id);
+        if (index >= 0) {
+          this.feedback.splice(index, 1);
+        }
+      }
+      for (const id of unusedSourceIds) {
+        this.knowledgeSourceUris.delete(id);
+      }
+    }
+
+    return result;
   }
 
   async close(): Promise<void> {}
@@ -408,6 +568,50 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       metadata: item.metadata,
     };
   }
+}
+
+function knowledgeMatchesReview(
+  item: StoredKnowledge,
+  review: ListKnowledgeOptions['review'],
+  feedback: FeedbackEvent[],
+): boolean {
+  if (!review) {
+    return true;
+  }
+
+  const safety = item.metadata.safety as { status?: string; redactionCount?: number } | undefined;
+  const rejected = feedback.some((event) => event.rejectedKnowledgeIds?.includes(item.id) && event.feedbackType === 'rejected');
+  const irrelevant = feedback.some((event) => event.rejectedKnowledgeIds?.includes(item.id) && event.feedbackType === 'irrelevant');
+  const stale = feedback.some((event) => event.rejectedKnowledgeIds?.includes(item.id) && event.feedbackType === 'stale');
+  const unsafe = safety?.status === 'suspicious' || safety?.status === 'blocked' || Number(safety?.redactionCount ?? 0) > 0;
+  const lowTrust = item.trustLevel < 50;
+  const orphaned = item.references.length === 0 && item.labels.length === 0;
+
+  if (review === 'questionable') {
+    return unsafe || lowTrust || stale || rejected || irrelevant || item.status !== 'approved';
+  }
+
+  if (review === 'unsafe') {
+    return unsafe;
+  }
+
+  if (review === 'low_trust') {
+    return lowTrust;
+  }
+
+  if (review === 'stale') {
+    return stale;
+  }
+
+  if (review === 'rejected') {
+    return rejected;
+  }
+
+  if (review === 'irrelevant') {
+    return irrelevant;
+  }
+
+  return orphaned;
 }
 
 function withRanks(candidates: SearchCandidate[]): SearchCandidate[] {
