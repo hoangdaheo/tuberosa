@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
-import type { IngestFileInput } from '../ingest/service.js';
+import type { IngestFileInput, IngestionMode } from '../ingest/service.js';
 import type { ContextSearchInput, FeedbackInput, KnowledgeInput, ReflectionDraftInput } from '../types.js';
 
 type RouteParams = Record<string, string>;
@@ -120,12 +120,12 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/ingest/files'),
       handle: async ({ services, request }) => {
-        const body = await readJson<{ project?: string; files?: IngestFileInput[] }>(request);
+        const body = await readJson<{ project?: string; files?: IngestFileInput[]; mode?: IngestionMode }>(request);
         if (!body.project || !Array.isArray(body.files)) {
           throw new HttpError(400, 'Expected { project, files }.');
         }
 
-        return services.ingestion.ingestFiles(body.project, body.files);
+        return services.ingestion.ingestFiles(body.project, body.files, { mode: body.mode });
       },
     },
     {

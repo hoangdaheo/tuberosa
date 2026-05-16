@@ -216,6 +216,25 @@ curl -X POST http://localhost:3027/ingest/files \
   }'
 ```
 
+Use atomic mode for markdown/docs when you want a large document split into small, labeled knowledge records:
+
+```bash
+curl -X POST http://localhost:3027/ingest/files \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "project": "newsletter-app",
+    "mode": "atomic",
+    "files": [
+      {
+        "path": "docs/paywall.md",
+        "content": "# Paywall\n\nCore paywall notes.\n\n## Product id stability\n\nSelected product ids must remain stable while editors configure newsletter paywall options."
+      }
+    ]
+  }'
+```
+
+Atomic markdown ingestion stores each useful heading section as its own knowledge item. Each atom keeps the original file reference, line range, section path metadata, inferred labels, and normal chunks/embeddings.
+
 ### List Knowledge
 
 ```bash

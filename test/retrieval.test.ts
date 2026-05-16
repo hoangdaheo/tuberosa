@@ -70,6 +70,48 @@ test('retrieval returns context pack with matched references', async () => {
   equal(pack.debug, undefined);
 });
 
+test('atomic markdown ingestion stores labeled sections as retrievable knowledge', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  const stored = await ingestion.ingestFiles('agent-memory', [{
+    project: 'agent-memory',
+    path: 'docs/auth.md',
+    content: [
+      '# Auth',
+      '',
+      'The auth documentation describes login and token behavior for the application.',
+      '',
+      '## Login flow',
+      '',
+      'Users sign in with OAuth and receive bearer access tokens.',
+      '',
+      '## Refresh token rotation',
+      '',
+      'Refresh tokens rotate on every use. The previous refresh token is invalidated before the replacement token is returned.',
+    ].join('\n'),
+  }], { mode: 'atomic' });
+
+  equal(stored.length, 3);
+  const refreshAtom = stored.find((item) => item.title === 'Auth > Refresh token rotation');
+
+  ok(refreshAtom);
+  equal(refreshAtom.itemType, 'wiki');
+  equal(refreshAtom.metadata.ingestionMode, 'atomic');
+  deepEqual(refreshAtom.metadata.sectionPath, ['Auth', 'Refresh token rotation']);
+  ok(refreshAtom.labels.some((label) => label.type === 'domain' && label.value === 'Refresh token rotation'));
+  equal(refreshAtom.references[0].uri, 'docs/auth.md');
+  equal(refreshAtom.references[0].lineStart, 9);
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'How should auth refresh token rotation work?',
+    bypassCache: true,
+  });
+
+  equal(pack.sections[0].items[0].title, 'Auth > Refresh token rotation');
+  equal(pack.sections[0].items[0].references[0].uri, 'docs/auth.md');
+});
+
 test('retrieval debug trace exposes source stages without persisting verbose output', async () => {
   const { ingestion, retrieval } = createTestServices();
 

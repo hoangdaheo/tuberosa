@@ -22,6 +22,7 @@ Main services:
 - `src/http/server.ts`: exposes HTTP endpoints.
 - `src/mcp/server.ts`: exposes MCP tools, resources, and prompts.
 - `src/ingest/service.ts`: builds chunks and embeddings from knowledge.
+- `src/ingest/document-atomizer.ts`: splits markdown/docs into section-level knowledge atoms.
 - `src/retrieval/service.ts`: orchestrates context search.
 - `src/retrieval/classifier.ts`: extracts task structure from prompts.
 - `src/retrieval/fusion.ts`: merges candidates with weighted reciprocal-rank fusion.
@@ -63,16 +64,21 @@ Entry points:
 Flow:
 
 1. Client sends `KnowledgeInput` or file ingestion input.
-2. `IngestionService` normalizes item type, title, summary, labels, and references.
-3. File ingestion calls `classifyQuery` on the path and content sample to infer labels.
-4. Content is split into chunks with `splitIntoChunks`.
-5. Each chunk gets contextual content containing project, item type, title, summary, labels, references, and chunk text.
-6. Model provider embeds each contextual chunk.
-7. Store persists project, source, knowledge item, labels, references, chunks, token estimates, and embeddings.
+2. File ingestion uses `mode: "document"` by default, or `mode: "atomic"` when the caller wants markdown/docs split into section-level knowledge items.
+3. In document mode, one file becomes one `KnowledgeInput`.
+4. In atomic mode, supported markdown/docs are split by headings into independent knowledge atoms.
+5. Each atom gets its own title, summary, content, source URI, file reference, line range, section path metadata, and section/domain labels.
+6. `IngestionService` normalizes item type, title, summary, labels, and references.
+7. File and atom ingestion call `classifyQuery` on the path and content sample to infer labels.
+8. Content is split into chunks with `splitIntoChunks`.
+9. Each chunk gets contextual content containing project, item type, title, summary, labels, references, and chunk text.
+10. Model provider embeds each contextual chunk.
+11. Store persists project, source, knowledge item, labels, references, chunks, token estimates, and embeddings.
 
 Design rule:
 
 - Ingestion should preserve provenance. Every useful context item should carry source URI, labels, and references so agents can inspect why it was retrieved.
+- Atomic ingestion should keep the useful idea as the ranking unit. Large documents should become small, labeled, independently retrievable knowledge items before normal chunking.
 
 ## 5. Retrieval Flow
 

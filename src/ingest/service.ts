@@ -1,22 +1,31 @@
 import type { ModelProvider } from '../model/provider.js';
-import type { KnowledgeInput, KnowledgeItemType, LabelInput } from '../types.js';
+import type { KnowledgeInput, KnowledgeItemType, LabelInput, ReferenceInput } from '../types.js';
 import { classifyQuery, labelsFromClassification } from '../retrieval/classifier.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { estimateTokens, splitIntoChunks, uniqueStrings } from '../util/text.js';
+import { MarkdownAtomizer, type DocumentAtom, type DocumentAtomizer } from './document-atomizer.js';
+
+export type IngestionMode = 'document' | 'atomic';
 
 export interface IngestFileInput {
   project: string;
   path: string;
   content: string;
   itemType?: KnowledgeItemType;
+  mode?: IngestionMode;
   labels?: LabelInput[];
   metadata?: Record<string, unknown>;
+}
+
+export interface IngestFilesOptions {
+  mode?: IngestionMode;
 }
 
 export class IngestionService {
   constructor(
     private readonly store: KnowledgeStore,
     private readonly models: ModelProvider,
+    private readonly atomizers: DocumentAtomizer[] = [new MarkdownAtomizer()],
   ) {}
 
   async ingestKnowledge(input: KnowledgeInput) {
@@ -24,41 +33,114 @@ export class IngestionService {
     return this.store.upsertKnowledge(input, chunks);
   }
 
-  async ingestFiles(project: string, files: IngestFileInput[]) {
+  async ingestFiles(project: string, files: IngestFileInput[], options: IngestFilesOptions = {}) {
     const results = [];
 
     for (const file of files) {
-      const itemType = file.itemType ?? inferItemType(file.path);
-      const title = file.path.split('/').filter(Boolean).at(-1) ?? file.path;
-      const classified = classifyQuery({
-        prompt: `${file.path}\n${file.content.slice(0, 2000)}`,
-        project,
-        files: [file.path],
-      });
-      const labels = mergeLabels([
-        { type: 'project', value: project, weight: 1 },
-        { type: 'file', value: file.path, weight: 1 },
-        ...labelsFromClassification(classified),
-        ...(file.labels ?? []),
-      ]);
-
-      results.push(await this.ingestKnowledge({
-        project,
-        sourceType: 'file',
-        sourceUri: file.path,
-        sourceTitle: title,
-        itemType,
-        title,
-        summary: summarizeContent(file.content),
-        content: file.content,
-        trustLevel: 70,
-        labels,
-        references: [{ type: 'file', uri: file.path }],
-        metadata: file.metadata ?? {},
-      }));
+      const inputs = this.buildKnowledgeInputs(project, file, file.mode ?? options.mode ?? 'document');
+      for (const input of inputs) {
+        results.push(await this.ingestKnowledge(input));
+      }
     }
 
     return results;
+  }
+
+  private buildKnowledgeInputs(project: string, file: IngestFileInput, mode: IngestionMode): KnowledgeInput[] {
+    if (mode === 'atomic') {
+      const atomizer = this.atomizers.find((candidate) => candidate.supports(file.path));
+      if (atomizer) {
+        return atomizer
+          .atomize({ path: file.path, content: file.content })
+          .map((atom, index) => this.buildAtomKnowledgeInput(project, file, atom, index));
+      }
+    }
+
+    return [this.buildDocumentKnowledgeInput(project, file)];
+  }
+
+  private buildDocumentKnowledgeInput(project: string, file: IngestFileInput): KnowledgeInput {
+    const itemType = file.itemType ?? inferItemType(file.path);
+    const title = file.path.split('/').filter(Boolean).at(-1) ?? file.path;
+    const classified = classifyQuery({
+      prompt: `${file.path}\n${file.content.slice(0, 2000)}`,
+      project,
+      files: [file.path],
+    });
+    const labels = mergeLabels([
+      ...baseFileLabels(project, file),
+      ...labelsFromClassification(classified),
+    ]);
+
+    return {
+      project,
+      sourceType: 'file',
+      sourceUri: file.path,
+      sourceTitle: title,
+      itemType,
+      title,
+      summary: summarizeContent(file.content),
+      content: file.content,
+      trustLevel: 70,
+      labels,
+      references: [{ type: 'file', uri: file.path }],
+      metadata: file.metadata ?? {},
+    };
+  }
+
+  private buildAtomKnowledgeInput(project: string, file: IngestFileInput, atom: DocumentAtom, index: number): KnowledgeInput {
+    const itemType = file.itemType ?? inferItemType(file.path);
+    const sourceUri = `${file.path}#${atom.sectionSlug}`;
+    const classified = classifyQuery({
+      prompt: [
+        file.path,
+        atom.title,
+        atom.sectionPath.join(' '),
+        atom.content.slice(0, 2000),
+      ].join('\n'),
+      project,
+      files: [file.path],
+    });
+    const labels = mergeLabels([
+      ...baseFileLabels(project, file),
+      ...atom.sectionPath.map((section) => ({ type: 'domain' as const, value: section, weight: 0.65 })),
+      ...labelsFromClassification(classified),
+    ]);
+    const reference: ReferenceInput = {
+      type: 'file',
+      uri: file.path,
+      lineStart: atom.lineStart,
+      lineEnd: atom.lineEnd,
+      metadata: {
+        sectionPath: atom.sectionPath,
+        sectionSlug: atom.sectionSlug,
+      },
+    };
+
+    return {
+      project,
+      sourceType: 'file',
+      sourceUri,
+      sourceTitle: atom.title,
+      itemType,
+      title: atom.title,
+      summary: atom.summary,
+      content: atom.content,
+      trustLevel: 70,
+      labels,
+      references: [reference],
+      metadata: {
+        ...(file.metadata ?? {}),
+        ingestionMode: 'atomic',
+        sourcePath: file.path,
+        sectionPath: atom.sectionPath,
+        sectionSlug: atom.sectionSlug,
+        headingLevel: atom.headingLevel,
+        lineStart: atom.lineStart,
+        lineEnd: atom.lineEnd,
+        atomIndex: index,
+      },
+    };
   }
 
   private async buildChunks(input: KnowledgeInput) {
@@ -104,6 +186,14 @@ function inferItemType(path: string): KnowledgeItemType {
   }
 
   return 'code_ref';
+}
+
+function baseFileLabels(project: string, file: IngestFileInput): LabelInput[] {
+  return [
+    { type: 'project', value: project, weight: 1 },
+    { type: 'file', value: file.path, weight: 1 },
+    ...(file.labels ?? []),
+  ];
 }
 
 function summarizeContent(content: string): string {
