@@ -11,6 +11,7 @@ import type {
   SearchOptions,
 } from '../types.js';
 import { sha256, stableJson } from '../util/hash.js';
+import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { assembleContextPack } from './context-pack.js';
 import { classifyQuery } from './classifier.js';
@@ -34,10 +35,11 @@ export class RetrievalService {
     private readonly cache: Cache,
     private readonly models: ModelProvider,
     private readonly config: AppConfig,
+    private readonly safety: KnowledgeSafetyService = new KnowledgeSafetyService(),
   ) {}
 
   async searchContext(input: ContextSearchInput): Promise<ContextPack> {
-    const normalized = normalizeSearchInput(input);
+    const normalized = normalizeSearchInput(redactSearchInput(input, this.safety));
     const fingerprint = fingerprintSearch(normalized);
     const cacheKey = `context:${fingerprint}`;
     const totalStartedAt = Date.now();
@@ -56,7 +58,7 @@ export class RetrievalService {
 
     const cached = await this.getCachedContextPack(cacheKey, normalized);
     if (cached) {
-      return cached;
+      return this.safety.sanitizeContextPack(cached);
     }
 
     const classificationStartedAt = Date.now();
@@ -91,7 +93,8 @@ export class RetrievalService {
   }
 
   async getContextPack(id: string): Promise<ContextPack | undefined> {
-    return this.store.getContextPack(id);
+    const pack = await this.store.getContextPack(id);
+    return pack ? this.safety.sanitizeContextPack(pack) : undefined;
   }
 
   async recordFeedback(input: FeedbackInput): Promise<{ retry?: ContextPack }> {
@@ -158,12 +161,18 @@ export class RetrievalService {
       timed('memory', this.store.searchMemories(classified, options), debug),
       vectorResults,
     ]);
-    debug?.recordStage('metadata', metadata);
-    debug?.recordStage('lexical', lexical);
-    debug?.recordStage('memory', memory);
-    debug?.recordStage('vector', vector);
+    const safeResults = {
+      metadata: this.safety.sanitizeSearchCandidates(metadata),
+      lexical: this.safety.sanitizeSearchCandidates(lexical),
+      memory: this.safety.sanitizeSearchCandidates(memory),
+      vector: this.safety.sanitizeSearchCandidates(vector),
+    };
+    debug?.recordStage('metadata', safeResults.metadata);
+    debug?.recordStage('lexical', safeResults.lexical);
+    debug?.recordStage('memory', safeResults.memory);
+    debug?.recordStage('vector', safeResults.vector);
 
-    return { metadata, lexical, memory, vector };
+    return safeResults;
   }
 
   private async rankCandidates(
@@ -180,7 +189,7 @@ export class RetrievalService {
     debug?.recordTiming('fusion', fusionStartedAt);
     debug?.recordStage('fusion', fused);
 
-    const reranked = await timed('rerank', this.models.rerank(prompt, fused), debug);
+    const reranked = this.safety.sanitizeSearchCandidates(await timed('rerank', this.models.rerank(prompt, fused), debug));
     debug?.recordStage('rerank', reranked);
     return reranked;
   }
@@ -226,6 +235,14 @@ async function saveCompactContextPack(
 ): Promise<void> {
   await store.saveContextPack(pack);
   await cache.setJson(cacheKey, pack, ttlSeconds);
+}
+
+function redactSearchInput(input: ContextSearchInput, safety: KnowledgeSafetyService): ContextSearchInput {
+  return {
+    ...input,
+    prompt: safety.redactSecrets(input.prompt),
+    errors: input.errors?.map((error) => safety.redactSecrets(error)),
+  };
 }
 
 function normalizeSearchInput(input: ContextSearchInput): NormalizedContextSearchInput {

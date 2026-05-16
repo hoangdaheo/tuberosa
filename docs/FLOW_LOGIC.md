@@ -23,6 +23,7 @@ Main services:
 - `src/mcp/server.ts`: exposes MCP tools, resources, and prompts.
 - `src/ingest/service.ts`: builds chunks and embeddings from knowledge.
 - `src/ingest/document-atomizer.ts`: splits markdown/docs into section-level knowledge atoms.
+- `src/security/knowledge-safety.ts`: scans knowledge for secrets, prompt-injection, and malware-like instructions.
 - `src/retrieval/service.ts`: orchestrates context search.
 - `src/retrieval/classifier.ts`: extracts task structure from prompts.
 - `src/retrieval/fusion.ts`: merges candidates with weighted reciprocal-rank fusion.
@@ -70,15 +71,17 @@ Flow:
 5. Each atom gets its own title, summary, content, source URI, file reference, line range, section path metadata, and section/domain labels.
 6. `IngestionService` normalizes item type, title, summary, labels, and references.
 7. File and atom ingestion call `classifyQuery` on the path and content sample to infer labels.
-8. Content is split into chunks with `splitIntoChunks`.
-9. Each chunk gets contextual content containing project, item type, title, summary, labels, references, and chunk text.
-10. Model provider embeds each contextual chunk.
-11. Store persists project, source, knowledge item, labels, references, chunks, token estimates, and embeddings.
+8. `KnowledgeSafetyService` redacts detected secrets and blocks prompt-injection or malware-like knowledge before embedding or storage.
+9. Content is split into chunks with `splitIntoChunks`.
+10. Each chunk gets contextual content containing project, item type, title, summary, labels, references, and chunk text.
+11. Model provider embeds each contextual chunk.
+12. Store persists project, source, knowledge item, labels, references, chunks, token estimates, embeddings, and safety metadata.
 
 Design rule:
 
 - Ingestion should preserve provenance. Every useful context item should carry source URI, labels, and references so agents can inspect why it was retrieved.
 - Atomic ingestion should keep the useful idea as the ranking unit. Large documents should become small, labeled, independently retrievable knowledge items before normal chunking.
+- Safety checks run before embedding so redacted secrets are not sent to external embedding providers.
 
 ## 5. Retrieval Flow
 
@@ -89,7 +92,7 @@ Entry points:
 
 Flow:
 
-1. `RetrievalService.searchContext` normalizes input:
+1. `RetrievalService.searchContext` redacts detected secrets from prompt/error input, then normalizes:
    - default `tokenBudget` to `4000`
    - default `rejectedKnowledgeIds` to `[]`
    - default `debug` to `false`
@@ -111,20 +114,22 @@ Flow:
    - lexical search
    - memory search
    - vector search
-7. Vector search embeds the prompt plus lexical query, then compares against chunk embeddings.
-8. `fuseCandidates` merges all source lists by knowledge id using weighted reciprocal-rank fusion.
-9. Fusion keeps the strongest chunk per knowledge item and merges match reasons.
-10. Model provider reranks the fused top candidates.
-11. `assembleContextPack` removes weak tail candidates before packing:
+7. Vector search embeds the redacted prompt plus lexical query, then compares against chunk embeddings.
+8. `KnowledgeSafetyService` filters blocked candidates and redacts any legacy unsafe content before ranking.
+9. `fuseCandidates` merges all source lists by knowledge id using weighted reciprocal-rank fusion.
+10. Fusion keeps the strongest chunk per knowledge item and merges match reasons.
+11. Model provider reranks the fused top candidates.
+12. Retrieval safety checks run again before context-pack assembly.
+13. `assembleContextPack` removes weak tail candidates before packing:
     - anchored searches require a stronger final score
     - general searches use a lower final-score floor
     - the top candidate is preserved so sparse searches still return the best available context
-12. The remaining candidates are split into:
+14. The remaining candidates are split into:
     - `essential`
     - `supporting`
     - `optional`
-13. The pack is saved and cached without debug output.
-14. If `debug: true`, a debug trace is attached only to the returned response.
+15. The pack is saved and cached without debug output.
+16. If `debug: true`, a debug trace is attached only to the returned response.
 
 ## 6. Candidate Search Stages
 

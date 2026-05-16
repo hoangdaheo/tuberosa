@@ -1,5 +1,6 @@
 import { classifyQuery, labelsFromClassification } from '../retrieval/classifier.js';
 import type { IngestionService } from '../ingest/service.js';
+import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { ReflectionDraftInput } from '../types.js';
 
@@ -7,10 +8,11 @@ export class ReflectionService {
   constructor(
     private readonly store: KnowledgeStore,
     private readonly ingestion: IngestionService,
+    private readonly safety: KnowledgeSafetyService = new KnowledgeSafetyService(),
   ) {}
 
   async createDraft(input: ReflectionDraftInput) {
-    const normalized = {
+    const raw = {
       ...input,
       title: input.title.trim(),
       summary: input.summary.trim(),
@@ -24,6 +26,7 @@ export class ReflectionService {
         ...(input.labels ?? []),
       ],
     } satisfies ReflectionDraftInput;
+    const normalized = this.safety.sanitizeReflectionDraft(raw);
 
     validateDraft(normalized);
 

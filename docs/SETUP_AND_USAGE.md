@@ -69,7 +69,9 @@ Important variables:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3027` | HTTP server port. |
+| `TUBEROSA_API_KEY` | empty | Optional HTTP API key. When set, all routes except `/health` require `Authorization: Bearer <key>` or `x-tuberosa-api-key`. |
 | `DATABASE_URL` | `postgres://tuberosa:tuberosa@localhost:5432/tuberosa` | Local Postgres connection. |
+| `POSTGRES_PASSWORD` | `tuberosa` | Docker Compose Postgres password used by the app and worker. Change this outside local development. |
 | `REDIS_URL` | `redis://localhost:6379` | Local Redis connection. |
 | `TUBEROSA_STORE` | `postgres` | `postgres` or `memory`. |
 | `TUBEROSA_CACHE` | `redis` | `redis`, `memory`, or `none`. |
@@ -78,6 +80,8 @@ Important variables:
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model. |
 | `EMBEDDING_DIMENSIONS` | `1536` | Must match the pgvector column dimension. |
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Redis or memory cache TTL for context packs. |
+| `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
+| `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for a single knowledge content field before chunking. |
 
 ## 5. Run With Docker
 
@@ -102,9 +106,9 @@ Expected response:
 
 The Compose stack runs:
 
-- Postgres/pgvector on `localhost:5432`.
-- Redis on `localhost:6379`.
-- Tuberosa HTTP app on `localhost:3027`.
+- Postgres/pgvector bound to `127.0.0.1:5432`.
+- Redis bound to `127.0.0.1:6379`.
+- Tuberosa HTTP app bound to `127.0.0.1:3027`.
 - Worker placeholder process.
 
 Stop services:
@@ -165,6 +169,21 @@ Command purpose:
 ## 8. HTTP API Usage
 
 All endpoints return JSON.
+
+When `TUBEROSA_API_KEY` is set, include one of these headers on every endpoint except `/health`:
+
+```bash
+Authorization: Bearer <your-key>
+x-tuberosa-api-key: <your-key>
+```
+
+Knowledge ingestion runs safety checks before embedding or storage:
+
+- credential-like secrets are redacted;
+- prompt-injection instructions are blocked;
+- malware-like download/execute or destructive shell patterns are blocked;
+- retrieval re-checks candidates so legacy unsafe knowledge is not returned to agents.
+- search prompts and error strings are redacted before they are stored or embedded.
 
 ### Health
 

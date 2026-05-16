@@ -64,7 +64,9 @@ Important variables:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3027` | HTTP server port. |
+| `TUBEROSA_API_KEY` | empty | Optional HTTP API key. When set, all routes except `/health` require `Authorization: Bearer <key>` or `x-tuberosa-api-key`. |
 | `DATABASE_URL` | `postgres://tuberosa:tuberosa@localhost:5432/tuberosa` | Postgres connection string. |
+| `POSTGRES_PASSWORD` | `tuberosa` | Docker Compose Postgres password used by the app and worker. Change this outside local development. |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection string. |
 | `TUBEROSA_STORE` | `postgres` | `postgres` or `memory`. |
 | `TUBEROSA_CACHE` | `redis` | `redis`, `memory`, or `none`. |
@@ -73,6 +75,8 @@ Important variables:
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name. |
 | `EMBEDDING_DIMENSIONS` | `1536` | Embedding dimension count. Must match the pgvector column dimension. |
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Context pack cache TTL. |
+| `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
+| `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for one knowledge content field before chunking. |
 
 `text-embedding-3-small` defaults to 1536 dimensions, which matches `migrations/001_init.sql`.
 
@@ -562,7 +566,9 @@ Implement matching improvements in this order:
    - Boost selected context for similar future prompts within the same project.
 7. Security filters.
    - Redact secrets before ingestion and before context injection.
-   - Detect prompt-injection patterns in stored knowledge and mark unsafe chunks as non-injectable until reviewed.
+   - Block prompt-injection and malware-like instructions before storage.
+   - Re-check retrieval candidates so legacy unsafe knowledge is not injected into agent context.
+   - Redact secrets from search prompts before storing or embedding them.
 8. pgvector tuning.
    - Keep HNSW indexes for vector search.
    - Evaluate `hnsw.iterative_scan` when project filters become selective.
@@ -610,7 +616,7 @@ Suggested first UI stack:
 - Add a CLI: `tuberosa ingest --project <name> --path <repo-or-docs-path>`.
 - Add GitNexus/Graphify import adapters so existing graph/wiki outputs become normalized knowledge.
 - Add provider-backed query rewriting and reranking.
-- Add prompt-injection and secret-redaction checks.
+- Expand prompt-injection, malware-pattern, and secret-redaction fixtures with more real examples.
 - Replace the minimal MCP JSON-RPC implementation with the official TypeScript MCP SDK if stricter client compatibility is required.
 
 ### Later

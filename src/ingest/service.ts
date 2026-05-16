@@ -3,6 +3,7 @@ import type { KnowledgeInput, KnowledgeItemType, LabelInput, ReferenceInput } fr
 import { classifyQuery, labelsFromClassification } from '../retrieval/classifier.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { estimateTokens, splitIntoChunks, uniqueStrings } from '../util/text.js';
+import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import { MarkdownAtomizer, type DocumentAtom, type DocumentAtomizer } from './document-atomizer.js';
 
 export type IngestionMode = 'document' | 'atomic';
@@ -21,16 +22,36 @@ export interface IngestFilesOptions {
   mode?: IngestionMode;
 }
 
+export interface IngestionServiceOptions {
+  atomizers?: DocumentAtomizer[];
+  safety?: KnowledgeSafetyService;
+  maxContentBytes?: number;
+}
+
+export class IngestionLimitError extends Error {
+  readonly statusCode = 413;
+}
+
 export class IngestionService {
+  private readonly atomizers: DocumentAtomizer[];
+  private readonly safety: KnowledgeSafetyService;
+  private readonly maxContentBytes?: number;
+
   constructor(
     private readonly store: KnowledgeStore,
     private readonly models: ModelProvider,
-    private readonly atomizers: DocumentAtomizer[] = [new MarkdownAtomizer()],
-  ) {}
+    options: IngestionServiceOptions = {},
+  ) {
+    this.atomizers = options.atomizers ?? [new MarkdownAtomizer()];
+    this.safety = options.safety ?? new KnowledgeSafetyService();
+    this.maxContentBytes = options.maxContentBytes;
+  }
 
   async ingestKnowledge(input: KnowledgeInput) {
-    const chunks = await this.buildChunks(input);
-    return this.store.upsertKnowledge(input, chunks);
+    this.ensureContentWithinLimit(input.content);
+    const sanitizedInput = this.safety.sanitizeKnowledgeInput(input);
+    const chunks = await this.buildChunks(sanitizedInput);
+    return this.store.upsertKnowledge(sanitizedInput, chunks);
   }
 
   async ingestFiles(project: string, files: IngestFileInput[], options: IngestFilesOptions = {}) {
@@ -44,6 +65,17 @@ export class IngestionService {
     }
 
     return results;
+  }
+
+  private ensureContentWithinLimit(content: string): void {
+    if (!this.maxContentBytes) {
+      return;
+    }
+
+    const bytes = Buffer.byteLength(content, 'utf8');
+    if (bytes > this.maxContentBytes) {
+      throw new IngestionLimitError(`Knowledge content exceeds ${this.maxContentBytes} bytes.`);
+    }
   }
 
   private buildKnowledgeInputs(project: string, file: IngestFileInput, mode: IngestionMode): KnowledgeInput[] {

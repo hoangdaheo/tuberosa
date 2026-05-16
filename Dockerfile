@@ -20,4 +20,5 @@ COPY --from=build /app/dist ./dist
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY migrations ./migrations
 EXPOSE 3027
+USER node
 CMD ["node", "dist/src/index.js"]

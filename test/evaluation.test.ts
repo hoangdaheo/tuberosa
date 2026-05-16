@@ -21,6 +21,8 @@ const config: AppConfig = {
   embeddingDimensions: 1536,
   openAiEmbeddingModel: 'text-embedding-3-small',
   contextCacheTtlSeconds: 0,
+  maxRequestBytes: 10 * 1024 * 1024,
+  maxIngestContentBytes: 2 * 1024 * 1024,
 };
 
 test('retrieval evaluation fixture produces passing quality metrics', async () => {
