@@ -82,6 +82,7 @@ export interface StoredKnowledge {
   metadata: Record<string, unknown>;
   labels: LabelInput[];
   references: ReferenceInput[];
+  freshnessAt?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -133,6 +134,7 @@ export interface SearchCandidate {
   rawScore: number;
   rank: number;
   createdAt?: string;
+  freshnessAt?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -141,6 +143,18 @@ export interface RankedCandidate extends SearchCandidate {
   rerankScore: number;
   finalScore: number;
   matchReasons: string[];
+  fitScore?: number;
+  fitReasons?: string[];
+  fitMissingSignals?: string[];
+}
+
+export type ContextFitStatus = 'ready' | 'needs_confirmation' | 'insufficient';
+
+export interface ContextFit {
+  fitStatus: ContextFitStatus;
+  fitScore: number;
+  fitReasons: string[];
+  missingSignals: string[];
 }
 
 export interface ContextPackSection {
@@ -157,6 +171,7 @@ export interface ContextPack {
   confidence: number;
   status: 'proposed' | 'selected' | 'rejected';
   classified: ClassifiedQuery;
+  contextFit?: ContextFit;
   sections: ContextPackSection[];
   rejectedKnowledgeIds: string[];
   createdAt: string;
@@ -210,7 +225,7 @@ export interface KnowledgeSearchResult {
   memory: SearchCandidate[];
 }
 
-export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'fusion' | 'rerank';
+export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'fusion' | 'rerank' | 'fit';
 
 export type RetrievalDebugTimingName =
   | RetrievalDebugStageName
@@ -233,9 +248,12 @@ export interface RetrievalDebugCandidate {
   fusedScore?: number;
   rerankScore?: number;
   finalScore?: number;
+  fitScore?: number;
   trustLevel: number;
   tokenEstimate: number;
   matchReasons: string[];
+  fitReasons?: string[];
+  fitMissingSignals?: string[];
   references: ReferenceInput[];
 }
 

@@ -26,6 +26,8 @@ Acceptance:
 
 Goal: make appropriate knowledge explicit instead of relying only on final rank and confidence.
 
+Status: Done on 2026-05-16.
+
 - Add a `ContextFitEvaluator` after rerank and before context-pack assembly.
 - Evaluate candidate coverage for project, files, symbols, errors, task type, trust level, freshness, safety, and prior feedback.
 - Add pack-level fit metadata:

@@ -43,6 +43,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       metadata: input.metadata ?? {},
       labels: input.labels ?? [],
       references: input.references ?? [],
+      freshnessAt: input.freshnessAt,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -279,6 +280,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       rawScore,
       rank: 0,
       createdAt: item.createdAt,
+      freshnessAt: item.freshnessAt,
       metadata: item.metadata,
     };
   }

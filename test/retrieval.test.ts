@@ -6,8 +6,10 @@ import { IngestionService } from '../src/ingest/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { classifyQuery } from '../src/retrieval/classifier.js';
+import { ContextFitEvaluator } from '../src/retrieval/context-fit.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
+import type { ClassifiedQuery, RankedCandidate } from '../src/types.js';
 
 const config: AppConfig = {
   env: 'test',
@@ -361,6 +363,151 @@ test('retrieval debug trace exposes source stages without persisting verbose out
   equal(stored?.debug, undefined);
 });
 
+test('context fit marks exact anchored retrieval ready and exposes fit reasons', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'newsletter-app',
+    sourceType: 'file',
+    sourceUri: 'src/components/paywall-selection-modal.tsx',
+    itemType: 'bugfix',
+    title: 'PaywallSelectionModal TS-999 fix',
+    summary: 'Current React paywall bugfix for TS-999.',
+    content: 'Fix TS-999 in PaywallSelectionModal by preserving selected newsletter paywall product ids.',
+    trustLevel: 92,
+    freshnessAt: '2026-05-01T00:00:00.000Z',
+    labels: [
+      { type: 'file', value: 'src/components/paywall-selection-modal.tsx', weight: 1 },
+      { type: 'symbol', value: 'PaywallSelectionModal', weight: 1 },
+      { type: 'error', value: 'TS-999', weight: 1 },
+      { type: 'task_type', value: 'debugging', weight: 1 },
+      { type: 'technology', value: 'react', weight: 0.8 },
+      { type: 'business_area', value: 'paywall', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/components/paywall-selection-modal.tsx' }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'newsletter-app',
+    prompt: 'Fix TS-999 in PaywallSelectionModal for React newsletter paywall',
+    files: ['src/components/paywall-selection-modal.tsx'],
+    symbols: ['PaywallSelectionModal'],
+    errors: ['TS-999'],
+    taskType: 'debugging',
+    debug: true,
+  });
+  const first = pack.sections[0].items[0];
+  const fitStage = pack.debug?.stages.find((stage) => stage.name === 'fit');
+
+  equal(pack.contextFit?.fitStatus, 'ready');
+  ok((pack.contextFit?.fitScore ?? 0) >= 0.72);
+  ok(pack.contextFit?.fitReasons.includes('covered file:1/1'));
+  ok(first.fitReasons?.includes('matched file:src/components/paywall-selection-modal.tsx'));
+  ok(first.fitReasons?.includes('matched symbol:PaywallSelectionModal'));
+  ok(first.fitReasons?.includes('matched error:TS-999'));
+  ok(fitStage?.candidates[0]?.fitReasons?.includes('matched file:src/components/paywall-selection-modal.tsx'));
+});
+
+test('context fit marks missing anchored retrieval insufficient while returning best effort', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://auth-workflow',
+    itemType: 'wiki',
+    title: 'Auth workflow',
+    summary: 'Authentication workflow notes.',
+    content: 'Auth work should preserve bearer token rotation behavior.',
+    trustLevel: 80,
+    labels: [{ type: 'business_area', value: 'auth', weight: 1 }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Fix BILLING-777 in src/billing/retry-worker.ts around RetryWorker',
+    files: ['src/billing/retry-worker.ts'],
+    symbols: ['RetryWorker'],
+    errors: ['BILLING-777'],
+    taskType: 'debugging',
+    bypassCache: true,
+  });
+
+  equal(pack.contextFit?.fitStatus, 'insufficient');
+  ok(pack.contextFit?.missingSignals.includes('missing file:src/billing/retry-worker.ts'));
+  ok(pack.contextFit?.missingSignals.includes('missing symbol:RetryWorker'));
+  ok(pack.sections[0].items.length > 0);
+});
+
+test('context fit marks sparse retrieval as non-ready best effort', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://auth-workflow',
+    itemType: 'wiki',
+    title: 'Auth workflow',
+    summary: 'Authentication workflow notes.',
+    content: 'Auth work should preserve bearer token rotation behavior.',
+    trustLevel: 85,
+    labels: [{ type: 'business_area', value: 'auth', weight: 1 }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'explain the auth workflow',
+    bypassCache: true,
+  });
+
+  ok(pack.contextFit?.fitStatus === 'needs_confirmation' || pack.contextFit?.fitStatus === 'insufficient');
+  ok(pack.contextFit?.missingSignals.includes('no concrete file, symbol, or error signal was supplied'));
+  ok(pack.sections[0].items.length > 0);
+});
+
+test('context fit penalizes stale and rejected candidates', () => {
+  const evaluator = new ContextFitEvaluator();
+  const classified: ClassifiedQuery = {
+    project: 'agent-memory',
+    taskType: 'debugging',
+    confidence: 0.8,
+    files: ['src/auth.ts'],
+    symbols: ['AuthService'],
+    errors: ['TS-999'],
+    technologies: [],
+    businessAreas: ['auth'],
+    exactTerms: ['src/auth.ts', 'AuthService', 'TS-999', 'auth'],
+    lexicalQuery: 'src/auth.ts AuthService TS-999 auth',
+  };
+
+  const fresh = rankedCandidate({
+    knowledgeId: 'fresh',
+    title: 'Current AuthService TS-999 fix',
+    freshnessAt: '2026-05-01T00:00:00.000Z',
+    metadata: { safety: { status: 'safe' } },
+  });
+  const stale = rankedCandidate({
+    knowledgeId: 'stale',
+    title: 'Legacy AuthService TS-999 fix',
+    freshnessAt: '2024-01-01T00:00:00.000Z',
+    metadata: { safety: { status: 'safe' }, feedbackStatus: 'rejected' },
+  });
+
+  const result = evaluator.evaluate({
+    project: 'agent-memory',
+    classified,
+    candidates: [stale, fresh],
+    rejectedKnowledgeIds: ['stale'],
+    now: new Date('2026-05-16T00:00:00.000Z'),
+  });
+  const fittedFresh = result.candidates.find((candidate) => candidate.knowledgeId === 'fresh');
+  const fittedStale = result.candidates.find((candidate) => candidate.knowledgeId === 'stale');
+
+  ok((fittedFresh?.fitScore ?? 0) > (fittedStale?.fitScore ?? 0));
+  ok(fittedStale?.fitMissingSignals?.includes('freshness:stale'));
+  ok(fittedStale?.fitMissingSignals?.includes('prior feedback:rejected'));
+});
+
 test('feedback rejection retries without rejected knowledge', async () => {
   const { ingestion, retrieval } = createTestServices();
 
@@ -468,6 +615,36 @@ function createTestServices() {
   const reflection = new ReflectionService(store, ingestion);
 
   return { store, cache, models, ingestion, retrieval, reflection };
+}
+
+function rankedCandidate(overrides: Partial<RankedCandidate>): RankedCandidate {
+  return {
+    knowledgeId: 'candidate',
+    chunkId: 'chunk',
+    title: 'AuthService TS-999 fix',
+    summary: 'Auth bugfix notes.',
+    content: 'Fix TS-999 in src/auth.ts for AuthService auth handling.',
+    contextualContent: 'Project: agent-memory\nFile: src/auth.ts\nSymbol: AuthService\nError: TS-999\nAuth handling notes.',
+    itemType: 'bugfix',
+    project: 'agent-memory',
+    labels: [
+      { type: 'file', value: 'src/auth.ts', weight: 1 },
+      { type: 'symbol', value: 'AuthService', weight: 1 },
+      { type: 'error', value: 'TS-999', weight: 1 },
+      { type: 'business_area', value: 'auth', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/auth.ts' }],
+    tokenEstimate: 24,
+    trustLevel: 90,
+    source: 'metadata',
+    rawScore: 1,
+    rank: 1,
+    fusedScore: 1,
+    rerankScore: 1,
+    finalScore: 0.9,
+    matchReasons: ['metadata match', 'file:src/auth.ts', 'symbol:AuthService', 'error:TS-999'],
+    ...overrides,
+  };
 }
 
 async function rejectsAsync(fn: () => Promise<unknown>): Promise<void> {

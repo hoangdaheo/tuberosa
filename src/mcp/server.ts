@@ -1,5 +1,6 @@
 import type { AppServices } from '../app.js';
 import { NotFoundError, ValidationError } from '../errors.js';
+import type { ContextFitStatus } from '../types.js';
 import {
   expectRecord,
   validateContextPackIdArguments,
@@ -84,6 +85,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       return toolJson({
         contextPackId: pack.id,
         confidence: pack.confidence,
+        contextFit: pack.contextFit,
         project: pack.project,
         classified: pack.classified,
         sections: pack.sections.map((section) => ({
@@ -96,11 +98,14 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
             project: item.project,
             score: item.finalScore,
             reasons: item.matchReasons,
+            fitScore: item.fitScore,
+            fitReasons: item.fitReasons,
+            fitMissingSignals: item.fitMissingSignals,
             references: item.references,
           })),
         })),
         ...(pack.debug ? { debug: pack.debug } : {}),
-        instruction: 'Review the shortlist. Call tuberosa_get_context_pack only after the user or agent confirms this pack is appropriate.',
+        instruction: searchInstruction(pack.contextFit?.fitStatus),
       });
     }
 
@@ -128,6 +133,18 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
     default:
       throw new ValidationError(`Unknown Tuberosa tool: ${name}`);
   }
+}
+
+function searchInstruction(fitStatus: ContextFitStatus | undefined): string {
+  if (fitStatus === 'insufficient') {
+    return 'Context fit is insufficient. Ask a clarifying question or continue with fresh context instead of relying on this pack.';
+  }
+
+  if (fitStatus === 'needs_confirmation') {
+    return 'Context fit needs confirmation. Review the shortlist and confirm it is appropriate before using the full pack.';
+  }
+
+  return 'Review the shortlist. Call tuberosa_get_context_pack only after the user or agent confirms this pack is appropriate.';
 }
 
 async function readResource(services: AppServices, params: Record<string, unknown>) {

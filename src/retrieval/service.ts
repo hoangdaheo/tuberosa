@@ -3,6 +3,7 @@ import type { AppConfig } from '../config.js';
 import type { ModelProvider } from '../model/provider.js';
 import type {
   ClassifiedQuery,
+  ContextFit,
   ContextPack,
   ContextSearchInput,
   FeedbackInput,
@@ -16,6 +17,7 @@ import type { KnowledgeStore } from '../storage/store.js';
 import { assembleContextPack } from './context-pack.js';
 import { classifyQuery } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
+import { ContextFitEvaluator } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
 
 const DEFAULT_TOKEN_BUDGET = 4000;
@@ -36,6 +38,7 @@ export class RetrievalService {
     private readonly models: ModelProvider,
     private readonly config: AppConfig,
     private readonly safety: KnowledgeSafetyService = new KnowledgeSafetyService(),
+    private readonly fitEvaluator: ContextFitEvaluator = new ContextFitEvaluator(),
   ) {}
 
   async searchContext(input: ContextSearchInput): Promise<ContextPack> {
@@ -73,12 +76,22 @@ export class RetrievalService {
     );
     const candidates = await this.findCandidates(normalized, classified, project, debug);
     const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, classified, debug);
+    const fitStartedAt = Date.now();
+    const fitEvaluation = this.fitEvaluator.evaluate({
+      project,
+      classified,
+      candidates: rankedCandidates,
+      rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
+    });
+    debug?.recordTiming('fit', fitStartedAt);
+    debug?.recordStage('fit', fitEvaluation.candidates);
     const assemblyStartedAt = Date.now();
     const pack = this.buildContextPack({
       queryId,
       project,
       classified,
-      candidates: rankedCandidates,
+      candidates: fitEvaluation.candidates,
+      contextFit: fitEvaluation.contextFit,
       input: normalized,
     });
     debug?.recordTiming('assembly', assemblyStartedAt);
@@ -199,6 +212,7 @@ export class RetrievalService {
     project?: string;
     classified: ClassifiedQuery;
     candidates: RankedCandidate[];
+    contextFit: ContextFit;
     input: NormalizedContextSearchInput;
   }): ContextPack {
     return assembleContextPack({
@@ -209,6 +223,7 @@ export class RetrievalService {
       candidates: input.candidates,
       tokenBudget: input.input.tokenBudget,
       rejectedKnowledgeIds: input.input.rejectedKnowledgeIds,
+      contextFit: input.contextFit,
     });
   }
 

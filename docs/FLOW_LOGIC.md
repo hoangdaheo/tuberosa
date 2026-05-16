@@ -27,6 +27,7 @@ Main services:
 - `src/retrieval/service.ts`: orchestrates context search.
 - `src/retrieval/classifier.ts`: extracts task structure from prompts.
 - `src/retrieval/fusion.ts`: merges candidates with weighted reciprocal-rank fusion.
+- `src/retrieval/context-fit.ts`: evaluates whether retrieved candidates actually fit the task.
 - `src/retrieval/context-pack.ts`: builds final context sections.
 - `src/retrieval/debug.ts`: builds optional retrieval debug traces.
 - `src/reflection/service.ts`: creates and approves memory drafts.
@@ -119,17 +120,18 @@ Flow:
 9. `fuseCandidates` merges all source lists by knowledge id using weighted reciprocal-rank fusion.
 10. Fusion keeps the strongest chunk per knowledge item and merges match reasons.
 11. Model provider reranks the fused top candidates.
-12. Retrieval safety checks run again before context-pack assembly.
-13. `assembleContextPack` removes weak tail candidates before packing:
+12. Retrieval safety checks run again before fit evaluation.
+13. `ContextFitEvaluator` scores candidate and pack fit across project, files, symbols, errors, task type, trust, freshness, safety, and prior feedback signals.
+14. `assembleContextPack` removes weak tail candidates before packing:
     - anchored searches require a stronger final score
     - general searches use a lower final-score floor
     - the top candidate is preserved so sparse searches still return the best available context
-14. The remaining candidates are split into:
+15. The remaining candidates are split into:
     - `essential`
     - `supporting`
     - `optional`
-15. The pack is saved and cached without debug output.
-16. If `debug: true`, a debug trace is attached only to the returned response.
+16. The pack is saved and cached without debug output.
+17. If `debug: true`, a debug trace is attached only to the returned response.
 
 ## 6. Candidate Search Stages
 
@@ -191,8 +193,8 @@ Debug trace fields:
 - `cache`: cache key, hit flag, and bypass flag.
 - `limits`: search limit, rerank limit, and token budget.
 - `filters`: rejected knowledge ids and filter decisions.
-- `timingsMs`: classification, embedding, stage search, fusion, rerank, assembly, save, and total timings.
-- `stages`: metadata, lexical, memory, vector, fusion, and rerank candidate lists.
+- `timingsMs`: classification, embedding, stage search, fusion, rerank, fit, assembly, save, and total timings.
+- `stages`: metadata, lexical, memory, vector, fusion, rerank, and fit candidate lists.
 - `selected`: final candidates by context-pack section.
 
 Candidate debug fields:
@@ -208,14 +210,38 @@ Candidate debug fields:
 - fused score
 - rerank score
 - final score
+- fit score
 - trust level
 - token estimate
 - match reasons
+- fit reasons and missing fit signals
 - references
 
 Use debug traces when tuning search weights, diagnosing missing context, building the admin/debug UI, or investigating stale context.
 
-## 8. Context Pack Assembly
+## 8. Context Fit And Pack Assembly
+
+`ContextFitEvaluator` runs after rerank and before assembly. It does not replace provenance or match reasons; it adds a separate fit signal so agents can tell whether the shortlist is usable for the task.
+
+Candidate fit uses:
+
+- project match
+- exact file, symbol, and error coverage
+- technology and business-area coverage
+- task-type alignment
+- trust level
+- freshness metadata
+- safety metadata
+- prior feedback or rejected ids
+
+Pack-level `contextFit` includes:
+
+- `fitStatus`: `ready`, `needs_confirmation`, or `insufficient`
+- `fitScore`: normalized fit score
+- `fitReasons`: coverage reasons for the shortlist
+- `missingSignals`: concrete signals that were not covered
+
+When fit is `insufficient`, agents should ask a clarifying question or continue without relying on the pack. Sparse searches still return the best available candidate, but the fit metadata makes the uncertainty explicit.
 
 `assembleContextPack` enforces token budget and section shape:
 
@@ -392,7 +418,7 @@ Tool flow:
 
 1. `tools/list` returns the four Tuberosa tools.
 2. `tools/call` dispatches by name.
-3. `tuberosa_search_context` returns compact shortlist details.
+3. `tuberosa_search_context` returns compact shortlist details, context fit, and candidate fit reasons.
 4. `tuberosa_get_context_pack` returns full pack.
 5. `tuberosa_reflect` creates a pending draft.
 6. `tuberosa_feedback_context` records feedback and may return a retry pack.
@@ -445,7 +471,7 @@ Functional smoke sequence:
 Expected behavior:
 
 - Knowledge is chunked and embedded.
-- Search returns relevant references and match reasons.
+- Search returns relevant references, match reasons, and context fit metadata.
 - Debug output shows all candidate stages.
 - Selected feedback updates pack status.
 - Stale/rejected/irrelevant feedback retries with rejected knowledge excluded.

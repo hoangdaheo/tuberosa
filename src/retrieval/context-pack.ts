@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ClassifiedQuery, ContextPack, RankedCandidate } from '../types.js';
+import type { ClassifiedQuery, ContextFit, ContextPack, RankedCandidate } from '../types.js';
 import { clamp, truncate } from '../util/text.js';
 
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
@@ -13,6 +13,7 @@ export interface AssembleContextPackInput {
   candidates: RankedCandidate[];
   tokenBudget: number;
   rejectedKnowledgeIds?: string[];
+  contextFit?: ContextFit;
 }
 
 export function assembleContextPack(input: AssembleContextPackInput): ContextPack {
@@ -28,7 +29,8 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
 
   const topScore = accepted[0]?.finalScore ?? 0;
   const density = Math.min(1, accepted.length / 6);
-  const confidence = clamp(topScore * 0.72 + input.classified.confidence * 0.18 + density * 0.1, 0, 0.99);
+  const fitScore = input.contextFit?.fitScore ?? 0;
+  const confidence = clamp(topScore * 0.56 + input.classified.confidence * 0.16 + density * 0.08 + fitScore * 0.2, 0, 0.99);
 
   return {
     id: randomUUID(),
@@ -38,6 +40,7 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     confidence,
     status: 'proposed',
     classified: input.classified,
+    contextFit: input.contextFit,
     sections: [
       { name: 'essential', items: sanitizeItems(essential), tokenEstimate: sumTokens(essential) },
       { name: 'supporting', items: sanitizeItems(supporting), tokenEstimate: sumTokens(supporting) },

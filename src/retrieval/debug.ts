@@ -121,6 +121,15 @@ function toDebugCandidate(candidate: SearchCandidate | RankedCandidate): Retriev
   if (typeof ranked.finalScore === 'number') {
     debugCandidate.finalScore = roundScore(ranked.finalScore);
   }
+  if (typeof ranked.fitScore === 'number') {
+    debugCandidate.fitScore = roundScore(ranked.fitScore);
+  }
+  if (ranked.fitReasons) {
+    debugCandidate.fitReasons = ranked.fitReasons;
+  }
+  if (ranked.fitMissingSignals) {
+    debugCandidate.fitMissingSignals = ranked.fitMissingSignals;
+  }
 
   return debugCandidate;
 }

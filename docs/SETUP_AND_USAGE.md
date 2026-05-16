@@ -280,9 +280,11 @@ Important response fields:
 - `id`: context pack id.
 - `queryId`: stored query id.
 - `confidence`: pack-level confidence.
+- `contextFit`: fit status, fit score, fit reasons, and missing signals for deciding whether to use the pack.
 - `classified`: extracted files, symbols, errors, technologies, business areas, and lexical query.
 - `sections`: `essential`, `supporting`, and `optional` groups.
 - `sections[].items[].matchReasons`: why a candidate matched.
+- `sections[].items[].fitReasons`: why a candidate fits the classified task.
 - `sections[].items[].references`: file, URL, commit, tool, conversation, or external references.
 
 ### Search Context With Debug Trace
@@ -306,8 +308,8 @@ The debug trace includes:
 - Search limits and token budget.
 - Rejected knowledge ids and filter decisions.
 - Timing per stage.
-- Candidate lists for metadata, lexical, memory, vector, fusion, and rerank.
-- Raw, fused, rerank, and final scores when available.
+- Candidate lists for metadata, lexical, memory, vector, fusion, rerank, and fit.
+- Raw, fused, rerank, final, and fit scores when available.
 - Final selected candidates by context-pack section.
 
 Debug traces are returned only for that response. They are not persisted in stored context packs and are not cached.
@@ -398,10 +400,11 @@ Recommended agent flow:
 1. Call `tuberosa_search_context` before implementation or debugging.
 2. Include prompt, project, cwd, files, symbols, errors, and task type when known.
 3. Review the shortlist confidence and references.
-4. Call `tuberosa_get_context_pack` after the shortlist looks relevant.
-5. If context is wrong, call `tuberosa_feedback_context` and retry once.
-6. After a useful lesson, call `tuberosa_reflect`.
-7. Approve reflection drafts before they become searchable memory.
+4. Check `contextFit.fitStatus`; ask a clarifying question when it is `insufficient`, and confirm before using `needs_confirmation` context.
+5. Call `tuberosa_get_context_pack` after the shortlist looks relevant.
+6. If context is wrong, call `tuberosa_feedback_context` and retry once.
+7. After a useful lesson, call `tuberosa_reflect`.
+8. Approve reflection drafts before they become searchable memory.
 
 Use `debug: true` in `tuberosa_search_context` only when diagnosing retrieval quality.
 
@@ -487,6 +490,7 @@ Expected QA outcome:
 - Integration tests pass when Docker services are reachable, or skip cleanly when they are not.
 - Health endpoint returns `ok: true`.
 - Search returns a context pack with references and match reasons.
+- Search returns context fit metadata for ready, confirmation-needed, or insufficient context.
 - Debug search returns stages and selected candidates.
 - Feedback updates context pack status or returns a retry.
 - Approved reflection becomes searchable memory.

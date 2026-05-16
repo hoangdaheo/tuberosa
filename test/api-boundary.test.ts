@@ -75,9 +75,17 @@ test('valid MCP tool calls are validated then dispatched', async () => {
         prompt: 'Find auth guidance',
       },
     },
-  }) as { structuredContent?: { contextPackId?: string } };
+  }) as {
+    structuredContent?: {
+      contextPackId?: string;
+      contextFit?: { fitStatus?: string };
+      sections?: Array<{ items: Array<{ fitReasons?: string[] }> }>;
+    };
+  };
 
   equal(result.structuredContent?.contextPackId, 'pack-1');
+  equal(result.structuredContent?.contextFit?.fitStatus, 'ready');
+  equal(result.structuredContent?.sections?.[0]?.items[0]?.fitReasons?.[0], 'project:agent-memory');
 });
 
 test('malformed MCP tool inputs map to JSON-RPC invalid params errors', async () => {
@@ -195,11 +203,42 @@ function samplePack(): ContextPack {
       exactTerms: ['auth'],
       lexicalQuery: 'auth guidance',
     },
+    contextFit: {
+      fitStatus: 'ready',
+      fitScore: 0.82,
+      fitReasons: ['covered project:agent-memory'],
+      missingSignals: [],
+    },
     sections: [
       {
         name: 'essential',
         tokenEstimate: 10,
-        items: [],
+        items: [
+          {
+            knowledgeId: 'knowledge-1',
+            chunkId: 'chunk-1',
+            title: 'Auth workflow',
+            summary: 'Auth workflow notes.',
+            content: 'Auth guidance.',
+            contextualContent: 'Project: agent-memory\nAuth guidance.',
+            itemType: 'wiki',
+            project: 'agent-memory',
+            labels: [],
+            references: [],
+            tokenEstimate: 10,
+            trustLevel: 80,
+            source: 'metadata',
+            rawScore: 1,
+            rank: 1,
+            fusedScore: 1,
+            rerankScore: 1,
+            finalScore: 0.9,
+            matchReasons: ['metadata match'],
+            fitScore: 0.82,
+            fitReasons: ['project:agent-memory'],
+            fitMissingSignals: [],
+          },
+        ],
       },
     ],
     rejectedKnowledgeIds: [],

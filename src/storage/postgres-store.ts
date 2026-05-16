@@ -590,6 +590,7 @@ function knowledgeSelect(): string {
       ki.summary,
       ki.content,
       ki.trust_level,
+      ki.freshness_at,
       ki.metadata,
       ki.created_at,
       ki.updated_at,
@@ -629,6 +630,7 @@ function candidateSelect(source: string, scoreExpression: string): string {
       p.name AS project,
       ki.trust_level,
       kc.token_estimate,
+      ki.freshness_at,
       ki.metadata,
       ki.created_at,
       '${source}'::text AS source,
@@ -670,6 +672,7 @@ function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
     labels: (row.labels ?? []) as LabelInput[],
     references: (row.references ?? []) as ReferenceInput[],
+    freshnessAt: row.freshness_at ? toIso(row.freshness_at) : undefined,
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
   };
@@ -693,6 +696,7 @@ function mapCandidateRow(row: Record<string, unknown>, index: number): SearchCan
     rawScore: Number(row.raw_score ?? 0),
     rank: index + 1,
     createdAt: row.created_at ? toIso(row.created_at) : undefined,
+    freshnessAt: row.freshness_at ? toIso(row.freshness_at) : undefined,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
 }
