@@ -320,8 +320,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         input.content,
         input.itemType ?? 'memory',
         input.triggerType,
-        input.labels ?? [],
-        duplicateCandidates,
+        JSON.stringify(input.labels ?? []),
+        JSON.stringify(duplicateCandidates),
         input.metadata ?? {},
       ],
     );

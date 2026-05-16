@@ -14,6 +14,7 @@ import { sha256, stableJson } from '../util/hash.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { assembleContextPack } from './context-pack.js';
 import { classifyQuery } from './classifier.js';
+import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { fuseCandidates } from './fusion.js';
 
 const DEFAULT_TOKEN_BUDGET = 4000;
@@ -24,6 +25,7 @@ const RETRY_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>(['rejected',
 type NormalizedContextSearchInput = ContextSearchInput & {
   tokenBudget: number;
   rejectedKnowledgeIds: string[];
+  debug: boolean;
 };
 
 export class RetrievalService {
@@ -38,17 +40,38 @@ export class RetrievalService {
     const normalized = normalizeSearchInput(input);
     const fingerprint = fingerprintSearch(normalized);
     const cacheKey = `context:${fingerprint}`;
+    const totalStartedAt = Date.now();
+    const debug = normalized.debug
+      ? new RetrievalDebugBuilder({
+        fingerprint,
+        cacheKey,
+        cacheHit: false,
+        cacheBypassed: true,
+        searchLimit: SEARCH_LIMIT,
+        rerankLimit: RERANK_LIMIT,
+        tokenBudget: normalized.tokenBudget,
+        rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
+      })
+      : undefined;
 
     const cached = await this.getCachedContextPack(cacheKey, normalized);
     if (cached) {
       return cached;
     }
 
+    const classificationStartedAt = Date.now();
     const classified = classifyQuery(normalized);
+    debug?.recordTiming('classification', classificationStartedAt);
+
     const project = normalized.project ?? classified.project;
-    const queryId = await this.createContextQuery(normalized, classified, fingerprint, project);
-    const candidates = await this.findCandidates(normalized, classified, project);
-    const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, classified);
+    const queryId = await timed(
+      'contextQuery',
+      this.createContextQuery(normalized, classified, fingerprint, project),
+      debug,
+    );
+    const candidates = await this.findCandidates(normalized, classified, project, debug);
+    const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, classified, debug);
+    const assemblyStartedAt = Date.now();
     const pack = this.buildContextPack({
       queryId,
       project,
@@ -56,8 +79,14 @@ export class RetrievalService {
       candidates: rankedCandidates,
       input: normalized,
     });
+    debug?.recordTiming('assembly', assemblyStartedAt);
+    await this.saveContextPack(cacheKey, pack, debug);
+    debug?.recordTiming('total', totalStartedAt);
 
-    await this.saveContextPack(cacheKey, pack);
+    if (debug) {
+      pack.debug = debug.buildTrace(pack);
+    }
+
     return pack;
   }
 
@@ -85,7 +114,7 @@ export class RetrievalService {
     cacheKey: string,
     input: NormalizedContextSearchInput,
   ): Promise<ContextPack | undefined> {
-    return input.bypassCache ? undefined : this.cache.getJson<ContextPack>(cacheKey);
+    return input.bypassCache || input.debug ? undefined : this.cache.getJson<ContextPack>(cacheKey);
   }
 
   private async createContextQuery(
@@ -107,6 +136,7 @@ export class RetrievalService {
     input: NormalizedContextSearchInput,
     classified: ClassifiedQuery,
     project?: string,
+    debug?: RetrievalDebugBuilder,
   ): Promise<KnowledgeSearchResult> {
     const options: SearchOptions = {
       project,
@@ -114,16 +144,24 @@ export class RetrievalService {
       rejectedKnowledgeIds: input.rejectedKnowledgeIds,
     };
 
-    const vectorResults = this.models
-      .embed(`${classified.lexicalQuery}\n\n${input.prompt}`)
-      .then((embedding) => this.store.searchVector(embedding, options));
+    const embedding = timed(
+      'embedding',
+      this.models.embed(`${classified.lexicalQuery}\n\n${input.prompt}`),
+      debug,
+    );
+    const vectorResults = embedding
+      .then((embedding) => timed('vector', this.store.searchVector(embedding, options), debug));
 
     const [metadata, lexical, memory, vector] = await Promise.all([
-      this.store.searchMetadata(classified, options),
-      this.store.searchLexical(classified, options),
-      this.store.searchMemories(classified, options),
+      timed('metadata', this.store.searchMetadata(classified, options), debug),
+      timed('lexical', this.store.searchLexical(classified, options), debug),
+      timed('memory', this.store.searchMemories(classified, options), debug),
       vectorResults,
     ]);
+    debug?.recordStage('metadata', metadata);
+    debug?.recordStage('lexical', lexical);
+    debug?.recordStage('memory', memory);
+    debug?.recordStage('vector', vector);
 
     return { metadata, lexical, memory, vector };
   }
@@ -132,13 +170,19 @@ export class RetrievalService {
     prompt: string,
     candidates: KnowledgeSearchResult,
     classified: ClassifiedQuery,
+    debug?: RetrievalDebugBuilder,
   ): Promise<RankedCandidate[]> {
+    const fusionStartedAt = Date.now();
     const fused = fuseCandidates(
       [candidates.metadata, candidates.lexical, candidates.memory, candidates.vector],
       classified,
     ).slice(0, RERANK_LIMIT);
+    debug?.recordTiming('fusion', fusionStartedAt);
+    debug?.recordStage('fusion', fused);
 
-    return this.models.rerank(prompt, fused);
+    const reranked = await timed('rerank', this.models.rerank(prompt, fused), debug);
+    debug?.recordStage('rerank', reranked);
+    return reranked;
   }
 
   private buildContextPack(input: {
@@ -159,10 +203,29 @@ export class RetrievalService {
     });
   }
 
-  private async saveContextPack(cacheKey: string, pack: ContextPack): Promise<void> {
-    await this.store.saveContextPack(pack);
-    await this.cache.setJson(cacheKey, pack, this.config.contextCacheTtlSeconds);
+  private async saveContextPack(
+    cacheKey: string,
+    pack: ContextPack,
+    debug?: RetrievalDebugBuilder,
+  ): Promise<void> {
+    const compactPack = stripDebugTrace(pack);
+    await timed(
+      'save',
+      saveCompactContextPack(this.store, this.cache, cacheKey, compactPack, this.config.contextCacheTtlSeconds),
+      debug,
+    );
   }
+}
+
+async function saveCompactContextPack(
+  store: KnowledgeStore,
+  cache: Cache,
+  cacheKey: string,
+  pack: ContextPack,
+  ttlSeconds: number,
+): Promise<void> {
+  await store.saveContextPack(pack);
+  await cache.setJson(cacheKey, pack, ttlSeconds);
 }
 
 function normalizeSearchInput(input: ContextSearchInput): NormalizedContextSearchInput {
@@ -170,6 +233,7 @@ function normalizeSearchInput(input: ContextSearchInput): NormalizedContextSearc
     ...input,
     tokenBudget: input.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
     rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
+    debug: input.debug ?? false,
   };
 }
 

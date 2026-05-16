@@ -91,6 +91,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
             references: item.references,
           })),
         })),
+        ...(pack.debug ? { debug: pack.debug } : {}),
         instruction: 'Review the shortlist. Call tuberosa_get_context_pack only after the user or agent confirms this pack is appropriate.',
       });
     }
@@ -214,6 +215,7 @@ function tools() {
           tokenBudget: { type: 'number' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           bypassCache: { type: 'boolean' },
+          debug: { type: 'boolean' },
         },
       },
     },

@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { ClassifiedQuery, ContextPack, RankedCandidate } from '../types.js';
 import { clamp, truncate } from '../util/text.js';
 
+const ANCHORED_MIN_FINAL_SCORE = 0.6;
+const GENERAL_MIN_FINAL_SCORE = 0.35;
+
 export interface AssembleContextPackInput {
   queryId?: string;
   project?: string;
@@ -18,7 +21,7 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
   const supportingBudget = Math.ceil(budget * 0.34);
   const optionalBudget = budget - essentialBudget - supportingBudget;
 
-  const accepted = input.candidates.filter((candidate) => !(input.rejectedKnowledgeIds ?? []).includes(candidate.knowledgeId));
+  const accepted = filterAcceptedCandidates(input);
   const essential = takeWithinBudget(accepted, essentialBudget, 0, 4);
   const supporting = takeWithinBudget(without(accepted, essential), supportingBudget, 0, 6);
   const optional = takeWithinBudget(without(accepted, [...essential, ...supporting]), optionalBudget, 0, 8);
@@ -43,6 +46,24 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
     createdAt: new Date().toISOString(),
   };
+}
+
+function filterAcceptedCandidates(input: AssembleContextPackInput): RankedCandidate[] {
+  const rejectedIds = new Set(input.rejectedKnowledgeIds ?? []);
+  const filtered = input.candidates.filter((candidate) => !rejectedIds.has(candidate.knowledgeId));
+  const threshold = hasAnchors(input.classified) ? ANCHORED_MIN_FINAL_SCORE : GENERAL_MIN_FINAL_SCORE;
+  const strong = filtered.filter((candidate, index) => index === 0 || candidate.finalScore >= threshold);
+  return strong.length ? strong : filtered.slice(0, 1);
+}
+
+function hasAnchors(classified: ClassifiedQuery): boolean {
+  return Boolean(
+    classified.files.length
+    || classified.symbols.length
+    || classified.errors.length
+    || classified.businessAreas.length
+    || classified.technologies.length,
+  );
 }
 
 function takeWithinBudget(candidates: RankedCandidate[], budget: number, min: number, max: number): RankedCandidate[] {

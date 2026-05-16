@@ -67,6 +67,63 @@ test('retrieval returns context pack with matched references', async () => {
   equal(pack.sections[0].name, 'essential');
   equal(pack.sections[0].items[0].title, 'Paywall selection modal');
   equal(pack.sections[0].items[0].references[0].uri, 'src/components/paywall-selection-modal.tsx');
+  equal(pack.debug, undefined);
+});
+
+test('retrieval debug trace exposes source stages without persisting verbose output', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  const rejected = await ingestion.ingestKnowledge({
+    project: 'newsletter-app',
+    sourceType: 'file',
+    sourceUri: 'docs/legacy-paywall.md',
+    itemType: 'wiki',
+    title: 'Legacy paywall notes',
+    summary: 'Old newsletter paywall implementation.',
+    content: 'PaywallSelectionModal once used a legacy paywall implementation.',
+    trustLevel: 20,
+    labels: [{ type: 'symbol', value: 'PaywallSelectionModal', weight: 1 }],
+    references: [{ type: 'file', uri: 'docs/legacy-paywall.md' }],
+  });
+
+  await ingestion.ingestKnowledge({
+    project: 'newsletter-app',
+    sourceType: 'file',
+    sourceUri: 'src/components/paywall-selection-modal.tsx',
+    itemType: 'code_ref',
+    title: 'Paywall selection modal',
+    summary: 'Current React modal for newsletter paywall selection.',
+    content: 'PaywallSelectionModal renders current paywall choices for newsletter products.',
+    trustLevel: 90,
+    labels: [
+      { type: 'technology', value: 'react', weight: 0.8 },
+      { type: 'symbol', value: 'PaywallSelectionModal', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/components/paywall-selection-modal.tsx' }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'newsletter-app',
+    prompt: 'Update PaywallSelectionModal for React newsletter paywall',
+    rejectedKnowledgeIds: [rejected.id],
+    debug: true,
+  });
+
+  ok(pack.debug);
+  equal(pack.debug.cache.bypassed, true);
+  deepEqual(pack.debug.filters.rejectedKnowledgeIds, [rejected.id]);
+  ok(pack.debug.filters.decisions.some((decision) => decision.knowledgeId === rejected.id));
+  ok(pack.debug.stages.some((stage) => stage.name === 'metadata' && stage.candidateCount > 0));
+  ok(pack.debug.stages.some((stage) => stage.name === 'fusion' && stage.candidates[0]?.matchReasons.length));
+  ok(pack.debug.stages.some((stage) => stage.name === 'rerank' && typeof stage.candidates[0]?.finalScore === 'number'));
+  ok(pack.debug.selected.essential.length > 0);
+
+  const allDebugKnowledgeIds = pack.debug.stages
+    .flatMap((stage) => stage.candidates.map((candidate) => candidate.knowledgeId));
+  ok(!allDebugKnowledgeIds.includes(rejected.id));
+
+  const stored = await retrieval.getContextPack(pack.id);
+  equal(stored?.debug, undefined);
 });
 
 test('feedback rejection retries without rejected knowledge', async () => {

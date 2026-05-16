@@ -13,6 +13,7 @@
     "worker": "tsx src/worker.ts",
     "migrate": "tsx scripts/migrate.ts",
     "eval:retrieval": "tsx scripts/eval-retrieval.ts",
+    "test:integration": "node --test --import tsx test/integration.test.ts",
     "test": "node --test --import tsx test/*.test.ts"
   },
   "dependencies": {

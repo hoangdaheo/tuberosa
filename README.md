@@ -21,6 +21,11 @@ Use Tuberosa when an agent needs project-specific context before or during work:
 
 Tuberosa is not a general chat UI yet. The first-class integration surface is MCP, with HTTP as the operational and debugging API.
 
+## Detailed Guides
+
+- [Setup and usage](docs/SETUP_AND_USAGE.md)
+- [Flow logic](docs/FLOW_LOGIC.md)
+
 ## Architecture
 
 The request path is:
@@ -147,6 +152,7 @@ pnpm run mcp       # MCP stdio server
 pnpm run worker    # Worker process placeholder
 pnpm run migrate   # Apply SQL migrations
 pnpm run eval:retrieval # Deterministic retrieval quality eval
+pnpm run test:integration # Docker-gated Postgres/Redis tests
 ```
 
 If your shell defaults to an older Node version:
@@ -178,6 +184,23 @@ pnpm run eval:retrieval -- --top-k 3
 pnpm run eval:retrieval -- --json
 pnpm run eval:retrieval -- --fixture eval/retrieval-fixtures.json --fail-under-hit-rate 0.95
 ```
+
+## Integration Tests
+
+Run Docker-backed integration checks with:
+
+```bash
+pnpm run test:integration
+```
+
+The tests probe Postgres and Redis before running. If the Docker stack is not reachable, they skip instead of failing. By default they target:
+
+```bash
+TUBEROSA_INTEGRATION_DATABASE_URL=postgres://tuberosa:tuberosa@localhost:5432/tuberosa
+TUBEROSA_INTEGRATION_REDIS_URL=redis://localhost:6379
+```
+
+The Postgres test applies pending migrations, seeds a unique project, verifies retrieval through the normal services, checks pgvector search, and records context-pack feedback. The Redis test verifies JSON set/get/delete through the cache abstraction.
 
 ## HTTP API
 
@@ -289,6 +312,8 @@ Response shape:
 - `sections`: `essential`, `supporting`, and `optional` candidate groups.
 - `sections[].items[].matchReasons`: why a candidate matched.
 - `sections[].items[].references`: source files, URLs, commits, tools, or conversations.
+
+For retrieval diagnostics, pass `"debug": true` in the search body. The response includes per-stage metadata, lexical, memory, vector, fusion, and rerank candidates with scores, ranks, match reasons, timings, cache behavior, and rejected-id filter decisions. Debug output is returned only for that response; stored and cached context packs remain compact.
 
 ### Get A Context Pack
 
@@ -508,7 +533,7 @@ Current matching is intentionally simple and inspectable:
 5. `searchMemories` targets approved memories, workflows, rules, and bug fixes.
 6. `fuseCandidates` applies weighted reciprocal-rank fusion.
 7. The model provider reranks candidates.
-8. `assembleContextPack` trims content and splits results into sections within the token budget.
+8. `assembleContextPack` filters weak tail candidates, trims content, and splits results into sections within the token budget.
 
 This hybrid design is the right baseline for code and operational memory because exact symbols, file names, and error codes matter as much as semantic similarity.
 
@@ -577,10 +602,8 @@ Suggested first UI stack:
 ### Near Term
 
 - Expand README and examples as the source of truth for setup and API usage.
-- Add integration tests for Postgres/pgvector and Redis, gated behind Docker availability.
 - Expand retrieval eval fixtures with real-project regression cases.
-- Add source-level debug output for matching: metadata, lexical, vector, memory, fusion, rerank.
-- Build the admin/debug UI for knowledge browsing, search testing, and reflection approval.
+- Build the admin/debug UI for knowledge browsing, search testing, reflection approval, and inspection of the source-level retrieval debug trace.
 
 ### Mid Term
 

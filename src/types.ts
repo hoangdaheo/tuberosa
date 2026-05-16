@@ -98,6 +98,7 @@ export interface ContextSearchInput {
   tokenBudget?: number;
   rejectedKnowledgeIds?: string[];
   bypassCache?: boolean;
+  debug?: boolean;
 }
 
 export interface ClassifiedQuery {
@@ -159,6 +160,7 @@ export interface ContextPack {
   sections: ContextPackSection[];
   rejectedKnowledgeIds: string[];
   createdAt: string;
+  debug?: RetrievalDebugTrace;
 }
 
 export interface ReflectionDraftInput {
@@ -206,4 +208,67 @@ export interface KnowledgeSearchResult {
   vector: SearchCandidate[];
   metadata: SearchCandidate[];
   memory: SearchCandidate[];
+}
+
+export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'fusion' | 'rerank';
+
+export type RetrievalDebugTimingName =
+  | RetrievalDebugStageName
+  | 'classification'
+  | 'embedding'
+  | 'contextQuery'
+  | 'assembly'
+  | 'save'
+  | 'total';
+
+export interface RetrievalDebugCandidate {
+  knowledgeId: string;
+  chunkId?: string;
+  title: string;
+  itemType: KnowledgeItemType;
+  project: string;
+  source: CandidateSource;
+  rank: number;
+  rawScore: number;
+  fusedScore?: number;
+  rerankScore?: number;
+  finalScore?: number;
+  trustLevel: number;
+  tokenEstimate: number;
+  matchReasons: string[];
+  references: ReferenceInput[];
+}
+
+export interface RetrievalDebugStage {
+  name: RetrievalDebugStageName;
+  candidateCount: number;
+  candidates: RetrievalDebugCandidate[];
+}
+
+export interface RetrievalFilterDecision {
+  type: 'rejected_knowledge' | 'stale_feedback_retry';
+  action: 'excluded_before_search' | 'retry_exclusion';
+  knowledgeId?: string;
+  reason: string;
+}
+
+export interface RetrievalDebugTrace {
+  fingerprint: string;
+  cache: {
+    key: string;
+    hit: boolean;
+    bypassed: boolean;
+  };
+  limits: {
+    searchLimit: number;
+    rerankLimit: number;
+    tokenBudget: number;
+  };
+  filters: {
+    rejectedKnowledgeIds: string[];
+    decisions: RetrievalFilterDecision[];
+  };
+  timingsMs: Partial<Record<RetrievalDebugTimingName, number>>;
+  stages: RetrievalDebugStage[];
+  selected: Record<ContextPackSection['name'], RetrievalDebugCandidate[]>;
 }
