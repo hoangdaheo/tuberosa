@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type {
   RetrievalEvalCase,
   RetrievalEvalClassificationExpectation,
+  RetrievalEvalFeedbackEvent,
   RetrievalEvalFixture,
   RetrievalEvalKnowledge,
 } from './retrieval-evaluator.js';
@@ -18,6 +19,11 @@ export function parseRetrievalEvalFixture(value: unknown, source = 'retrieval ev
   const knowledge = expectArray(fixture.knowledge, `${source}.knowledge`).map((item, index) => (
     parseKnowledge(item, `${source}.knowledge[${index}]`)
   ));
+  const feedbackEvents = fixture.feedbackEvents === undefined
+    ? undefined
+    : expectArray(fixture.feedbackEvents, `${source}.feedbackEvents`).map((item, index) => (
+      parseFeedbackEvent(item, `${source}.feedbackEvents[${index}]`)
+    ));
   const cases = expectArray(fixture.cases, `${source}.cases`).map((item, index) => (
     parseCase(item, `${source}.cases[${index}]`)
   ));
@@ -25,7 +31,7 @@ export function parseRetrievalEvalFixture(value: unknown, source = 'retrieval ev
   ensureUnique(knowledge.map((item) => item.evalId), `${source}.knowledge[].evalId`);
   ensureUnique(cases.map((item) => item.id), `${source}.cases[].id`);
 
-  return { name, project, knowledge, cases };
+  return { name, project, knowledge, feedbackEvents, cases };
 }
 
 function parseKnowledge(value: unknown, path: string): RetrievalEvalKnowledge {
@@ -68,6 +74,19 @@ function parseCase(value: unknown, path: string): RetrievalEvalCase {
       item.expectedClassification,
       `${path}.expectedClassification`,
     ),
+  };
+}
+
+function parseFeedbackEvent(value: unknown, path: string): RetrievalEvalFeedbackEvent {
+  const item = expectRecord(value, path);
+
+  return {
+    feedbackType: expectString(item.feedbackType, `${path}.feedbackType`) as RetrievalEvalFeedbackEvent['feedbackType'],
+    prompt: optionalString(item.prompt, `${path}.prompt`),
+    project: optionalString(item.project, `${path}.project`),
+    knowledgeIds: optionalStringArray(item.knowledgeIds, `${path}.knowledgeIds`),
+    reason: optionalString(item.reason, `${path}.reason`),
+    metadata: item.metadata as RetrievalEvalFeedbackEvent['metadata'],
   };
 }
 

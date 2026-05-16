@@ -122,18 +122,22 @@ Flow:
 9. `fuseCandidates` merges all source lists by knowledge id using weighted reciprocal-rank fusion.
 10. Fusion keeps the strongest chunk per knowledge item and merges match reasons.
 11. Model provider reranks the fused top candidates.
-12. Retrieval safety checks run again before fit evaluation.
-13. `ContextFitEvaluator` scores candidate and pack fit across project, files, symbols, errors, task type, trust, freshness, safety, and prior feedback signals.
-14. `assembleContextPack` removes weak tail candidates before packing:
+12. Store feedback summaries are applied to reranked candidates:
+   - selected feedback gives a modest final-score boost
+   - stale, rejected, and irrelevant feedback apply final-score penalties
+   - candidate metadata records feedback counts, latest signal, and score adjustment
+13. Retrieval safety checks run again before fit evaluation.
+14. `ContextFitEvaluator` scores candidate and pack fit across project, files, symbols, errors, task type, trust, freshness, safety, and prior feedback signals.
+15. `assembleContextPack` removes weak tail candidates before packing:
     - anchored searches require a stronger final score
     - general searches use a lower final-score floor
     - the top candidate is preserved so sparse searches still return the best available context
-15. The remaining candidates are split into:
+16. The remaining candidates are split into:
     - `essential`
     - `supporting`
     - `optional`
-16. The pack is saved and cached without debug output.
-17. If `debug: true`, a debug trace is attached only to the returned response.
+17. The pack is saved and cached without debug output.
+18. If `debug: true`, a debug trace is attached only to the returned response.
 
 ## 6. Candidate Search Stages
 
@@ -299,6 +303,10 @@ Flow:
 
 Missing-context feedback is recorded but does not automatically retry because there may be no known ids to exclude.
 
+Feedback history is also used in future searches. `KnowledgeStore.getFeedbackSummaries` returns compact per-knowledge counts for selected, rejected, irrelevant, and stale feedback. Retrieval applies those summaries after rerank and before context-fit evaluation so useful context can rise slightly and stale or rejected context is less likely to win.
+
+Missing-context events are kept as review signals. They do not penalize any specific knowledge item because they often mean the right knowledge is absent.
+
 ## 10. Agent Session Flow
 
 Entry points:
@@ -350,9 +358,17 @@ Draft creation flow:
 1. `ReflectionService.createDraft` trims title, summary, and content.
 2. It classifies the draft content.
 3. It generates suggested labels from classification plus caller-provided labels.
-4. It validates minimum title, summary, and content lengths.
-5. It searches existing memory-like items for duplicate candidates.
-6. Store creates a pending reflection draft.
+4. It normalizes `metadata.taxonomy` to one of:
+   - `project_fact`
+   - `domain_rule`
+   - `workflow`
+   - `user_preference`
+   - `incident_lesson`
+   - `code_reference`
+5. It stores provenance in metadata, including agent session id, context pack id, trigger type, and references when available.
+6. It validates minimum title, summary, and content lengths.
+7. It searches existing memory-like items for duplicate candidates.
+8. Store creates a pending reflection draft.
 
 Approval flow:
 
@@ -361,8 +377,9 @@ Approval flow:
 3. Default project is `personal` when the draft has no project.
 4. Default item type is `memory`.
 5. Labels include project, trigger type as user preference, and suggested labels.
-6. Reference points back to `reflection://draft/<id>`.
-7. The memory becomes searchable by normal retrieval.
+6. References include `reflection://draft/<id>` plus caller-provided references.
+7. Metadata preserves taxonomy, trigger type, approved draft id, and provenance.
+8. The memory becomes searchable by normal retrieval.
 
 Safety rule:
 

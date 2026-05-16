@@ -376,6 +376,7 @@ function tools() {
           itemType: { type: 'string' },
           triggerType: { type: 'string' },
           labels: { type: 'array', items: { type: 'object' } },
+          references: { type: 'array', items: { type: 'object' } },
           metadata: { type: 'object' },
         },
       },

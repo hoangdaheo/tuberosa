@@ -39,6 +39,14 @@ export type LabelType =
   | 'error'
   | 'user_preference';
 
+export type KnowledgeTaxonomy =
+  | 'project_fact'
+  | 'domain_rule'
+  | 'workflow'
+  | 'user_preference'
+  | 'incident_lesson'
+  | 'code_reference';
+
 export interface LabelInput {
   type: LabelType;
   value: string;
@@ -186,6 +194,7 @@ export interface ReflectionDraftInput {
   itemType?: KnowledgeItemType;
   triggerType: TriggerType;
   labels?: LabelInput[];
+  references?: ReferenceInput[];
   metadata?: Record<string, unknown>;
 }
 
@@ -199,6 +208,8 @@ export interface ReflectionDraft {
   triggerType: TriggerType;
   status: 'pending' | 'approved' | 'rejected';
   suggestedLabels: LabelInput[];
+  references: ReferenceInput[];
+  metadata: Record<string, unknown>;
   duplicateCandidates: RankedCandidate[];
   createdAt: string;
 }
@@ -210,6 +221,16 @@ export interface FeedbackInput {
   reason?: string;
   rejectedKnowledgeIds?: string[];
   metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeFeedbackSummary {
+  knowledgeId: string;
+  selectedCount: number;
+  rejectedCount: number;
+  irrelevantCount: number;
+  staleCount: number;
+  latestFeedbackType?: FeedbackInput['feedbackType'];
+  latestFeedbackAt?: string;
 }
 
 export type AgentSessionStatus = 'active' | 'finished';

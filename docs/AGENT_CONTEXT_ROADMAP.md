@@ -74,6 +74,8 @@ Acceptance:
 
 Goal: make the system learn from use without automatically trusting raw conversation.
 
+Status: Done on 2026-05-16.
+
 - Use feedback history in retrieval scoring:
   - selected context gives a modest boost
   - stale, rejected, and irrelevant context apply penalties

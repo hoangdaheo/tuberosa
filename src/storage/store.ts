@@ -5,6 +5,7 @@ import type {
   ContextPack,
   FeedbackInput,
   FinishAgentSessionInput,
+  KnowledgeFeedbackSummary,
   KnowledgeInput,
   RecordAgentContextDecisionInput,
   ReflectionDraft,
@@ -48,6 +49,7 @@ export interface KnowledgeStore {
   saveContextPack(pack: ContextPack): Promise<void>;
   getContextPack(id: string): Promise<ContextPack | undefined>;
   recordFeedback(input: FeedbackInput): Promise<void>;
+  getFeedbackSummaries(knowledgeIds: string[], options?: { project?: string }): Promise<Map<string, KnowledgeFeedbackSummary>>;
   createAgentSession(input: {
     prompt: string;
     project?: string;

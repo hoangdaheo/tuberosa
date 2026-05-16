@@ -2,6 +2,7 @@ import type {
   ClassifiedQuery,
   ContextPack,
   ContextSearchInput,
+  FeedbackInput,
   KnowledgeInput,
   RankedCandidate,
   StoredKnowledge,
@@ -14,6 +15,10 @@ export interface KnowledgeIngestor {
 
 export interface ContextSearcher {
   searchContext(input: ContextSearchInput): Promise<ContextPack>;
+}
+
+export interface FeedbackRecorder {
+  recordFeedback(input: FeedbackInput): Promise<unknown>;
 }
 
 export type RetrievalEvalKnowledge = Omit<KnowledgeInput, 'project'> & {
@@ -45,10 +50,20 @@ export interface RetrievalEvalCase {
   expectedClassification?: RetrievalEvalClassificationExpectation;
 }
 
+export interface RetrievalEvalFeedbackEvent {
+  feedbackType: FeedbackInput['feedbackType'];
+  prompt?: string;
+  project?: string;
+  knowledgeIds?: string[];
+  reason?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface RetrievalEvalFixture {
   name: string;
   project: string;
   knowledge: RetrievalEvalKnowledge[];
+  feedbackEvents?: RetrievalEvalFeedbackEvent[];
   cases: RetrievalEvalCase[];
 }
 
@@ -114,11 +129,13 @@ export class RetrievalEvaluator {
   constructor(
     private readonly ingestor: KnowledgeIngestor,
     private readonly searcher: ContextSearcher,
+    private readonly feedbackRecorder: FeedbackRecorder | undefined = isFeedbackRecorder(searcher) ? searcher : undefined,
   ) {}
 
   async run(fixture: RetrievalEvalFixture, options: RetrievalEvalOptions = {}): Promise<RetrievalEvalReport> {
     const topK = options.topK ?? DEFAULT_TOP_K;
     const index = await this.seedKnowledge(fixture);
+    await this.seedFeedback(fixture, index);
     const cases = [];
 
     for (const testCase of fixture.cases) {
@@ -156,6 +173,38 @@ export class RetrievalEvaluator {
     }
 
     return { byEvalId, byStoreId };
+  }
+
+  private async seedFeedback(fixture: RetrievalEvalFixture, index: SeededKnowledgeIndex): Promise<void> {
+    if (!fixture.feedbackEvents?.length) {
+      return;
+    }
+
+    if (!this.feedbackRecorder) {
+      throw new Error('Retrieval eval fixture defines feedbackEvents but no feedback recorder is configured.');
+    }
+
+    for (const event of fixture.feedbackEvents) {
+      const rejectedKnowledgeIds = event.knowledgeIds
+        ? [...resolveEvalIds(index, event.knowledgeIds)]
+        : undefined;
+      const contextPackId = event.prompt
+        ? (await this.searcher.searchContext({
+          prompt: event.prompt,
+          project: event.project ?? fixture.project,
+          bypassCache: true,
+        })).id
+        : undefined;
+
+      await this.feedbackRecorder.recordFeedback({
+        contextPackId,
+        project: event.project ?? fixture.project,
+        feedbackType: event.feedbackType,
+        reason: event.reason,
+        rejectedKnowledgeIds,
+        metadata: event.metadata,
+      });
+    }
   }
 
   private async evaluateCase(
@@ -345,4 +394,8 @@ function average(values: number[]): number | null {
 
 function round(value: number): number {
   return Math.round(value * 10000) / 10000;
+}
+
+function isFeedbackRecorder(value: unknown): value is FeedbackRecorder {
+  return Boolean(value && typeof value === 'object' && 'recordFeedback' in value);
 }

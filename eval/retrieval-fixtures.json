@@ -11,6 +11,7 @@
       "summary": "React modal used by the newsletter composer to choose paywall products.",
       "content": "PaywallSelectionModal renders the newsletter paywall picker. It keeps selected product ids stable while editors move between composer steps. The component lives in src/components/paywall-selection-modal.tsx and owns the product selection UI for the paywall workflow.",
       "trustLevel": 82,
+      "metadata": { "taxonomy": "code_reference" },
       "labels": [
         { "type": "business_area", "value": "newsletter", "weight": 1 },
         { "type": "business_area", "value": "paywall", "weight": 1 },
@@ -31,6 +32,7 @@
       "summary": "TS-999 was fixed by preserving selected product ids through the save transition.",
       "content": "When TS-999 appears in PaywallSelectionModal, check the selected product ids reducer before changing the modal props. The previous fix kept ids stable across save and preview transitions in src/components/paywall-selection-modal.tsx.",
       "trustLevel": 92,
+      "metadata": { "taxonomy": "incident_lesson" },
       "labels": [
         { "type": "business_area", "value": "paywall", "weight": 1 },
         { "type": "task_type", "value": "debugging", "weight": 0.9 },
@@ -51,6 +53,7 @@
       "summary": "Auth uses OAuth bearer tokens with refresh token rotation.",
       "content": "The current auth flow uses OAuth bearer tokens. Login returns an access token and a rotating refresh token. Token refresh invalidates the previous refresh token and stores the replacement before returning to the client.",
       "trustLevel": 88,
+      "metadata": { "taxonomy": "project_fact" },
       "labels": [
         { "type": "business_area", "value": "auth", "weight": 1 },
         { "type": "technology", "value": "node", "weight": 0.5 }
@@ -68,6 +71,7 @@
       "summary": "Outdated auth notes that mention session cookies.",
       "content": "Legacy auth flow used server-side session cookies and did not rotate refresh tokens. This note is stale and should not be selected when the old knowledge id is rejected.",
       "trustLevel": 25,
+      "metadata": { "taxonomy": "project_fact" },
       "labels": [
         { "type": "business_area", "value": "auth", "weight": 1 }
       ],
@@ -84,6 +88,7 @@
       "summary": "Reflection memories should be drafted and approved before becoming searchable.",
       "content": "When an agent learns a new workflow, it should create a reflection draft and wait for review. Only approved reflection memories should be saved into searchable knowledge.",
       "trustLevel": 86,
+      "metadata": { "taxonomy": "workflow" },
       "labels": [
         { "type": "workflow_stage", "value": "reflection", "weight": 1 },
         { "type": "user_preference", "value": "review-before-memory", "weight": 0.9 }
@@ -91,6 +96,18 @@
       "references": [
         { "type": "tool", "uri": "tuberosa_reflect" }
       ]
+    }
+  ],
+  "feedbackEvents": [
+    {
+      "feedbackType": "selected",
+      "prompt": "TS-999 PaywallSelectionModal selected product ids fix",
+      "reason": "The prior bugfix was useful context for this error."
+    },
+    {
+      "feedbackType": "stale",
+      "knowledgeIds": ["legacy-auth-flow"],
+      "reason": "Legacy auth notes should not outrank current token rotation guidance."
     }
   ],
   "cases": [
@@ -114,6 +131,18 @@
       "unexpectedKnowledgeIds": ["current-auth-flow"],
       "expectedClassification": {
         "files": ["src/components/paywall-selection-modal.tsx"],
+        "symbols": ["PaywallSelectionModal"],
+        "errors": ["TS-999"],
+        "businessAreas": ["paywall"],
+        "taskType": "debugging"
+      }
+    },
+    {
+      "id": "selected-feedback-paywall",
+      "prompt": "Which prior PaywallSelectionModal fix should guide TS-999 selected product id work?",
+      "expectedKnowledgeIds": ["paywall-ts999-fix"],
+      "unexpectedKnowledgeIds": ["current-auth-flow", "legacy-auth-flow"],
+      "expectedClassification": {
         "symbols": ["PaywallSelectionModal"],
         "errors": ["TS-999"],
         "businessAreas": ["paywall"],

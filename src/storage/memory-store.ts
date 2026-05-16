@@ -6,6 +6,7 @@ import type {
   ContextPack,
   FeedbackInput,
   FinishAgentSessionInput,
+  KnowledgeFeedbackSummary,
   KnowledgeInput,
   LabelInput,
   RecordAgentContextDecisionInput,
@@ -163,6 +164,31 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     }
   }
 
+  async getFeedbackSummaries(
+    knowledgeIds: string[],
+    options: { project?: string } = {},
+  ): Promise<Map<string, KnowledgeFeedbackSummary>> {
+    const targetIds = new Set(knowledgeIds);
+    const summaries = new Map<string, KnowledgeFeedbackSummary>();
+
+    this.feedback.forEach((feedback, index) => {
+      if (!feedbackMatchesProject(feedback, this.packs.get(feedback.contextPackId ?? ''), options.project)) {
+        return;
+      }
+
+      for (const knowledgeId of feedbackKnowledgeIds(feedback, this.packs.get(feedback.contextPackId ?? ''))) {
+        if (!targetIds.has(knowledgeId)) {
+          continue;
+        }
+
+        const summary = ensureFeedbackSummary(summaries, knowledgeId);
+        applyFeedbackToSummary(summary, feedback.feedbackType, new Date(index).toISOString());
+      }
+    });
+
+    return summaries;
+  }
+
   async createAgentSession(input: {
     prompt: string;
     project?: string;
@@ -254,6 +280,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       triggerType: input.triggerType,
       status: 'pending',
       suggestedLabels: input.labels ?? [],
+      references: input.references ?? [],
+      metadata: input.metadata ?? {},
       duplicateCandidates: duplicateCandidates as ReflectionDraft['duplicateCandidates'],
       createdAt: new Date().toISOString(),
     };
@@ -384,6 +412,64 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
 function withRanks(candidates: SearchCandidate[]): SearchCandidate[] {
   return candidates.map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+}
+
+function feedbackMatchesProject(
+  feedback: FeedbackInput,
+  pack: ContextPack | undefined,
+  project: string | undefined,
+): boolean {
+  return !project || feedback.project === project || pack?.project === project;
+}
+
+function feedbackKnowledgeIds(feedback: FeedbackInput, pack: ContextPack | undefined): string[] {
+  if (feedback.feedbackType !== 'selected' && feedback.rejectedKnowledgeIds?.length) {
+    return feedback.rejectedKnowledgeIds;
+  }
+
+  return pack?.sections.flatMap((section) => section.items.map((item) => item.knowledgeId)) ?? [];
+}
+
+function ensureFeedbackSummary(
+  summaries: Map<string, KnowledgeFeedbackSummary>,
+  knowledgeId: string,
+): KnowledgeFeedbackSummary {
+  const existing = summaries.get(knowledgeId);
+  if (existing) {
+    return existing;
+  }
+
+  const created: KnowledgeFeedbackSummary = {
+    knowledgeId,
+    selectedCount: 0,
+    rejectedCount: 0,
+    irrelevantCount: 0,
+    staleCount: 0,
+  };
+  summaries.set(knowledgeId, created);
+
+  return created;
+}
+
+function applyFeedbackToSummary(
+  summary: KnowledgeFeedbackSummary,
+  feedbackType: FeedbackInput['feedbackType'],
+  timestamp: string,
+): void {
+  if (feedbackType === 'selected') {
+    summary.selectedCount += 1;
+  } else if (feedbackType === 'rejected') {
+    summary.rejectedCount += 1;
+  } else if (feedbackType === 'irrelevant') {
+    summary.irrelevantCount += 1;
+  } else if (feedbackType === 'stale') {
+    summary.staleCount += 1;
+  }
+
+  if (feedbackType !== 'missing_context') {
+    summary.latestFeedbackType = feedbackType;
+    summary.latestFeedbackAt = timestamp;
+  }
 }
 
 function cosine(left: number[], right: number[]): number {

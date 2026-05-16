@@ -7,6 +7,7 @@ import type {
   ContextPack,
   FeedbackInput,
   FinishAgentSessionInput,
+  KnowledgeFeedbackSummary,
   KnowledgeInput,
   LabelInput,
   RecordAgentContextDecisionInput,
@@ -301,6 +302,82 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
   }
 
+  async getFeedbackSummaries(
+    knowledgeIds: string[],
+    options: { project?: string } = {},
+  ): Promise<Map<string, KnowledgeFeedbackSummary>> {
+    if (knowledgeIds.length === 0) {
+      return new Map();
+    }
+
+    const result = await this.pool.query(
+      `
+        WITH explicit_feedback AS (
+          SELECT
+            unnest(fe.rejected_knowledge_ids) AS knowledge_id,
+            fe.feedback_type,
+            fe.created_at
+          FROM feedback_events fe
+          LEFT JOIN projects fp ON fp.id = fe.project_id
+          LEFT JOIN context_packs cp ON cp.id = fe.context_pack_id
+          LEFT JOIN projects pp ON pp.id = cp.project_id
+          WHERE cardinality(fe.rejected_knowledge_ids) > 0
+            AND fe.feedback_type = ANY('{rejected,irrelevant,stale}'::text[])
+            AND ($2::text IS NULL OR fp.name = $2 OR pp.name = $2)
+        ),
+        pack_feedback AS (
+          SELECT
+            (item->>'knowledgeId')::uuid AS knowledge_id,
+            fe.feedback_type,
+            fe.created_at
+          FROM feedback_events fe
+          JOIN context_packs cp ON cp.id = fe.context_pack_id
+          LEFT JOIN projects fp ON fp.id = fe.project_id
+          LEFT JOIN projects pp ON pp.id = cp.project_id
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(cp.pack->'sections', '[]'::jsonb)) section
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(section->'items', '[]'::jsonb)) item
+          WHERE fe.feedback_type <> 'missing_context'
+            AND (
+              fe.feedback_type = 'selected'
+              OR cardinality(fe.rejected_knowledge_ids) = 0
+            )
+            AND ($2::text IS NULL OR fp.name = $2 OR pp.name = $2)
+        ),
+        relevant_feedback AS (
+          SELECT * FROM explicit_feedback
+          UNION ALL
+          SELECT * FROM pack_feedback
+        )
+        SELECT
+          rf.knowledge_id,
+          COUNT(*) FILTER (WHERE rf.feedback_type = 'selected')::int AS selected_count,
+          COUNT(*) FILTER (WHERE rf.feedback_type = 'rejected')::int AS rejected_count,
+          COUNT(*) FILTER (WHERE rf.feedback_type = 'irrelevant')::int AS irrelevant_count,
+          COUNT(*) FILTER (WHERE rf.feedback_type = 'stale')::int AS stale_count,
+          (array_agg(rf.feedback_type ORDER BY rf.created_at DESC))[1] AS latest_feedback_type,
+          max(rf.created_at) AS latest_feedback_at
+        FROM relevant_feedback rf
+        WHERE rf.knowledge_id = ANY($1::uuid[])
+        GROUP BY rf.knowledge_id
+      `,
+      [knowledgeIds, options.project ?? null],
+    );
+
+    return new Map(result.rows.map((row) => {
+      const summary: KnowledgeFeedbackSummary = {
+        knowledgeId: String(row.knowledge_id),
+        selectedCount: Number(row.selected_count ?? 0),
+        rejectedCount: Number(row.rejected_count ?? 0),
+        irrelevantCount: Number(row.irrelevant_count ?? 0),
+        staleCount: Number(row.stale_count ?? 0),
+        latestFeedbackType: row.latest_feedback_type as FeedbackInput['feedbackType'] | undefined,
+        latestFeedbackAt: row.latest_feedback_at ? toIso(row.latest_feedback_at) : undefined,
+      };
+
+      return [summary.knowledgeId, summary];
+    }));
+  }
+
   async createAgentSession(input: {
     prompt: string;
     project?: string;
@@ -421,7 +498,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id, title, summary, content, item_type, trigger_type, status,
-          suggested_labels, duplicate_candidates, created_at
+          suggested_labels, duplicate_candidates, metadata, created_at
       `,
       [
         projectId,
@@ -450,7 +527,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         )
         SELECT updated.id, p.name AS project, updated.title, updated.summary,
           updated.content, updated.item_type, updated.trigger_type, updated.status,
-          updated.suggested_labels, updated.duplicate_candidates, updated.created_at
+          updated.suggested_labels, updated.duplicate_candidates, updated.metadata,
+          updated.created_at
         FROM updated
         LEFT JOIN projects p ON p.id = updated.project_id
       `,
@@ -816,6 +894,8 @@ function mapCandidateRow(row: Record<string, unknown>, index: number): SearchCan
 }
 
 function mapReflectionDraftRow(row: Record<string, unknown>, project?: string): ReflectionDraft {
+  const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+
   return {
     id: String(row.id),
     project: project ?? (row.project ? String(row.project) : undefined),
@@ -826,6 +906,8 @@ function mapReflectionDraftRow(row: Record<string, unknown>, project?: string): 
     triggerType: row.trigger_type as ReflectionDraft['triggerType'],
     status: row.status as ReflectionDraft['status'],
     suggestedLabels: (row.suggested_labels ?? []) as LabelInput[],
+    references: Array.isArray(metadata.references) ? metadata.references as ReferenceInput[] : [],
+    metadata,
     duplicateCandidates: (row.duplicate_candidates ?? []) as ReflectionDraft['duplicateCandidates'],
     createdAt: toIso(row.created_at),
   };

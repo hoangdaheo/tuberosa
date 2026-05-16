@@ -200,6 +200,7 @@ export function validateReflectionDraftInput(value: unknown): ReflectionDraftInp
     itemType: readOptionalEnum(record, 'itemType', KNOWLEDGE_ITEM_TYPES, 'reflection draft input'),
     triggerType: readRequiredEnum(record, 'triggerType', TRIGGER_TYPES, 'reflection draft input'),
     labels: readOptionalLabels(record.labels, 'reflection draft input.labels'),
+    references: readOptionalReferences(record.references, 'reflection draft input.references'),
     metadata: readOptionalObject(record, 'metadata', 'reflection draft input'),
   };
 }

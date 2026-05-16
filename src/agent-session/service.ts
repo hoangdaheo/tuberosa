@@ -75,6 +75,7 @@ export class AgentSessionService {
         metadata: {
           ...(input.reflectionDraft.metadata ?? {}),
           agentSessionId: input.sessionId,
+          contextPackId: input.reflectionDraft.metadata?.contextPackId ?? existingSession.initialContextPackId,
         },
       })
       : undefined;

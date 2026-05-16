@@ -3,7 +3,12 @@ import type { IngestionService } from '../ingest/service.js';
 import { ValidationError } from '../errors.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
-import type { ReflectionDraftInput } from '../types.js';
+import type {
+  KnowledgeTaxonomy,
+  ReferenceInput,
+  ReflectionDraft,
+  ReflectionDraftInput,
+} from '../types.js';
 
 export class ReflectionService {
   constructor(
@@ -13,12 +18,15 @@ export class ReflectionService {
   ) {}
 
   async createDraft(input: ReflectionDraftInput) {
+    const references = input.references ?? metadataReferences(input.metadata);
     const raw = {
       ...input,
       title: input.title.trim(),
       summary: input.summary.trim(),
       content: input.content.trim(),
       itemType: input.itemType ?? 'memory',
+      references,
+      metadata: reflectionDraftMetadata(input, references),
       labels: [
         ...labelsFromClassification(classifyQuery({
           prompt: `${input.title}\n${input.summary}\n${input.content}`,
@@ -65,15 +73,121 @@ export class ReflectionService {
         { type: 'user_preference', value: draft.triggerType, weight: 0.7 },
         ...draft.suggestedLabels,
       ],
-      references: [{ type: 'conversation', uri: `reflection://draft/${draft.id}` }],
-      metadata: {
-        triggerType: draft.triggerType,
-        approvedDraftId: draft.id,
-      },
+      references: approvedReflectionReferences(draft),
+      metadata: approvedReflectionMetadata(draft),
     });
 
     return draft;
   }
+}
+
+function reflectionDraftMetadata(
+  input: ReflectionDraftInput,
+  references: ReferenceInput[],
+): Record<string, unknown> {
+  const metadata = input.metadata ?? {};
+  const taxonomy = normalizeTaxonomy(metadata.taxonomy, input);
+
+  return {
+    ...metadata,
+    taxonomy,
+    triggerType: input.triggerType,
+    references,
+    provenance: {
+      ...metadataRecord(metadata.provenance),
+      agentSessionId: metadataString(metadata, 'agentSessionId'),
+      contextPackId: metadataString(metadata, 'contextPackId'),
+      triggerType: input.triggerType,
+    },
+  };
+}
+
+function approvedReflectionMetadata(draft: ReflectionDraft): Record<string, unknown> {
+  return {
+    ...draft.metadata,
+    taxonomy: normalizeTaxonomy(draft.metadata.taxonomy, draft),
+    triggerType: draft.triggerType,
+    approvedDraftId: draft.id,
+    references: draft.references,
+    provenance: {
+      ...metadataRecord(draft.metadata.provenance),
+      triggerType: draft.triggerType,
+      reflectionDraftId: draft.id,
+    },
+  };
+}
+
+function approvedReflectionReferences(draft: ReflectionDraft): ReferenceInput[] {
+  return uniqueReferences([
+    { type: 'conversation', uri: `reflection://draft/${draft.id}` },
+    ...draft.references,
+  ]);
+}
+
+function normalizeTaxonomy(
+  value: unknown,
+  input: Pick<ReflectionDraftInput, 'itemType' | 'triggerType'>,
+): KnowledgeTaxonomy {
+  if (isKnowledgeTaxonomy(value)) {
+    return value;
+  }
+
+  switch (input.itemType) {
+    case 'code_ref':
+      return 'code_reference';
+    case 'rule':
+      return 'domain_rule';
+    case 'workflow':
+      return 'workflow';
+    case 'bugfix':
+      return 'incident_lesson';
+    case 'memory':
+      return input.triggerType === 'user_correction' ? 'user_preference' : 'incident_lesson';
+    case 'spec':
+    case 'wiki':
+    case 'conversation':
+    case undefined:
+      return input.triggerType === 'non_trivial_workflow' ? 'workflow' : 'project_fact';
+  }
+}
+
+function isKnowledgeTaxonomy(value: unknown): value is KnowledgeTaxonomy {
+  return typeof value === 'string' && [
+    'project_fact',
+    'domain_rule',
+    'workflow',
+    'user_preference',
+    'incident_lesson',
+    'code_reference',
+  ].includes(value);
+}
+
+function metadataReferences(metadata: Record<string, unknown> | undefined): ReferenceInput[] {
+  const references = metadata?.references;
+  return Array.isArray(references) ? references as ReferenceInput[] : [];
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function metadataString(metadata: Record<string, unknown>, key: string): string | undefined {
+  const value = metadata[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function uniqueReferences(references: ReferenceInput[]): ReferenceInput[] {
+  const seen = new Set<string>();
+
+  return references.filter((reference) => {
+    const key = `${reference.type}:${reference.uri}:${reference.lineStart ?? ''}:${reference.lineEnd ?? ''}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function validateDraft(input: ReflectionDraftInput): void {

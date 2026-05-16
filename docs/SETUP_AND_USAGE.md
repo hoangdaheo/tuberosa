@@ -465,6 +465,8 @@ Feedback types:
 
 Rejected, irrelevant, and stale feedback trigger one retry with rejected knowledge excluded.
 
+Feedback also influences later retrieval. Selected context gets a modest ranking boost, while stale, rejected, and irrelevant context is penalized. `missing_context` is stored for review but does not penalize a specific knowledge item.
+
 ### Start An Agent Session
 
 Use sessions when an agent should leave an audit trail for context selection and task outcome:
@@ -514,7 +516,13 @@ curl -X POST http://localhost:3027/agent-sessions/<session-id>/finish \
       "title": "Keep paywall selection stable",
       "summary": "Paywall session work should preserve selected products.",
       "content": "When changing PaywallSelectionModal, record the selected context and draft any durable lesson before finishing the agent session.",
-      "triggerType": "complex_task_success"
+      "triggerType": "complex_task_success",
+      "references": [
+        { "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }
+      ],
+      "metadata": {
+        "taxonomy": "workflow"
+      }
     }
   }'
 ```
@@ -535,7 +543,14 @@ curl -X POST http://localhost:3027/reflection-drafts \
     "labels": [
       { "type": "business_area", "value": "paywall", "weight": 1 },
       { "type": "symbol", "value": "PaywallSelectionModal", "weight": 1 }
-    ]
+    ],
+    "references": [
+      { "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }
+    ],
+    "metadata": {
+      "taxonomy": "incident_lesson",
+      "contextPackId": "<context-pack-id>"
+    }
   }'
 ```
 
@@ -545,7 +560,7 @@ curl -X POST http://localhost:3027/reflection-drafts \
 curl -X POST http://localhost:3027/reflection-drafts/<draft-id>/approve
 ```
 
-Approval writes the draft into knowledge as searchable memory.
+Approval writes the draft into knowledge as searchable memory. Approved memories preserve `metadata.taxonomy`, trigger/provenance metadata, and references from the draft.
 
 ## 10. MCP Usage
 

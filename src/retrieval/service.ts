@@ -7,6 +7,7 @@ import type {
   ContextPack,
   ContextSearchInput,
   FeedbackInput,
+  KnowledgeFeedbackSummary,
   KnowledgeSearchResult,
   RankedCandidate,
   SearchOptions,
@@ -75,7 +76,7 @@ export class RetrievalService {
       debug,
     );
     const candidates = await this.findCandidates(normalized, classified, project, debug);
-    const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, classified, debug);
+    const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, classified, project, debug);
     const fitStartedAt = Date.now();
     const fitEvaluation = this.fitEvaluator.evaluate({
       project,
@@ -192,6 +193,7 @@ export class RetrievalService {
     prompt: string,
     candidates: KnowledgeSearchResult,
     classified: ClassifiedQuery,
+    project?: string,
     debug?: RetrievalDebugBuilder,
   ): Promise<RankedCandidate[]> {
     const fusionStartedAt = Date.now();
@@ -203,8 +205,21 @@ export class RetrievalService {
     debug?.recordStage('fusion', fused);
 
     const reranked = this.safety.sanitizeSearchCandidates(await timed('rerank', this.models.rerank(prompt, fused), debug));
-    debug?.recordStage('rerank', reranked);
-    return reranked;
+    const feedbackAdjusted = await this.applyFeedbackSummaries(reranked, project ?? classified.project);
+    debug?.recordStage('rerank', feedbackAdjusted);
+    return feedbackAdjusted;
+  }
+
+  private async applyFeedbackSummaries(candidates: RankedCandidate[], project?: string): Promise<RankedCandidate[]> {
+    const summaries = await this.store.getFeedbackSummaries(
+      [...new Set(candidates.map((candidate) => candidate.knowledgeId))],
+      { project },
+    );
+
+    return candidates
+      .map((candidate) => applyFeedbackSummary(candidate, summaries.get(candidate.knowledgeId)))
+      .sort((left, right) => right.finalScore - left.finalScore || left.rank - right.rank)
+      .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
   }
 
   private buildContextPack(input: {
@@ -309,4 +324,97 @@ function rejectedKnowledgeIds(pack: ContextPack, feedback: FeedbackInput): strin
       ...(feedback.rejectedKnowledgeIds ?? []),
     ]),
   ];
+}
+
+function applyFeedbackSummary(
+  candidate: RankedCandidate,
+  summary: KnowledgeFeedbackSummary | undefined,
+): RankedCandidate {
+  if (!summary) {
+    return candidate;
+  }
+
+  const adjustment = feedbackScoreAdjustment(summary);
+  const status = feedbackStatus(summary);
+  const feedbackMetadata = {
+    status,
+    selectedCount: summary.selectedCount,
+    rejectedCount: summary.rejectedCount,
+    irrelevantCount: summary.irrelevantCount,
+    staleCount: summary.staleCount,
+    latestFeedbackType: summary.latestFeedbackType,
+    latestFeedbackAt: summary.latestFeedbackAt,
+    scoreAdjustment: adjustment,
+  };
+
+  return {
+    ...candidate,
+    finalScore: clampScore(candidate.finalScore + adjustment),
+    matchReasons: [
+      ...candidate.matchReasons,
+      ...feedbackMatchReasons(summary, adjustment),
+    ],
+    metadata: {
+      ...(candidate.metadata ?? {}),
+      feedback: feedbackMetadata,
+    },
+  };
+}
+
+function feedbackScoreAdjustment(summary: KnowledgeFeedbackSummary): number {
+  const selectedBoost = Math.min(0.1, summary.selectedCount * 0.04);
+  const stalePenalty = Math.min(0.24, summary.staleCount * 0.2);
+  const rejectionPenalty = Math.min(0.18, (summary.rejectedCount + summary.irrelevantCount) * 0.09);
+
+  return roundFeedbackAdjustment(selectedBoost - stalePenalty - rejectionPenalty);
+}
+
+function feedbackStatus(summary: KnowledgeFeedbackSummary): string {
+  if (summary.latestFeedbackType && summary.latestFeedbackType !== 'missing_context') {
+    return summary.latestFeedbackType;
+  }
+
+  if (summary.staleCount > 0) {
+    return 'stale';
+  }
+
+  if (summary.rejectedCount > 0) {
+    return 'rejected';
+  }
+
+  if (summary.irrelevantCount > 0) {
+    return 'irrelevant';
+  }
+
+  return 'selected';
+}
+
+function feedbackMatchReasons(summary: KnowledgeFeedbackSummary, adjustment: number): string[] {
+  const reasons: string[] = [];
+
+  if (summary.selectedCount > 0) {
+    reasons.push(`feedback:selected:${summary.selectedCount}`);
+  }
+  if (summary.rejectedCount > 0) {
+    reasons.push(`feedback:rejected:${summary.rejectedCount}`);
+  }
+  if (summary.irrelevantCount > 0) {
+    reasons.push(`feedback:irrelevant:${summary.irrelevantCount}`);
+  }
+  if (summary.staleCount > 0) {
+    reasons.push(`feedback:stale:${summary.staleCount}`);
+  }
+  if (adjustment !== 0) {
+    reasons.push(`feedback adjustment:${adjustment > 0 ? '+' : ''}${adjustment.toFixed(3)}`);
+  }
+
+  return reasons;
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function roundFeedbackAdjustment(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }

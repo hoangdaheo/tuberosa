@@ -584,6 +584,64 @@ test('selected feedback records pack status without retrying', async () => {
   equal(storedPack?.status, 'selected');
 });
 
+test('feedback history adjusts later retrieval ranking', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  const selected = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'workflow',
+    sourceUri: 'workflow://deploy-selected',
+    itemType: 'workflow',
+    title: 'Deploy workflow',
+    summary: 'Preferred deployment workflow.',
+    content: 'Deploy work should run migrations before starting the release worker. The zephyr marker belongs only to this workflow.',
+    trustLevel: 65,
+    labels: [{ type: 'business_area', value: 'deploy', weight: 1 }],
+  });
+  const stale = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'workflow',
+    sourceUri: 'workflow://deploy-stale',
+    itemType: 'workflow',
+    title: 'Legacy deploy workflow',
+    summary: 'Old deployment workflow.',
+    content: 'Deploy work should start the release worker before migrations.',
+    trustLevel: 95,
+    labels: [{ type: 'business_area', value: 'deploy', weight: 1 }],
+  });
+
+  const selectedPack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'zephyr deploy workflow',
+    bypassCache: true,
+  });
+  await retrieval.recordFeedback({
+    contextPackId: selectedPack.id,
+    project: 'agent-memory',
+    feedbackType: 'selected',
+  });
+  await retrieval.recordFeedback({
+    project: 'agent-memory',
+    feedbackType: 'stale',
+    rejectedKnowledgeIds: [stale.id],
+    reason: 'Old deploy order is stale.',
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'How should deploy workflow run?',
+    bypassCache: true,
+  });
+  const ranked = pack.sections.flatMap((section) => section.items);
+  const selectedCandidate = ranked.find((candidate) => candidate.knowledgeId === selected.id);
+  const staleCandidate = ranked.find((candidate) => candidate.knowledgeId === stale.id);
+
+  equal(ranked[0].knowledgeId, selected.id);
+  ok(selectedCandidate?.matchReasons.includes('feedback:selected:1'));
+  ok(staleCandidate?.matchReasons.includes('feedback:stale:1'));
+  ok(staleCandidate?.fitMissingSignals?.includes('prior feedback:stale'));
+});
+
 test('reflection drafts are reviewable and approval creates searchable memory', async () => {
   const { retrieval, reflection } = createTestServices();
 
@@ -593,9 +651,21 @@ test('reflection drafts are reviewable and approval creates searchable memory', 
     summary: 'Reflection memories should be approved before they become searchable.',
     content: 'When an agent learns a new workflow, it should draft a memory and wait for approval before adding it to retrieval.',
     triggerType: 'user_correction',
+    references: [{ type: 'file', uri: 'docs/reflection.md' }],
+    metadata: {
+      agentSessionId: 'session-1',
+      contextPackId: 'pack-1',
+      taxonomy: 'workflow',
+    },
   });
 
   equal(draft.status, 'pending');
+  equal(draft.metadata.taxonomy, 'workflow');
+  deepEqual(draft.metadata.provenance, {
+    agentSessionId: 'session-1',
+    contextPackId: 'pack-1',
+    triggerType: 'user_correction',
+  });
 
   await reflection.approveDraft(draft.id);
   const pack = await retrieval.searchContext({
@@ -604,6 +674,9 @@ test('reflection drafts are reviewable and approval creates searchable memory', 
   });
 
   equal(pack.sections[0].items[0].itemType, 'memory');
+  equal(pack.sections[0].items[0].metadata?.taxonomy, 'workflow');
+  equal((pack.sections[0].items[0].metadata?.provenance as Record<string, unknown>).agentSessionId, 'session-1');
+  equal(pack.sections[0].items[0].references.some((reference) => reference.uri === 'docs/reflection.md'), true);
 });
 
 function createTestServices() {
