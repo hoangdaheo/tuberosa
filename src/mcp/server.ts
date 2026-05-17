@@ -3,8 +3,10 @@ import { NotFoundError, toAppError, ValidationError, type AppError } from '../er
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   expectRecord,
+  validateCollectErrorLogsInput,
   validateContextPackIdArguments,
   validateContextSearchInput,
+  validateCreateErrorLogReflectionDraftInput,
   validateFeedbackInput,
   validateFinishAgentSessionInput,
   validateErrorLogIdArguments,
@@ -17,6 +19,7 @@ import {
   validateReflectionDraftListInput,
   validateStartAgentSessionInput,
   validateReflectionDraftReviewInput,
+  validateResolveErrorLogInput,
 } from '../validation.js';
 
 interface JsonRpcRequest {
@@ -193,6 +196,26 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       });
     }
 
+    case 'tuberosa_collect_error_logs': {
+      const collection = await services.errorLogInsights.collect(validateCollectErrorLogsInput(args));
+      return toolJson({
+        collection,
+        instruction: collection.returned > 0
+          ? 'Use the agentBrief and compact summaries first. Inspect raw incidents only when needed, then create a reflection draft for durable lessons.'
+          : 'No matching error logs found.',
+      });
+    }
+
+    case 'tuberosa_create_error_log_reflection_draft': {
+      const result = await services.errorLogInsights.createReflectionDraft(
+        validateCreateErrorLogReflectionDraftInput(args),
+      );
+      return toolJson({
+        ...result,
+        instruction: 'Reflection draft created from selected error logs. Review and approve it before it becomes searchable memory.',
+      });
+    }
+
     case 'tuberosa_get_error_log': {
       const { id } = validateErrorLogIdArguments(args);
       const log = await services.errorLogs.getLog(id);
@@ -217,6 +240,14 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
           ? 'Error log updated and linked to a reflection draft.'
           : 'Error log updated. Link a reviewed reflection draft when the durable lesson is ready.',
       });
+    }
+
+    case 'tuberosa_resolve_error_log': {
+      const result = await services.errorLogInsights.resolve(validateResolveErrorLogInput(args));
+      if (!result) {
+        throw new NotFoundError(`Error log not found: ${String(args.id ?? args.errorLogId ?? '')}`);
+      }
+      return toolJson(result);
     }
 
     case 'tuberosa_start_session': {
@@ -429,6 +460,52 @@ function getPrompt(params: Record<string, unknown>) {
               'When a command, MCP tool, HTTP call, or debugging path fails and the fix should happen later, call tuberosa_record_error_log.',
               'Include project, category, severity, title, summary, sanitized message/stack, cwd, command, files, symbols, errors, tags, and references when known.',
               'Do not save secrets or raw private conversation. After fixing, create a reflection draft for the durable lesson and update the error log with status fixed plus reflectionDraftId.',
+              args.project ? `Project: ${args.project}` : undefined,
+            ].filter(Boolean).join('\n'),
+          },
+        },
+      ],
+    };
+  }
+
+  if (name === 'tuberosa_review_error_logs') {
+    return {
+      description: 'Collect, inspect, and convert selected error logs into reviewed learning candidates.',
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: [
+              'Call tuberosa_collect_error_logs with project and focused filters when known.',
+              'Use the returned agentBrief, rollups, clusters, and compact summaries before reading raw incidents.',
+              'Inspect raw logs with tuberosa_get_error_log only for incidents that need debugging detail.',
+              'When a durable lesson is clear, call tuberosa_create_error_log_reflection_draft with explicit errorLogIds.',
+              'Do not treat raw logs as searchable memory until the reflection draft is reviewed and approved.',
+              args.project ? `Project: ${args.project}` : undefined,
+            ].filter(Boolean).join('\n'),
+          },
+        },
+      ],
+    };
+  }
+
+  if (name === 'tuberosa_fix_error_log') {
+    return {
+      description: 'Guide an agent through fixing and resolving a Tuberosa error-log incident.',
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: [
+              args.errorLogId
+                ? `Start by calling tuberosa_get_error_log for errorLogId ${args.errorLogId}.`
+                : 'Start by calling tuberosa_collect_error_logs with open/triaged statuses and focused project filters when known.',
+              'Use tuberosa_search_context with the incident project, files, symbols, and errors before editing code.',
+              'Inspect the relevant source, implement the smallest fix that addresses the root cause, and run the appropriate verification commands.',
+              'If the fix creates a reusable lesson, call tuberosa_create_error_log_reflection_draft with explicit errorLogIds.',
+              'Finish by calling tuberosa_resolve_error_log with rootCause, resolutionSummary, changedFiles, verificationCommands, and reflectionDraftId when available.',
               args.project ? `Project: ${args.project}` : undefined,
             ].filter(Boolean).join('\n'),
           },
@@ -690,6 +767,44 @@ function tools() {
       },
     },
     {
+      name: 'tuberosa_collect_error_logs',
+      title: 'Collect Tuberosa Error Logs',
+      description: 'Collect matching filesystem-backed error incidents into compact agent context, rollups, and fingerprint clusters.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          categories: { type: 'array', items: { type: 'string' } },
+          severities: { type: 'array', items: { type: 'string' } },
+          statuses: { type: 'array', items: { type: 'string' } },
+          query: { type: 'string' },
+          tag: { type: 'string' },
+          since: { type: 'string' },
+          until: { type: 'string' },
+          limit: { type: 'number' },
+          offset: { type: 'number' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_create_error_log_reflection_draft',
+      title: 'Create Error Log Reflection Draft',
+      description: 'Create a pending reflection draft from selected error logs and optionally link it back to those incidents.',
+      inputSchema: {
+        type: 'object',
+        required: ['errorLogIds'],
+        properties: {
+          errorLogIds: { type: 'array', items: { type: 'string' } },
+          project: { type: 'string' },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          content: { type: 'string' },
+          linkLogs: { type: 'boolean' },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+    {
       name: 'tuberosa_get_error_log',
       title: 'Get Tuberosa Error Log',
       description: 'Read one filesystem-backed error incident by id.',
@@ -718,6 +833,27 @@ function tools() {
           tags: { type: 'array', items: { type: 'string' } },
           references: { type: 'array', items: { type: 'object' } },
           reflectionDraftId: { type: ['string', 'null'] },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_resolve_error_log',
+      title: 'Resolve Tuberosa Error Log',
+      description: 'Mark an error incident resolved with root cause, fix summary, changed files, verification commands, and optional reflection linkage.',
+      inputSchema: {
+        type: 'object',
+        required: ['rootCause', 'resolutionSummary'],
+        properties: {
+          id: { type: 'string' },
+          errorLogId: { type: 'string' },
+          status: { type: 'string', enum: ['fixed', 'wont_fix'] },
+          rootCause: { type: 'string' },
+          resolutionSummary: { type: 'string' },
+          changedFiles: { type: 'array', items: { type: 'string' } },
+          verificationCommands: { type: 'array', items: { type: 'string' } },
+          reflectionDraftId: { type: 'string' },
+          notes: { type: 'string' },
           metadata: { type: 'object' },
         },
       },
@@ -755,6 +891,23 @@ function prompts() {
       description: 'Record a failed command, MCP tool, HTTP call, or debugging dead end as a physical error log.',
       arguments: [
         { name: 'project', description: 'Optional project for the incident.', required: false },
+      ],
+    },
+    {
+      name: 'tuberosa_review_error_logs',
+      title: 'Review Error Logs',
+      description: 'Collect error-log incidents and create reviewed learning candidates for durable agent memory.',
+      arguments: [
+        { name: 'project', description: 'Optional project filter for incidents.', required: false },
+      ],
+    },
+    {
+      name: 'tuberosa_fix_error_log',
+      title: 'Fix Error Log',
+      description: 'Guide an agent to fix an incident, verify the change, and record resolution metadata.',
+      arguments: [
+        { name: 'errorLogId', description: 'Optional specific error log id to fix.', required: false },
+        { name: 'project', description: 'Optional project filter for incident context.', required: false },
       ],
     },
   ];

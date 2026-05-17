@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { AgentSessionService } from './agent-session/service.js';
 import { createCache, type Cache } from './cache.js';
 import { loadConfig, type AppConfig } from './config.js';
+import { ErrorLogInsightService } from './error-log/insights.js';
 import { ErrorLogService } from './error-log/service.js';
 import { IngestionService } from './ingest/service.js';
 import { createModelProvider, type ModelProvider } from './model/provider.js';
@@ -20,6 +21,7 @@ export interface AppServices {
   models: ModelProvider;
   safety: KnowledgeSafetyService;
   errorLogs: ErrorLogService;
+  errorLogInsights: ErrorLogInsightService;
   ingestion: IngestionService;
   retrieval: RetrievalService;
   reflection: ReflectionService;
@@ -51,6 +53,7 @@ export async function createAppServices(): Promise<AppServices> {
   });
   const retrieval = new RetrievalService(store, cache, models, config, safety);
   const reflection = new ReflectionService(store, ingestion, safety);
+  const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
   const operations = new OperationsService(store, ingestion, {
     backupDir: config.backupDir,
@@ -81,6 +84,7 @@ export async function createAppServices(): Promise<AppServices> {
     models,
     safety,
     errorLogs,
+    errorLogInsights,
     ingestion,
     retrieval,
     reflection,

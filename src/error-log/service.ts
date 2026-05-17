@@ -4,6 +4,7 @@ import { basename, join, relative, resolve, sep } from 'node:path';
 import { ValidationError } from '../errors.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type {
+  CollectErrorLogsOptions,
   ErrorLog,
   ErrorLogCategory,
   ErrorLogInput,
@@ -104,20 +105,30 @@ export class ErrorLogService {
   }
 
   async listLogs(options: ListErrorLogsOptions): Promise<ErrorLog[]> {
-    const logs = await this.readAllLogs();
-    const query = options.query?.toLowerCase();
-    const tag = options.tag?.toLowerCase();
+    const collection = await this.collectLogs({
+      project: options.project,
+      categories: options.category ? [options.category] : undefined,
+      severities: options.severity ? [options.severity] : undefined,
+      statuses: options.status ? [options.status] : undefined,
+      query: options.query,
+      tag: options.tag,
+      limit: options.limit,
+      offset: 0,
+    });
+    return collection.logs;
+  }
 
-    return logs
-      .filter(({ log }) => !options.project || log.project === options.project)
-      .filter(({ log }) => !options.category || log.category === options.category)
-      .filter(({ log }) => !options.severity || log.severity === options.severity)
-      .filter(({ log }) => !options.status || log.status === options.status)
-      .filter(({ log }) => !tag || log.tags.some((value) => value.toLowerCase() === tag))
-      .filter(({ log }) => !query || searchableText(log).includes(query))
+  async collectLogs(options: CollectErrorLogsOptions): Promise<{ logs: ErrorLog[]; totalMatched: number }> {
+    const logs = await this.readAllLogs();
+    const filtered = logs
       .map(({ log }) => log)
-      .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt) || right.id.localeCompare(left.id))
-      .slice(0, options.limit);
+      .filter((log) => matchesCollectionOptions(log, options))
+      .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt) || right.id.localeCompare(left.id));
+
+    return {
+      logs: filtered.slice(options.offset, options.offset + options.limit),
+      totalMatched: filtered.length,
+    };
   }
 
   async getLog(id: string): Promise<ErrorLog | undefined> {
@@ -512,6 +523,20 @@ function searchableText(log: ErrorLog): string {
     ...log.errors,
     ...log.tags,
   ].filter(Boolean).join('\n').toLowerCase();
+}
+
+function matchesCollectionOptions(log: ErrorLog, options: CollectErrorLogsOptions): boolean {
+  const query = options.query?.toLowerCase();
+  const tag = options.tag?.toLowerCase();
+
+  return (!options.project || log.project === options.project)
+    && (!options.categories?.length || options.categories.includes(log.category))
+    && (!options.severities?.length || options.severities.includes(log.severity))
+    && (!options.statuses?.length || options.statuses.includes(log.status))
+    && (!tag || log.tags.some((value) => value.toLowerCase() === tag))
+    && (!query || searchableText(log).includes(query))
+    && (!options.since || log.lastSeenAt >= options.since)
+    && (!options.until || log.lastSeenAt <= options.until);
 }
 
 function appendNotes(existing: unknown, note: string, at: string): Array<{ at: string; note: string }> {

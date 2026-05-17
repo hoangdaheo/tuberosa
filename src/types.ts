@@ -724,6 +724,109 @@ export interface ListErrorLogsOptions {
   limit: number;
 }
 
+export interface CollectErrorLogsOptions {
+  project?: string;
+  categories?: ErrorLogCategory[];
+  severities?: ErrorLogSeverity[];
+  statuses?: ErrorLogStatus[];
+  query?: string;
+  tag?: string;
+  since?: string;
+  until?: string;
+  limit: number;
+  offset: number;
+}
+
+export interface ErrorLogSummary {
+  id: string;
+  project?: string;
+  category: ErrorLogCategory;
+  severity: ErrorLogSeverity;
+  status: ErrorLogStatus;
+  title: string;
+  summary: string;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  files: string[];
+  symbols: string[];
+  errors: string[];
+  tags: string[];
+  fingerprint: string;
+  reflectionDraftId?: string;
+  references: ReferenceInput[];
+}
+
+export interface ErrorLogCluster {
+  fingerprint: string;
+  title: string;
+  count: number;
+  occurrenceCount: number;
+  severity: ErrorLogSeverity;
+  statuses: ErrorLogStatus[];
+  categories: ErrorLogCategory[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+  logIds: string[];
+  files: string[];
+  symbols: string[];
+  errors: string[];
+  tags: string[];
+}
+
+export interface ErrorLogCollection {
+  project?: string;
+  generatedAt: string;
+  totalMatched: number;
+  returned: number;
+  nextOffset?: number;
+  filters: CollectErrorLogsOptions;
+  rollups: {
+    categories: Array<{ value: ErrorLogCategory; count: number }>;
+    severities: Array<{ value: ErrorLogSeverity; count: number }>;
+    statuses: Array<{ value: ErrorLogStatus; count: number }>;
+    files: Array<{ value: string; count: number }>;
+    symbols: Array<{ value: string; count: number }>;
+    errors: Array<{ value: string; count: number }>;
+    tags: Array<{ value: string; count: number }>;
+  };
+  clusters: ErrorLogCluster[];
+  logs: ErrorLogSummary[];
+  agentBrief: string;
+}
+
+export interface CreateErrorLogReflectionDraftInput {
+  errorLogIds: string[];
+  project?: string;
+  title?: string;
+  summary?: string;
+  content?: string;
+  linkLogs?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateErrorLogReflectionDraftResult {
+  draft: ReflectionDraft;
+  linkedErrorLogIds: string[];
+}
+
+export interface ResolveErrorLogInput {
+  id: string;
+  status?: Extract<ErrorLogStatus, 'fixed' | 'wont_fix'>;
+  rootCause: string;
+  resolutionSummary: string;
+  changedFiles?: string[];
+  verificationCommands?: string[];
+  reflectionDraftId?: string;
+  notes?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ResolveErrorLogResult {
+  log: ErrorLog;
+  instruction: string;
+}
+
 export interface AgentSessionStartResult {
   session: AgentSession;
   contextPack: ContextPack;

@@ -321,12 +321,18 @@ Entry points:
 
 - HTTP `POST /operations/error-logs`
 - HTTP `GET /operations/error-logs`
+- HTTP `GET /operations/error-logs/collection`
+- HTTP `POST /operations/error-logs/reflection-drafts`
+- HTTP `POST /operations/error-logs/:id/resolve`
 - HTTP `GET /operations/error-logs/:id`
 - HTTP `PATCH /operations/error-logs/:id`
 - MCP `tuberosa_record_error_log`
 - MCP `tuberosa_list_error_logs`
+- MCP `tuberosa_collect_error_logs`
+- MCP `tuberosa_create_error_log_reflection_draft`
 - MCP `tuberosa_get_error_log`
 - MCP `tuberosa_update_error_log`
+- MCP `tuberosa_resolve_error_log`
 
 Flow:
 
@@ -336,7 +342,10 @@ Flow:
 4. The canonical record is written as JSON under `TUBEROSA_ERROR_LOG_DIR`, grouped by project, category, and month.
 5. A Markdown companion file is written for human inspection.
 6. Listing scans JSON files and filters by project, category, severity, status, query, tag, and limit.
-7. Fix workflow updates the incident status and can link a reviewed reflection draft id.
+7. Collection scans matching JSON files with pagination, returns compact summaries, rollups, fingerprint clusters, and an agent brief without stack traces.
+8. A selected set of error logs can create a pending reflection draft and link the draft id back to the incidents.
+9. Fix workflow records root cause, resolution summary, changed files, verification commands, and optional reflection linkage, then marks the incident fixed or wont_fix.
+10. Generic patch workflow can still update incident status, summary, notes, tags, references, category, severity, or reflection linkage.
 
 Automatic capture:
 
@@ -622,6 +631,8 @@ Prompt flow:
 - `tuberosa_bootstrap_session` tells an agent to search and confirm context before work.
 - `tuberosa_reflect_after_task` tells an agent when and how to draft memory.
 - `tuberosa_capture_error_for_later` tells an agent when and how to save an error incident without turning it directly into knowledge.
+- `tuberosa_review_error_logs` tells an agent how to collect compact incident context, inspect only necessary raw logs, and create reflection drafts for durable lessons.
+- `tuberosa_fix_error_log` tells an agent how to inspect an incident, search context, fix code, run verification, and call `tuberosa_resolve_error_log`.
 
 ## 18. QA Flow
 

@@ -6,8 +6,10 @@ import type { KnowledgeRelationType } from '../types.js';
 import {
   validateContextSearchInput,
   validateBackupRetentionInput,
+  validateCollectErrorLogsInput,
   validateCleanupOperationsInput,
   validateCreateBackupInput,
+  validateCreateErrorLogReflectionDraftInput,
   validateErrorLogInput,
   validateErrorLogListInput,
   validateErrorLogPatchInput,
@@ -24,6 +26,7 @@ import {
   validateReflectionDraftPatchInput,
   validateReflectionDraftInput,
   validateRestoreBackupInput,
+  validateResolveErrorLogInput,
   validateStartAgentSessionInput,
 } from '../validation.js';
 
@@ -370,6 +373,37 @@ function createRoutes(): HttpRoute[] {
     },
     {
       method: 'GET',
+      match: exactPath('/operations/error-logs/collection'),
+      handle: ({ services, url }) => services.errorLogInsights.collect(readErrorLogCollectionOptions(url)),
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/error-logs/reflection-drafts'),
+      handle: async ({ services, request }) => {
+        const body = validateCreateErrorLogReflectionDraftInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+        );
+        return services.errorLogInsights.createReflectionDraft(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/operations\/error-logs\/([^/]+)\/resolve$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateResolveErrorLogInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+          params.id,
+        );
+        const result = await services.errorLogInsights.resolve(body);
+        if (!result) {
+          throw new NotFoundError('Error log not found.');
+        }
+
+        return result;
+      },
+    },
+    {
+      method: 'GET',
       match: pathPattern(/^\/operations\/error-logs\/([^/]+)$/, ['id']),
       handle: async ({ services, params }) => {
         const log = await services.errorLogs.getLog(params.id);
@@ -654,6 +688,35 @@ function readErrorLogListOptions(url: URL) {
     tag: url.searchParams.get('tag') ?? undefined,
     limit: readLimit(url),
   });
+}
+
+function readErrorLogCollectionOptions(url: URL) {
+  return validateCollectErrorLogsInput({
+    project: url.searchParams.get('project') ?? undefined,
+    categories: readRepeatedQuery(url, 'category', 'categories'),
+    severities: readRepeatedQuery(url, 'severity', 'severities'),
+    statuses: readRepeatedQuery(url, 'status', 'statuses'),
+    query: url.searchParams.get('q') ?? url.searchParams.get('query') ?? undefined,
+    tag: url.searchParams.get('tag') ?? undefined,
+    since: url.searchParams.get('since') ?? undefined,
+    until: url.searchParams.get('until') ?? undefined,
+    limit: readOptionalQueryNumber(url, 'limit'),
+    offset: readOptionalQueryNumber(url, 'offset'),
+  });
+}
+
+function readRepeatedQuery(url: URL, singular: string, plural: string): string[] | undefined {
+  const values = [
+    ...url.searchParams.getAll(singular),
+    ...url.searchParams.getAll(plural).flatMap((value) => value.split(',')),
+  ].map((value) => value.trim()).filter(Boolean);
+
+  return values.length > 0 ? values : undefined;
+}
+
+function readOptionalQueryNumber(url: URL, key: string): number | undefined {
+  const value = url.searchParams.get(key);
+  return value === null ? undefined : Number(value);
 }
 
 function readRelationListOptions(url: URL) {

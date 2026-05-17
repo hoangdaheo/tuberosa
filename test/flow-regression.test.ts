@@ -6,6 +6,7 @@ import { AgentSessionService } from '../src/agent-session/service.js';
 import type { AppServices } from '../src/app.js';
 import { MemoryCache } from '../src/cache.js';
 import type { AppConfig } from '../src/config.js';
+import { ErrorLogInsightService } from '../src/error-log/insights.js';
 import { ErrorLogService } from '../src/error-log/service.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { IngestionService } from '../src/ingest/service.js';
@@ -232,7 +233,9 @@ test('FLOW_LOGIC functional smoke sequence works across HTTP and MCP surfaces', 
       [
         'tuberosa_bootstrap_session',
         'tuberosa_capture_error_for_later',
+        'tuberosa_fix_error_log',
         'tuberosa_reflect_after_task',
+        'tuberosa_review_error_logs',
         'tuberosa_review_pending_reflections',
       ],
     );
@@ -252,6 +255,7 @@ function createTestServices(): AppServices {
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
   const operations = new OperationsService(store, ingestion);
   const errorLogs = new ErrorLogService({ rootDir: config.errorLogDir, safety });
+  const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
 
   return {
     config,
@@ -265,6 +269,7 @@ function createTestServices(): AppServices {
     agentSessions,
     operations,
     errorLogs,
+    errorLogInsights,
     async close() {
       await Promise.allSettled([cache.close(), store.close()]);
     },

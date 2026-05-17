@@ -170,8 +170,11 @@ A healthy connection should expose these MCP tools:
 - `tuberosa_reflect`
 - `tuberosa_record_error_log`
 - `tuberosa_list_error_logs`
+- `tuberosa_collect_error_logs`
+- `tuberosa_create_error_log_reflection_draft`
 - `tuberosa_get_error_log`
 - `tuberosa_update_error_log`
+- `tuberosa_resolve_error_log`
 
 Use this operating rule for agent work:
 
@@ -582,15 +585,41 @@ curl 'http://localhost:3027/operations/error-logs?project=newsletter-app&status=
 curl http://localhost:3027/operations/error-logs/<error-log-id>
 ```
 
+Collect compact incident context for agents:
+
+```bash
+curl 'http://localhost:3027/operations/error-logs/collection?project=newsletter-app&status=open&limit=50'
+```
+
 After the fix is durable, create a reflection draft for the lesson and link it to the incident:
 
 ```bash
+curl -X POST http://localhost:3027/operations/error-logs/reflection-drafts \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "errorLogIds": ["<error-log-id>"]
+  }'
+
 curl -X PATCH http://localhost:3027/operations/error-logs/<error-log-id> \
   -H 'Content-Type: application/json' \
   -d '{
     "status": "fixed",
     "reflectionDraftId": "<reflection-draft-id>",
     "notes": "Fixed by updating the paywall test fixture."
+  }'
+```
+
+Record a structured resolution after an agent fixes the incident:
+
+```bash
+curl -X POST http://localhost:3027/operations/error-logs/<error-log-id>/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "rootCause": "The test fixture expected the old paywall response shape.",
+    "resolutionSummary": "Updated the fixture and verified the paywall tests.",
+    "changedFiles": ["test/paywall.test.ts"],
+    "verificationCommands": ["pnpm test"],
+    "reflectionDraftId": "<reflection-draft-id>"
   }'
 ```
 
@@ -857,8 +886,11 @@ Tools:
 - `tuberosa_feedback_context`
 - `tuberosa_record_error_log`
 - `tuberosa_list_error_logs`
+- `tuberosa_collect_error_logs`
+- `tuberosa_create_error_log_reflection_draft`
 - `tuberosa_get_error_log`
 - `tuberosa_update_error_log`
+- `tuberosa_resolve_error_log`
 
 Resource templates:
 
@@ -872,6 +904,9 @@ Prompts:
 - `tuberosa_bootstrap_session`
 - `tuberosa_reflect_after_task`
 - `tuberosa_capture_error_for_later`
+- `tuberosa_review_error_logs`
+- `tuberosa_fix_error_log`
+- `tuberosa_review_pending_reflections`
 
 Recommended agent flow:
 

@@ -2,7 +2,9 @@ import type { IngestFileInput, IngestionMode } from './ingest/service.js';
 import type {
   AgentSessionOutcome,
   BackupRetentionInput,
+  CollectErrorLogsOptions,
   CreateBackupInput,
+  CreateErrorLogReflectionDraftInput,
   FinishAgentSessionInput,
   ContextSearchInput,
   FeedbackInput,
@@ -29,6 +31,7 @@ import type {
   ReflectionDraftPatchInput,
   ReflectionDraftReviewInput,
   ReflectionDraftStatus,
+  ResolveErrorLogInput,
   RestoreBackupInput,
   StartAgentSessionInput,
   TaskType,
@@ -492,6 +495,61 @@ export function validateErrorLogListInput(value: unknown): {
   };
 }
 
+export function validateCollectErrorLogsInput(value: unknown): CollectErrorLogsOptions {
+  const record = expectObject(value, 'error log collection input');
+  const limit = readOptionalPositiveInteger(record, 'limit', 'error log collection input') ?? 250;
+  const offset = readOptionalNonNegativeInteger(record, 'offset', 'error log collection input') ?? 0;
+
+  return {
+    project: readOptionalString(record, 'project', 'error log collection input'),
+    categories: readOptionalEnumArray(record.categories, ERROR_LOG_CATEGORIES, 'error log collection input.categories'),
+    severities: readOptionalEnumArray(record.severities, ERROR_LOG_SEVERITIES, 'error log collection input.severities'),
+    statuses: readOptionalEnumArray(record.statuses, ERROR_LOG_STATUSES, 'error log collection input.statuses'),
+    query: readOptionalString(record, 'query', 'error log collection input'),
+    tag: readOptionalString(record, 'tag', 'error log collection input'),
+    since: readOptionalIsoDate(record, 'since', 'error log collection input'),
+    until: readOptionalIsoDate(record, 'until', 'error log collection input'),
+    limit: Math.min(limit, 500),
+    offset,
+  };
+}
+
+export function validateCreateErrorLogReflectionDraftInput(value: unknown): CreateErrorLogReflectionDraftInput {
+  const record = expectObject(value, 'error log reflection draft input');
+  const errorLogIds = readRequiredStringArray(record, 'errorLogIds', 'error log reflection draft input');
+
+  if (errorLogIds.length === 0) {
+    throw validationIssue('error log reflection draft input.errorLogIds', 'must include at least one id.');
+  }
+
+  return {
+    errorLogIds,
+    project: readOptionalString(record, 'project', 'error log reflection draft input'),
+    title: readOptionalString(record, 'title', 'error log reflection draft input'),
+    summary: readOptionalString(record, 'summary', 'error log reflection draft input'),
+    content: readOptionalString(record, 'content', 'error log reflection draft input'),
+    linkLogs: readOptionalBoolean(record, 'linkLogs', 'error log reflection draft input'),
+    metadata: readOptionalObject(record, 'metadata', 'error log reflection draft input'),
+  };
+}
+
+export function validateResolveErrorLogInput(value: unknown, id?: string): ResolveErrorLogInput {
+  const record = expectObject(value, 'error log resolution input');
+  const status = readOptionalEnum(record, 'status', ['fixed', 'wont_fix'], 'error log resolution input');
+
+  return {
+    id: id ?? readRequiredStringWithAliases(record, ['id', 'errorLogId'], 'error log resolution input'),
+    status,
+    rootCause: readRequiredString(record, 'rootCause', 'error log resolution input'),
+    resolutionSummary: readRequiredString(record, 'resolutionSummary', 'error log resolution input'),
+    changedFiles: readOptionalStringArray(record, 'changedFiles', 'error log resolution input'),
+    verificationCommands: readOptionalStringArray(record, 'verificationCommands', 'error log resolution input'),
+    reflectionDraftId: readOptionalString(record, 'reflectionDraftId', 'error log resolution input'),
+    notes: readOptionalString(record, 'notes', 'error log resolution input'),
+    metadata: readOptionalObject(record, 'metadata', 'error log resolution input'),
+  };
+}
+
 export function validateErrorLogIdArguments(value: unknown): { id: string } {
   const record = expectObject(value, 'error log arguments');
   return {
@@ -692,6 +750,14 @@ function readOptionalStringArray(record: Record<string, unknown>, key: string, p
   });
 }
 
+function readRequiredStringArray(record: Record<string, unknown>, key: string, path: string): string[] {
+  const values = readOptionalStringArray(record, key, path);
+  if (!values) {
+    throw validationIssue(`${path}.${key}`, 'must be an array.');
+  }
+  return values;
+}
+
 function readOptionalNumber(record: Record<string, unknown>, key: string, path: string): number | undefined {
   const value = record[key];
   if (value === undefined) {
@@ -727,6 +793,15 @@ function readOptionalPositiveInteger(record: Record<string, unknown>, key: strin
   const value = readOptionalNumber(record, key, path);
   if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
     throw validationIssue(`${path}.${key}`, 'must be a positive integer.');
+  }
+
+  return value;
+}
+
+function readOptionalNonNegativeInteger(record: Record<string, unknown>, key: string, path: string): number | undefined {
+  const value = readOptionalNumber(record, key, path);
+  if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+    throw validationIssue(`${path}.${key}`, 'must be a non-negative integer.');
   }
 
   return value;
@@ -775,6 +850,40 @@ function readOptionalEnum<T extends string>(
   }
 
   return value as T;
+}
+
+function readOptionalEnumArray<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  path: string,
+): T[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw validationIssue(path, 'must be an array.');
+  }
+
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || !allowed.includes(entry as T)) {
+      throw validationIssue(`${path}[${index}]`, `must be one of: ${allowed.join(', ')}.`);
+    }
+    return entry as T;
+  });
+}
+
+function readOptionalIsoDate(record: Record<string, unknown>, key: string, path: string): string | undefined {
+  const value = readOptionalString(record, key, path);
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Number.isNaN(Date.parse(value))) {
+    throw validationIssue(`${path}.${key}`, 'must be an ISO date string.');
+  }
+
+  return value;
 }
 
 function readOptionalObject(

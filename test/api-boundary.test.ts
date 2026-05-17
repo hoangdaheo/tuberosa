@@ -223,6 +223,66 @@ test('MCP error log tools and resources dispatch through the filesystem journal 
       }),
       readLogMarkdown: async (id: string) => `# ${id}\n`,
     },
+    errorLogInsights: {
+      collect: async (options: { project?: string; statuses?: string[]; limit: number; offset: number }) => {
+        equal(options.project, 'agent-memory');
+        equal(options.statuses?.[0], 'open');
+        equal(options.limit, 5);
+        equal(options.offset, 0);
+        return {
+          project: 'agent-memory',
+          generatedAt: new Date().toISOString(),
+          totalMatched: 1,
+          returned: 1,
+          filters: options,
+          rollups: {
+            categories: [{ value: 'agent_tool', count: 1 }],
+            severities: [{ value: 'error', count: 1 }],
+            statuses: [{ value: 'open', count: 1 }],
+            files: [],
+            symbols: [],
+            errors: [],
+            tags: [],
+          },
+          clusters: [{
+            fingerprint: log.fingerprint,
+            title: log.title,
+            count: 1,
+            occurrenceCount: 1,
+            severity: 'error',
+            statuses: ['open'],
+            categories: ['agent_tool'],
+            firstSeenAt: log.firstSeenAt,
+            lastSeenAt: log.lastSeenAt,
+            logIds: [log.id],
+            files: [],
+            symbols: [],
+            errors: [],
+            tags: [],
+          }],
+          logs: [log],
+          agentBrief: '# Error Log Brief\n',
+        };
+      },
+      createReflectionDraft: async (input: { errorLogIds: string[] }) => ({
+        draft: { ...sampleDraft(), id: 'draft-from-error-log' },
+        linkedErrorLogIds: input.errorLogIds,
+      }),
+      resolve: async (input: { id: string; rootCause: string; resolutionSummary: string }) => ({
+        log: {
+          ...log,
+          id: input.id,
+          status: 'fixed',
+          metadata: {
+            resolution: {
+              rootCause: input.rootCause,
+              summary: input.resolutionSummary,
+            },
+          },
+        },
+        instruction: 'Error log resolved.',
+      }),
+    },
   });
 
   const recorded = await handleMcpRequest(services, {
@@ -251,6 +311,31 @@ test('MCP error log tools and resources dispatch through the filesystem journal 
   }) as { structuredContent?: { logs?: Array<{ id: string }> } };
   equal(listed.structuredContent?.logs?.[0]?.id, log.id);
 
+  const collected = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_collect_error_logs',
+      arguments: {
+        project: 'agent-memory',
+        statuses: ['open'],
+        limit: 5,
+      },
+    },
+  }) as { structuredContent?: { collection?: { totalMatched?: number } } };
+  equal(collected.structuredContent?.collection?.totalMatched, 1);
+
+  const draft = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_create_error_log_reflection_draft',
+      arguments: {
+        errorLogIds: [log.id],
+      },
+    },
+  }) as { structuredContent?: { draft?: { id?: string }; linkedErrorLogIds?: string[] } };
+  equal(draft.structuredContent?.draft?.id, 'draft-from-error-log');
+  equal(draft.structuredContent?.linkedErrorLogIds?.[0], log.id);
+
   const updated = await handleMcpRequest(services, {
     method: 'tools/call',
     params: {
@@ -264,6 +349,21 @@ test('MCP error log tools and resources dispatch through the filesystem journal 
   }) as { structuredContent?: { log?: { status?: string; reflectionDraftId?: string } } };
   equal(updated.structuredContent?.log?.status, 'fixed');
   equal(updated.structuredContent?.log?.reflectionDraftId, 'draft-1');
+
+  const resolved = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_resolve_error_log',
+      arguments: {
+        id: log.id,
+        rootCause: 'The command used stale context.',
+        resolutionSummary: 'Updated the fixture and reran tests.',
+        changedFiles: ['test/api-boundary.test.ts'],
+        verificationCommands: ['pnpm test'],
+      },
+    },
+  }) as { structuredContent?: { log?: { metadata?: { resolution?: { rootCause?: string } } } } };
+  equal(resolved.structuredContent?.log?.metadata?.resolution?.rootCause, 'The command used stale context.');
 
   const resource = await handleMcpRequest(services, {
     method: 'resources/read',
@@ -298,6 +398,26 @@ test('HTTP and MCP unexpected errors are auto-captured when enabled', async () =
       getLog: async () => undefined,
       updateLog: async () => undefined,
       readLogMarkdown: async () => undefined,
+    },
+    errorLogInsights: {
+      collect: async () => ({
+        generatedAt: new Date().toISOString(),
+        totalMatched: 0,
+        returned: 0,
+        filters: { limit: 25, offset: 0 },
+        rollups: { categories: [], severities: [], statuses: [], files: [], symbols: [], errors: [], tags: [] },
+        clusters: [],
+        logs: [],
+        agentBrief: '# Error Log Brief\n',
+      }),
+      createReflectionDraft: async () => ({
+        draft: sampleDraft(),
+        linkedErrorLogIds: [],
+      }),
+      resolve: async () => ({
+        log: sampleErrorLog(),
+        instruction: 'Error log resolved.',
+      }),
     },
   });
 

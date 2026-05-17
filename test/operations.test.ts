@@ -9,6 +9,7 @@ import { AgentSessionService } from '../src/agent-session/service.js';
 import type { AppServices } from '../src/app.js';
 import { MemoryCache } from '../src/cache.js';
 import type { AppConfig } from '../src/config.js';
+import { ErrorLogInsightService } from '../src/error-log/insights.js';
 import { ErrorLogService } from '../src/error-log/service.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { IngestionService } from '../src/ingest/service.js';
@@ -223,8 +224,29 @@ test('operations API records, lists, reads, and updates physical error logs', as
     equal(listed.length, 1);
     equal(listed[0].id, created.id);
 
+    const collection = await get(services, '/operations/error-logs/collection?project=operations-review&status=open&limit=5') as Record<string, unknown>;
+    equal(collection.totalMatched, 1);
+    equal((collection.logs as Array<Record<string, unknown>>)[0].id, created.id);
+    ok(String(collection.agentBrief).includes('Error Log Brief'));
+
+    const draft = await post(services, '/operations/error-logs/reflection-drafts', {
+      errorLogIds: [created.id],
+    }) as Record<string, unknown>;
+    equal((draft.draft as Record<string, unknown>).status, 'pending');
+    equal((draft.linkedErrorLogIds as string[])[0], created.id);
+
     const fetched = await get(services, `/operations/error-logs/${created.id}`) as Record<string, unknown>;
     equal(fetched.title, 'Test command failed');
+    ok(fetched.reflectionDraftId);
+
+    const resolved = await post(services, `/operations/error-logs/${created.id}/resolve`, {
+      rootCause: 'The test command fixture was incomplete.',
+      resolutionSummary: 'Created the reflection draft and verified the operations boundary.',
+      changedFiles: ['test/operations.test.ts'],
+      verificationCommands: ['pnpm test'],
+    }) as Record<string, unknown>;
+    equal((resolved.log as Record<string, unknown>).status, 'fixed');
+    equal(((resolved.log as Record<string, unknown>).metadata as { resolution?: { rootCause?: string } }).resolution?.rootCause, 'The test command fixture was incomplete.');
 
     const patched = await patch(services, `/operations/error-logs/${created.id}`, {
       status: 'fixed',
@@ -373,6 +395,7 @@ function createTestServices(
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
   const operations = new OperationsService(store, ingestion, { backupDir, storeKind: 'memory' });
   const errorLogs = new ErrorLogService({ rootDir: errorLogDir });
+  const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
 
   return {
     config: { ...config, backupDir },
@@ -385,6 +408,7 @@ function createTestServices(
     agentSessions,
     operations,
     errorLogs,
+    errorLogInsights,
     safety: {} as AppServices['safety'],
     async close() {
       await Promise.allSettled([cache.close(), store.close()]);
