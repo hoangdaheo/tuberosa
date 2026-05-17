@@ -17,6 +17,7 @@
     "restore": "tsx scripts/restore.ts",
     "error-logs": "tsx scripts/error-logs.ts",
     "eval:retrieval": "tsx scripts/eval-retrieval.ts",
+    "eval:agent-context": "tsx scripts/eval-agent-context.ts",
     "test:integration": "node --test --import tsx test/integration.test.ts",
     "test": "node --test --import tsx test/*.test.ts"
   },

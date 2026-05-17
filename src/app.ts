@@ -75,6 +75,10 @@ export async function createAppServices(): Promise<AppServices> {
       writeThroughEnabled: config.backupWriteThrough,
       writeThroughThrottleSeconds: config.backupWriteThroughThrottleSeconds,
     },
+    physicalMirror: {
+      enabled: config.physicalMirrorEnabled,
+      dir: config.physicalMirrorDir,
+    },
   });
 
   return {

@@ -14,6 +14,7 @@ import { ErrorLogService } from '../src/error-log/service.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
+import { BackupService } from '../src/operations/backup-service.js';
 import { OperationsService } from '../src/operations/service.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { RetrievalService } from '../src/retrieval/service.js';
@@ -181,6 +182,12 @@ test('operations API reviews, updates, imports, and lists audit records', async 
     });
     const decisions = await get(services, `/agent-sessions/${session.id}/context-decisions`) as Array<Record<string, unknown>>;
     equal(decisions[0].decision, 'selected');
+    const finished = await post(services, `/agent-sessions/${session.id}/finish`, {
+      outcome: 'completed',
+      summary: 'Reviewed operations coverage.',
+    }) as Record<string, unknown>;
+    equal((finished.compliance as Record<string, unknown>).status, 'compliant');
+    equal(((finished.session as Record<string, unknown>).metadata as Record<string, unknown>).contextCompliance !== undefined, true);
 
     const cleanup = await post(services, '/operations/cleanup', {
       dryRun: true,
@@ -382,9 +389,123 @@ test('backup verification blocks corrupt restore and retention keeps latest vali
   }
 });
 
+test('physical mirror writes current readable context and session state from live store', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const mirrorDir = await mkdtemp(join(tmpdir(), 'tuberosa-current-'));
+  const services = createTestServices(backupDir, '.tuberosa/test-error-logs', mirrorDir);
+
+  try {
+    await post(services, '/knowledge', {
+      project: 'mirror-project',
+      sourceType: 'manual',
+      sourceUri: 'manual://mirror',
+      itemType: 'workflow',
+      title: 'Mirror workflow',
+      summary: 'Physical mirror should show current knowledge.',
+      content: 'The physical mirror sync writes readable knowledge from the live store.',
+      labels: [{ type: 'project', value: 'mirror-project', weight: 1 }],
+      references: [{ type: 'file', uri: 'docs/mirror.md' }],
+    });
+
+    const manifest = await waitForMirrorContent(join(mirrorDir, 'manifest.json'), (content) => content.includes('"id": "current"'));
+    const knowledge = await waitForMirrorContent(join(mirrorDir, 'knowledge.md'), (content) => content.includes('Mirror workflow'));
+
+    ok(manifest.includes('"id": "current"'));
+    ok(knowledge.includes('Mirror workflow'));
+    ok(knowledge.includes('Physical mirror should show current knowledge.'));
+
+    const pack = await post(services, '/context/search', {
+      project: 'mirror-project',
+      prompt: 'Use MirrorContextSymbol for the physical mirror test',
+      symbols: ['MirrorContextSymbol'],
+      bypassCache: true,
+    }) as Record<string, unknown>;
+    await waitForMirrorContent(
+      join(mirrorDir, 'context-packs.md'),
+      (content) => content.includes('Use MirrorContextSymbol for the physical mirror test'),
+    );
+
+    await post(services, '/context/feedback', {
+      contextPackId: pack.id,
+      project: 'mirror-project',
+      feedbackType: 'selected',
+      reason: 'Mirror feedback should be visible.',
+    });
+    await waitForMirrorContent(
+      join(mirrorDir, 'feedback_events.jsonl'),
+      (content) => content.includes('"feedbackType":"selected"') || content.includes('"feedback_type":"selected"'),
+    );
+
+    const started = await post(services, '/agent-sessions', {
+      project: 'mirror-project',
+      prompt: 'Start MirrorSessionSymbol work',
+      symbols: ['MirrorContextSymbol'],
+      bypassCache: true,
+    }) as Record<string, unknown>;
+    const session = started.session as Record<string, unknown>;
+    const context = started.contextPack as Record<string, unknown>;
+
+    await waitForMirrorContent(
+      join(mirrorDir, 'agent-sessions.md'),
+      (content) => content.includes('Start MirrorSessionSymbol work'),
+    );
+
+    await post(services, `/agent-sessions/${String(session.id)}/context-decision`, {
+      contextPackId: context.id,
+      feedbackType: 'selected',
+      reason: 'Session selected context.',
+    });
+    await waitForMirrorContent(
+      join(mirrorDir, 'agent_context_decisions.jsonl'),
+      (content) => content.includes('"decision":"selected"'),
+    );
+  } finally {
+    await services.close();
+    await rm(backupDir, { recursive: true, force: true });
+    await rm(mirrorDir, { recursive: true, force: true });
+  }
+});
+
+test('physical mirror coalesces overlapping sync requests into latest state', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const mirrorDir = await mkdtemp(join(tmpdir(), 'tuberosa-current-'));
+  const store = new DelayedExportStore();
+  const backups = new BackupService(store, {
+    backupDir,
+    storeKind: 'memory',
+    physicalMirror: {
+      enabled: true,
+      dir: mirrorDir,
+    },
+  });
+
+  try {
+    const first = backups.syncPhysicalMirror('first');
+    const second = backups.syncPhysicalMirror('second');
+
+    equal(store.exportCallCount, 1);
+    store.releaseFirstExport();
+
+    await Promise.all([first, second]);
+    equal(store.exportCallCount, 2);
+
+    const manifest = await waitForMirrorContent(
+      join(mirrorDir, 'manifest.json'),
+      (content) => content.includes('"reason": "second"'),
+    );
+    ok(manifest.includes('"mirror": true'));
+  } finally {
+    await backups.close();
+    await store.close();
+    await rm(backupDir, { recursive: true, force: true });
+    await rm(mirrorDir, { recursive: true, force: true });
+  }
+});
+
 function createTestServices(
   backupDir = '.tuberosa/test-backups',
   errorLogDir = '.tuberosa/test-error-logs',
+  physicalMirrorDir?: string,
 ): AppServices {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
@@ -393,12 +514,19 @@ function createTestServices(
   const retrieval = new RetrievalService(store, cache, models, config);
   const reflection = new ReflectionService(store, ingestion);
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
-  const operations = new OperationsService(store, ingestion, { backupDir, storeKind: 'memory' });
+  const operations = new OperationsService(store, ingestion, {
+    backupDir,
+    storeKind: 'memory',
+    physicalMirror: {
+      enabled: Boolean(physicalMirrorDir),
+      dir: physicalMirrorDir,
+    },
+  });
   const errorLogs = new ErrorLogService({ rootDir: errorLogDir });
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
 
   return {
-    config: { ...config, backupDir },
+    config: { ...config, backupDir, physicalMirrorDir, physicalMirrorEnabled: Boolean(physicalMirrorDir) },
     store,
     cache,
     models,
@@ -414,6 +542,45 @@ function createTestServices(
       await Promise.allSettled([cache.close(), store.close()]);
     },
   };
+}
+
+class DelayedExportStore extends MemoryKnowledgeStore {
+  exportCallCount = 0;
+  private firstExportRelease: (() => void) | undefined;
+  private readonly firstExportBlock = new Promise<void>((resolve) => {
+    this.firstExportRelease = resolve;
+  });
+
+  override async exportBackup() {
+    this.exportCallCount += 1;
+    if (this.exportCallCount === 1) {
+      await this.firstExportBlock;
+    }
+
+    return super.exportBackup();
+  }
+
+  releaseFirstExport(): void {
+    this.firstExportRelease?.();
+  }
+}
+
+async function waitForMirrorContent(path: string, predicate: (content: string) => boolean): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      const content = await readFile(path, 'utf8');
+      if (predicate(content)) {
+        return content;
+      }
+      lastError = new Error(`Mirror file did not contain expected content: ${path}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`Mirror file not found: ${path}`);
 }
 
 async function post(services: AppServices, url: string, body: unknown): Promise<unknown> {

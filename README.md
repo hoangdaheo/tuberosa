@@ -62,7 +62,7 @@ The request path is:
 1. An agent calls `tuberosa_search_context` through MCP, or a client calls `POST /context/search`.
 2. Tuberosa classifies the task prompt into project, task type, files, symbols, errors, technologies, and business areas.
 3. Tuberosa searches candidates through metadata, lexical full-text, vector similarity, and approved memory search.
-4. Results are fused with weighted reciprocal-rank fusion, reranked, and packed into `essential`, `supporting`, and `optional` context sections.
+4. Results are fused with weighted reciprocal-rank fusion, reranked, and packed into `essential`, `supporting`, and `optional` context sections. In layered mode, selected knowledge expands into a larger `deepContext` payload from stored chunks.
 5. The agent or user can select, reject, mark stale, or mark irrelevant context through feedback.
 6. Useful lessons can be stored as reflection drafts and approved into searchable memory.
 
@@ -104,8 +104,12 @@ Important variables:
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name. |
 | `EMBEDDING_DIMENSIONS` | `1536` | Embedding dimension count. Must match the pgvector column dimension. |
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Context pack cache TTL. |
+| `TUBEROSA_CONTEXT_MODE` | `layered` | `layered` returns compact sections plus deep context; `compact` returns only compact sections. |
+| `TUBEROSA_DEEP_CONTEXT_BUDGET` | `60000` | Deep context token budget, clamped from 30000 to 100000. |
 | `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
 | `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for one knowledge content field before chunking. |
+| `TUBEROSA_PHYSICAL_MIRROR_ENABLED` | `true` | Keep `.tuberosa/current` synced as the latest readable mirror of live DB state. |
+| `TUBEROSA_PHYSICAL_MIRROR_DIR` | `.tuberosa/current` | Directory for the physical mirror. |
 
 `text-embedding-3-small` defaults to 1536 dimensions, which matches `migrations/001_init.sql`.
 
@@ -185,6 +189,7 @@ pnpm run mcp       # MCP stdio server
 pnpm run worker    # Worker process placeholder
 pnpm run migrate   # Apply SQL migrations
 pnpm run eval:retrieval # Deterministic retrieval quality eval
+pnpm run eval:agent-context # Agent context compliance eval
 pnpm run test:integration # Docker-gated Postgres/Redis tests
 ```
 

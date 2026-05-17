@@ -11,6 +11,7 @@ import type {
   FeedbackInput,
   FinishAgentSessionInput,
   KnowledgePatchInput,
+  KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
   KnowledgeInput,
   KnowledgeGraphJsonlExport,
@@ -60,6 +61,7 @@ export interface KnowledgeStore {
   updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined>;
   deleteKnowledgeRelation(id: string): Promise<boolean>;
   listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]>;
+  listKnowledgeChunks(knowledgeIds: string[]): Promise<KnowledgeChunkRecord[]>;
   searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]>;
   searchVector(embedding: number[], options: SearchOptions): Promise<SearchCandidate[]>;
   searchMetadata(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]>;

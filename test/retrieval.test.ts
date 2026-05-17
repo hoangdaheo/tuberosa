@@ -94,6 +94,46 @@ test('retrieval returns context pack with matched references', async () => {
   equal(pack.debug, undefined);
 });
 
+test('layered retrieval expands selected knowledge into deep context without compact truncation', async () => {
+  const { ingestion, retrieval } = createTestServices();
+  const longContent = Array.from({ length: 36 }, (_, index) => (
+    `Layer ${index} documents LayeredContextSymbol phase implementation details, storage rules, retrieval budget policy, and agent context compliance evidence for long running Tuberosa work.`
+  )).join('\n\n');
+
+  await ingestion.ingestKnowledge({
+    project: 'deep-context',
+    sourceType: 'manual',
+    sourceUri: 'docs/deep-context.md',
+    itemType: 'workflow',
+    title: 'Layered context workflow',
+    summary: 'Deep context should preserve long workflow notes.',
+    content: longContent,
+    trustLevel: 90,
+    labels: [
+      { type: 'symbol', value: 'LayeredContextSymbol', weight: 1 },
+      { type: 'business_area', value: 'context retrieval', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'docs/deep-context.md' }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'deep-context',
+    prompt: 'Update LayeredContextSymbol for context retrieval',
+    contextMode: 'layered',
+    deepContextBudget: 30_000,
+  });
+
+  const compact = pack.sections[0].items[0];
+  const deep = pack.deepContext?.sections[0].items[0];
+
+  equal(pack.deepContext?.budget, 30_000);
+  ok(compact.content.length <= 2800);
+  ok(deep);
+  ok(deep.content.length > compact.content.length);
+  ok(deep.chunkIds.length > 1);
+  ok(deep.content.includes('Layer 35 documents LayeredContextSymbol'));
+});
+
 test('ingestion replaces existing knowledge for the same source uri', async () => {
   const { ingestion, store } = createTestServices();
 

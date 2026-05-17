@@ -15,6 +15,7 @@ import type {
   FinishAgentSessionInput,
   KnowledgeGraphJsonlExport,
   KnowledgePatchInput,
+  KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
   KnowledgeInput,
   KnowledgeRelation,
@@ -417,6 +418,25 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       weight: Number(row.weight ?? 1),
       knowledgeCount: Number(row.knowledge_count ?? 0),
     }));
+  }
+
+  async listKnowledgeChunks(knowledgeIds: string[]): Promise<KnowledgeChunkRecord[]> {
+    if (knowledgeIds.length === 0) {
+      return [];
+    }
+
+    const result = await this.pool.query(
+      `
+        SELECT id, knowledge_id, chunk_index, content, contextual_content,
+          token_estimate, metadata, created_at
+        FROM knowledge_chunks
+        WHERE knowledge_id = ANY($1::uuid[])
+        ORDER BY array_position($1::uuid[], knowledge_id), chunk_index
+      `,
+      [knowledgeIds],
+    );
+
+    return result.rows.map(mapKnowledgeChunkRow);
   }
 
   async searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {
@@ -1850,6 +1870,19 @@ function mapCandidateRow(row: Record<string, unknown>, index: number): SearchCan
     createdAt: row.created_at ? toIso(row.created_at) : undefined,
     freshnessAt: row.freshness_at ? toIso(row.freshness_at) : undefined,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
+  };
+}
+
+function mapKnowledgeChunkRow(row: Record<string, unknown>): KnowledgeChunkRecord {
+  return {
+    id: String(row.id),
+    knowledgeId: String(row.knowledge_id),
+    chunkIndex: Number(row.chunk_index ?? 0),
+    content: String(row.content),
+    contextualContent: String(row.contextual_content),
+    tokenEstimate: Number(row.token_estimate ?? estimateTokens(String(row.contextual_content))),
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    createdAt: row.created_at ? toIso(row.created_at) : undefined,
   };
 }
 

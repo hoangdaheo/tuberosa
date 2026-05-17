@@ -118,6 +118,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
   switch (name) {
     case 'tuberosa_search_context': {
       const pack = await services.retrieval.searchContext(validateContextSearchInput(args));
+      services.operations.requestPhysicalMirror('context-searched');
       return toolJson(contextPackShortlist(pack));
     }
 
@@ -132,6 +133,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
 
     case 'tuberosa_reflect': {
       const draft = await services.reflection.createDraft(validateReflectionDraftInput(args));
+      services.operations.requestPhysicalMirror('reflection-created');
       return toolJson({
         ...draft,
         instruction: 'This reflection is pending review. Approve it before it becomes searchable memory.',
@@ -168,6 +170,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       }
 
       services.operations.requestWriteThroughBackup('reflection-reviewed');
+      services.operations.requestPhysicalMirror('reflection-reviewed');
       return toolJson({
         draft,
         instruction: reflectionReviewInstruction(draft.status),
@@ -175,7 +178,9 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
     }
 
     case 'tuberosa_feedback_context': {
-      return toolJson(await services.retrieval.recordFeedback(validateFeedbackInput(args)));
+      const result = await services.retrieval.recordFeedback(validateFeedbackInput(args));
+      services.operations.requestPhysicalMirror('context-feedback-recorded');
+      return toolJson(result);
     }
 
     case 'tuberosa_record_error_log': {
@@ -210,6 +215,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       const result = await services.errorLogInsights.createReflectionDraft(
         validateCreateErrorLogReflectionDraftInput(args),
       );
+      services.operations.requestPhysicalMirror('error-log-reflection-created');
       return toolJson({
         ...result,
         instruction: 'Reflection draft created from selected error logs. Review and approve it before it becomes searchable memory.',
@@ -252,6 +258,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
 
     case 'tuberosa_start_session': {
       const result = await services.agentSessions.startSession(validateStartAgentSessionInput(args));
+      services.operations.requestPhysicalMirror('agent-session-started');
       return toolJson({
         session: result.session,
         context: contextPackShortlist(result.contextPack),
@@ -261,6 +268,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
 
     case 'tuberosa_record_context_decision': {
       const result = await services.agentSessions.recordContextDecision(validateRecordAgentContextDecisionInput(args));
+      services.operations.requestPhysicalMirror('agent-context-decision-recorded');
       return toolJson({
         session: result.session,
         decision: result.decision,
@@ -270,7 +278,9 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
     }
 
     case 'tuberosa_finish_session': {
-      return toolJson(await services.agentSessions.finishSession(validateFinishAgentSessionInput(args)));
+      const result = await services.agentSessions.finishSession(validateFinishAgentSessionInput(args));
+      services.operations.requestPhysicalMirror('agent-session-finished');
+      return toolJson(result);
     }
 
     default:
@@ -301,6 +311,17 @@ function contextPackShortlist(pack: ContextPack) {
         references: item.references,
       })),
     })),
+    deepContext: pack.deepContext
+      ? {
+          budget: pack.deepContext.budget,
+          tokenEstimate: pack.deepContext.tokenEstimate,
+          sections: pack.deepContext.sections.map((section) => ({
+            name: section.name,
+            tokenEstimate: section.tokenEstimate,
+            itemCount: section.items.length,
+          })),
+        }
+      : undefined,
     ...(pack.debug ? { debug: pack.debug } : {}),
     instruction: searchInstruction(pack.contextFit?.fitStatus),
   };
@@ -546,6 +567,8 @@ function tools() {
           symbols: { type: 'array', items: { type: 'string' } },
           errors: { type: 'array', items: { type: 'string' } },
           tokenBudget: { type: 'number' },
+          contextMode: { type: 'string', enum: ['compact', 'layered'] },
+          deepContextBudget: { type: 'number' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           bypassCache: { type: 'boolean' },
           debug: { type: 'boolean' },
@@ -581,6 +604,8 @@ function tools() {
           symbols: { type: 'array', items: { type: 'string' } },
           errors: { type: 'array', items: { type: 'string' } },
           tokenBudget: { type: 'number' },
+          contextMode: { type: 'string', enum: ['compact', 'layered'] },
+          deepContextBudget: { type: 'number' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           bypassCache: { type: 'boolean' },
           debug: { type: 'boolean' },
@@ -618,6 +643,7 @@ function tools() {
           sessionId: { type: 'string' },
           outcome: { type: 'string' },
           summary: { type: 'string' },
+          contextBypassReason: { type: 'string' },
           metadata: { type: 'object' },
           reflectionDraft: { type: 'object' },
         },

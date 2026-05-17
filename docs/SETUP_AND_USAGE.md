@@ -83,6 +83,8 @@ Important variables:
 | `OPENAI_RERANK_MODEL` | empty | Optional OpenAI Responses model for provider-backed candidate reranking after fusion. |
 | `EMBEDDING_DIMENSIONS` | `1536` | Must match the pgvector column dimension. |
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Redis or memory cache TTL for context packs. |
+| `TUBEROSA_CONTEXT_MODE` | `layered` | `layered` keeps the compact shortlist and adds deep context; `compact` returns only the shortlist. |
+| `TUBEROSA_DEEP_CONTEXT_BUDGET` | `60000` | Target token budget for deep context. Values are clamped from 30000 to 100000. |
 | `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
 | `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for a single knowledge content field before chunking. |
 | `TUBEROSA_BACKUP_DIR` | `.tuberosa/backups` | Local folder for portable JSONL backups. Do not commit or share this folder because it can contain private project knowledge. |
@@ -92,6 +94,8 @@ Important variables:
 | `TUBEROSA_BACKUP_RETENTION_MAX_AGE_DAYS` | `30` | Prune verified backups older than this age, while still keeping the latest backup. |
 | `TUBEROSA_BACKUP_WRITE_THROUGH` | `false` | When true, important mutations can request a throttled backup. |
 | `TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS` | `600` | Minimum time between write-through backup requests. |
+| `TUBEROSA_PHYSICAL_MIRROR_ENABLED` | `true` | Maintain a readable latest mirror of live DB state under `.tuberosa/current`. |
+| `TUBEROSA_PHYSICAL_MIRROR_DIR` | `.tuberosa/current` | Physical mirror directory. This is a convenience view, not the source of truth. |
 | `TUBEROSA_ERROR_LOG_DIR` | `.tuberosa/error-logs` | Local folder for sanitized physical error-log incidents. Do not commit or share this folder because logs can contain private project details. |
 | `TUBEROSA_ERROR_LOG_MAX_BYTES` | `262144` | Maximum stored size for one error incident before message, stack, or metadata fields are truncated. |
 | `TUBEROSA_ERROR_LOG_AUTO_CAPTURE` | `true` | Automatically record unexpected Tuberosa HTTP and MCP failures into the physical error-log journal. |
@@ -311,6 +315,7 @@ Command purpose:
 - `test`: unit and deterministic in-memory tests.
 - `test:integration`: Docker-gated Postgres and Redis checks.
 - `eval:retrieval`: retrieval quality regression suite.
+- `eval:agent-context`: agent context compliance regression suite.
 - `dev`: HTTP server in watch mode.
 - `start`: built HTTP server.
 - `mcp`: MCP stdio server for AI agent clients such as Codex.
@@ -843,6 +848,8 @@ pnpm run restore --backup before-paywall-refactor --replace
 
 Backups include project records, sources, knowledge items, labels, references, chunks and embeddings, reflection drafts, context queries, packs, feedback events, agent sessions, and agent context decisions. Restoring chunks is necessary because chunks are what retrieval searches and feeds to agents.
 
+The physical mirror under `.tuberosa/current` is different from timestamped backups. It is overwritten from the live store after important knowledge, reflection, relation, import, and session-finish changes, and includes readable Markdown summaries beside JSONL exports. Use it for human inspection; restore from timestamped backups.
+
 Each new backup manifest records table row counts, per-table SHA-256 checksums, source store, schema version, app version or commit when available, model provider, and embedding dimensions. Older backups without checksum metadata still list and can restore if table coverage and row counts pass, but verification reports degraded health.
 
 ### Recovery Runbooks
@@ -929,7 +936,7 @@ Recommended agent flow:
 3. Follow the returned policy: proceed, confirm, or clarify.
 4. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.
 5. If a retry pack is returned, review its context fit before using it.
-6. Finish with `tuberosa_finish_session` and include a reflection draft when the task produced a durable lesson.
+6. Finish with `tuberosa_finish_session` and include a reflection draft when the task produced a durable lesson. If context was intentionally skipped, include `contextBypassReason`.
 7. When an error should be fixed later, call `tuberosa_record_error_log` with sanitized message, stack, command, files, symbols, errors, and references.
 8. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, `tuberosa_reflect`, and `tuberosa_record_error_log`) for manual or one-off workflows.
 9. Approve reflection drafts before they become searchable memory, then link fixed incidents with `tuberosa_update_error_log`.

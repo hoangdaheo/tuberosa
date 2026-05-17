@@ -41,8 +41,12 @@ export class OperationsService {
     return this.store.getKnowledge(id);
   }
 
-  updateKnowledge(id: string, patch: KnowledgePatchInput) {
-    return this.store.updateKnowledge(id, patch);
+  async updateKnowledge(id: string, patch: KnowledgePatchInput) {
+    const knowledge = await this.store.updateKnowledge(id, patch);
+    if (knowledge) {
+      this.requestPhysicalMirror('knowledge-updated');
+    }
+    return knowledge;
   }
 
   listKnowledgeRelations(options: ListKnowledgeRelationsOptions) {
@@ -53,16 +57,26 @@ export class OperationsService {
     return this.store.getKnowledgeRelation(id);
   }
 
-  createKnowledgeRelation(input: KnowledgeRelationInput) {
-    return this.store.createKnowledgeRelation(input);
+  async createKnowledgeRelation(input: KnowledgeRelationInput) {
+    const relation = await this.store.createKnowledgeRelation(input);
+    this.requestPhysicalMirror('relation-created');
+    return relation;
   }
 
-  updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput) {
-    return this.store.updateKnowledgeRelation(id, patch);
+  async updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput) {
+    const relation = await this.store.updateKnowledgeRelation(id, patch);
+    if (relation) {
+      this.requestPhysicalMirror('relation-updated');
+    }
+    return relation;
   }
 
-  deleteKnowledgeRelation(id: string) {
-    return this.store.deleteKnowledgeRelation(id);
+  async deleteKnowledgeRelation(id: string) {
+    const ok = await this.store.deleteKnowledgeRelation(id);
+    if (ok) {
+      this.requestPhysicalMirror('relation-deleted');
+    }
+    return ok;
   }
 
   listLabels(options: { project?: string; limit: number }) {
@@ -97,18 +111,28 @@ export class OperationsService {
     return this.store.getReflectionDraft(id);
   }
 
-  updateReflectionDraft(id: string, patch: ReflectionDraftPatchInput) {
-    return this.store.updateReflectionDraft(id, patch);
+  async updateReflectionDraft(id: string, patch: ReflectionDraftPatchInput) {
+    const draft = await this.store.updateReflectionDraft(id, patch);
+    if (draft) {
+      this.requestPhysicalMirror('reflection-updated');
+    }
+    return draft;
   }
 
   async importFiles(input: ImportFilesInput) {
     const result = await this.ingestion.ingestFiles(input.project, input.files, { mode: input.mode });
     this.requestWriteThroughBackup('import-files');
+    this.requestPhysicalMirror('import-files');
     return result;
   }
 
-  cleanup(input: CleanupOperationsInput) {
-    return this.store.cleanupOperations(input);
+  async cleanup(input: CleanupOperationsInput) {
+    const result = await this.store.cleanupOperations(input);
+    const deletedCount = Object.values(result.deleted).reduce((sum, count) => sum + count, 0);
+    if (!result.dryRun && deletedCount > 0) {
+      this.requestPhysicalMirror('operations-cleanup');
+    }
+    return result;
   }
 
   exportProjectMap(options: { project?: string; limit: number }) {
@@ -139,8 +163,12 @@ export class OperationsService {
     return this.backups.verifyBackup(input);
   }
 
-  restoreBackup(input: RestoreBackupInput = {}) {
-    return this.backups.restoreBackup(input);
+  async restoreBackup(input: RestoreBackupInput = {}) {
+    const result = await this.backups.restoreBackup(input);
+    if (!result.dryRun) {
+      this.requestPhysicalMirror('backup-restored');
+    }
+    return result;
   }
 
   pruneBackups(input: BackupRetentionInput = {}) {
@@ -157,6 +185,14 @@ export class OperationsService {
 
   requestWriteThroughBackup(reason: string) {
     this.backups.requestWriteThroughBackup(reason);
+  }
+
+  requestPhysicalMirror(reason: string) {
+    this.backups.requestPhysicalMirror(reason);
+  }
+
+  syncPhysicalMirror(reason: string) {
+    return this.backups.syncPhysicalMirror(reason);
   }
 
   close() {

@@ -14,6 +14,8 @@ export interface AppConfig {
   openAiRewriteModel?: string;
   openAiRerankModel?: string;
   contextCacheTtlSeconds: number;
+  contextMode?: 'compact' | 'layered';
+  deepContextBudget?: number;
   maxRequestBytes: number;
   maxIngestContentBytes: number;
   backupDir: string;
@@ -23,6 +25,8 @@ export interface AppConfig {
   backupRetentionMaxAgeDays: number;
   backupWriteThrough: boolean;
   backupWriteThroughThrottleSeconds: number;
+  physicalMirrorEnabled?: boolean;
+  physicalMirrorDir?: string;
   errorLogDir: string;
   errorLogMaxBytes: number;
   errorLogAutoCapture: boolean;
@@ -46,6 +50,8 @@ export function loadConfig(): AppConfig {
     openAiRewriteModel: process.env.OPENAI_REWRITE_MODEL || undefined,
     openAiRerankModel: process.env.OPENAI_RERANK_MODEL || undefined,
     contextCacheTtlSeconds: Number(process.env.CONTEXT_CACHE_TTL_SECONDS ?? 300),
+    contextMode: readEnum(process.env.TUBEROSA_CONTEXT_MODE, ['compact', 'layered'] as Array<'compact' | 'layered'>, 'layered'),
+    deepContextBudget: Number(process.env.TUBEROSA_DEEP_CONTEXT_BUDGET ?? 60_000),
     maxRequestBytes: Number(process.env.TUBEROSA_MAX_REQUEST_BYTES ?? 10 * 1024 * 1024),
     maxIngestContentBytes: Number(process.env.TUBEROSA_MAX_INGEST_CONTENT_BYTES ?? 2 * 1024 * 1024),
     backupDir: process.env.TUBEROSA_BACKUP_DIR ?? '.tuberosa/backups',
@@ -55,6 +61,8 @@ export function loadConfig(): AppConfig {
     backupRetentionMaxAgeDays: Number(process.env.TUBEROSA_BACKUP_RETENTION_MAX_AGE_DAYS ?? 30),
     backupWriteThrough: readBoolean(process.env.TUBEROSA_BACKUP_WRITE_THROUGH, false),
     backupWriteThroughThrottleSeconds: Number(process.env.TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS ?? 10 * 60),
+    physicalMirrorEnabled: readBoolean(process.env.TUBEROSA_PHYSICAL_MIRROR_ENABLED, true),
+    physicalMirrorDir: process.env.TUBEROSA_PHYSICAL_MIRROR_DIR ?? '.tuberosa/current',
     errorLogDir: process.env.TUBEROSA_ERROR_LOG_DIR ?? '.tuberosa/error-logs',
     errorLogMaxBytes: Number(process.env.TUBEROSA_ERROR_LOG_MAX_BYTES ?? 256 * 1024),
     errorLogAutoCapture: readBoolean(process.env.TUBEROSA_ERROR_LOG_AUTO_CAPTURE, true),

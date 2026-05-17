@@ -202,10 +202,14 @@ export interface ContextSearchInput {
   symbols?: string[];
   errors?: string[];
   tokenBudget?: number;
+  contextMode?: ContextMode;
+  deepContextBudget?: number;
   rejectedKnowledgeIds?: string[];
   bypassCache?: boolean;
   debug?: boolean;
 }
+
+export type ContextMode = 'compact' | 'layered';
 
 export interface ClassifiedQuery {
   project?: string;
@@ -298,6 +302,48 @@ export interface ContextPackSection {
   tokenEstimate: number;
 }
 
+export interface KnowledgeChunkRecord {
+  id: string;
+  knowledgeId: string;
+  chunkIndex: number;
+  content: string;
+  contextualContent: string;
+  tokenEstimate: number;
+  metadata: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface DeepContextItem {
+  knowledgeId: string;
+  title: string;
+  summary: string;
+  itemType: KnowledgeItemType;
+  project: string;
+  labels: LabelInput[];
+  references: ReferenceInput[];
+  source: CandidateSource;
+  rank: number;
+  finalScore: number;
+  matchReasons: string[];
+  chunkIds: string[];
+  content: string;
+  contextualContent: string;
+  tokenEstimate: number;
+}
+
+export interface DeepContextSection {
+  name: ContextPackSection['name'];
+  items: DeepContextItem[];
+  tokenEstimate: number;
+}
+
+export interface DeepContext {
+  mode: 'layered';
+  budget: number;
+  tokenEstimate: number;
+  sections: DeepContextSection[];
+}
+
 export interface ContextPack {
   id: string;
   queryId?: string;
@@ -308,6 +354,7 @@ export interface ContextPack {
   classified: ClassifiedQuery;
   contextFit?: ContextFit;
   sections: ContextPackSection[];
+  deepContext?: DeepContext;
   rejectedKnowledgeIds: string[];
   createdAt: string;
   debug?: RetrievalDebugTrace;
@@ -494,6 +541,7 @@ export interface BackupManifest {
     embeddingDimensions?: number;
     modelProvider?: string;
     embeddingModel?: string;
+    metadata?: Record<string, unknown>;
   };
   tables: Array<{
     name: BackupTableName;
@@ -617,8 +665,25 @@ export interface FinishAgentSessionInput {
   sessionId: string;
   outcome: AgentSessionOutcome;
   summary?: string;
+  contextBypassReason?: string;
   metadata?: Record<string, unknown>;
   reflectionDraft?: ReflectionDraftInput;
+}
+
+export type AgentContextComplianceStatus =
+  | 'compliant'
+  | 'needs_decision'
+  | 'missing_context_recorded'
+  | 'bypassed'
+  | 'non_compliant';
+
+export interface AgentContextCompliance {
+  status: AgentContextComplianceStatus;
+  checkedAt: string;
+  instruction: string;
+  decisionIds: string[];
+  contextPackId?: string;
+  bypassReason?: string;
 }
 
 export type ErrorLogCategory =
@@ -843,6 +908,7 @@ export interface AgentSessionDecisionResult {
 export interface AgentSessionFinishResult {
   session: AgentSession;
   reflectionDraft?: ReflectionDraft;
+  compliance: AgentContextCompliance;
 }
 
 export interface AgentSessionPolicy {

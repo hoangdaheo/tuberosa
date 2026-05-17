@@ -7,6 +7,8 @@ import type {
   AgentSessionFinishResult,
   AgentSessionPolicy,
   AgentSessionStartResult,
+  AgentContextCompliance,
+  AgentSession,
   ContextFitStatus,
   FinishAgentSessionInput,
   RecordAgentContextDecisionInput,
@@ -68,6 +70,8 @@ export class AgentSessionService {
 
   async finishSession(input: FinishAgentSessionInput): Promise<AgentSessionFinishResult> {
     const existingSession = await this.requireSession(input.sessionId);
+    const decisions = await this.store.listAgentContextDecisions({ sessionId: input.sessionId, limit: 100 });
+    const compliance = sessionCompliance(existingSession, decisions, input.contextBypassReason);
     const reflectionDraft = input.reflectionDraft
       ? await this.reflection.createDraft({
         ...input.reflectionDraft,
@@ -82,13 +86,17 @@ export class AgentSessionService {
 
     const session = await this.store.finishAgentSession({
       ...input,
+      metadata: {
+        ...(input.metadata ?? {}),
+        contextCompliance: compliance,
+      },
       reflectionDraftIds: reflectionDraft ? [reflectionDraft.id] : [],
     });
     if (!session) {
       throw new NotFoundError(`Agent session not found: ${input.sessionId}`);
     }
 
-    return { session, reflectionDraft };
+    return { session, reflectionDraft, compliance };
   }
 
   private async requireSession(id: string) {
@@ -119,5 +127,64 @@ export function sessionPolicy(fitStatus: ContextFitStatus | undefined): AgentSes
   return {
     action: 'clarify',
     instruction: 'Context fit is insufficient. Ask for clarification or continue with fresh context.',
+  };
+}
+
+function sessionCompliance(
+  session: AgentSession,
+  decisions: Array<{ id: string; decision: string }>,
+  contextBypassReason: string | undefined,
+): AgentContextCompliance {
+  const selected = decisions.filter((decision) => decision.decision === 'selected');
+  const missing = decisions.filter((decision) => decision.decision === 'missing_context');
+  const decisionIds = decisions.map((decision) => decision.id);
+  const checkedAt = new Date().toISOString();
+
+  if (contextBypassReason) {
+    return {
+      status: 'bypassed',
+      checkedAt,
+      instruction: 'Context was explicitly bypassed. Review the bypass reason before treating this session as context-covered.',
+      decisionIds,
+      contextPackId: session.initialContextPackId,
+      bypassReason: contextBypassReason,
+    };
+  }
+
+  if (selected.length > 0) {
+    return {
+      status: 'compliant',
+      checkedAt,
+      instruction: 'Context was selected before the session finished.',
+      decisionIds,
+      contextPackId: session.initialContextPackId,
+    };
+  }
+
+  if (missing.length > 0) {
+    return {
+      status: 'missing_context_recorded',
+      checkedAt,
+      instruction: 'Context was insufficient and missing_context was recorded for review.',
+      decisionIds,
+      contextPackId: session.initialContextPackId,
+    };
+  }
+
+  if (session.initialContextPackId) {
+    return {
+      status: 'needs_decision',
+      checkedAt,
+      instruction: 'A context pack was fetched, but no selected or missing_context decision was recorded.',
+      decisionIds,
+      contextPackId: session.initialContextPackId,
+    };
+  }
+
+  return {
+    status: 'non_compliant',
+    checkedAt,
+    instruction: 'No context pack or explicit bypass reason was recorded for this session.',
+    decisionIds,
   };
 }

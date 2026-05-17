@@ -137,7 +137,9 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/context/search'),
       handle: async ({ services, request }) => {
         const body = validateContextSearchInput(await readJsonBody(request, services.config.maxRequestBytes));
-        return services.retrieval.searchContext(body);
+        const pack = await services.retrieval.searchContext(body);
+        services.operations.requestPhysicalMirror('context-searched');
+        return pack;
       },
     },
     {
@@ -162,7 +164,9 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/context/feedback'),
       handle: async ({ services, request }) => {
         const body = validateFeedbackInput(await readJsonBody(request, services.config.maxRequestBytes));
-        return services.retrieval.recordFeedback(body);
+        const result = await services.retrieval.recordFeedback(body);
+        services.operations.requestPhysicalMirror('context-feedback-recorded');
+        return result;
       },
     },
     {
@@ -170,7 +174,9 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/agent-sessions'),
       handle: async ({ services, request }) => {
         const body = validateStartAgentSessionInput(await readJsonBody(request, services.config.maxRequestBytes));
-        return services.agentSessions.startSession(body);
+        const result = await services.agentSessions.startSession(body);
+        services.operations.requestPhysicalMirror('agent-session-started');
+        return result;
       },
     },
     {
@@ -206,7 +212,9 @@ function createRoutes(): HttpRoute[] {
           await readJsonBody(request, services.config.maxRequestBytes),
           params.id,
         );
-        return services.agentSessions.recordContextDecision(body);
+        const result = await services.agentSessions.recordContextDecision(body);
+        services.operations.requestPhysicalMirror('agent-context-decision-recorded');
+        return result;
       },
     },
     {
@@ -217,7 +225,9 @@ function createRoutes(): HttpRoute[] {
           await readJsonBody(request, services.config.maxRequestBytes),
           params.id,
         );
-        return services.agentSessions.finishSession(body);
+        const result = await services.agentSessions.finishSession(body);
+        services.operations.requestPhysicalMirror('agent-session-finished');
+        return result;
       },
     },
     {
@@ -229,6 +239,7 @@ function createRoutes(): HttpRoute[] {
         if (body.files.length > 1) {
           services.operations.requestWriteThroughBackup('bulk-ingest-files');
         }
+        services.operations.requestPhysicalMirror('files-ingested');
         return result;
       },
     },
@@ -237,7 +248,9 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/knowledge'),
       handle: async ({ services, request }) => {
         const body = validateKnowledgeInput(await readJsonBody(request, services.config.maxRequestBytes));
-        return services.ingestion.ingestKnowledge(body);
+        const knowledge = await services.ingestion.ingestKnowledge(body);
+        services.operations.requestPhysicalMirror('knowledge-ingested');
+        return knowledge;
       },
     },
     {
@@ -383,7 +396,9 @@ function createRoutes(): HttpRoute[] {
         const body = validateCreateErrorLogReflectionDraftInput(
           await readJsonBody(request, services.config.maxRequestBytes),
         );
-        return services.errorLogInsights.createReflectionDraft(body);
+        const result = await services.errorLogInsights.createReflectionDraft(body);
+        services.operations.requestPhysicalMirror('error-log-reflection-created');
+        return result;
       },
     },
     {
@@ -437,7 +452,9 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/reflection-drafts'),
       handle: async ({ services, request }) => {
         const body = validateReflectionDraftInput(await readJsonBody(request, services.config.maxRequestBytes));
-        return services.reflection.createDraft(body);
+        const draft = await services.reflection.createDraft(body);
+        services.operations.requestPhysicalMirror('reflection-created');
+        return draft;
       },
     },
     {
@@ -480,6 +497,7 @@ function createRoutes(): HttpRoute[] {
         }
 
         services.operations.requestWriteThroughBackup('reflection-approved');
+        services.operations.requestPhysicalMirror('reflection-approved');
         return draft;
       },
     },

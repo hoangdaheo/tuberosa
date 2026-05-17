@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import { ValidationError } from '../errors.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import type {
   BackupManifest,
+  BackupExportData,
   BackupRetentionInput,
   BackupRetentionResult,
   BackupSchedulerStatus,
@@ -38,11 +39,17 @@ export interface BackupScheduleOptions {
   writeThroughThrottleSeconds?: number;
 }
 
+export interface PhysicalMirrorOptions {
+  enabled?: boolean;
+  dir?: string;
+}
+
 export interface BackupServiceOptions {
   backupDir?: string;
   storeKind?: 'postgres' | 'memory';
   metadata?: BackupRuntimeMetadata;
   schedule?: BackupScheduleOptions;
+  physicalMirror?: PhysicalMirrorOptions;
 }
 
 const BACKUP_TABLES: BackupTableName[] = [
@@ -70,11 +77,16 @@ const REQUIRED_RETRIEVAL_TABLES: BackupTableName[] = [
 
 export class BackupService {
   private readonly backupDir: string;
+  private readonly physicalMirrorDir: string;
+  private readonly physicalMirrorEnabled: boolean;
   private readonly storeKind: 'postgres' | 'memory';
   private readonly metadata: BackupRuntimeMetadata;
   private readonly schedule: Required<BackupScheduleOptions>;
   private timer: NodeJS.Timeout | undefined;
   private inFlightBackup: Promise<BackupSummary> | undefined;
+  private inFlightPhysicalMirror: Promise<BackupSummary | undefined> | undefined;
+  private physicalMirrorDirty = false;
+  private physicalMirrorReason = 'manual';
   private lastWriteThroughAt = 0;
   private schedulerState: {
     running: boolean;
@@ -87,6 +99,8 @@ export class BackupService {
 
   constructor(private readonly store: KnowledgeStore, options: BackupServiceOptions = {}) {
     this.backupDir = resolve(options.backupDir ?? '.tuberosa/backups');
+    this.physicalMirrorDir = resolve(options.physicalMirror?.dir ?? '.tuberosa/current');
+    this.physicalMirrorEnabled = options.physicalMirror?.enabled ?? false;
     this.storeKind = options.storeKind ?? 'memory';
     this.metadata = options.metadata ?? {};
     this.schedule = {
@@ -149,6 +163,26 @@ export class BackupService {
       totalRows: latestBackup?.totalRows ?? 0,
       scheduler: this.getSchedulerStatus(),
     };
+  }
+
+  async syncPhysicalMirror(reason = 'manual'): Promise<BackupSummary | undefined> {
+    if (!this.physicalMirrorEnabled) {
+      return undefined;
+    }
+
+    this.physicalMirrorDirty = true;
+    this.physicalMirrorReason = reason;
+
+    if (this.inFlightPhysicalMirror) {
+      return this.inFlightPhysicalMirror;
+    }
+
+    this.inFlightPhysicalMirror = this.drainPhysicalMirror();
+    try {
+      return await this.inFlightPhysicalMirror;
+    } finally {
+      this.inFlightPhysicalMirror = undefined;
+    }
   }
 
   async verifyBackup(input: { backupIdOrPath?: string } = {}): Promise<BackupVerificationResult> {
@@ -379,17 +413,67 @@ export class BackupService {
     void this.runScheduledBackup(reason);
   }
 
+  requestPhysicalMirror(reason: string): void {
+    if (!this.physicalMirrorEnabled) {
+      return;
+    }
+
+    void this.syncPhysicalMirror(reason).catch((error) => {
+      this.schedulerState.lastError = error instanceof Error ? error.message : String(error);
+    });
+  }
+
+  private async drainPhysicalMirror(): Promise<BackupSummary | undefined> {
+    let latest: BackupSummary | undefined;
+
+    while (this.physicalMirrorDirty) {
+      const reason = this.physicalMirrorReason;
+      this.physicalMirrorDirty = false;
+      latest = await this.writePhysicalMirror(reason);
+    }
+
+    return latest;
+  }
+
+  private async writePhysicalMirror(reason: string): Promise<BackupSummary> {
+    const exported = await this.store.exportBackup();
+    const tempPath = `${this.physicalMirrorDir}.tmp-${process.pid}-${Date.now()}`;
+
+    try {
+      const manifest = await this.writeSnapshot(tempPath, 'current', exported, { reason, mirror: true });
+      await rm(this.physicalMirrorDir, { recursive: true, force: true });
+      await rename(tempPath, this.physicalMirrorDir);
+      return toBackupSummary(this.physicalMirrorDir, manifest);
+    } catch (error) {
+      await rm(tempPath, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
   private async writeBackup(input: CreateBackupInput = {}): Promise<BackupSummary> {
     const exported = await this.store.exportBackup();
     const id = sanitizeBackupId(input.id ?? backupId());
     const backupPath = join(this.backupDir, id);
+    const manifest = await this.writeSnapshot(backupPath, id, exported, { reason: input.reason });
+    if (input.prune) {
+      await this.pruneBackups({ keepCount: this.schedule.retentionCount, maxAgeDays: this.schedule.retentionMaxAgeDays });
+    }
 
-    await mkdir(backupPath, { recursive: true });
+    return toBackupSummary(backupPath, manifest);
+  }
+
+  private async writeSnapshot(
+    path: string,
+    id: string,
+    exported: BackupExportData,
+    metadata: Record<string, unknown> = {},
+  ): Promise<BackupManifest> {
+    await mkdir(path, { recursive: true });
 
     const tables = await Promise.all(exported.tables.map(async (table) => {
       const file = `${table.name}.jsonl`;
       const body = encodeJsonl(table.rows);
-      await writeFile(join(backupPath, file), body, 'utf8');
+      await writeFile(join(path, file), body, 'utf8');
       return {
         name: table.name,
         file,
@@ -407,16 +491,14 @@ export class BackupService {
         service: 'tuberosa',
         store: this.storeKind,
         ...this.metadata,
+        metadata,
       },
       tables,
     };
 
-    await writeFile(join(backupPath, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-    if (input.prune) {
-      await this.pruneBackups({ keepCount: this.schedule.retentionCount, maxAgeDays: this.schedule.retentionMaxAgeDays });
-    }
-
-    return toBackupSummary(backupPath, manifest);
+    await writeFile(join(path, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    await writeMirrorMarkdown(path, exported);
+    return manifest;
   }
 
   private async keepLatestSuccessfulBackup(backups: BackupSummary[], kept: Map<string, BackupSummary>): Promise<void> {
@@ -478,6 +560,86 @@ function sanitizeBackupId(value: string): string {
 function encodeJsonl(rows: Array<Record<string, unknown>>): string {
   const body = rows.map((row) => JSON.stringify(row)).join('\n');
   return body ? `${body}\n` : '';
+}
+
+async function writeMirrorMarkdown(path: string, exported: BackupExportData): Promise<void> {
+  await Promise.all([
+    writeFile(join(path, 'knowledge.md'), renderKnowledgeMarkdown(tableRows(exported.tables, 'knowledge_items')), 'utf8'),
+    writeFile(join(path, 'reflection-drafts.md'), renderReflectionMarkdown(tableRows(exported.tables, 'reflection_drafts')), 'utf8'),
+    writeFile(join(path, 'context-packs.md'), renderContextPackMarkdown(tableRows(exported.tables, 'context_packs')), 'utf8'),
+    writeFile(join(path, 'agent-sessions.md'), renderAgentSessionMarkdown(tableRows(exported.tables, 'agent_sessions')), 'utf8'),
+  ]);
+}
+
+function renderKnowledgeMarkdown(rows: Array<Record<string, unknown>>): string {
+  return renderRows('Knowledge', rows, (row) => [
+    `- id: ${row.id}`,
+    `- type/status: ${row.item_type}/${row.status}`,
+    `- trust: ${row.trust_level}`,
+    `- summary: ${row.summary ?? ''}`,
+    '',
+    String(row.content ?? '').trim(),
+  ]);
+}
+
+function renderReflectionMarkdown(rows: Array<Record<string, unknown>>): string {
+  return renderRows('Reflection Drafts', rows, (row) => [
+    `- id: ${row.id}`,
+    `- type/status: ${row.item_type}/${row.status}`,
+    `- trigger: ${row.trigger_type}`,
+    `- summary: ${row.summary ?? ''}`,
+    '',
+    String(row.content ?? '').trim(),
+  ]);
+}
+
+function renderContextPackMarkdown(rows: Array<Record<string, unknown>>): string {
+  return renderRows('Context Packs', rows, (row) => {
+    const pack = nestedOrRowRecord(row, 'pack');
+    return [
+      `- id: ${row.id}`,
+      `- status: ${row.status ?? pack.status ?? ''}`,
+      `- confidence: ${row.confidence ?? pack.confidence ?? ''}`,
+      `- prompt: ${pack.prompt ?? ''}`,
+      `- deep context tokens: ${objectRecord(pack.deepContext).tokenEstimate ?? 0}`,
+    ];
+  });
+}
+
+function renderAgentSessionMarkdown(rows: Array<Record<string, unknown>>): string {
+  return renderRows('Agent Sessions', rows, (row) => [
+    `- id: ${row.id}`,
+    `- status/outcome: ${row.status}/${row.outcome ?? ''}`,
+    `- prompt: ${row.prompt ?? ''}`,
+    `- summary: ${row.summary ?? ''}`,
+    `- compliance: ${String(JSON.stringify(objectRecord(row.metadata).contextCompliance ?? {}))}`,
+  ]);
+}
+
+function renderRows(
+  title: string,
+  rows: Array<Record<string, unknown>>,
+  render: (row: Record<string, unknown>) => string[],
+): string {
+  const sections = rows.map((row) => [
+    `## ${String(row.title ?? row.id ?? 'Untitled')}`,
+    ...render(row),
+  ].join('\n'));
+
+  return [`# ${title}`, '', ...sections].join('\n\n').trimEnd() + '\n';
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function nestedOrRowRecord(row: Record<string, unknown>, key: string): Record<string, unknown> {
+  const nested = objectRecord(row[key]);
+  return Object.keys(nested).length ? nested : row;
+}
+
+function tableRows(tables: BackupTableData[], name: BackupTableName): Array<Record<string, unknown>> {
+  return tables.find((table) => table.name === name)?.rows ?? [];
 }
 
 async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {

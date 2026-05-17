@@ -14,6 +14,7 @@ import type {
   KnowledgeFeedbackSummary,
   KnowledgeGraphJsonlExport,
   KnowledgeInput,
+  KnowledgeChunkRecord,
   KnowledgePatchInput,
   KnowledgeRelation,
   KnowledgeRelationInput,
@@ -283,6 +284,25 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       ...classified.exactTerms,
     ].map(normalizeLabel);
     return this.rankByText(new Set(terms), 'metadata', options);
+  }
+
+  async listKnowledgeChunks(knowledgeIds: string[]): Promise<KnowledgeChunkRecord[]> {
+    const order = new Map(knowledgeIds.map((id, index) => [id, index]));
+    return [...this.chunks.values()]
+      .filter((chunk) => order.has(chunk.knowledgeId))
+      .sort((left, right) => (
+        (order.get(left.knowledgeId) ?? 0) - (order.get(right.knowledgeId) ?? 0)
+        || left.index - right.index
+      ))
+      .map((chunk) => ({
+        id: chunk.id,
+        knowledgeId: chunk.knowledgeId,
+        chunkIndex: chunk.index,
+        content: chunk.content,
+        contextualContent: chunk.contextualContent,
+        tokenEstimate: chunk.tokenEstimate,
+        metadata: chunk.metadata ?? {},
+      }));
   }
 
   async searchMemories(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {

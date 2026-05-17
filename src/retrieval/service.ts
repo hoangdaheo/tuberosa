@@ -6,7 +6,11 @@ import type {
   ContextFit,
   ContextPack,
   ContextSearchInput,
+  DeepContext,
+  DeepContextItem,
+  DeepContextSection,
   FeedbackInput,
+  KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
   KnowledgeSearchResult,
   QueryRewriteResult,
@@ -17,7 +21,7 @@ import { sha256, stableJson } from '../util/hash.js';
 import { uniqueStrings } from '../util/text.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
-import { assembleContextPack } from './context-pack.js';
+import { assembleContextPack, normalizeDeepContextBudget } from './context-pack.js';
 import { classifyQuery } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator } from './context-fit.js';
@@ -30,6 +34,8 @@ const RETRY_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>(['rejected',
 
 type NormalizedContextSearchInput = ContextSearchInput & {
   tokenBudget: number;
+  contextMode: 'compact' | 'layered';
+  deepContextBudget: number;
   rejectedKnowledgeIds: string[];
   debug: boolean;
 };
@@ -45,7 +51,7 @@ export class RetrievalService {
   ) {}
 
   async searchContext(input: ContextSearchInput): Promise<ContextPack> {
-    const normalized = normalizeSearchInput(redactSearchInput(input, this.safety));
+    const normalized = normalizeSearchInput(redactSearchInput(input, this.safety), this.config);
     const totalStartedAt = Date.now();
     const classificationStartedAt = Date.now();
     const classified = classifyQuery(normalized);
@@ -107,6 +113,9 @@ export class RetrievalService {
       contextFit: fitEvaluation.contextFit,
       input: normalized,
     });
+    if (normalized.contextMode === 'layered') {
+      pack.deepContext = await this.buildDeepContext(pack, normalized.deepContextBudget);
+    }
     debug?.recordTiming('assembly', assemblyStartedAt);
     await this.saveContextPack(cacheKey, pack, debug);
     debug?.recordTiming('total', totalStartedAt);
@@ -287,6 +296,47 @@ export class RetrievalService {
     });
   }
 
+  private async buildDeepContext(pack: ContextPack, budget: number): Promise<DeepContext> {
+    const selectedItems = pack.sections.flatMap((section) => section.items);
+    const knowledgeIds = uniqueStrings(selectedItems.map((item) => item.knowledgeId));
+    const chunksByKnowledgeId = groupChunks(await this.store.listKnowledgeChunks(knowledgeIds));
+    let remaining = budget;
+    const sections: DeepContextSection[] = [];
+
+    for (const section of pack.sections) {
+      const deepItems: DeepContextItem[] = [];
+
+      for (const item of section.items) {
+        if (remaining <= 0) {
+          break;
+        }
+
+        const chunks = chunksByKnowledgeId.get(item.knowledgeId) ?? [];
+        const selectedChunks = takeChunksWithinBudget(chunks, remaining);
+        const deepItem = buildDeepContextItem(item, selectedChunks.length ? selectedChunks : undefined, remaining);
+        if (!deepItem) {
+          continue;
+        }
+
+        deepItems.push(deepItem);
+        remaining -= deepItem.tokenEstimate;
+      }
+
+      sections.push({
+        name: section.name,
+        items: deepItems,
+        tokenEstimate: deepItems.reduce((sum, item) => sum + item.tokenEstimate, 0),
+      });
+    }
+
+    return {
+      mode: 'layered',
+      budget,
+      tokenEstimate: sections.reduce((sum, section) => sum + section.tokenEstimate, 0),
+      sections,
+    };
+  }
+
   private async saveContextPack(
     cacheKey: string,
     pack: ContextPack,
@@ -320,12 +370,82 @@ function redactSearchInput(input: ContextSearchInput, safety: KnowledgeSafetySer
   };
 }
 
-function normalizeSearchInput(input: ContextSearchInput): NormalizedContextSearchInput {
+function normalizeSearchInput(input: ContextSearchInput, config: AppConfig): NormalizedContextSearchInput {
   return {
     ...input,
     tokenBudget: input.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+    contextMode: input.contextMode ?? config.contextMode ?? 'layered',
+    deepContextBudget: normalizeDeepContextBudget(input.deepContextBudget ?? config.deepContextBudget),
     rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
     debug: input.debug ?? false,
+  };
+}
+
+function groupChunks(chunks: KnowledgeChunkRecord[]): Map<string, KnowledgeChunkRecord[]> {
+  const grouped = new Map<string, KnowledgeChunkRecord[]>();
+  for (const chunk of chunks) {
+    const list = grouped.get(chunk.knowledgeId) ?? [];
+    list.push(chunk);
+    grouped.set(chunk.knowledgeId, list);
+  }
+
+  for (const list of grouped.values()) {
+    list.sort((left, right) => left.chunkIndex - right.chunkIndex);
+  }
+
+  return grouped;
+}
+
+function takeChunksWithinBudget(chunks: KnowledgeChunkRecord[], budget: number): KnowledgeChunkRecord[] {
+  const selected: KnowledgeChunkRecord[] = [];
+  let tokens = 0;
+
+  for (const chunk of chunks) {
+    if (selected.length > 0 && tokens + chunk.tokenEstimate > budget) {
+      break;
+    }
+
+    if (chunk.tokenEstimate > budget && selected.length === 0) {
+      break;
+    }
+
+    selected.push(chunk);
+    tokens += chunk.tokenEstimate;
+  }
+
+  return selected;
+}
+
+function buildDeepContextItem(
+  candidate: RankedCandidate,
+  chunks: KnowledgeChunkRecord[] | undefined,
+  budget: number,
+): DeepContextItem | undefined {
+  const chunkIds = chunks?.map((chunk) => chunk.id) ?? (candidate.chunkId ? [candidate.chunkId] : []);
+  const content = chunks?.map((chunk) => chunk.content).join('\n\n') ?? candidate.content;
+  const contextualContent = chunks?.map((chunk) => chunk.contextualContent).join('\n\n---\n\n') ?? candidate.contextualContent;
+  const tokenEstimate = chunks?.reduce((sum, chunk) => sum + chunk.tokenEstimate, 0) ?? candidate.tokenEstimate;
+
+  if (tokenEstimate > budget) {
+    return undefined;
+  }
+
+  return {
+    knowledgeId: candidate.knowledgeId,
+    title: candidate.title,
+    summary: candidate.summary,
+    itemType: candidate.itemType,
+    project: candidate.project,
+    labels: candidate.labels,
+    references: candidate.references,
+    source: candidate.source,
+    rank: candidate.rank,
+    finalScore: candidate.finalScore,
+    matchReasons: candidate.matchReasons,
+    chunkIds,
+    content,
+    contextualContent,
+    tokenEstimate,
   };
 }
 
@@ -395,6 +515,8 @@ function fingerprintSearch(
     symbols: input.symbols ?? [],
     errors: input.errors ?? [],
     tokenBudget: input.tokenBudget,
+    contextMode: input.contextMode,
+    deepContextBudget: input.deepContextBudget,
     rejectedKnowledgeIds: input.rejectedKnowledgeIds,
     lexicalQuery: classified.lexicalQuery,
     exactTerms: classified.exactTerms,

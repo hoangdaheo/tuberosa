@@ -5,6 +5,9 @@ import { clamp, truncate } from '../util/text.js';
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
 const GENERAL_MIN_FINAL_SCORE = 0.35;
 const GRAPH_EVIDENCE_MIN_RAW_SCORE = 0.45;
+export const DEFAULT_DEEP_CONTEXT_BUDGET = 60_000;
+export const MIN_DEEP_CONTEXT_BUDGET = 30_000;
+export const MAX_DEEP_CONTEXT_BUDGET = 100_000;
 
 export interface AssembleContextPackInput {
   queryId?: string;
@@ -15,6 +18,10 @@ export interface AssembleContextPackInput {
   tokenBudget: number;
   rejectedKnowledgeIds?: string[];
   contextFit?: ContextFit;
+}
+
+export function normalizeDeepContextBudget(value: number | undefined): number {
+  return Math.round(clamp(value ?? DEFAULT_DEEP_CONTEXT_BUDGET, MIN_DEEP_CONTEXT_BUDGET, MAX_DEEP_CONTEXT_BUDGET));
 }
 
 export function assembleContextPack(input: AssembleContextPackInput): ContextPack {

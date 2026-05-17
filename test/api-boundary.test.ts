@@ -115,6 +115,7 @@ test('MCP reflection review tools list, inspect, and record decisions', async ()
         return draft;
       },
       requestWriteThroughBackup: () => undefined,
+      requestPhysicalMirror: () => undefined,
     },
     reflection: {
       createDraft: async () => {
@@ -528,6 +529,7 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
       listReflectionDrafts: async () => [],
       getReflectionDraft: async () => undefined,
       requestWriteThroughBackup: () => undefined,
+      requestPhysicalMirror: () => undefined,
     },
     errorLogs: {
       recordLog: async () => ({

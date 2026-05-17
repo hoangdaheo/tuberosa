@@ -116,6 +116,7 @@ const KNOWLEDGE_RELATION_TARGET_KINDS = [
   'reference',
 ] as const satisfies readonly KnowledgeRelationTargetKind[];
 const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly IngestionMode[];
+const CONTEXT_MODES = ['compact', 'layered'] as const;
 const FEEDBACK_TYPES = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'] as const;
 const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
 const KNOWLEDGE_STATUSES = ['approved', 'needs_review', 'archived', 'blocked'] as const satisfies readonly KnowledgeStatus[];
@@ -263,6 +264,8 @@ export function validateContextSearchInput(value: unknown): ContextSearchInput {
     symbols: readOptionalStringArray(record, 'symbols', 'context search input'),
     errors: readOptionalStringArray(record, 'errors', 'context search input'),
     tokenBudget: readOptionalPositiveNumber(record, 'tokenBudget', 'context search input'),
+    contextMode: readOptionalEnum(record, 'contextMode', CONTEXT_MODES, 'context search input'),
+    deepContextBudget: readOptionalPositiveNumber(record, 'deepContextBudget', 'context search input'),
     rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'context search input'),
     bypassCache: readOptionalBoolean(record, 'bypassCache', 'context search input'),
     debug: readOptionalBoolean(record, 'debug', 'context search input'),
@@ -320,6 +323,7 @@ export function validateFinishAgentSessionInput(value: unknown, sessionId?: stri
     sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'finish agent session input'),
     outcome: readRequiredEnum(record, 'outcome', AGENT_SESSION_OUTCOMES, 'finish agent session input'),
     summary: readOptionalString(record, 'summary', 'finish agent session input'),
+    contextBypassReason: readOptionalString(record, 'contextBypassReason', 'finish agent session input'),
     metadata: readOptionalObject(record, 'metadata', 'finish agent session input'),
     reflectionDraft,
   };
