@@ -30,6 +30,10 @@ const config: AppConfig = {
   backupRetentionMaxAgeDays: 30,
   backupWriteThrough: false,
   backupWriteThroughThrottleSeconds: 600,
+  errorLogDir: ".tuberosa/test-error-logs",
+  errorLogMaxBytes: 256 * 1024,
+  errorLogAutoCapture: true,
+  errorLogCaptureClientErrors: false,
 };
 
 test('malformed HTTP inputs return structured validation errors', async () => {
@@ -196,6 +200,131 @@ test('MCP reflection review tools list, inspect, and record decisions', async ()
   equal(reviewed.structuredContent?.instruction, 'Draft marked as needing changes. Revise or recreate it before approval.');
 });
 
+test('MCP error log tools and resources dispatch through the filesystem journal service', async () => {
+  const log = sampleErrorLog();
+  const services = fakeServices({
+    errorLogs: {
+      recordLog: async (input: { title: string }) => ({ ...log, title: input.title }),
+      listLogs: async (options: { project?: string; status?: string; limit: number }) => {
+        equal(options.project, 'agent-memory');
+        equal(options.status, 'open');
+        equal(options.limit, 5);
+        return [log];
+      },
+      getLog: async (id: string) => {
+        equal(id, log.id);
+        return log;
+      },
+      updateLog: async (id: string, patch: { status?: string; reflectionDraftId?: string }) => ({
+        ...log,
+        id,
+        status: patch.status ?? log.status,
+        reflectionDraftId: patch.reflectionDraftId,
+      }),
+      readLogMarkdown: async (id: string) => `# ${id}\n`,
+    },
+  });
+
+  const recorded = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_record_error_log',
+      arguments: {
+        project: 'agent-memory',
+        title: 'Command failed',
+        category: 'agent_tool',
+      },
+    },
+  }) as { structuredContent?: { log?: { title?: string } } };
+  equal(recorded.structuredContent?.log?.title, 'Command failed');
+
+  const listed = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_list_error_logs',
+      arguments: {
+        project: 'agent-memory',
+        status: 'open',
+        limit: 5,
+      },
+    },
+  }) as { structuredContent?: { logs?: Array<{ id: string }> } };
+  equal(listed.structuredContent?.logs?.[0]?.id, log.id);
+
+  const updated = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_update_error_log',
+      arguments: {
+        id: log.id,
+        status: 'fixed',
+        reflectionDraftId: 'draft-1',
+      },
+    },
+  }) as { structuredContent?: { log?: { status?: string; reflectionDraftId?: string } } };
+  equal(updated.structuredContent?.log?.status, 'fixed');
+  equal(updated.structuredContent?.log?.reflectionDraftId, 'draft-1');
+
+  const resource = await handleMcpRequest(services, {
+    method: 'resources/read',
+    params: { uri: `tuberosa://error-logs/${log.id}` },
+  }) as { contents?: Array<{ text?: string }> };
+  ok(resource.contents?.[0]?.text?.includes(log.id));
+
+  const markdown = await handleMcpRequest(services, {
+    method: 'resources/read',
+    params: { uri: `tuberosa://error-logs/${log.id}/markdown` },
+  }) as { contents?: Array<{ mimeType?: string; text?: string }> };
+  equal(markdown.contents?.[0]?.mimeType, 'text/markdown');
+  ok(markdown.contents?.[0]?.text?.includes(log.id));
+});
+
+test('HTTP and MCP unexpected errors are auto-captured when enabled', async () => {
+  const captured: Array<{ title?: string; category?: string; metadata?: Record<string, unknown> }> = [];
+  const services = fakeServices({
+    retrieval: {
+      searchContext: async () => {
+        throw new Error('Search exploded.');
+      },
+      getContextPack: async () => undefined,
+      recordFeedback: async () => ({}),
+    },
+    errorLogs: {
+      recordLog: async (input: { title?: string; category?: string; metadata?: Record<string, unknown> }) => {
+        captured.push(input);
+        return sampleErrorLog();
+      },
+      listLogs: async () => [],
+      getLog: async () => undefined,
+      updateLog: async () => undefined,
+      readLogMarkdown: async () => undefined,
+    },
+  });
+
+  const http = await dispatchHttp(services, {
+    method: 'POST',
+    url: '/context/search',
+    body: { project: 'agent-memory', prompt: 'Find auth guidance' },
+  });
+  equal(http.status, 500);
+  equal(captured[0]?.category, 'http');
+
+  await rejects(
+    () => handleMcpRequest(services, {
+      method: 'tools/call',
+      params: {
+        name: 'tuberosa_search_context',
+        arguments: {
+          project: 'agent-memory',
+          prompt: 'Find auth guidance',
+        },
+      },
+    }),
+    /Search exploded/,
+  );
+  equal(captured[1]?.category, 'retrieval');
+});
+
 test('malformed MCP tool inputs map to JSON-RPC invalid params errors', async () => {
   await rejects(
     () => handleMcpRequest(fakeServices(), {
@@ -280,12 +409,67 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
       getReflectionDraft: async () => undefined,
       requestWriteThroughBackup: () => undefined,
     },
+    errorLogs: {
+      recordLog: async () => ({
+        id: 'error-log-1',
+        category: 'unknown',
+        severity: 'error',
+        status: 'open',
+        title: 'Error log',
+        summary: 'Error log',
+        message: '',
+        files: [],
+        symbols: [],
+        errors: [],
+        tags: [],
+        references: [],
+        metadata: {},
+        fingerprint: 'fingerprint',
+        occurrenceCount: 1,
+        firstSeenAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        safety: { redactionCount: 0, checkedAt: new Date().toISOString() },
+        truncated: false,
+      }),
+      listLogs: async () => [],
+      getLog: async () => undefined,
+      updateLog: async () => undefined,
+      readLogMarkdown: async () => undefined,
+    },
     cache: {},
     models: {},
     safety: {},
     close: async () => {},
     ...overrides,
   } as unknown as AppServices;
+}
+
+function sampleErrorLog() {
+  const now = new Date().toISOString();
+  return {
+    id: 'error-log-1',
+    project: 'agent-memory',
+    category: 'agent_tool',
+    severity: 'error',
+    status: 'open',
+    title: 'Command failed',
+    summary: 'A command failed.',
+    message: 'Command failed.',
+    files: [],
+    symbols: [],
+    errors: [],
+    tags: [],
+    references: [],
+    metadata: {},
+    fingerprint: 'fingerprint',
+    occurrenceCount: 1,
+    firstSeenAt: now,
+    lastSeenAt: now,
+    createdAt: now,
+    safety: { redactionCount: 0, checkedAt: now },
+    truncated: false,
+  };
 }
 
 function sampleDraft(): ReflectionDraft {

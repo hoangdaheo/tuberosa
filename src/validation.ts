@@ -7,6 +7,11 @@ import type {
   ContextSearchInput,
   FeedbackInput,
   CleanupOperationsInput,
+  ErrorLogCategory,
+  ErrorLogInput,
+  ErrorLogPatchInput,
+  ErrorLogSeverity,
+  ErrorLogStatus,
   KnowledgePatchInput,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
@@ -129,6 +134,32 @@ const REFLECTION_DRAFT_STATUSES = [
 const REFLECTION_REVIEW_DECISIONS = ['approve', 'reject', 'needs_changes'] as const;
 const REFLECTION_REVIEW_GRADES = ['pass', 'concern', 'fail'] as const;
 const REFLECTION_DUPLICATE_RISKS = ['low', 'medium', 'high'] as const;
+const ERROR_LOG_CATEGORIES = [
+  'mcp',
+  'http',
+  'cli',
+  'database',
+  'cache',
+  'model_provider',
+  'retrieval',
+  'ingestion',
+  'reflection',
+  'agent_session',
+  'agent_tool',
+  'test',
+  'unknown',
+] as const satisfies readonly ErrorLogCategory[];
+const ERROR_LOG_SEVERITIES = [
+  'debug',
+  'info',
+  'notice',
+  'warning',
+  'error',
+  'critical',
+  'alert',
+  'emergency',
+] as const satisfies readonly ErrorLogSeverity[];
+const ERROR_LOG_STATUSES = ['open', 'triaged', 'fixed', 'wont_fix', 'archived'] as const satisfies readonly ErrorLogStatus[];
 
 export function validateKnowledgeInput(value: unknown): KnowledgeInput {
   const record = expectObject(value, 'knowledge input');
@@ -388,6 +419,83 @@ export function validateRestoreBackupInput(value: unknown, backupIdOrPath?: stri
     backupIdOrPath: backupIdOrPath ?? readOptionalString(record, 'backupIdOrPath', 'restore backup input'),
     dryRun: readOptionalBoolean(record, 'dryRun', 'restore backup input'),
     replace: readOptionalBoolean(record, 'replace', 'restore backup input'),
+  };
+}
+
+export function validateErrorLogInput(value: unknown): ErrorLogInput {
+  const record = expectObject(value, 'error log input');
+
+  return {
+    project: readOptionalString(record, 'project', 'error log input'),
+    category: readOptionalEnum(record, 'category', ERROR_LOG_CATEGORIES, 'error log input'),
+    severity: readOptionalEnum(record, 'severity', ERROR_LOG_SEVERITIES, 'error log input'),
+    status: readOptionalEnum(record, 'status', ERROR_LOG_STATUSES, 'error log input'),
+    title: readRequiredString(record, 'title', 'error log input'),
+    summary: readOptionalString(record, 'summary', 'error log input'),
+    message: readOptionalString(record, 'message', 'error log input'),
+    stack: readOptionalString(record, 'stack', 'error log input'),
+    toolName: readOptionalString(record, 'toolName', 'error log input'),
+    operation: readOptionalString(record, 'operation', 'error log input'),
+    command: readOptionalString(record, 'command', 'error log input'),
+    cwd: readOptionalString(record, 'cwd', 'error log input'),
+    files: readOptionalStringArray(record, 'files', 'error log input'),
+    symbols: readOptionalStringArray(record, 'symbols', 'error log input'),
+    errors: readOptionalStringArray(record, 'errors', 'error log input'),
+    tags: readOptionalStringArray(record, 'tags', 'error log input'),
+    agentName: readOptionalString(record, 'agentName', 'error log input'),
+    agentTool: readOptionalString(record, 'agentTool', 'error log input'),
+    sessionId: readOptionalString(record, 'sessionId', 'error log input'),
+    contextPackId: readOptionalString(record, 'contextPackId', 'error log input'),
+    reflectionDraftId: readOptionalString(record, 'reflectionDraftId', 'error log input'),
+    references: readOptionalReferences(record.references, 'error log input.references'),
+    metadata: readOptionalObject(record, 'metadata', 'error log input'),
+    fingerprint: readOptionalString(record, 'fingerprint', 'error log input'),
+  };
+}
+
+export function validateErrorLogPatchInput(value: unknown): ErrorLogPatchInput {
+  const record = expectObject(value, 'error log patch input');
+
+  return {
+    status: readOptionalEnum(record, 'status', ERROR_LOG_STATUSES, 'error log patch input'),
+    category: readOptionalEnum(record, 'category', ERROR_LOG_CATEGORIES, 'error log patch input'),
+    severity: readOptionalEnum(record, 'severity', ERROR_LOG_SEVERITIES, 'error log patch input'),
+    summary: readOptionalString(record, 'summary', 'error log patch input'),
+    notes: readOptionalString(record, 'notes', 'error log patch input'),
+    tags: readOptionalStringArray(record, 'tags', 'error log patch input'),
+    references: readOptionalReferences(record.references, 'error log patch input.references'),
+    reflectionDraftId: readOptionalNullableString(record, 'reflectionDraftId', 'error log patch input'),
+    metadata: readOptionalObject(record, 'metadata', 'error log patch input'),
+  };
+}
+
+export function validateErrorLogListInput(value: unknown): {
+  project?: string;
+  category?: ErrorLogCategory;
+  severity?: ErrorLogSeverity;
+  status?: ErrorLogStatus;
+  query?: string;
+  tag?: string;
+  limit: number;
+} {
+  const record = expectObject(value, 'error log list input');
+  const limit = readOptionalPositiveInteger(record, 'limit', 'error log list input') ?? 25;
+
+  return {
+    project: readOptionalString(record, 'project', 'error log list input'),
+    category: readOptionalEnum(record, 'category', ERROR_LOG_CATEGORIES, 'error log list input'),
+    severity: readOptionalEnum(record, 'severity', ERROR_LOG_SEVERITIES, 'error log list input'),
+    status: readOptionalEnum(record, 'status', ERROR_LOG_STATUSES, 'error log list input'),
+    query: readOptionalString(record, 'query', 'error log list input'),
+    tag: readOptionalString(record, 'tag', 'error log list input'),
+    limit: Math.min(limit, 100),
+  };
+}
+
+export function validateErrorLogIdArguments(value: unknown): { id: string } {
+  const record = expectObject(value, 'error log arguments');
+  return {
+    id: readRequiredStringWithAliases(record, ['id', 'errorLogId'], 'error log arguments'),
   };
 }
 

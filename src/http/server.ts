@@ -8,6 +8,9 @@ import {
   validateBackupRetentionInput,
   validateCleanupOperationsInput,
   validateCreateBackupInput,
+  validateErrorLogInput,
+  validateErrorLogListInput,
+  validateErrorLogPatchInput,
   validateFeedbackInput,
   validateFinishAgentSessionInput,
   validateIngestFilesRequest,
@@ -89,6 +92,7 @@ class HttpRouter {
       sendJson(response, 200, body);
     } catch (error) {
       const appError = toAppError(error);
+      await maybeCaptureHttpError(this.services, request, url, method, appError);
       sendJson(response, appError.status, appErrorToHttpBody(appError));
     }
   }
@@ -352,6 +356,44 @@ function createRoutes(): HttpRoute[] {
       }),
     },
     {
+      method: 'POST',
+      match: exactPath('/operations/error-logs'),
+      handle: async ({ services, request }) => {
+        const body = validateErrorLogInput(await readJsonBody(request, services.config.maxRequestBytes));
+        return services.errorLogs.recordLog(body);
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/error-logs'),
+      handle: ({ services, url }) => services.errorLogs.listLogs(readErrorLogListOptions(url)),
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/operations\/error-logs\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const log = await services.errorLogs.getLog(params.id);
+        if (!log) {
+          throw new NotFoundError('Error log not found.');
+        }
+
+        return log;
+      },
+    },
+    {
+      method: 'PATCH',
+      match: pathPattern(/^\/operations\/error-logs\/([^/]+)$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateErrorLogPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const log = await services.errorLogs.updateLog(params.id, body);
+        if (!log) {
+          throw new NotFoundError('Error log not found.');
+        }
+
+        return log;
+      },
+    },
+    {
       method: 'GET',
       match: exactPath('/feedback-events'),
       handle: ({ services, url }) => services.operations.listFeedbackEvents(readListRecordsOptions(url)),
@@ -602,6 +644,18 @@ function readListRecordsOptions(url: URL) {
   };
 }
 
+function readErrorLogListOptions(url: URL) {
+  return validateErrorLogListInput({
+    project: url.searchParams.get('project') ?? undefined,
+    category: url.searchParams.get('category') ?? undefined,
+    severity: url.searchParams.get('severity') ?? undefined,
+    status: url.searchParams.get('status') ?? undefined,
+    query: url.searchParams.get('q') ?? url.searchParams.get('query') ?? undefined,
+    tag: url.searchParams.get('tag') ?? undefined,
+    limit: readLimit(url),
+  });
+}
+
 function readRelationListOptions(url: URL) {
   const inferred = url.searchParams.get('inferred');
   if (inferred !== null && inferred !== 'true' && inferred !== 'false') {
@@ -617,4 +671,61 @@ function readRelationListOptions(url: URL) {
     inferred: inferred === null ? undefined : inferred === 'true',
     limit: readLimit(url),
   };
+}
+
+async function maybeCaptureHttpError(
+  services: AppServices,
+  request: IncomingMessage,
+  url: URL,
+  method: string,
+  error: AppError,
+): Promise<void> {
+  if (!shouldAutoCapture(services, error)) {
+    return;
+  }
+
+  try {
+    await services.errorLogs.recordLog({
+      project: url.searchParams.get('project') ?? undefined,
+      category: categoryForAppError(error),
+      severity: error.status >= 500 ? 'error' : 'warning',
+      title: `HTTP ${method} ${url.pathname} failed`,
+      summary: `${error.code}: ${error.message}`,
+      message: error.message,
+      stack: error.stack,
+      operation: `${method} ${url.pathname}`,
+      agentTool: 'http',
+      metadata: {
+        surface: 'http',
+        code: error.code,
+        status: error.status,
+        path: url.pathname,
+        method,
+        userAgent: request.headers['user-agent'],
+      },
+    });
+  } catch (captureError) {
+    console.error('[error-log]', captureError instanceof Error ? captureError.message : String(captureError));
+  }
+}
+
+function shouldAutoCapture(services: AppServices, error: AppError): boolean {
+  if (!services.config.errorLogAutoCapture) {
+    return false;
+  }
+
+  return services.config.errorLogCaptureClientErrors || error.status >= 500;
+}
+
+function categoryForAppError(error: AppError) {
+  switch (error.code) {
+    case 'cache_error':
+      return 'cache';
+    case 'model_provider_error':
+      return 'model_provider';
+    case 'store_error':
+      return 'database';
+    default:
+      return 'http';
+  }
 }

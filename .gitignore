@@ -4,6 +4,7 @@ dist/
 .env
 .cache/
 .tuberosa/backups/
+.tuberosa/error-logs/
 coverage/
 npm-debug.log*
 *.tsbuildinfo

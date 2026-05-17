@@ -40,6 +40,10 @@ const config: AppConfig = {
   backupRetentionMaxAgeDays: 30,
   backupWriteThrough: false,
   backupWriteThroughThrottleSeconds: 600,
+  errorLogDir: ".tuberosa/test-error-logs",
+  errorLogMaxBytes: 256 * 1024,
+  errorLogAutoCapture: true,
+  errorLogCaptureClientErrors: false,
 };
 
 test('classifier extracts concrete repo context from prompt', () => {

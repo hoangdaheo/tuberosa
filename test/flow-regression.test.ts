@@ -6,6 +6,7 @@ import { AgentSessionService } from '../src/agent-session/service.js';
 import type { AppServices } from '../src/app.js';
 import { MemoryCache } from '../src/cache.js';
 import type { AppConfig } from '../src/config.js';
+import { ErrorLogService } from '../src/error-log/service.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { handleMcpRequest } from '../src/mcp/server.js';
@@ -37,6 +38,10 @@ const config: AppConfig = {
   backupRetentionMaxAgeDays: 30,
   backupWriteThrough: false,
   backupWriteThroughThrottleSeconds: 600,
+  errorLogDir: ".tuberosa/test-error-logs",
+  errorLogMaxBytes: 256 * 1024,
+  errorLogAutoCapture: true,
+  errorLogCaptureClientErrors: false,
 };
 
 test('FLOW_LOGIC functional smoke sequence works across HTTP and MCP surfaces', async () => {
@@ -224,7 +229,12 @@ test('FLOW_LOGIC functional smoke sequence works across HTTP and MCP surfaces', 
     const prompts = await handleMcpRequest(services, { method: 'prompts/list' }) as { prompts: Array<{ name: string }> };
     deepEqual(
       prompts.prompts.map((prompt) => prompt.name).sort(),
-      ['tuberosa_bootstrap_session', 'tuberosa_reflect_after_task', 'tuberosa_review_pending_reflections'],
+      [
+        'tuberosa_bootstrap_session',
+        'tuberosa_capture_error_for_later',
+        'tuberosa_reflect_after_task',
+        'tuberosa_review_pending_reflections',
+      ],
     );
   } finally {
     await services.close();
@@ -241,6 +251,7 @@ function createTestServices(): AppServices {
   const reflection = new ReflectionService(store, ingestion, safety);
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
   const operations = new OperationsService(store, ingestion);
+  const errorLogs = new ErrorLogService({ rootDir: config.errorLogDir, safety });
 
   return {
     config,
@@ -253,6 +264,7 @@ function createTestServices(): AppServices {
     reflection,
     agentSessions,
     operations,
+    errorLogs,
     async close() {
       await Promise.allSettled([cache.close(), store.close()]);
     },

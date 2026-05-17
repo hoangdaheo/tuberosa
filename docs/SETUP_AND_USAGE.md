@@ -92,6 +92,10 @@ Important variables:
 | `TUBEROSA_BACKUP_RETENTION_MAX_AGE_DAYS` | `30` | Prune verified backups older than this age, while still keeping the latest backup. |
 | `TUBEROSA_BACKUP_WRITE_THROUGH` | `false` | When true, important mutations can request a throttled backup. |
 | `TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS` | `600` | Minimum time between write-through backup requests. |
+| `TUBEROSA_ERROR_LOG_DIR` | `.tuberosa/error-logs` | Local folder for sanitized physical error-log incidents. Do not commit or share this folder because logs can contain private project details. |
+| `TUBEROSA_ERROR_LOG_MAX_BYTES` | `262144` | Maximum stored size for one error incident before message, stack, or metadata fields are truncated. |
+| `TUBEROSA_ERROR_LOG_AUTO_CAPTURE` | `true` | Automatically record unexpected Tuberosa HTTP and MCP failures into the physical error-log journal. |
+| `TUBEROSA_ERROR_LOG_CAPTURE_CLIENT_ERRORS` | `false` | When true, also auto-capture normal client errors such as validation and not-found errors. Keep false for normal development. |
 
 ## 5. Connect Codex For The Next Session
 
@@ -164,6 +168,10 @@ A healthy connection should expose these MCP tools:
 - `tuberosa_get_context_pack`
 - `tuberosa_feedback_context`
 - `tuberosa_reflect`
+- `tuberosa_record_error_log`
+- `tuberosa_list_error_logs`
+- `tuberosa_get_error_log`
+- `tuberosa_update_error_log`
 
 Use this operating rule for agent work:
 
@@ -541,6 +549,53 @@ List feedback events for review:
 curl 'http://localhost:3027/feedback-events?project=newsletter-app&status=stale'
 ```
 
+### Record Error Logs
+
+Use error logs when an agent, command, MCP tool, or Tuberosa runtime path fails and the raw incident should be saved for later debugging. Error logs are filesystem-backed, not database knowledge, and are written under `TUBEROSA_ERROR_LOG_DIR`.
+
+```bash
+curl -X POST http://localhost:3027/operations/error-logs \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "project": "newsletter-app",
+    "category": "agent_tool",
+    "severity": "error",
+    "title": "Paywall test command failed",
+    "summary": "The agent hit a repeatable test failure while editing paywall code.",
+    "message": "pnpm test failed in test/paywall.test.ts.",
+    "command": "pnpm test",
+    "cwd": "/work/newsletter-app",
+    "files": ["test/paywall.test.ts"],
+    "symbols": ["PaywallSelectionModal"],
+    "errors": ["ERR_ASSERTION"],
+    "tags": ["tests"],
+    "references": [
+      { "type": "file", "uri": "test/paywall.test.ts" }
+    ]
+  }'
+```
+
+List and inspect incidents:
+
+```bash
+curl 'http://localhost:3027/operations/error-logs?project=newsletter-app&status=open&category=agent_tool'
+curl http://localhost:3027/operations/error-logs/<error-log-id>
+```
+
+After the fix is durable, create a reflection draft for the lesson and link it to the incident:
+
+```bash
+curl -X PATCH http://localhost:3027/operations/error-logs/<error-log-id> \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "status": "fixed",
+    "reflectionDraftId": "<reflection-draft-id>",
+    "notes": "Fixed by updating the paywall test fixture."
+  }'
+```
+
+Automatic capture records unexpected Tuberosa HTTP and MCP failures when `TUBEROSA_ERROR_LOG_AUTO_CAPTURE=true`. It stores safe request context only, not full HTTP bodies or full MCP arguments. Normal validation and not-found errors are skipped unless `TUBEROSA_ERROR_LOG_CAPTURE_CLIENT_ERRORS=true`.
+
 ### Start An Agent Session
 
 Use sessions when an agent should leave an audit trail for context selection and task outcome:
@@ -800,16 +855,23 @@ Tools:
 - `tuberosa_finish_session`
 - `tuberosa_reflect`
 - `tuberosa_feedback_context`
+- `tuberosa_record_error_log`
+- `tuberosa_list_error_logs`
+- `tuberosa_get_error_log`
+- `tuberosa_update_error_log`
 
 Resource templates:
 
 - `tuberosa://packs/{id}`
 - `tuberosa://knowledge/{id}`
+- `tuberosa://error-logs/{id}`
+- `tuberosa://error-logs/{id}/markdown`
 
 Prompts:
 
 - `tuberosa_bootstrap_session`
 - `tuberosa_reflect_after_task`
+- `tuberosa_capture_error_for_later`
 
 Recommended agent flow:
 
@@ -819,8 +881,9 @@ Recommended agent flow:
 4. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.
 5. If a retry pack is returned, review its context fit before using it.
 6. Finish with `tuberosa_finish_session` and include a reflection draft when the task produced a durable lesson.
-7. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, and `tuberosa_reflect`) for manual or one-off workflows.
-8. Approve reflection drafts before they become searchable memory.
+7. When an error should be fixed later, call `tuberosa_record_error_log` with sanitized message, stack, command, files, symbols, errors, and references.
+8. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, `tuberosa_reflect`, and `tuberosa_record_error_log`) for manual or one-off workflows.
+9. Approve reflection drafts before they become searchable memory, then link fixed incidents with `tuberosa_update_error_log`.
 
 Use `debug: true` in `tuberosa_search_context` only when diagnosing retrieval quality.
 

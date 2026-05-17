@@ -32,6 +32,7 @@ Main services:
 - `src/retrieval/debug.ts`: builds optional retrieval debug traces.
 - `src/agent-session/service.ts`: coordinates session start, context decisions, finish outcomes, and optional reflection drafts.
 - `src/reflection/service.ts`: creates and approves memory drafts.
+- `src/error-log/service.ts`: writes and reads sanitized filesystem-backed error incidents.
 - `src/operations/service.ts`: exposes review, audit, cleanup, and importer operations without coupling them to retrieval.
 - `src/storage/store.ts`: storage interface.
 - `src/storage/postgres-store.ts`: durable storage implementation.
@@ -54,6 +55,7 @@ Important entities:
 - Feedback event: selected, rejected, irrelevant, stale, or missing-context signal.
 - Agent session: audit record for one agent task, initial context, context decisions, outcome, and reflection draft links.
 - Reflection draft: pending, approved, or rejected learning memory.
+- Error log: sanitized physical incident file for MCP, HTTP, CLI, tool, test, database, cache, model-provider, retrieval, ingestion, reflection, or session failures.
 
 Storage note: SQL uses `knowledge_references`, not `references`, because `references` is a reserved identifier.
 
@@ -313,7 +315,41 @@ Feedback history is also used in future searches. `KnowledgeStore.getFeedbackSum
 
 Missing-context events are kept as review signals. They do not penalize any specific knowledge item because they often mean the right knowledge is absent.
 
-## 10. Agent Session Flow
+## 10. Error Log Flow
+
+Entry points:
+
+- HTTP `POST /operations/error-logs`
+- HTTP `GET /operations/error-logs`
+- HTTP `GET /operations/error-logs/:id`
+- HTTP `PATCH /operations/error-logs/:id`
+- MCP `tuberosa_record_error_log`
+- MCP `tuberosa_list_error_logs`
+- MCP `tuberosa_get_error_log`
+- MCP `tuberosa_update_error_log`
+
+Flow:
+
+1. Manual callers or auto-capture provide a normalized error incident with project, category, severity, title, message, stack, command, cwd, files, symbols, errors, tags, references, and optional session or context ids.
+2. `ErrorLogService` redacts secret-like values and truncates oversized message, stack, or metadata fields.
+3. A stable fingerprint merges repeated incidents, increments `occurrenceCount`, updates `lastSeenAt`, and preserves the original id.
+4. The canonical record is written as JSON under `TUBEROSA_ERROR_LOG_DIR`, grouped by project, category, and month.
+5. A Markdown companion file is written for human inspection.
+6. Listing scans JSON files and filters by project, category, severity, status, query, tag, and limit.
+7. Fix workflow updates the incident status and can link a reviewed reflection draft id.
+
+Automatic capture:
+
+- HTTP and MCP wrappers record unexpected application errors when `TUBEROSA_ERROR_LOG_AUTO_CAPTURE=true`.
+- Normal client errors are skipped unless `TUBEROSA_ERROR_LOG_CAPTURE_CLIENT_ERRORS=true`.
+- Auto-capture stores safe request context only. It does not persist full HTTP bodies or full MCP arguments.
+- Failure to write an error log must never hide the original application error.
+
+Design rule:
+
+- Error logs are physical incident journals, not searchable knowledge. After a fix, create or approve reflection memory for the durable lesson and link it to the incident.
+
+## 11. Agent Session Flow
 
 Entry points:
 
@@ -352,7 +388,7 @@ Design rule:
 
 - Session orchestration should depend on retrieval, reflection, and `KnowledgeStore`; retrieval ranking and reflection approval remain independent services.
 
-## 11. Reflection Flow
+## 12. Reflection Flow
 
 Entry points:
 
@@ -391,7 +427,7 @@ Safety rule:
 
 - Do not save secrets, raw private conversation, or unreviewed prompt-injection content as durable memory.
 
-## 12. Knowledge Review And Operations Flow
+## 13. Knowledge Review And Operations Flow
 
 Entry points:
 
@@ -409,6 +445,7 @@ Entry points:
 - HTTP `PATCH /reflection-drafts/:id`
 - HTTP `POST /operations/import-files`
 - HTTP `POST /operations/cleanup`
+- HTTP error-log operations under `/operations/error-logs`
 - HTTP `POST /operations/backups`
 - HTTP `GET /operations/backups`
 - HTTP `GET /operations/backups/status`
@@ -464,7 +501,7 @@ Design rule:
 
 - Operations code should orchestrate review and maintenance, while retrieval, reflection, ingestion, and persistence keep their own responsibilities.
 
-## 13. Cache Logic
+## 14. Cache Logic
 
 Cache key:
 
@@ -494,7 +531,7 @@ Cache is skipped when:
 
 Saved packs are compact. Debug traces are stripped before saving and caching.
 
-## 14. Model Provider Logic
+## 15. Model Provider Logic
 
 Hash provider:
 
@@ -516,7 +553,7 @@ Provider design rule:
 
 - Keep provider behavior behind `ModelProvider` so retrieval can evolve without changing storage or API code.
 
-## 15. Storage Logic
+## 16. Storage Logic
 
 The `KnowledgeStore` interface owns durable operations:
 
@@ -553,7 +590,7 @@ Design rule:
 
 - Retrieval and reflection depend on the store interface, not concrete database code.
 
-## 16. MCP Flow
+## 17. MCP Flow
 
 Initialize:
 
@@ -571,18 +608,22 @@ Tool flow:
 7. `tuberosa_finish_session` records outcome and optionally creates a pending reflection draft.
 8. `tuberosa_reflect` creates a pending draft.
 9. `tuberosa_feedback_context` records feedback and may return a retry pack.
+10. Error-log tools record, list, read, and update physical incidents for later debugging.
 
 Resource flow:
 
 - `tuberosa://packs/{id}` reads stored context pack.
 - `tuberosa://knowledge/{id}` reads stored knowledge item.
+- `tuberosa://error-logs/{id}` reads a stored physical error incident as JSON.
+- `tuberosa://error-logs/{id}/markdown` reads the human Markdown companion file.
 
 Prompt flow:
 
 - `tuberosa_bootstrap_session` tells an agent to search and confirm context before work.
 - `tuberosa_reflect_after_task` tells an agent when and how to draft memory.
+- `tuberosa_capture_error_for_later` tells an agent when and how to save an error incident without turning it directly into knowledge.
 
-## 17. QA Flow
+## 18. QA Flow
 
 For code changes:
 
@@ -630,7 +671,7 @@ Expected behavior:
 - Agent sessions preserve initial context, decisions, outcome, and reflection draft links.
 - Approved reflection memory is retrievable.
 
-## 18. Maintainability Principles
+## 19. Maintainability Principles
 
 - Keep orchestration in services and persistence in stores.
 - Keep optional debug logic outside the core matching algorithm.

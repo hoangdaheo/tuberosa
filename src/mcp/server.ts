@@ -1,5 +1,5 @@
 import type { AppServices } from '../app.js';
-import { NotFoundError, ValidationError } from '../errors.js';
+import { NotFoundError, toAppError, ValidationError, type AppError } from '../errors.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   expectRecord,
@@ -7,6 +7,10 @@ import {
   validateContextSearchInput,
   validateFeedbackInput,
   validateFinishAgentSessionInput,
+  validateErrorLogIdArguments,
+  validateErrorLogInput,
+  validateErrorLogListInput,
+  validateErrorLogPatchInput,
   validateRecordAgentContextDecisionInput,
   validateReflectionDraftIdArguments,
   validateReflectionDraftInput,
@@ -22,62 +26,79 @@ interface JsonRpcRequest {
 }
 
 export async function handleMcpRequest(services: AppServices, request: JsonRpcRequest): Promise<unknown> {
-  switch (request.method) {
-    case 'initialize':
-      return {
-        protocolVersion: readProtocolVersion(request.params),
-        capabilities: {
-          tools: { listChanged: false },
-          resources: {},
-          prompts: {},
-        },
-        serverInfo: {
-          name: 'tuberosa',
-          version: '0.1.0',
-        },
-      };
-
-    case 'ping':
-      return {};
-
-    case 'tools/list':
-      return { tools: tools() };
-
-    case 'tools/call':
-      return callTool(services, expectRecord(request.params ?? {}, 'tools/call params'));
-
-    case 'resources/list':
-      return { resources: [] };
-
-    case 'resources/templates/list':
-      return {
-        resourceTemplates: [
-          {
-            uriTemplate: 'tuberosa://packs/{id}',
-            name: 'Context pack',
-            description: 'A proposed or selected Tuberosa context pack.',
-            mimeType: 'application/json',
+  try {
+    switch (request.method) {
+      case 'initialize':
+        return {
+          protocolVersion: readProtocolVersion(request.params),
+          capabilities: {
+            tools: { listChanged: false },
+            resources: {},
+            prompts: {},
           },
-          {
-            uriTemplate: 'tuberosa://knowledge/{id}',
-            name: 'Knowledge item',
-            description: 'A stored Tuberosa knowledge item.',
-            mimeType: 'application/json',
+          serverInfo: {
+            name: 'tuberosa',
+            version: '0.1.0',
           },
-        ],
-      };
+        };
 
-    case 'resources/read':
-      return readResource(services, expectRecord(request.params ?? {}, 'resources/read params'));
+      case 'ping':
+        return {};
 
-    case 'prompts/list':
-      return { prompts: prompts() };
+      case 'tools/list':
+        return { tools: tools() };
 
-    case 'prompts/get':
-      return getPrompt(expectRecord(request.params ?? {}, 'prompts/get params'));
+      case 'tools/call':
+        return await callTool(services, expectRecord(request.params ?? {}, 'tools/call params'));
 
-    default:
-      throw new NotFoundError(`Unsupported MCP method: ${request.method}`);
+      case 'resources/list':
+        return { resources: [] };
+
+      case 'resources/templates/list':
+        return {
+          resourceTemplates: [
+            {
+              uriTemplate: 'tuberosa://packs/{id}',
+              name: 'Context pack',
+              description: 'A proposed or selected Tuberosa context pack.',
+              mimeType: 'application/json',
+            },
+            {
+              uriTemplate: 'tuberosa://knowledge/{id}',
+              name: 'Knowledge item',
+              description: 'A stored Tuberosa knowledge item.',
+              mimeType: 'application/json',
+            },
+            {
+              uriTemplate: 'tuberosa://error-logs/{id}',
+              name: 'Error log',
+              description: 'A filesystem-backed Tuberosa error incident.',
+              mimeType: 'application/json',
+            },
+            {
+              uriTemplate: 'tuberosa://error-logs/{id}/markdown',
+              name: 'Error log markdown',
+              description: 'Human-readable Markdown for a filesystem-backed Tuberosa error incident.',
+              mimeType: 'text/markdown',
+            },
+          ],
+        };
+
+      case 'resources/read':
+        return await readResource(services, expectRecord(request.params ?? {}, 'resources/read params'));
+
+      case 'prompts/list':
+        return { prompts: prompts() };
+
+      case 'prompts/get':
+        return getPrompt(expectRecord(request.params ?? {}, 'prompts/get params'));
+
+      default:
+        throw new NotFoundError(`Unsupported MCP method: ${request.method}`);
+    }
+  } catch (error) {
+    await maybeCaptureMcpError(services, request, error);
+    throw error;
   }
 }
 
@@ -152,6 +173,50 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
 
     case 'tuberosa_feedback_context': {
       return toolJson(await services.retrieval.recordFeedback(validateFeedbackInput(args)));
+    }
+
+    case 'tuberosa_record_error_log': {
+      const log = await services.errorLogs.recordLog(validateErrorLogInput(args));
+      return toolJson({
+        log,
+        instruction: 'Error log saved to the physical Tuberosa error-log journal. Link a reflection draft after the fix is durable.',
+      });
+    }
+
+    case 'tuberosa_list_error_logs': {
+      const logs = await services.errorLogs.listLogs(validateErrorLogListInput(args));
+      return toolJson({
+        logs,
+        instruction: logs.length > 0
+          ? 'Inspect a log with tuberosa_get_error_log before fixing or linking a reflection.'
+          : 'No matching error logs found.',
+      });
+    }
+
+    case 'tuberosa_get_error_log': {
+      const { id } = validateErrorLogIdArguments(args);
+      const log = await services.errorLogs.getLog(id);
+      if (!log) {
+        throw new NotFoundError(`Error log not found: ${id}`);
+      }
+      return toolJson({
+        log,
+        instruction: 'Use this incident as debugging context. Do not turn raw logs into memory; create a reviewed reflection after the fix.',
+      });
+    }
+
+    case 'tuberosa_update_error_log': {
+      const { id } = validateErrorLogIdArguments(args);
+      const log = await services.errorLogs.updateLog(id, validateErrorLogPatchInput(args));
+      if (!log) {
+        throw new NotFoundError(`Error log not found: ${id}`);
+      }
+      return toolJson({
+        log,
+        instruction: log.reflectionDraftId
+          ? 'Error log updated and linked to a reflection draft.'
+          : 'Error log updated. Link a reviewed reflection draft when the durable lesson is ready.',
+      });
     }
 
     case 'tuberosa_start_session': {
@@ -258,6 +323,34 @@ async function readResource(services: AppServices, params: Record<string, unknow
     return resourceJson(uri, knowledge);
   }
 
+  if (uri.startsWith('tuberosa://error-logs/') && uri.endsWith('/markdown')) {
+    const id = uri.replace('tuberosa://error-logs/', '').replace('/markdown', '');
+    const markdown = await services.errorLogs.readLogMarkdown(id);
+    if (!markdown) {
+      throw new NotFoundError(`Error log not found: ${id}`);
+    }
+
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'text/markdown',
+          text: markdown,
+        },
+      ],
+    };
+  }
+
+  if (uri.startsWith('tuberosa://error-logs/')) {
+    const id = uri.replace('tuberosa://error-logs/', '');
+    const log = await services.errorLogs.getLog(id);
+    if (!log) {
+      throw new NotFoundError(`Error log not found: ${id}`);
+    }
+
+    return resourceJson(uri, log);
+  }
+
   throw new ValidationError(`Unsupported resource URI: ${uri}`);
 }
 
@@ -316,6 +409,26 @@ function getPrompt(params: Record<string, unknown>) {
               'Call tuberosa_list_reflection_drafts with status pending and the project when known.',
               'For each draft worth reviewing, call tuberosa_get_reflection_draft and evaluate accuracy, usefulness, scope, privacySafety, labels, references, and duplicateRisk.',
               'Record the decision with tuberosa_review_reflection_draft using approve, reject, or needs_changes plus a concise reviewerNote.',
+              args.project ? `Project: ${args.project}` : undefined,
+            ].filter(Boolean).join('\n'),
+          },
+        },
+      ],
+    };
+  }
+
+  if (name === 'tuberosa_capture_error_for_later') {
+    return {
+      description: 'Record an agent or Tuberosa development error in the physical error-log journal.',
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: [
+              'When a command, MCP tool, HTTP call, or debugging path fails and the fix should happen later, call tuberosa_record_error_log.',
+              'Include project, category, severity, title, summary, sanitized message/stack, cwd, command, files, symbols, errors, tags, and references when known.',
+              'Do not save secrets or raw private conversation. After fixing, create a reflection draft for the durable lesson and update the error log with status fixed plus reflectionDraftId.',
               args.project ? `Project: ${args.project}` : undefined,
             ].filter(Boolean).join('\n'),
           },
@@ -524,6 +637,91 @@ function tools() {
         },
       },
     },
+    {
+      name: 'tuberosa_record_error_log',
+      title: 'Record Tuberosa Error Log',
+      description: 'Save a sanitized development or runtime error to the physical Tuberosa error-log journal.',
+      inputSchema: {
+        type: 'object',
+        required: ['title'],
+        properties: {
+          project: { type: 'string' },
+          category: { type: 'string' },
+          severity: { type: 'string' },
+          status: { type: 'string' },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          message: { type: 'string' },
+          stack: { type: 'string' },
+          toolName: { type: 'string' },
+          operation: { type: 'string' },
+          command: { type: 'string' },
+          cwd: { type: 'string' },
+          files: { type: 'array', items: { type: 'string' } },
+          symbols: { type: 'array', items: { type: 'string' } },
+          errors: { type: 'array', items: { type: 'string' } },
+          tags: { type: 'array', items: { type: 'string' } },
+          agentName: { type: 'string' },
+          agentTool: { type: 'string' },
+          sessionId: { type: 'string' },
+          contextPackId: { type: 'string' },
+          reflectionDraftId: { type: 'string' },
+          references: { type: 'array', items: { type: 'object' } },
+          metadata: { type: 'object' },
+          fingerprint: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_list_error_logs',
+      title: 'List Tuberosa Error Logs',
+      description: 'List filesystem-backed error incidents by project, category, severity, status, query, or tag.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          category: { type: 'string' },
+          severity: { type: 'string' },
+          status: { type: 'string' },
+          query: { type: 'string' },
+          tag: { type: 'string' },
+          limit: { type: 'number' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_get_error_log',
+      title: 'Get Tuberosa Error Log',
+      description: 'Read one filesystem-backed error incident by id.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          errorLogId: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_update_error_log',
+      title: 'Update Tuberosa Error Log',
+      description: 'Update status, category, notes, references, or reflection linkage for an error incident.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          errorLogId: { type: 'string' },
+          status: { type: 'string' },
+          category: { type: 'string' },
+          severity: { type: 'string' },
+          summary: { type: 'string' },
+          notes: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
+          references: { type: 'array', items: { type: 'object' } },
+          reflectionDraftId: { type: ['string', 'null'] },
+          metadata: { type: 'object' },
+        },
+      },
+    },
   ];
 }
 
@@ -551,7 +749,111 @@ function prompts() {
         { name: 'project', description: 'Optional project filter for pending drafts.', required: false },
       ],
     },
+    {
+      name: 'tuberosa_capture_error_for_later',
+      title: 'Capture Error For Later',
+      description: 'Record a failed command, MCP tool, HTTP call, or debugging dead end as a physical error log.',
+      arguments: [
+        { name: 'project', description: 'Optional project for the incident.', required: false },
+      ],
+    },
   ];
+}
+
+async function maybeCaptureMcpError(services: AppServices, request: JsonRpcRequest, error: unknown): Promise<void> {
+  const appError = toAppError(error);
+  if (!shouldAutoCapture(services, appError)) {
+    return;
+  }
+
+  try {
+    const args = readToolArguments(request);
+    await services.errorLogs.recordLog({
+      project: readString(args.project),
+      category: categoryForAppError(appError, request),
+      severity: appError.status >= 500 ? 'error' : 'warning',
+      title: `MCP ${request.method}${readToolName(request) ? ` ${readToolName(request)}` : ''} failed`,
+      summary: `${appError.code}: ${appError.message}`,
+      message: appError.message,
+      stack: appError.stack,
+      toolName: readToolName(request),
+      operation: request.method,
+      cwd: readString(args.cwd),
+      files: readStringArray(args.files),
+      symbols: readStringArray(args.symbols),
+      errors: readStringArray(args.errors),
+      agentTool: 'mcp',
+      sessionId: readString(args.sessionId),
+      contextPackId: readString(args.contextPackId),
+      metadata: {
+        surface: 'mcp',
+        code: appError.code,
+        status: appError.status,
+        method: request.method,
+        requestId: request.id,
+      },
+    });
+  } catch (captureError) {
+    console.error('[error-log]', captureError instanceof Error ? captureError.message : String(captureError));
+  }
+}
+
+function shouldAutoCapture(services: AppServices, error: AppError): boolean {
+  if (!services.config.errorLogAutoCapture) {
+    return false;
+  }
+
+  return services.config.errorLogCaptureClientErrors || error.status >= 500;
+}
+
+function categoryForAppError(error: AppError, request: JsonRpcRequest) {
+  const toolName = readToolName(request);
+  if (toolName?.includes('retrieval') || toolName?.includes('context')) {
+    return 'retrieval';
+  }
+  if (toolName?.includes('reflect')) {
+    return 'reflection';
+  }
+  if (toolName?.includes('session')) {
+    return 'agent_session';
+  }
+  switch (error.code) {
+    case 'cache_error':
+      return 'cache';
+    case 'model_provider_error':
+      return 'model_provider';
+    case 'store_error':
+      return 'database';
+    default:
+      return 'mcp';
+  }
+}
+
+function readToolName(request: JsonRpcRequest): string | undefined {
+  if (request.method !== 'tools/call') {
+    return undefined;
+  }
+  const params = request.params;
+  return typeof params?.name === 'string' ? params.name : undefined;
+}
+
+function readToolArguments(request: JsonRpcRequest): Record<string, unknown> {
+  if (request.method !== 'tools/call') {
+    return {};
+  }
+  const args = request.params?.arguments;
+  return args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : {};
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 }
 
 function toolJson(value: unknown) {

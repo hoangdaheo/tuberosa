@@ -9,6 +9,7 @@ import { AgentSessionService } from '../src/agent-session/service.js';
 import type { AppServices } from '../src/app.js';
 import { MemoryCache } from '../src/cache.js';
 import type { AppConfig } from '../src/config.js';
+import { ErrorLogService } from '../src/error-log/service.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
@@ -38,6 +39,10 @@ const config: AppConfig = {
   backupRetentionMaxAgeDays: 30,
   backupWriteThrough: false,
   backupWriteThroughThrottleSeconds: 600,
+  errorLogDir: ".tuberosa/test-error-logs",
+  errorLogMaxBytes: 256 * 1024,
+  errorLogAutoCapture: true,
+  errorLogCaptureClientErrors: false,
 };
 
 test('operations API reviews, updates, imports, and lists audit records', async () => {
@@ -194,6 +199,47 @@ test('operations API reviews, updates, imports, and lists audit records', async 
   }
 });
 
+test('operations API records, lists, reads, and updates physical error logs', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const errorLogDir = await mkdtemp(join(tmpdir(), 'tuberosa-error-logs-'));
+  const services = createTestServices(backupDir, errorLogDir);
+
+  try {
+    const created = await post(services, '/operations/error-logs', {
+      project: 'operations-review',
+      category: 'agent_tool',
+      severity: 'error',
+      title: 'Test command failed',
+      message: 'node --test failed with token=super-secret-token-value-12345',
+      command: 'pnpm test',
+      tags: ['tests'],
+      references: [{ type: 'file', uri: 'test/operations.test.ts' }],
+    }) as Record<string, unknown>;
+
+    ok(created.id);
+    equal(String(created.message).includes('super-secret-token-value-12345'), false);
+
+    const listed = await get(services, '/operations/error-logs?project=operations-review&status=open&limit=5') as Array<Record<string, unknown>>;
+    equal(listed.length, 1);
+    equal(listed[0].id, created.id);
+
+    const fetched = await get(services, `/operations/error-logs/${created.id}`) as Record<string, unknown>;
+    equal(fetched.title, 'Test command failed');
+
+    const patched = await patch(services, `/operations/error-logs/${created.id}`, {
+      status: 'fixed',
+      reflectionDraftId: 'draft-1',
+      notes: 'Fixed in the operations boundary.',
+    }) as Record<string, unknown>;
+    equal(patched.status, 'fixed');
+    equal(patched.reflectionDraftId, 'draft-1');
+  } finally {
+    await services.close();
+    await rm(backupDir, { recursive: true, force: true });
+    await rm(errorLogDir, { recursive: true, force: true });
+  }
+});
+
 test('operations API creates and restores portable JSONL backups', async () => {
   const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
   const services = createTestServices(backupDir);
@@ -314,7 +360,10 @@ test('backup verification blocks corrupt restore and retention keeps latest vali
   }
 });
 
-function createTestServices(backupDir = '.tuberosa/test-backups'): AppServices {
+function createTestServices(
+  backupDir = '.tuberosa/test-backups',
+  errorLogDir = '.tuberosa/test-error-logs',
+): AppServices {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
@@ -323,6 +372,7 @@ function createTestServices(backupDir = '.tuberosa/test-backups'): AppServices {
   const reflection = new ReflectionService(store, ingestion);
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
   const operations = new OperationsService(store, ingestion, { backupDir, storeKind: 'memory' });
+  const errorLogs = new ErrorLogService({ rootDir: errorLogDir });
 
   return {
     config: { ...config, backupDir },
@@ -334,6 +384,7 @@ function createTestServices(backupDir = '.tuberosa/test-backups'): AppServices {
     reflection,
     agentSessions,
     operations,
+    errorLogs,
     safety: {} as AppServices['safety'],
     async close() {
       await Promise.allSettled([cache.close(), store.close()]);

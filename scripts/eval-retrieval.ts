@@ -42,6 +42,10 @@ const defaultConfig: AppConfig = {
   backupRetentionMaxAgeDays: 30,
   backupWriteThrough: false,
   backupWriteThroughThrottleSeconds: 600,
+  errorLogDir: ".tuberosa/test-error-logs",
+  errorLogMaxBytes: 256 * 1024,
+  errorLogAutoCapture: true,
+  errorLogCaptureClientErrors: false,
 };
 
 async function main(): Promise<void> {

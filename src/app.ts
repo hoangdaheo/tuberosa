@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { AgentSessionService } from './agent-session/service.js';
 import { createCache, type Cache } from './cache.js';
 import { loadConfig, type AppConfig } from './config.js';
+import { ErrorLogService } from './error-log/service.js';
 import { IngestionService } from './ingest/service.js';
 import { createModelProvider, type ModelProvider } from './model/provider.js';
 import { OperationsService } from './operations/service.js';
@@ -18,6 +19,7 @@ export interface AppServices {
   store: KnowledgeStore;
   models: ModelProvider;
   safety: KnowledgeSafetyService;
+  errorLogs: ErrorLogService;
   ingestion: IngestionService;
   retrieval: RetrievalService;
   reflection: ReflectionService;
@@ -38,6 +40,11 @@ export async function createAppServices(): Promise<AppServices> {
   const cache = await createCache(config);
   const models = createModelProvider(config);
   const safety = new KnowledgeSafetyService();
+  const errorLogs = new ErrorLogService({
+    rootDir: config.errorLogDir,
+    maxBytes: config.errorLogMaxBytes,
+    safety,
+  });
   const ingestion = new IngestionService(store, models, {
     safety,
     maxContentBytes: config.maxIngestContentBytes,
@@ -73,6 +80,7 @@ export async function createAppServices(): Promise<AppServices> {
     store,
     models,
     safety,
+    errorLogs,
     ingestion,
     retrieval,
     reflection,

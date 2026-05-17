@@ -621,6 +621,109 @@ export interface FinishAgentSessionInput {
   reflectionDraft?: ReflectionDraftInput;
 }
 
+export type ErrorLogCategory =
+  | 'mcp'
+  | 'http'
+  | 'cli'
+  | 'database'
+  | 'cache'
+  | 'model_provider'
+  | 'retrieval'
+  | 'ingestion'
+  | 'reflection'
+  | 'agent_session'
+  | 'agent_tool'
+  | 'test'
+  | 'unknown';
+
+export type ErrorLogSeverity =
+  | 'debug'
+  | 'info'
+  | 'notice'
+  | 'warning'
+  | 'error'
+  | 'critical'
+  | 'alert'
+  | 'emergency';
+
+export type ErrorLogStatus = 'open' | 'triaged' | 'fixed' | 'wont_fix' | 'archived';
+
+export interface ErrorLogInput {
+  project?: string;
+  category?: ErrorLogCategory;
+  severity?: ErrorLogSeverity;
+  status?: ErrorLogStatus;
+  title: string;
+  summary?: string;
+  message?: string;
+  stack?: string;
+  toolName?: string;
+  operation?: string;
+  command?: string;
+  cwd?: string;
+  files?: string[];
+  symbols?: string[];
+  errors?: string[];
+  tags?: string[];
+  agentName?: string;
+  agentTool?: string;
+  sessionId?: string;
+  contextPackId?: string;
+  reflectionDraftId?: string;
+  references?: ReferenceInput[];
+  metadata?: Record<string, unknown>;
+  fingerprint?: string;
+}
+
+export interface ErrorLog extends ErrorLogInput {
+  id: string;
+  category: ErrorLogCategory;
+  severity: ErrorLogSeverity;
+  status: ErrorLogStatus;
+  summary: string;
+  message: string;
+  files: string[];
+  symbols: string[];
+  errors: string[];
+  tags: string[];
+  references: ReferenceInput[];
+  metadata: Record<string, unknown>;
+  fingerprint: string;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt?: string;
+  resolvedAt?: string;
+  safety: {
+    redactionCount: number;
+    checkedAt: string;
+  };
+  truncated: boolean;
+}
+
+export interface ErrorLogPatchInput {
+  status?: ErrorLogStatus;
+  category?: ErrorLogCategory;
+  severity?: ErrorLogSeverity;
+  summary?: string;
+  notes?: string;
+  tags?: string[];
+  references?: ReferenceInput[];
+  reflectionDraftId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListErrorLogsOptions {
+  project?: string;
+  category?: ErrorLogCategory;
+  severity?: ErrorLogSeverity;
+  status?: ErrorLogStatus;
+  query?: string;
+  tag?: string;
+  limit: number;
+}
+
 export interface AgentSessionStartResult {
   session: AgentSession;
   contextPack: ContextPack;

@@ -23,6 +23,10 @@ export interface AppConfig {
   backupRetentionMaxAgeDays: number;
   backupWriteThrough: boolean;
   backupWriteThroughThrottleSeconds: number;
+  errorLogDir: string;
+  errorLogMaxBytes: number;
+  errorLogAutoCapture: boolean;
+  errorLogCaptureClientErrors: boolean;
 }
 
 export function loadConfig(): AppConfig {
@@ -51,6 +55,10 @@ export function loadConfig(): AppConfig {
     backupRetentionMaxAgeDays: Number(process.env.TUBEROSA_BACKUP_RETENTION_MAX_AGE_DAYS ?? 30),
     backupWriteThrough: readBoolean(process.env.TUBEROSA_BACKUP_WRITE_THROUGH, false),
     backupWriteThroughThrottleSeconds: Number(process.env.TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS ?? 10 * 60),
+    errorLogDir: process.env.TUBEROSA_ERROR_LOG_DIR ?? '.tuberosa/error-logs',
+    errorLogMaxBytes: Number(process.env.TUBEROSA_ERROR_LOG_MAX_BYTES ?? 256 * 1024),
+    errorLogAutoCapture: readBoolean(process.env.TUBEROSA_ERROR_LOG_AUTO_CAPTURE, true),
+    errorLogCaptureClientErrors: readBoolean(process.env.TUBEROSA_ERROR_LOG_CAPTURE_CLIENT_ERRORS, false),
   };
 }
 
