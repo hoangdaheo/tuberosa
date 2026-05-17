@@ -28,6 +28,7 @@ const defaultConfig: AppConfig = {
   redisUrl: '',
   store: 'memory',
   cache: 'memory',
+  autoMigrate: false,
   modelProvider: 'hash',
   embeddingDimensions: 1536,
   openAiEmbeddingModel: 'text-embedding-3-small',

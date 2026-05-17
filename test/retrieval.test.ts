@@ -26,6 +26,7 @@ const config: AppConfig = {
   redisUrl: '',
   store: 'memory',
   cache: 'memory',
+  autoMigrate: false,
   modelProvider: 'hash',
   embeddingDimensions: 1536,
   openAiEmbeddingModel: 'text-embedding-3-small',
@@ -839,7 +840,41 @@ test('reflection drafts are reviewable and approval creates searchable memory', 
     triggerType: 'user_correction',
   });
 
-  await reflection.approveDraft(draft.id);
+  const needsChanges = await reflection.reviewDraft({
+    id: draft.id,
+    decision: 'needs_changes',
+    reviewer: 'node-test',
+    reviewerNote: 'Narrow the lesson before approval.',
+    evaluation: {
+      accuracy: 'pass',
+      usefulness: 'concern',
+      scope: 'concern',
+      privacySafety: 'pass',
+      labels: 'pass',
+      references: 'pass',
+      duplicateRisk: 'low',
+    },
+  });
+
+  equal(needsChanges?.status, 'needs_changes');
+  equal((needsChanges?.metadata.review as Record<string, unknown>).decision, 'needs_changes');
+  equal(((needsChanges?.metadata.review as Record<string, unknown>).evaluation as Record<string, unknown>).scope, 'concern');
+
+  await reflection.reviewDraft({
+    id: draft.id,
+    decision: 'approve',
+    reviewer: 'node-test',
+    reviewerNote: 'Ready after review.',
+    evaluation: {
+      accuracy: 'pass',
+      usefulness: 'pass',
+      scope: 'pass',
+      privacySafety: 'pass',
+      labels: 'pass',
+      references: 'pass',
+      duplicateRisk: 'low',
+    },
+  });
   const pack = await retrieval.searchContext({
     project: 'agent-memory',
     prompt: 'How should reflection memories be saved?',
@@ -848,6 +883,7 @@ test('reflection drafts are reviewable and approval creates searchable memory', 
   equal(pack.sections[0].items[0].itemType, 'memory');
   equal(pack.sections[0].items[0].metadata?.taxonomy, 'workflow');
   equal((pack.sections[0].items[0].metadata?.provenance as Record<string, unknown>).agentSessionId, 'session-1');
+  equal((pack.sections[0].items[0].metadata?.review as Record<string, unknown>).decision, 'approve');
   equal(pack.sections[0].items[0].references.some((reference) => reference.uri === 'docs/reflection.md'), true);
 });
 

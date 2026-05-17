@@ -1,13 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import test from 'node:test';
-import { equal, ok, rejects } from 'node:assert/strict';
+import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
 import type { AppServices } from '../src/app.js';
 import type { AppConfig } from '../src/config.js';
 import { appErrorToJsonRpcError, ValidationError } from '../src/errors.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { handleMcpRequest } from '../src/mcp/server.js';
-import type { ContextPack } from '../src/types.js';
+import type { ContextPack, ReflectionDraft } from '../src/types.js';
 
 const config: AppConfig = {
   env: 'test',
@@ -16,6 +16,7 @@ const config: AppConfig = {
   redisUrl: '',
   store: 'memory',
   cache: 'memory',
+  autoMigrate: false,
   modelProvider: 'hash',
   embeddingDimensions: 1536,
   openAiEmbeddingModel: 'text-embedding-3-small',
@@ -95,6 +96,106 @@ test('valid MCP tool calls are validated then dispatched', async () => {
   equal(result.structuredContent?.sections?.[0]?.items[0]?.fitReasons?.[0], 'project:agent-memory');
 });
 
+test('MCP reflection review tools list, inspect, and record decisions', async () => {
+  const draft = sampleDraft();
+  const services = fakeServices({
+    operations: {
+      listReflectionDrafts: async (options: { project?: string; status?: string; limit: number }) => {
+        equal(options.project, 'agent-memory');
+        equal(options.status, 'pending');
+        equal(options.limit, 5);
+        return [draft];
+      },
+      getReflectionDraft: async (id: string) => {
+        equal(id, draft.id);
+        return draft;
+      },
+      requestWriteThroughBackup: () => undefined,
+    },
+    reflection: {
+      createDraft: async () => {
+        throw new Error('Unexpected reflection create call.');
+      },
+      approveDraft: async () => undefined,
+      reviewDraft: async (input: {
+        id: string;
+        decision: string;
+        reviewerNote?: string;
+        evaluation?: Record<string, unknown>;
+      }) => {
+        equal(input.id, draft.id);
+        equal(input.decision, 'needs_changes');
+        equal(input.reviewerNote, 'Needs a narrower scope.');
+        deepEqual(input.evaluation, {
+          accuracy: 'pass',
+          usefulness: 'concern',
+          duplicateRisk: 'low',
+        });
+
+        return {
+          ...draft,
+          status: 'needs_changes',
+          metadata: {
+            ...draft.metadata,
+            review: {
+              decision: input.decision,
+              evaluation: input.evaluation,
+            },
+          },
+        };
+      },
+    },
+  });
+
+  const listed = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_list_reflection_drafts',
+      arguments: {
+        project: 'agent-memory',
+        limit: 5,
+      },
+    },
+  }) as { structuredContent?: { drafts?: ReflectionDraft[] } };
+
+  equal(listed.structuredContent?.drafts?.[0]?.id, draft.id);
+
+  const fetched = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_get_reflection_draft',
+      arguments: { reflectionDraftId: draft.id },
+    },
+  }) as { structuredContent?: { draft?: ReflectionDraft } };
+
+  equal(fetched.structuredContent?.draft?.title, draft.title);
+
+  const reviewed = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_review_reflection_draft',
+      arguments: {
+        id: draft.id,
+        decision: 'needs_changes',
+        reviewerNote: 'Needs a narrower scope.',
+        evaluation: {
+          accuracy: 'pass',
+          usefulness: 'concern',
+          duplicateRisk: 'low',
+        },
+      },
+    },
+  }) as {
+    structuredContent?: {
+      draft?: ReflectionDraft;
+      instruction?: string;
+    };
+  };
+
+  equal(reviewed.structuredContent?.draft?.status, 'needs_changes');
+  equal(reviewed.structuredContent?.instruction, 'Draft marked as needing changes. Revise or recreate it before approval.');
+});
+
 test('malformed MCP tool inputs map to JSON-RPC invalid params errors', async () => {
   await rejects(
     () => handleMcpRequest(fakeServices(), {
@@ -143,6 +244,7 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
         throw new Error('Unexpected reflection call.');
       },
       approveDraft: async () => undefined,
+      reviewDraft: async () => undefined,
     },
     agentSessions: {
       startSession: async () => ({
@@ -173,12 +275,35 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
       listKnowledge: async () => [],
       getKnowledge: async () => undefined,
     },
+    operations: {
+      listReflectionDrafts: async () => [],
+      getReflectionDraft: async () => undefined,
+      requestWriteThroughBackup: () => undefined,
+    },
     cache: {},
     models: {},
     safety: {},
     close: async () => {},
     ...overrides,
   } as unknown as AppServices;
+}
+
+function sampleDraft(): ReflectionDraft {
+  return {
+    id: 'draft-1',
+    project: 'agent-memory',
+    title: 'Review pending memory',
+    summary: 'Pending memories need review before retrieval.',
+    content: 'Reflection drafts should be checked for accuracy, usefulness, scope, labels, references, privacy, and duplicates.',
+    itemType: 'memory',
+    triggerType: 'manual',
+    status: 'pending',
+    suggestedLabels: [{ type: 'project', value: 'agent-memory', weight: 1 }],
+    references: [{ type: 'file', uri: 'docs/reflection.md' }],
+    metadata: { taxonomy: 'workflow' },
+    duplicateCandidates: [],
+    createdAt: new Date().toISOString(),
+  };
 }
 
 async function dispatchHttp(

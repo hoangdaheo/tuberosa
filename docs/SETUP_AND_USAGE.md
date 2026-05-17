@@ -75,6 +75,7 @@ Important variables:
 | `REDIS_URL` | `redis://localhost:6379` | Local Redis connection. |
 | `TUBEROSA_STORE` | `postgres` | `postgres` or `memory`. |
 | `TUBEROSA_CACHE` | `redis` | `redis`, `memory`, or `none`. |
+| `TUBEROSA_AUTO_MIGRATE` | `true` | Run idempotent Postgres migrations during service startup. Keep this enabled for MCP stdio so agents do not start against stale local schema. |
 | `TUBEROSA_MODEL_PROVIDER` | `hash` | `hash` or `openai`. |
 | `OPENAI_API_KEY` | empty | Enables OpenAI embeddings when provider is `openai`. |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model. |
@@ -122,7 +123,7 @@ Expected response:
 }
 ```
 
-This starts Postgres, Redis, the HTTP API, and the worker. The app container runs migrations before the HTTP server starts. The MCP stdio server does not need its own port; Codex starts it as a local child process, uses the same Postgres store, and defaults to memory cache unless `TUBEROSA_CACHE` is explicitly set.
+This starts Postgres, Redis, the HTTP API, and the worker. The app container runs migrations before the HTTP server starts, and Postgres-backed service startup also runs the same idempotent migration preflight by default. The MCP stdio server does not need its own port; Codex starts it as a local child process, uses the same Postgres store, runs the migration preflight, and defaults to memory cache unless `TUBEROSA_CACHE` is explicitly set.
 
 ### 5.2 Add the MCP server to Codex
 
@@ -933,9 +934,21 @@ docker compose logs --no-color app worker
 docker compose up --build -d
 ```
 
+### MCP reports missing Postgres relations
+
+Errors such as `relation "agent_sessions" does not exist` or `relation "knowledge_relations" does not exist` mean the local Postgres schema is stale. Keep `TUBEROSA_AUTO_MIGRATE=true` for MCP stdio and other local service entry points, or run:
+
+```bash
+pnpm run migrate
+```
+
 ### `curl localhost:3027` fails in a sandbox
 
 Local networking may require explicit approval in sandboxed environments. Run the server and smoke tests from an environment allowed to bind and access local ports.
+
+### Local Postgres returns `connect EPERM`
+
+In sandboxed agent environments, `connect EPERM 127.0.0.1:5432` is usually a sandbox permission failure, not a Tuberosa schema or storage bug. Re-run the specific Postgres-backed command with the environment's local-network escalation/approval path.
 
 ### OpenAI embeddings fail
 

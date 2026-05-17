@@ -8,6 +8,7 @@ import type {
   ReferenceInput,
   ReflectionDraft,
   ReflectionDraftInput,
+  ReflectionDraftReviewInput,
 } from '../types.js';
 
 export class ReflectionService {
@@ -79,6 +80,24 @@ export class ReflectionService {
 
     return draft;
   }
+
+  async reviewDraft(input: ReflectionDraftReviewInput) {
+    const metadata = reflectionReviewMetadata(input);
+
+    if (input.decision === 'approve') {
+      const patched = await this.store.updateReflectionDraft(input.id, { metadata });
+      if (!patched) {
+        return undefined;
+      }
+
+      return this.approveDraft(input.id);
+    }
+
+    return this.store.updateReflectionDraft(input.id, {
+      status: input.decision === 'reject' ? 'rejected' : 'needs_changes',
+      metadata,
+    });
+  }
 }
 
 function reflectionDraftMetadata(
@@ -122,6 +141,19 @@ function approvedReflectionReferences(draft: ReflectionDraft): ReferenceInput[] 
     { type: 'conversation', uri: `reflection://draft/${draft.id}` },
     ...draft.references,
   ]);
+}
+
+function reflectionReviewMetadata(input: ReflectionDraftReviewInput): Record<string, unknown> {
+  return compactRecord({
+    ...input.metadata,
+    review: compactRecord({
+      decision: input.decision,
+      reviewedAt: new Date().toISOString(),
+      reviewer: input.reviewer,
+      reviewerNote: input.reviewerNote,
+      evaluation: input.evaluation ? compactRecord(input.evaluation) : undefined,
+    }),
+  });
 }
 
 function normalizeTaxonomy(
@@ -188,6 +220,12 @@ function uniqueReferences(references: ReferenceInput[]): ReferenceInput[] {
     seen.add(key);
     return true;
   });
+}
+
+function compactRecord(record: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined),
+  );
 }
 
 function validateDraft(input: ReflectionDraftInput): void {

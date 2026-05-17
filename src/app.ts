@@ -1,3 +1,4 @@
+import { Pool } from 'pg';
 import { AgentSessionService } from './agent-session/service.js';
 import { createCache, type Cache } from './cache.js';
 import { loadConfig, type AppConfig } from './config.js';
@@ -8,6 +9,7 @@ import { ReflectionService } from './reflection/service.js';
 import { RetrievalService } from './retrieval/service.js';
 import { KnowledgeSafetyService } from './security/knowledge-safety.js';
 import { createKnowledgeStore } from './storage/factory.js';
+import { runMigrations } from './storage/migrations.js';
 import type { KnowledgeStore } from './storage/store.js';
 
 export interface AppServices {
@@ -31,6 +33,7 @@ export async function createAppServices(): Promise<AppServices> {
   if (config.store === 'memory' && config.env !== 'test') {
     console.error('Tuberosa is running with TUBEROSA_STORE=memory. Knowledge is ephemeral and will disappear when this process exits.');
   }
+  await migrateStoreIfNeeded(config);
   const store = createKnowledgeStore(config);
   const cache = await createCache(config);
   const models = createModelProvider(config);
@@ -79,4 +82,23 @@ export async function createAppServices(): Promise<AppServices> {
       await Promise.allSettled([operations.close(), cache.close(), store.close()]);
     },
   };
+}
+
+async function migrateStoreIfNeeded(config: AppConfig): Promise<void> {
+  if (config.store !== 'postgres' || !config.autoMigrate) {
+    return;
+  }
+
+  const pool = new Pool({ connectionString: config.databaseUrl });
+  try {
+    await runMigrations(pool, {
+      onApplied: (file) => {
+        if (config.env !== 'test') {
+          console.error(`Applied database migration ${file}`);
+        }
+      },
+    });
+  } finally {
+    await pool.end();
+  }
 }

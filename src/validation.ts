@@ -22,6 +22,8 @@ import type {
   ReferenceInput,
   ReflectionDraftInput,
   ReflectionDraftPatchInput,
+  ReflectionDraftReviewInput,
+  ReflectionDraftStatus,
   RestoreBackupInput,
   StartAgentSessionInput,
   TaskType,
@@ -118,7 +120,15 @@ const KNOWLEDGE_REVIEW_FILTERS = [
   'irrelevant',
   'orphaned',
 ] as const satisfies readonly KnowledgeReviewFilter[];
-const REFLECTION_DRAFT_STATUSES = ['pending', 'approved', 'rejected'] as const;
+const REFLECTION_DRAFT_STATUSES = [
+  'pending',
+  'approved',
+  'rejected',
+  'needs_changes',
+] as const satisfies readonly ReflectionDraftStatus[];
+const REFLECTION_REVIEW_DECISIONS = ['approve', 'reject', 'needs_changes'] as const;
+const REFLECTION_REVIEW_GRADES = ['pass', 'concern', 'fail'] as const;
+const REFLECTION_DUPLICATE_RISKS = ['low', 'medium', 'high'] as const;
 
 export function validateKnowledgeInput(value: unknown): KnowledgeInput {
   const record = expectObject(value, 'knowledge input');
@@ -306,6 +316,42 @@ export function validateReflectionDraftPatchInput(value: unknown): ReflectionDra
   };
 }
 
+export function validateReflectionDraftIdArguments(value: unknown): { id: string } {
+  const record = expectObject(value, 'reflection draft arguments');
+  return {
+    id: readRequiredStringWithAliases(record, ['id', 'reflectionDraftId'], 'reflection draft arguments'),
+  };
+}
+
+export function validateReflectionDraftListInput(value: unknown): {
+  project?: string;
+  status?: ReflectionDraftStatus;
+  limit: number;
+} {
+  const record = expectObject(value, 'reflection draft list input');
+  const limit = readOptionalPositiveInteger(record, 'limit', 'reflection draft list input') ?? 25;
+
+  return {
+    project: readOptionalString(record, 'project', 'reflection draft list input'),
+    status: readOptionalEnum(record, 'status', REFLECTION_DRAFT_STATUSES, 'reflection draft list input') ?? 'pending',
+    limit: Math.min(limit, 100),
+  };
+}
+
+export function validateReflectionDraftReviewInput(value: unknown): ReflectionDraftReviewInput {
+  const record = expectObject(value, 'reflection draft review input');
+  const evaluation = readOptionalReviewEvaluation(record.evaluation);
+
+  return {
+    id: readRequiredStringWithAliases(record, ['id', 'reflectionDraftId'], 'reflection draft review input'),
+    decision: readRequiredEnum(record, 'decision', REFLECTION_REVIEW_DECISIONS, 'reflection draft review input'),
+    reviewer: readOptionalString(record, 'reviewer', 'reflection draft review input'),
+    reviewerNote: readOptionalString(record, 'reviewerNote', 'reflection draft review input'),
+    evaluation,
+    metadata: readOptionalObject(record, 'metadata', 'reflection draft review input'),
+  };
+}
+
 export function validateCleanupOperationsInput(value: unknown): CleanupOperationsInput {
   const record = expectObject(value, 'cleanup input');
 
@@ -441,6 +487,33 @@ function readOptionalReferences(value: unknown, path: string): ReferenceInput[] 
       metadata: readOptionalObject(record, 'metadata', itemPath),
     };
   });
+}
+
+function readOptionalReviewEvaluation(value: unknown): ReflectionDraftReviewInput['evaluation'] {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const record = expectObject(value, 'reflection draft review input.evaluation');
+  return compactObject({
+    accuracy: readOptionalEnum(record, 'accuracy', REFLECTION_REVIEW_GRADES, 'reflection draft review input.evaluation'),
+    usefulness: readOptionalEnum(record, 'usefulness', REFLECTION_REVIEW_GRADES, 'reflection draft review input.evaluation'),
+    scope: readOptionalEnum(record, 'scope', REFLECTION_REVIEW_GRADES, 'reflection draft review input.evaluation'),
+    privacySafety: readOptionalEnum(
+      record,
+      'privacySafety',
+      REFLECTION_REVIEW_GRADES,
+      'reflection draft review input.evaluation',
+    ),
+    labels: readOptionalEnum(record, 'labels', REFLECTION_REVIEW_GRADES, 'reflection draft review input.evaluation'),
+    references: readOptionalEnum(record, 'references', REFLECTION_REVIEW_GRADES, 'reflection draft review input.evaluation'),
+    duplicateRisk: readOptionalEnum(
+      record,
+      'duplicateRisk',
+      REFLECTION_DUPLICATE_RISKS,
+      'reflection draft review input.evaluation',
+    ),
+  }) as ReflectionDraftReviewInput['evaluation'];
 }
 
 function readRequiredString(record: Record<string, unknown>, key: string, path: string): string {
@@ -615,6 +688,12 @@ function expectObject(value: unknown, path: string): Record<string, unknown> {
   }
 
   return value as Record<string, unknown>;
+}
+
+function compactObject(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined),
+  );
 }
 
 function ensureRelationTarget(targetKnowledgeId: string | undefined, targetValue: string | undefined, path: string): void {

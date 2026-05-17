@@ -6,6 +6,7 @@ export interface AppConfig {
   apiKey?: string;
   store: 'postgres' | 'memory';
   cache: 'redis' | 'memory' | 'none';
+  autoMigrate: boolean;
   modelProvider: 'hash' | 'openai';
   embeddingDimensions: number;
   openAiApiKey?: string;
@@ -33,6 +34,7 @@ export function loadConfig(): AppConfig {
     apiKey: process.env.TUBEROSA_API_KEY || undefined,
     store: readEnum(process.env.TUBEROSA_STORE, ['postgres', 'memory'], 'postgres'),
     cache: readEnum(process.env.TUBEROSA_CACHE, ['redis', 'memory', 'none'], 'redis'),
+    autoMigrate: readBoolean(process.env.TUBEROSA_AUTO_MIGRATE, true),
     modelProvider: readEnum(process.env.TUBEROSA_MODEL_PROVIDER, ['hash', 'openai'], process.env.OPENAI_API_KEY ? 'openai' : 'hash'),
     embeddingDimensions: Number(process.env.EMBEDDING_DIMENSIONS ?? 1536),
     openAiApiKey: process.env.OPENAI_API_KEY || undefined,

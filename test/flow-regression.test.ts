@@ -23,6 +23,7 @@ const config: AppConfig = {
   redisUrl: '',
   store: 'memory',
   cache: 'memory',
+  autoMigrate: false,
   modelProvider: 'hash',
   embeddingDimensions: 1536,
   openAiEmbeddingModel: 'text-embedding-3-small',
@@ -223,7 +224,7 @@ test('FLOW_LOGIC functional smoke sequence works across HTTP and MCP surfaces', 
     const prompts = await handleMcpRequest(services, { method: 'prompts/list' }) as { prompts: Array<{ name: string }> };
     deepEqual(
       prompts.prompts.map((prompt) => prompt.name).sort(),
-      ['tuberosa_bootstrap_session', 'tuberosa_reflect_after_task'],
+      ['tuberosa_bootstrap_session', 'tuberosa_reflect_after_task', 'tuberosa_review_pending_reflections'],
     );
   } finally {
     await services.close();

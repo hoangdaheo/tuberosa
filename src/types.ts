@@ -325,6 +325,8 @@ export interface ReflectionDraftInput {
   metadata?: Record<string, unknown>;
 }
 
+export type ReflectionDraftStatus = 'pending' | 'approved' | 'rejected' | 'needs_changes';
+
 export interface ReflectionDraft {
   id: string;
   project?: string;
@@ -333,7 +335,7 @@ export interface ReflectionDraft {
   content: string;
   itemType: KnowledgeItemType;
   triggerType: TriggerType;
-  status: 'pending' | 'approved' | 'rejected';
+  status: ReflectionDraftStatus;
   suggestedLabels: LabelInput[];
   references: ReferenceInput[];
   metadata: Record<string, unknown>;
@@ -343,6 +345,31 @@ export interface ReflectionDraft {
 
 export interface ReflectionDraftPatchInput {
   status?: ReflectionDraft['status'];
+  metadata?: Record<string, unknown>;
+}
+
+export type ReflectionDraftReviewDecision = 'approve' | 'reject' | 'needs_changes';
+
+export type ReflectionDraftReviewGrade = 'pass' | 'concern' | 'fail';
+
+export type ReflectionDraftDuplicateRisk = 'low' | 'medium' | 'high';
+
+export interface ReflectionDraftReviewEvaluation {
+  accuracy?: ReflectionDraftReviewGrade;
+  usefulness?: ReflectionDraftReviewGrade;
+  scope?: ReflectionDraftReviewGrade;
+  privacySafety?: ReflectionDraftReviewGrade;
+  labels?: ReflectionDraftReviewGrade;
+  references?: ReflectionDraftReviewGrade;
+  duplicateRisk?: ReflectionDraftDuplicateRisk;
+}
+
+export interface ReflectionDraftReviewInput {
+  id: string;
+  decision: ReflectionDraftReviewDecision;
+  reviewer?: string;
+  reviewerNote?: string;
+  evaluation?: ReflectionDraftReviewEvaluation;
   metadata?: Record<string, unknown>;
 }
 

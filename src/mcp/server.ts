@@ -8,8 +8,11 @@ import {
   validateFeedbackInput,
   validateFinishAgentSessionInput,
   validateRecordAgentContextDecisionInput,
+  validateReflectionDraftIdArguments,
   validateReflectionDraftInput,
+  validateReflectionDraftListInput,
   validateStartAgentSessionInput,
+  validateReflectionDraftReviewInput,
 } from '../validation.js';
 
 interface JsonRpcRequest {
@@ -111,6 +114,42 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       });
     }
 
+    case 'tuberosa_list_reflection_drafts': {
+      const drafts = await services.operations.listReflectionDrafts(validateReflectionDraftListInput(args));
+      return toolJson({
+        drafts,
+        instruction: drafts.length > 0
+          ? 'Review a draft with tuberosa_get_reflection_draft, then call tuberosa_review_reflection_draft with approve, reject, or needs_changes.'
+          : 'No matching reflection drafts found.',
+      });
+    }
+
+    case 'tuberosa_get_reflection_draft': {
+      const { id } = validateReflectionDraftIdArguments(args);
+      const draft = await services.operations.getReflectionDraft(id);
+      if (!draft) {
+        throw new NotFoundError(`Reflection draft not found: ${id}`);
+      }
+
+      return toolJson({
+        draft,
+        instruction: 'Evaluate accuracy, usefulness, scope, privacySafety, labels, references, and duplicateRisk before recording a decision.',
+      });
+    }
+
+    case 'tuberosa_review_reflection_draft': {
+      const draft = await services.reflection.reviewDraft(validateReflectionDraftReviewInput(args));
+      if (!draft) {
+        throw new NotFoundError(`Reflection draft not found: ${String(args.id ?? args.reflectionDraftId ?? '')}`);
+      }
+
+      services.operations.requestWriteThroughBackup('reflection-reviewed');
+      return toolJson({
+        draft,
+        instruction: reflectionReviewInstruction(draft.status),
+      });
+    }
+
     case 'tuberosa_feedback_context': {
       return toolJson(await services.retrieval.recordFeedback(validateFeedbackInput(args)));
     }
@@ -183,6 +222,19 @@ function searchInstruction(fitStatus: ContextFitStatus | undefined): string {
   return 'Review the shortlist. Call tuberosa_get_context_pack only after the user or agent confirms this pack is appropriate.';
 }
 
+function reflectionReviewInstruction(status: string): string {
+  switch (status) {
+    case 'approved':
+      return 'Draft approved and ingested as searchable reflection memory.';
+    case 'rejected':
+      return 'Draft rejected and will not become searchable memory.';
+    case 'needs_changes':
+      return 'Draft marked as needing changes. Revise or recreate it before approval.';
+    default:
+      return 'Draft remains pending review.';
+  }
+}
+
 async function readResource(services: AppServices, params: Record<string, unknown>) {
   const uri = String(params.uri ?? '');
 
@@ -246,6 +298,26 @@ function getPrompt(params: Record<string, unknown>) {
               'Use a concise title, a normalized summary, the durable lesson, triggerType, project, labels, and references.',
               'Do not save secrets or raw private conversation that is not needed for future behavior.',
             ].join('\n'),
+          },
+        },
+      ],
+    };
+  }
+
+  if (name === 'tuberosa_review_pending_reflections') {
+    return {
+      description: 'Review pending reflection drafts before they become searchable memory.',
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: [
+              'Call tuberosa_list_reflection_drafts with status pending and the project when known.',
+              'For each draft worth reviewing, call tuberosa_get_reflection_draft and evaluate accuracy, usefulness, scope, privacySafety, labels, references, and duplicateRisk.',
+              'Record the decision with tuberosa_review_reflection_draft using approve, reject, or needs_changes plus a concise reviewerNote.',
+              args.project ? `Project: ${args.project}` : undefined,
+            ].filter(Boolean).join('\n'),
           },
         },
       ],
@@ -382,6 +454,60 @@ function tools() {
       },
     },
     {
+      name: 'tuberosa_list_reflection_drafts',
+      title: 'List Tuberosa Reflection Drafts',
+      description: 'List pending or reviewed reflection drafts for review workflow.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'needs_changes'] },
+          limit: { type: 'number' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_get_reflection_draft',
+      title: 'Get Tuberosa Reflection Draft',
+      description: 'Read one reflection draft and its provenance, duplicate candidates, labels, and references.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          reflectionDraftId: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_review_reflection_draft',
+      title: 'Review Tuberosa Reflection Draft',
+      description: 'Approve, reject, or mark a reflection draft as needing changes with compact rubric metadata.',
+      inputSchema: {
+        type: 'object',
+        required: ['decision'],
+        properties: {
+          id: { type: 'string' },
+          reflectionDraftId: { type: 'string' },
+          decision: { type: 'string', enum: ['approve', 'reject', 'needs_changes'] },
+          reviewer: { type: 'string' },
+          reviewerNote: { type: 'string' },
+          evaluation: {
+            type: 'object',
+            properties: {
+              accuracy: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              usefulness: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              scope: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              privacySafety: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              labels: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              references: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              duplicateRisk: { type: 'string', enum: ['low', 'medium', 'high'] },
+            },
+          },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+    {
       name: 'tuberosa_feedback_context',
       title: 'Record Tuberosa Context Feedback',
       description: 'Record whether a context pack was selected, rejected, stale, irrelevant, or missing important context.',
@@ -416,6 +542,14 @@ function prompts() {
       title: 'Reflect After Task',
       description: 'Draft a normalized learning memory after a useful agent learning event.',
       arguments: [],
+    },
+    {
+      name: 'tuberosa_review_pending_reflections',
+      title: 'Review Pending Reflections',
+      description: 'List, inspect, and record decisions for pending reflection drafts.',
+      arguments: [
+        { name: 'project', description: 'Optional project filter for pending drafts.', required: false },
+      ],
     },
   ];
 }
