@@ -411,6 +411,9 @@ Entry points:
 - HTTP `POST /operations/cleanup`
 - HTTP `POST /operations/backups`
 - HTTP `GET /operations/backups`
+- HTTP `GET /operations/backups/status`
+- HTTP `POST /operations/backups/:id/verify`
+- HTTP `POST /operations/backups/prune`
 - HTTP `POST /operations/backups/:id/restore`
 - CLI `pnpm run import:docs`
 - CLI `pnpm run backup`
@@ -448,12 +451,14 @@ Importer flow:
 Backup flow:
 
 1. `TUBEROSA_BACKUP_DIR` points at the physical backup folder.
-2. `POST /operations/backups` or `pnpm run backup` asks the store for a full export snapshot.
-3. `OperationsService` writes a `manifest.json` plus table-level JSONL files.
+2. `POST /operations/backups`, `pnpm run backup`, or the scheduler asks the store for a full export snapshot.
+3. `OperationsService` writes a `manifest.json` plus table-level JSONL files with per-table SHA-256 checksums, schema version, app version/commit when available, model provider, and embedding dimensions.
 4. Backups include `knowledge_chunks` because chunks and embeddings are the retrieval units that feed agents.
-5. `GET /operations/backups` reads manifests from the backup folder.
-6. Restore dry runs read the manifest and JSONL files, then return table row counts without mutating storage.
-7. Actual restore requires `replace: true` and reloads the known Tuberosa tables from backup data.
+5. `GET /operations/backups` reads manifests from the backup folder, and `GET /operations/backups/status` reports latest backup health, row counts, source store, manifest version, age, and scheduler state.
+6. Verification reads every JSONL file back from disk, checks row counts, validates checksums when present, and requires the retrieval tables needed for search recovery.
+7. Restore dry runs and replace restores run verification and schema/embedding preflight before calling the store.
+8. Actual restore requires `replace: true` and reloads the known Tuberosa tables from backup data.
+9. Scheduled retention prunes only complete, verified backup directories and always keeps the latest backup.
 
 Design rule:
 

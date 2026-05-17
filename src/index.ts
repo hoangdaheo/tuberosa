@@ -5,6 +5,7 @@ const services = await createAppServices();
 const server = createHttpServer(services);
 
 server.listen(services.config.port, () => {
+  services.operations.startScheduledBackups();
   console.log(`Tuberosa HTTP server listening on http://localhost:${services.config.port}`);
 });
 

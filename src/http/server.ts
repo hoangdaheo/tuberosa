@@ -4,6 +4,7 @@ import type { AppServices } from '../app.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
 import {
   validateContextSearchInput,
+  validateBackupRetentionInput,
   validateCleanupOperationsInput,
   validateCreateBackupInput,
   validateFeedbackInput,
@@ -214,7 +215,11 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/ingest/files'),
       handle: async ({ services, request }) => {
         const body = validateIngestFilesRequest(await readJsonBody(request, services.config.maxRequestBytes));
-        return services.ingestion.ingestFiles(body.project, body.files, { mode: body.mode });
+        const result = await services.ingestion.ingestFiles(body.project, body.files, { mode: body.mode });
+        if (body.files.length > 1) {
+          services.operations.requestWriteThroughBackup('bulk-ingest-files');
+        }
+        return result;
       },
     },
     {
@@ -321,6 +326,7 @@ function createRoutes(): HttpRoute[] {
           throw new NotFoundError('Reflection draft not found.');
         }
 
+        services.operations.requestWriteThroughBackup('reflection-approved');
         return draft;
       },
     },
@@ -352,6 +358,24 @@ function createRoutes(): HttpRoute[] {
       method: 'GET',
       match: exactPath('/operations/backups'),
       handle: ({ services }) => services.operations.listBackups(),
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/backups/status'),
+      handle: ({ services }) => services.operations.getBackupStatus(),
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/backups/prune'),
+      handle: async ({ services, request }) => {
+        const body = validateBackupRetentionInput(await readJsonBody(request, services.config.maxRequestBytes));
+        return services.operations.pruneBackups(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/operations\/backups\/([^/]+)\/verify$/, ['id']),
+      handle: ({ services, params }) => services.operations.verifyBackup({ backupIdOrPath: params.id }),
     },
     {
       method: 'POST',

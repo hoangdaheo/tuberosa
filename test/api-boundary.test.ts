@@ -23,6 +23,12 @@ const config: AppConfig = {
   maxRequestBytes: 10 * 1024 * 1024,
   maxIngestContentBytes: 2 * 1024 * 1024,
   backupDir: '.tuberosa/test-backups',
+  backupIntervalSeconds: 0,
+  backupStartupDelaySeconds: 0,
+  backupRetentionCount: 24,
+  backupRetentionMaxAgeDays: 30,
+  backupWriteThrough: false,
+  backupWriteThroughThrottleSeconds: 600,
 };
 
 test('malformed HTTP inputs return structured validation errors', async () => {

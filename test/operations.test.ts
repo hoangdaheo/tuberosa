@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -31,6 +31,12 @@ const config: AppConfig = {
   maxRequestBytes: 10 * 1024 * 1024,
   maxIngestContentBytes: 2 * 1024 * 1024,
   backupDir: '.tuberosa/test-backups',
+  backupIntervalSeconds: 0,
+  backupStartupDelaySeconds: 0,
+  backupRetentionCount: 24,
+  backupRetentionMaxAgeDays: 30,
+  backupWriteThrough: false,
+  backupWriteThroughThrottleSeconds: 600,
 };
 
 test('operations API reviews, updates, imports, and lists audit records', async () => {
@@ -175,6 +181,17 @@ test('operations API creates and restores portable JSONL backups', async () => {
 
     const backups = await get(services, '/operations/backups') as Array<Record<string, unknown>>;
     ok(backups.some((item) => item.id === 'unit-backup'));
+    const listedBackup = backups.find((item) => item.id === 'unit-backup') as Record<string, unknown>;
+    ok((listedBackup.totalRows as number) > 0);
+    ok(Array.isArray(listedBackup.tables));
+
+    const status = await get(services, '/operations/backups/status') as Record<string, unknown>;
+    equal(status.health, 'healthy');
+    equal((status.latestBackup as Record<string, unknown>).id, 'unit-backup');
+
+    const verification = await post(services, '/operations/backups/unit-backup/verify', {}) as Record<string, unknown>;
+    equal(verification.ok, true);
+    equal(verification.health, 'healthy');
 
     await post(services, '/knowledge', {
       project,
@@ -196,6 +213,64 @@ test('operations API creates and restores portable JSONL backups', async () => {
     const items = await get(services, `/knowledge?project=${project}&limit=10`) as Array<Record<string, unknown>>;
     ok(items.some((item) => item.id === stored.id));
     equal(items.some((item) => item.title === 'Backup extra'), false);
+  } finally {
+    await services.close();
+    await rm(backupDir, { recursive: true, force: true });
+  }
+});
+
+test('backup verification blocks corrupt restore and retention keeps latest valid backup', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const services = createTestServices(backupDir);
+
+  try {
+    await post(services, '/knowledge', {
+      project: 'backup-integrity',
+      sourceType: 'manual',
+      sourceUri: 'manual://backup/integrity',
+      itemType: 'wiki',
+      title: 'Backup integrity',
+      summary: 'Integrity note.',
+      content: 'Verification should catch modified backup table files.',
+    });
+
+    await post(services, '/operations/backups', { id: 'backup-a' });
+    await post(services, '/operations/backups', { id: 'backup-b' });
+    const latest = await post(services, '/operations/backups', { id: 'backup-c' }) as Record<string, unknown>;
+    const chunkFile = join(String(latest.path), 'knowledge_chunks.jsonl');
+    const rawChunks = await readFile(chunkFile, 'utf8');
+    await writeFile(chunkFile, `${rawChunks}\n`, 'utf8');
+
+    const verification = await post(services, '/operations/backups/backup-c/verify', {}) as Record<string, unknown>;
+    equal(verification.ok, false);
+    equal(verification.health, 'unhealthy');
+
+    const restoreResponse = await dispatchHttp(services, {
+      method: 'POST',
+      url: '/operations/backups/backup-c/restore',
+      body: { replace: true },
+    });
+    equal(restoreResponse.status, 400);
+
+    const pruneDryRun = await post(services, '/operations/backups/prune', {
+      dryRun: true,
+      keepCount: 1,
+      maxAgeDays: 1,
+    }) as Record<string, unknown>;
+    equal((pruneDryRun.pruned as Array<unknown>).length, 1);
+    equal((pruneDryRun.kept as Array<Record<string, unknown>>).some((backup) => backup.id === 'backup-c'), true);
+    equal((pruneDryRun.kept as Array<Record<string, unknown>>).some((backup) => backup.id === 'backup-b'), true);
+
+    const prune = await post(services, '/operations/backups/prune', {
+      keepCount: 1,
+      maxAgeDays: 1,
+    }) as Record<string, unknown>;
+    equal((prune.pruned as Array<unknown>).length, 1);
+
+    const backups = await get(services, '/operations/backups') as Array<Record<string, unknown>>;
+    equal(backups.length, 2);
+    equal(backups[0].id, 'backup-c');
+    equal(backups[1].id, 'backup-b');
   } finally {
     await services.close();
     await rm(backupDir, { recursive: true, force: true });

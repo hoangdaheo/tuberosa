@@ -400,16 +400,25 @@ export interface BackupManifest {
   source: {
     service: 'tuberosa';
     store: 'postgres' | 'memory';
+    appVersion?: string;
+    appCommit?: string;
+    schemaVersion?: number;
+    embeddingDimensions?: number;
+    modelProvider?: string;
+    embeddingModel?: string;
   };
   tables: Array<{
     name: BackupTableName;
     file: string;
     rows: number;
+    checksumSha256?: string;
   }>;
 }
 
 export interface CreateBackupInput {
   id?: string;
+  reason?: string;
+  prune?: boolean;
 }
 
 export interface BackupSummary {
@@ -417,7 +426,11 @@ export interface BackupSummary {
   path: string;
   createdAt: string;
   format: BackupManifest['format'];
+  source: BackupManifest['source'];
   tables: BackupManifest['tables'];
+  totalRows: number;
+  ageSeconds: number;
+  health?: BackupHealth;
 }
 
 export interface RestoreBackupInput {
@@ -430,7 +443,71 @@ export interface RestoreBackupResult {
   backupId: string;
   dryRun: boolean;
   replace: boolean;
+  verification: BackupVerificationResult;
   restored: Record<BackupTableName, number>;
+}
+
+export type BackupHealth = 'healthy' | 'degraded' | 'unhealthy' | 'missing';
+
+export interface BackupVerificationIssue {
+  severity: 'error' | 'warning';
+  message: string;
+  table?: BackupTableName;
+}
+
+export interface BackupVerificationResult {
+  backupId: string;
+  path: string;
+  ok: boolean;
+  health: BackupHealth;
+  checkedAt: string;
+  manifestVersion?: number;
+  source?: BackupManifest['source'];
+  rowCounts: Partial<Record<BackupTableName, number>>;
+  totalRows: number;
+  issues: BackupVerificationIssue[];
+}
+
+export interface BackupStatus {
+  backupDir: string;
+  store: 'postgres' | 'memory';
+  health: BackupHealth | 'no_backups';
+  latestBackup?: BackupSummary;
+  latestVerification?: BackupVerificationResult;
+  backupCount: number;
+  totalRows: number;
+  scheduler: BackupSchedulerStatus;
+}
+
+export interface BackupRetentionInput {
+  dryRun?: boolean;
+  keepCount?: number;
+  maxAgeDays?: number;
+}
+
+export interface BackupRetentionResult {
+  dryRun: boolean;
+  keepCount?: number;
+  maxAgeDays?: number;
+  kept: BackupSummary[];
+  pruned: BackupSummary[];
+  skipped: Array<{ path: string; reason: string }>;
+}
+
+export interface BackupSchedulerStatus {
+  enabled: boolean;
+  running: boolean;
+  intervalSeconds?: number;
+  startupDelaySeconds?: number;
+  retentionCount?: number;
+  retentionMaxAgeDays?: number;
+  writeThroughEnabled: boolean;
+  writeThroughThrottleSeconds?: number;
+  lastRunAt?: string;
+  lastSuccessAt?: string;
+  lastBackupId?: string;
+  lastError?: string;
+  nextRunAt?: string;
 }
 
 export interface StartAgentSessionInput extends ContextSearchInput {

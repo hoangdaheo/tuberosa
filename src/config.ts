@@ -16,6 +16,12 @@ export interface AppConfig {
   maxRequestBytes: number;
   maxIngestContentBytes: number;
   backupDir: string;
+  backupIntervalSeconds: number;
+  backupStartupDelaySeconds: number;
+  backupRetentionCount: number;
+  backupRetentionMaxAgeDays: number;
+  backupWriteThrough: boolean;
+  backupWriteThroughThrottleSeconds: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -37,6 +43,12 @@ export function loadConfig(): AppConfig {
     maxRequestBytes: Number(process.env.TUBEROSA_MAX_REQUEST_BYTES ?? 10 * 1024 * 1024),
     maxIngestContentBytes: Number(process.env.TUBEROSA_MAX_INGEST_CONTENT_BYTES ?? 2 * 1024 * 1024),
     backupDir: process.env.TUBEROSA_BACKUP_DIR ?? '.tuberosa/backups',
+    backupIntervalSeconds: Number(process.env.TUBEROSA_BACKUP_INTERVAL_SECONDS ?? 60 * 60),
+    backupStartupDelaySeconds: Number(process.env.TUBEROSA_BACKUP_STARTUP_DELAY_SECONDS ?? 60),
+    backupRetentionCount: Number(process.env.TUBEROSA_BACKUP_RETENTION_COUNT ?? 24),
+    backupRetentionMaxAgeDays: Number(process.env.TUBEROSA_BACKUP_RETENTION_MAX_AGE_DAYS ?? 30),
+    backupWriteThrough: readBoolean(process.env.TUBEROSA_BACKUP_WRITE_THROUGH, false),
+    backupWriteThroughThrottleSeconds: Number(process.env.TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS ?? 10 * 60),
   };
 }
 
@@ -46,4 +58,12 @@ function readEnum<T extends string>(value: string | undefined, allowed: T[], fal
   }
 
   return fallback;
+}
+
+function readBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value === '') {
+    return fallback;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }

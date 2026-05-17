@@ -85,6 +85,12 @@ Important variables:
 | `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
 | `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for a single knowledge content field before chunking. |
 | `TUBEROSA_BACKUP_DIR` | `.tuberosa/backups` | Local folder for portable JSONL backups. Do not commit or share this folder because it can contain private project knowledge. |
+| `TUBEROSA_BACKUP_INTERVAL_SECONDS` | `3600` | Scheduled backup interval. Set `0` to disable scheduled backups. |
+| `TUBEROSA_BACKUP_STARTUP_DELAY_SECONDS` | `60` | Delay before the first scheduled backup after app start. |
+| `TUBEROSA_BACKUP_RETENTION_COUNT` | `24` | Minimum number of latest verified backups to keep. |
+| `TUBEROSA_BACKUP_RETENTION_MAX_AGE_DAYS` | `30` | Prune verified backups older than this age, while still keeping the latest backup. |
+| `TUBEROSA_BACKUP_WRITE_THROUGH` | `false` | When true, important mutations can request a throttled backup. |
+| `TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS` | `600` | Minimum time between write-through backup requests. |
 
 ## 5. Connect Codex For The Next Session
 
@@ -299,7 +305,8 @@ Command purpose:
 - `migrate`: apply SQL migrations.
 - `import:docs`: import local docs through the same ingestion path as the HTTP API.
 - `backup`: create a portable JSONL backup in `TUBEROSA_BACKUP_DIR`.
-- `restore`: dry-run or replace-restore from a backup id or path.
+- `backup --status`, `--list`, `--verify`, `--prune`: inspect, verify, and maintain the backup catalog.
+- `restore`: dry-run or replace-restore from a backup id or path. Restore runs verification and preflight checks first.
 
 ## 9. HTTP API Usage
 
@@ -695,6 +702,18 @@ List existing backups:
 curl http://localhost:3027/operations/backups
 ```
 
+Check catalog and scheduler health:
+
+```bash
+curl http://localhost:3027/operations/backups/status
+```
+
+Verify a backup before restore:
+
+```bash
+curl -X POST http://localhost:3027/operations/backups/before-paywall-refactor/verify
+```
+
 Restore supports a dry run first:
 
 ```bash
@@ -715,11 +734,53 @@ CLI equivalents:
 
 ```bash
 pnpm run backup --id before-paywall-refactor
+pnpm run backup --status
+pnpm run backup --list
+pnpm run backup --verify before-paywall-refactor
+pnpm run backup --prune --dry-run --keep-count 24 --max-age-days 30
 pnpm run restore --backup before-paywall-refactor --dry-run
 pnpm run restore --backup before-paywall-refactor --replace
 ```
 
 Backups include project records, sources, knowledge items, labels, references, chunks and embeddings, reflection drafts, context queries, packs, feedback events, agent sessions, and agent context decisions. Restoring chunks is necessary because chunks are what retrieval searches and feeds to agents.
+
+Each new backup manifest records table row counts, per-table SHA-256 checksums, source store, schema version, app version or commit when available, model provider, and embedding dimensions. Older backups without checksum metadata still list and can restore if table coverage and row counts pass, but verification reports degraded health.
+
+### Recovery Runbooks
+
+Dry-run restore:
+
+```bash
+pnpm run backup --verify <backup-id>
+pnpm run restore --backup <backup-id> --dry-run
+```
+
+Replace restore:
+
+```bash
+pnpm run backup --id before-restore
+pnpm run restore --backup <backup-id> --dry-run
+pnpm run restore --backup <backup-id> --replace
+pnpm run eval:retrieval
+```
+
+Fresh-machine restore:
+
+```bash
+corepack enable
+pnpm install
+test -f .env || cp .env.example .env
+docker compose up --build -d
+pnpm run migrate
+TUBEROSA_BACKUP_DIR=/path/to/backups pnpm run backup --verify <backup-id>
+TUBEROSA_BACKUP_DIR=/path/to/backups pnpm run restore --backup <backup-id> --replace
+```
+
+Embedding dimension mismatch:
+
+- Restore preflight fails when the backup manifest embedding dimensions do not match `EMBEDDING_DIMENSIONS`.
+- Start the app with the same `EMBEDDING_DIMENSIONS` and provider metadata used by the backup, or re-ingest knowledge after changing embedding dimensions so chunks are rebuilt consistently.
+- Do not edit the manifest to bypass this check; mismatched vectors make retrieval unreliable.
 
 ## 10. MCP Usage
 

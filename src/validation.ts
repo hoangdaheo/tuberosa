@@ -1,6 +1,7 @@
 import type { IngestFileInput, IngestionMode } from './ingest/service.js';
 import type {
   AgentSessionOutcome,
+  BackupRetentionInput,
   CreateBackupInput,
   FinishAgentSessionInput,
   ContextSearchInput,
@@ -261,6 +262,18 @@ export function validateCreateBackupInput(value: unknown): CreateBackupInput {
 
   return {
     id: readOptionalString(record, 'id', 'backup input'),
+    reason: readOptionalString(record, 'reason', 'backup input'),
+    prune: readOptionalBoolean(record, 'prune', 'backup input'),
+  };
+}
+
+export function validateBackupRetentionInput(value: unknown): BackupRetentionInput {
+  const record = expectObject(value, 'backup retention input');
+
+  return {
+    dryRun: readOptionalBoolean(record, 'dryRun', 'backup retention input'),
+    keepCount: readOptionalPositiveInteger(record, 'keepCount', 'backup retention input'),
+    maxAgeDays: readOptionalPositiveInteger(record, 'maxAgeDays', 'backup retention input'),
   };
 }
 

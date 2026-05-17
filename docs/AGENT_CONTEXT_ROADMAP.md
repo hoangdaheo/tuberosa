@@ -146,43 +146,40 @@ Acceptance:
 
 ## Phase 6: Backup Sync And Disaster Recovery
 
+Status: Done on 2026-05-17.
+
 Goal: make Postgres and the physical backup folder work as a reliable recovery system, not only manual snapshots.
 
-Current baseline:
+Completed work:
 
-- Postgres is the runtime source of truth.
-- `TUBEROSA_BACKUP_DIR` stores portable JSONL snapshots with `manifest.json` plus table-level files.
-- Backups include `knowledge_chunks` and embeddings so restored knowledge remains retrievable.
-- Restore is currently a destructive replace operation guarded by dry-run and `replace: true`.
+- Scheduled backups are owned by the long-running HTTP app process and use configurable interval, startup delay, retention count, and retention age.
+- Backup catalog and health are visible through HTTP and CLI, including latest backup, row counts, age, source store, manifest version, and scheduler status.
+- Backup verification reads table JSONL files back from disk, validates manifest/table coverage, checks row counts and checksums, and requires retrieval-critical tables.
+- Restore dry-run and replace restore run verification and schema/embedding preflight before touching the store.
+- Important mutations can request throttled write-through backups, including approved reflections and bulk/import file operations.
+- Retention pruning deletes only verified complete backup directories and keeps the latest backup plus the latest successful backup.
+- New backup manifests include per-table SHA-256 checksums, app version or commit when available, schema version, embedding dimensions, and model provider metadata.
+- Recovery runbooks document dry-run restore, replace restore, fresh-machine restore, and embedding dimension mismatch handling.
+- Exact Postgres `pg_dump`/`pg_restore` remains a future optional mode for full database disaster recovery, separate from portable JSONL backups.
 
-Planned work:
+Completed surfaces:
 
-- Add scheduled backups with configurable interval, startup delay, retention count, and retention age.
-- Add a backup catalog/status endpoint that reports latest backup, row counts, age, source store, manifest version, and health.
-- Add backup verification that reads a backup back from disk, validates manifest/table coverage, checks row counts, and verifies required retrieval tables are present.
-- Add restore preflight checks that compare backup schema/table versions with the running app before allowing replace restore.
-- Add optional write-through backup after important mutations, such as approved reflections or bulk imports, with throttling so normal ingestion is not slowed by disk writes.
-- Add retention pruning that deletes only complete backup directories with valid manifests and never deletes the latest successful backup.
-- Add backup integrity metadata:
-  - checksum per JSONL file
-  - app version or commit when available
-  - schema/migration version
-  - embedding dimensions and model provider metadata
-- Add recovery runbooks for:
-  - dry-run restore
-  - replace restore
-  - restoring on a fresh machine
-  - handling embedding dimension mismatch
-- Keep exact Postgres `pg_dump`/`pg_restore` as a future optional mode for full database disaster recovery, separate from portable JSONL backups.
+- HTTP `GET /operations/backups/status`
+- HTTP `POST /operations/backups/:id/verify`
+- HTTP `POST /operations/backups/prune`
+- CLI `pnpm run backup --status`
+- CLI `pnpm run backup --list`
+- CLI `pnpm run backup --verify <backup-id-or-path>`
+- CLI `pnpm run backup --prune`
 
 Acceptance:
 
-- A local stack can automatically create backups without user-triggered CLI or HTTP calls.
-- Backup health is visible through HTTP and CLI without reading files manually.
-- A corrupt, incomplete, or schema-incompatible backup fails verification before restore.
-- Retention pruning is deterministic and covered by tests.
-- Restore dry-run and replace restore continue to preserve retrievable chunks and embeddings.
-- Manual JSONL backup and restore commands remain backward compatible.
+- Done: a local stack can automatically create backups from the HTTP app without user-triggered CLI or HTTP calls.
+- Done: backup health is visible through HTTP and CLI without reading files manually.
+- Done: a corrupt, incomplete, or schema-incompatible backup fails verification before restore.
+- Done: retention pruning is deterministic and covered by memory-mode tests.
+- Done: restore dry-run and replace restore continue to preserve retrievable chunks and embeddings.
+- Done: manual JSONL backup and restore commands remain backward compatible.
 
 ## Phase 7: Knowledge Organization Graph
 

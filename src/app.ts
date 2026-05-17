@@ -24,6 +24,8 @@ export interface AppServices {
   close(): Promise<void>;
 }
 
+const CURRENT_SCHEMA_VERSION = 1;
+
 export async function createAppServices(): Promise<AppServices> {
   const config = loadConfig();
   if (config.store === 'memory' && config.env !== 'test') {
@@ -43,6 +45,23 @@ export async function createAppServices(): Promise<AppServices> {
   const operations = new OperationsService(store, ingestion, {
     backupDir: config.backupDir,
     storeKind: config.store,
+    metadata: {
+      appVersion: process.env.npm_package_version ?? '0.1.0',
+      appCommit: process.env.TUBEROSA_APP_COMMIT || process.env.GIT_COMMIT || undefined,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      embeddingDimensions: config.embeddingDimensions,
+      modelProvider: config.modelProvider,
+      embeddingModel: config.openAiEmbeddingModel,
+    },
+    schedule: {
+      enabled: config.backupIntervalSeconds > 0,
+      intervalSeconds: config.backupIntervalSeconds,
+      startupDelaySeconds: config.backupStartupDelaySeconds,
+      retentionCount: config.backupRetentionCount,
+      retentionMaxAgeDays: config.backupRetentionMaxAgeDays,
+      writeThroughEnabled: config.backupWriteThrough,
+      writeThroughThrottleSeconds: config.backupWriteThroughThrottleSeconds,
+    },
   });
 
   return {
@@ -57,7 +76,7 @@ export async function createAppServices(): Promise<AppServices> {
     agentSessions,
     operations,
     async close() {
-      await Promise.allSettled([cache.close(), store.close()]);
+      await Promise.allSettled([operations.close(), cache.close(), store.close()]);
     },
   };
 }
