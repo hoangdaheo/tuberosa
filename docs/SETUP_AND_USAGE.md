@@ -933,14 +933,15 @@ Prompts:
 Recommended agent flow:
 
 1. Prefer `tuberosa_start_session` before implementation or debugging.
-2. Include prompt, project, cwd, files, symbols, errors, and task type when known.
-3. Follow the returned policy: proceed, confirm, or clarify.
-4. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.
-5. If a retry pack is returned, review its context fit before using it.
-6. Finish with `tuberosa_finish_session` and include a reflection draft when the task produced a durable lesson. If context was intentionally skipped, include `contextBypassReason`.
-7. When an error should be fixed later, call `tuberosa_record_error_log` with sanitized message, stack, command, files, symbols, errors, and references.
-8. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, `tuberosa_reflect`, and `tuberosa_record_error_log`) for manual or one-off workflows.
-9. Approve reflection drafts before they become searchable memory, then link fixed incidents with `tuberosa_update_error_log`.
+2. Include prompt, project, cwd, files, symbols, errors, task type, `contextMode: "layered"`, and `includeDeepContext: true` when known.
+3. If `deepContextReturned` is true, use the returned expanded context before working; otherwise inspect the shortlist and fetch the full pack only after confirming it is appropriate.
+4. Follow the returned policy: proceed, confirm, or clarify.
+5. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.
+6. If a retry pack is returned, review its context fit before using it.
+7. Finish with `tuberosa_finish_session` and include a reflection draft when the task produced a durable lesson. If context was intentionally skipped, include `contextBypassReason`.
+8. When an error should be fixed later, call `tuberosa_record_error_log` with sanitized message, stack, command, files, symbols, errors, and references.
+9. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, `tuberosa_reflect`, and `tuberosa_record_error_log`) for manual or one-off workflows.
+10. Approve reflection drafts before they become searchable memory, then link fixed incidents with `tuberosa_update_error_log`.
 
 Use `debug: true` in `tuberosa_search_context` only when diagnosing retrieval quality.
 

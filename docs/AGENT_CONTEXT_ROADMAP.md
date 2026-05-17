@@ -303,6 +303,82 @@ Acceptance:
 - Existing `tuberosa_search_context` behavior remains backward compatible.
 - Compliance eval is separate from retrieval eval so retrieval quality and agent behavior can regress independently.
 
+## Phase 8.5: One-Call Layered Context For Agents
+
+Goal: keep the auditable context workflow, but make the common "agent starts work and needs enough detail now" path one tool call instead of a search call followed by a pack fetch.
+
+Status: Done on 2026-05-18.
+
+Problem this phase addresses:
+
+- Layered context exists, but normal use can still require two MCP calls:
+  1. `tuberosa_search_context` to get the shortlist and fit policy.
+  2. `tuberosa_get_context_pack` to fetch expanded `deepContext.sections`.
+- The two-step flow is useful for manual review and low-confidence searches, but it is expensive and easy for agents to handle inconsistently.
+- For `fitStatus: ready`, Tuberosa already has enough confidence to return a working pack directly.
+- Agents should not need to understand Tuberosa internals just to get the context they need before coding.
+
+Recommended design:
+
+- Keep the existing two-step flow for careful review, manual inspection, and backward compatibility.
+- Add an explicit one-call option to `tuberosa_search_context`, for example:
+  - `includeDeepContext: true`
+  - or `autoFetch: true`
+  - or a dedicated higher-level tool such as `tuberosa_get_working_context`
+- When `contextMode: "layered"` and `fitStatus: "ready"`, return the compact shortlist plus full `deepContext.sections` in the same response.
+- When `fitStatus: "needs_confirmation"`, return compact shortlist by default and include deep context only if the caller explicitly requested it with `includeDeepContext: true`.
+- When `fitStatus: "insufficient"`, keep the response compact and tell the agent what signals are missing; do not spend deep-context budget on weak matches by default.
+- Keep `tuberosa_get_context_pack` as the reload/audit tool for a known pack id.
+- Keep `tuberosa_start_session` as the canonical auditable startup path, but allow it to use the same one-call layered behavior internally when the pack is ready.
+
+Recommended response shape:
+
+```json
+{
+  "contextPackId": "...",
+  "confidence": 0.82,
+  "contextFit": {
+    "fitStatus": "ready",
+    "fitScore": 0.77,
+    "fitReasons": ["covered project:tuberosa", "covered task:implementation"],
+    "missingSignals": []
+  },
+  "sections": [
+    { "name": "essential", "items": [] },
+    { "name": "supporting", "items": [] },
+    { "name": "optional", "items": [] }
+  ],
+  "deepContext": {
+    "mode": "layered",
+    "budget": 60000,
+    "sections": [
+      { "name": "essential", "items": [] },
+      { "name": "supporting", "items": [] },
+      { "name": "optional", "items": [] }
+    ]
+  },
+  "instruction": "Use this context before working and record the context decision."
+}
+```
+
+Implementation notes:
+
+- Avoid duplicating assembly logic. The search path should assemble one context pack, persist it once, and decide how much of that pack to return.
+- Keep normal shortlist fields compact. Large chunk-expanded text belongs under `deepContext`, not duplicated into the compact `sections`.
+- Add a `deepContextReturned` or similar boolean in debug/metadata so audits can distinguish "deep context exists" from "deep context was actually returned to the agent".
+- Token budget should remain explicit and clamped. The default can stay `TUBEROSA_DEEP_CONTEXT_BUDGET=60000`.
+- The MCP prompt should recommend the one-call layered option for normal startup, and reserve the two-step pattern for low-confidence or human-reviewed context selection.
+- This is not a replacement for context compliance. Agents still need to record `selected`, `missing_context`, `rejected`, `stale`, or a bypass reason.
+
+Acceptance:
+
+- Done: a ready layered search can return enough detail for an agent in one MCP call when `includeDeepContext: true`.
+- Done: the returned response preserves both compact shortlist review and expanded chunk-backed detail.
+- Done: `needs_confirmation` defaults to compact output, and `insufficient` does not return deep context even when requested.
+- Done: `tuberosa_get_context_pack` remains useful for reload, audit, and manual inspection.
+- Done: agent-session startup can use the same one-call return control while compliance decisions remain explicit.
+- Done: MCP boundary tests cover ready, needs-confirmation, insufficient, session startup, and backward-compatible compact output.
+
 ## Phase 9: Retrieval Quality Hardening
 
 Goal: make Tuberosa reliable for vague, continuation-style, and high-risk agent tasks where flat semantic search can return plausible but wrong context.
@@ -325,6 +401,7 @@ Planned work:
   - required evidence types, such as spec, bugfix, workflow, or code reference
   - uncertainty reasons
 - Add continuation-aware retrieval using agent sessions, latest context decisions, recent reflection drafts, and handoff-style knowledge.
+  - Started: vague continuation prompts now anchor to `handoff.md`, and roadmap/phase continuation prompts also anchor to `docs/AGENT_CONTEXT_ROADMAP.md`.
 - Add stale-memory suppression that combines freshness, feedback, supersession relations, and context-fit mismatch before final ranking.
 - Add explicit conflict and supersession handling:
   - `supersedes` relation support in ranking
@@ -339,6 +416,10 @@ Planned work:
   - relation expansion second
   - provider rewrite/rerank third
   - ask for clarification when required evidence is missing
+- Add continuation-friendly one-call behavior:
+  - ready layered context can be returned directly to the agent
+  - low-confidence continuation prompts still ask for confirmation or clarification
+  - context pack explanations should make it obvious whether deep context was returned or only available for follow-up fetch
 - Add context-pack explanations that tell agents:
   - why each item was included
   - what important evidence is missing
@@ -370,6 +451,7 @@ Acceptance:
 - Add backup health, verification, and retention endpoints in Phase 6.
 - Add relation inspection, graph export, and project-map endpoints in Phase 7.
 - Add context compliance metadata and finish-session bypass reason support in Phase 8.
+- Add one-call layered context return controls in Phase 8.5.
 - Add knowledge-gap and conflict-review records in Phase 9.
 - Keep existing endpoints and MCP tools backward compatible.
 
@@ -394,6 +476,7 @@ Additional checks:
 - Phase 6: backup scheduler, verification, retention, and restore preflight tests in memory mode plus Postgres integration coverage when Docker is available.
 - Phase 7: relation inference, stale relation cleanup, graph export determinism, and graph-expanded retrieval tests.
 - Phase 8: agent-context compliance eval for selected decisions, missing-context handling, bypasses, direct-search-only non-compliance, and finish warnings.
+- Phase 8.5: one-call layered context tests for ready, needs-confirmation, insufficient, and backward-compatible two-step behavior.
 - Phase 9: hard retrieval eval fixtures for vague continuation, stale semantic matches, supersession, conflict review, missing-context learning, and fallback policy.
 
 ## Assumptions

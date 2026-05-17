@@ -62,6 +62,19 @@ test('classifier extracts concrete repo context from prompt', () => {
   ok(classified.businessAreas.includes('paywall'));
 });
 
+test('classifier anchors continuation prompts to handoff context', () => {
+  const classified = classifyQuery({
+    prompt: 'Continue the current Phase 8 context hardening work from the roadmap',
+    cwd: '/home/nash/tuberosa',
+  });
+
+  equal(classified.project, 'tuberosa');
+  equal(classified.taskType, 'implementation');
+  ok(classified.files.includes('handoff.md'));
+  ok(classified.files.includes('docs/AGENT_CONTEXT_ROADMAP.md'));
+  ok(classified.exactTerms.includes('handoff.md'));
+});
+
 test('retrieval returns context pack with matched references', async () => {
   const { ingestion, retrieval } = createTestServices();
 

@@ -93,12 +93,156 @@ test('valid MCP tool calls are validated then dispatched', async () => {
       contextPackId?: string;
       contextFit?: { fitStatus?: string };
       sections?: Array<{ items: Array<{ fitReasons?: string[] }> }>;
+      deepContextReturned?: boolean;
+      deepContext?: { sections?: Array<{ itemCount?: number; items?: unknown[] }> };
     };
   };
 
   equal(result.structuredContent?.contextPackId, 'pack-1');
   equal(result.structuredContent?.contextFit?.fitStatus, 'ready');
   equal(result.structuredContent?.sections?.[0]?.items[0]?.fitReasons?.[0], 'project:agent-memory');
+  equal(result.structuredContent?.deepContextReturned, false);
+  equal(result.structuredContent?.deepContext?.sections?.[0]?.itemCount, 1);
+  equal(result.structuredContent?.deepContext?.sections?.[0]?.items, undefined);
+});
+
+test('MCP context search can return one-call layered deep context when requested', async () => {
+  const result = await handleMcpRequest(fakeServices({
+    retrieval: {
+      searchContext: async (input: { includeDeepContext?: boolean }) => {
+        equal(input.includeDeepContext, true);
+        return samplePack();
+      },
+    },
+  }), {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_search_context',
+      arguments: {
+        project: 'agent-memory',
+        prompt: 'Find auth guidance',
+        contextMode: 'layered',
+        includeDeepContext: true,
+      },
+    },
+  }) as {
+    structuredContent?: {
+      deepContextReturned?: boolean;
+      deepContext?: { sections?: Array<{ items?: Array<{ content?: string }> }> };
+      instruction?: string;
+    };
+  };
+
+  equal(result.structuredContent?.deepContextReturned, true);
+  equal(result.structuredContent?.deepContext?.sections?.[0]?.items?.[0]?.content, 'Full Auth guidance.');
+  equal(result.structuredContent?.instruction, 'Use the returned deep context before working and record a selected context decision.');
+});
+
+test('MCP deep context stays compact for low-fit searches unless safe to return', async () => {
+  const needsConfirmation = samplePack({
+    contextFit: {
+      fitStatus: 'needs_confirmation',
+      fitScore: 0.55,
+      fitReasons: ['sparse query'],
+      missingSignals: ['no concrete file, symbol, or error signal was supplied'],
+    },
+  });
+  const insufficient = samplePack({
+    contextFit: {
+      fitStatus: 'insufficient',
+      fitScore: 0.2,
+      fitReasons: ['best effort'],
+      missingSignals: ['missing file:src/auth.ts'],
+    },
+  });
+  const services = fakeServices({
+    retrieval: {
+      searchContext: async (input: { prompt: string }) => (
+        input.prompt.includes('insufficient') ? insufficient : needsConfirmation
+      ),
+    },
+  });
+
+  const compact = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_search_context',
+      arguments: {
+        project: 'agent-memory',
+        prompt: 'needs confirmation',
+        contextMode: 'layered',
+      },
+    },
+  }) as { structuredContent?: { deepContextReturned?: boolean; deepContext?: { sections?: Array<{ itemCount?: number; items?: unknown[] }> } } };
+
+  const blocked = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_search_context',
+      arguments: {
+        project: 'agent-memory',
+        prompt: 'insufficient context',
+        contextMode: 'layered',
+        includeDeepContext: true,
+      },
+    },
+  }) as { structuredContent?: { deepContextReturned?: boolean; deepContext?: { sections?: Array<{ itemCount?: number; items?: unknown[] }> } } };
+
+  equal(compact.structuredContent?.deepContextReturned, false);
+  equal(compact.structuredContent?.deepContext?.sections?.[0]?.itemCount, 1);
+  equal(compact.structuredContent?.deepContext?.sections?.[0]?.items, undefined);
+  equal(blocked.structuredContent?.deepContextReturned, false);
+  equal(blocked.structuredContent?.deepContext?.sections?.[0]?.itemCount, 1);
+  equal(blocked.structuredContent?.deepContext?.sections?.[0]?.items, undefined);
+});
+
+test('MCP agent session startup can return working deep context in one call', async () => {
+  const services = fakeServices({
+    agentSessions: {
+      startSession: async (input: { includeDeepContext?: boolean }) => {
+        equal(input.includeDeepContext, true);
+        return {
+          session: {
+            id: 'session-1',
+            project: 'agent-memory',
+            prompt: 'Find auth guidance',
+            status: 'active',
+            initialContextPackId: 'pack-1',
+            reflectionDraftIds: [],
+            metadata: {},
+            createdAt: new Date().toISOString(),
+          },
+          contextPack: samplePack(),
+          policy: {
+            action: 'proceed',
+            instruction: 'Context fit is ready.',
+          },
+        };
+      },
+      recordContextDecision: async () => {
+        throw new Error('Unexpected session decision call.');
+      },
+      finishSession: async () => {
+        throw new Error('Unexpected session finish call.');
+      },
+    },
+  });
+
+  const result = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_start_session',
+      arguments: {
+        project: 'agent-memory',
+        prompt: 'Find auth guidance',
+        contextMode: 'layered',
+        includeDeepContext: true,
+      },
+    },
+  }) as { structuredContent?: { context?: { deepContextReturned?: boolean; deepContext?: { sections?: Array<{ items?: Array<{ content?: string }> }> } } } };
+
+  equal(result.structuredContent?.context?.deepContextReturned, true);
+  equal(result.structuredContent?.context?.deepContext?.sections?.[0]?.items?.[0]?.content, 'Full Auth guidance.');
 });
 
 test('MCP reflection review tools list, inspect, and record decisions', async () => {
@@ -647,8 +791,8 @@ async function dispatchHttp(
   return { status, body: JSON.parse(rawBody) };
 }
 
-function samplePack(): ContextPack {
-  return {
+function samplePack(overrides: Partial<ContextPack> = {}): ContextPack {
+  const pack: ContextPack = {
     id: 'pack-1',
     queryId: 'query-1',
     project: 'agent-memory',
@@ -705,7 +849,39 @@ function samplePack(): ContextPack {
         ],
       },
     ],
+    deepContext: {
+      mode: 'layered',
+      budget: 60_000,
+      tokenEstimate: 10,
+      sections: [
+        {
+          name: 'essential',
+          tokenEstimate: 10,
+          items: [
+            {
+              knowledgeId: 'knowledge-1',
+              title: 'Auth workflow',
+              summary: 'Auth workflow notes.',
+              content: 'Full Auth guidance.',
+              contextualContent: 'Project: agent-memory\nFull Auth guidance.',
+              itemType: 'wiki',
+              project: 'agent-memory',
+              labels: [],
+              references: [],
+              source: 'metadata',
+              rank: 1,
+              finalScore: 0.9,
+              matchReasons: ['metadata match'],
+              chunkIds: ['chunk-1'],
+              tokenEstimate: 10,
+            },
+          ],
+        },
+      ],
+    },
     rejectedKnowledgeIds: [],
     createdAt: new Date().toISOString(),
   };
+
+  return { ...pack, ...overrides };
 }

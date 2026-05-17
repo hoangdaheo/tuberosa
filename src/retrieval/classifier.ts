@@ -41,7 +41,7 @@ const BUSINESS_HINTS = [
 export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
   const prompt = input.prompt;
   const lower = prompt.toLowerCase();
-  const files = uniqueStrings([...(input.files ?? []), ...extractFiles(prompt)]);
+  const files = uniqueStrings([...(input.files ?? []), ...extractFiles(prompt), ...extractContinuationFiles(lower)]);
   const symbols = uniqueStrings([...(input.symbols ?? []), ...extractSymbols(prompt)]);
   const errors = uniqueStrings([...(input.errors ?? []), ...extractErrors(prompt)]);
   const technologies = uniqueStrings(TECHNOLOGY_TERMS.filter((term) => lower.includes(term)));
@@ -144,6 +144,10 @@ function inferTaskType(lower: string): TaskType {
     return 'testing';
   }
 
+  if (isContinuationIntent(lower)) {
+    return 'implementation';
+  }
+
   return 'unknown';
 }
 
@@ -161,6 +165,16 @@ function inferProject(input: ContextSearchInput): string | undefined {
 
 function extractFiles(prompt: string): string[] {
   return prompt.match(/(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+|[\w.-]+\.[jt]sx?|[\w.-]+\.py|[\w.-]+\.go|[\w.-]+\.rs|[\w.-]+\.md/g) ?? [];
+}
+
+function extractContinuationFiles(lower: string): string[] {
+  if (!isContinuationIntent(lower)) {
+    return [];
+  }
+
+  return lower.includes('roadmap') || /\bphase\s*\d/.test(lower)
+    ? ['handoff.md', 'docs/AGENT_CONTEXT_ROADMAP.md']
+    : ['handoff.md'];
 }
 
 function extractSymbols(prompt: string): string[] {
@@ -190,6 +204,10 @@ function buildLexicalQuery(prompt: string, exactTerms: string[]): string {
     ?.filter((word) => !STOP_WORDS.has(word)) ?? [];
 
   return uniqueStrings([...exactTerms, ...importantWords]).slice(0, 32).join(' ');
+}
+
+function isContinuationIntent(lower: string): boolean {
+  return /\b(continue|resume|handoff|handover)\b|\bpick up\b|\bwhere we left off\b|\bcurrent work\b/.test(lower);
 }
 
 const STOP_WORDS = new Set([
@@ -227,6 +245,11 @@ const SYMBOL_STOP_WORDS = new Set([
   'Delete',
   'Remove',
   'Review',
+  'Continue',
+  'Resume',
+  'Current',
+  'Phase',
+  'Roadmap',
   'How',
   'What',
   'When',

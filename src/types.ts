@@ -204,6 +204,7 @@ export interface ContextSearchInput {
   tokenBudget?: number;
   contextMode?: ContextMode;
   deepContextBudget?: number;
+  includeDeepContext?: boolean;
   rejectedKnowledgeIds?: string[];
   bypassCache?: boolean;
   debug?: boolean;

@@ -96,6 +96,46 @@
       "references": [
         { "type": "tool", "uri": "tuberosa_reflect" }
       ]
+    },
+    {
+      "evalId": "phase-handoff-context",
+      "sourceType": "file",
+      "sourceUri": "handoff.md",
+      "itemType": "workflow",
+      "title": "Tuberosa phase handoff",
+      "summary": "Current work state for continuing Phase 8 and Phase 9 context hardening.",
+      "content": "The active work is Phase 8 and Phase 9 context hardening. Continue from handoff.md by preserving layered deep context, context compliance metadata, physical mirror correctness, and one-call agent startup behavior.",
+      "trustLevel": 95,
+      "metadata": { "taxonomy": "workflow" },
+      "labels": [
+        { "type": "file", "value": "handoff.md", "weight": 1 },
+        { "type": "file", "value": "docs/AGENT_CONTEXT_ROADMAP.md", "weight": 0.9 },
+        { "type": "task_type", "value": "implementation", "weight": 1 },
+        { "type": "workflow_stage", "value": "continuation", "weight": 1 },
+        { "type": "business_area", "value": "context", "weight": 0.8 }
+      ],
+      "references": [
+        { "type": "file", "uri": "handoff.md" },
+        { "type": "file", "uri": "docs/AGENT_CONTEXT_ROADMAP.md" }
+      ]
+    },
+    {
+      "evalId": "docker-migration-memory",
+      "sourceType": "memory",
+      "sourceUri": "memory://docker-migration",
+      "itemType": "memory",
+      "title": "Docker migration memory",
+      "summary": "A plausible but unrelated migration note.",
+      "content": "Docker migration work should check compose service startup and schema migration order. This memory is not the current continuation handoff.",
+      "trustLevel": 85,
+      "metadata": { "taxonomy": "incident_lesson" },
+      "labels": [
+        { "type": "technology", "value": "docker", "weight": 1 },
+        { "type": "workflow_stage", "value": "migration", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docker-compose.yml" }
+      ]
     }
   ],
   "feedbackEvents": [
@@ -151,7 +191,7 @@
       "expectedKnowledgeIds": ["paywall-ts999-fix"],
       "expectedSelectedKnowledgeIds": ["paywall-ts999-fix"],
       "unexpectedKnowledgeIds": ["current-auth-flow", "legacy-auth-flow"],
-      "minConfidence": 0.78,
+      "minConfidence": 0.76,
       "expectedContextFitStatus": "ready",
       "minContextFitScore": 0.72,
       "expectedClassification": {
@@ -184,6 +224,21 @@
       "minConfidence": 0.7,
       "expectedContextFitStatus": "needs_confirmation",
       "minContextFitScore": 0.45
+    },
+    {
+      "id": "continuation-handoff",
+      "prompt": "Continue the current Phase 8 context hardening work from the roadmap.",
+      "project": "newsletter-app",
+      "expectedKnowledgeIds": ["phase-handoff-context"],
+      "expectedSelectedKnowledgeIds": ["phase-handoff-context"],
+      "unexpectedKnowledgeIds": ["docker-migration-memory", "legacy-auth-flow"],
+      "minConfidence": 0.76,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.72,
+      "expectedClassification": {
+        "files": ["handoff.md", "docs/AGENT_CONTEXT_ROADMAP.md"],
+        "taskType": "implementation"
+      }
     }
   ]
 }

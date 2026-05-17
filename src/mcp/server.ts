@@ -117,9 +117,10 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
 
   switch (name) {
     case 'tuberosa_search_context': {
-      const pack = await services.retrieval.searchContext(validateContextSearchInput(args));
+      const input = validateContextSearchInput(args);
+      const pack = await services.retrieval.searchContext(input);
       services.operations.requestPhysicalMirror('context-searched');
-      return toolJson(contextPackShortlist(pack));
+      return toolJson(contextPackShortlist(pack, { includeDeepContext: input.includeDeepContext }));
     }
 
     case 'tuberosa_get_context_pack': {
@@ -257,11 +258,12 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
     }
 
     case 'tuberosa_start_session': {
-      const result = await services.agentSessions.startSession(validateStartAgentSessionInput(args));
+      const input = validateStartAgentSessionInput(args);
+      const result = await services.agentSessions.startSession(input);
       services.operations.requestPhysicalMirror('agent-session-started');
       return toolJson({
         session: result.session,
-        context: contextPackShortlist(result.contextPack),
+        context: contextPackShortlist(result.contextPack, { includeDeepContext: input.includeDeepContext }),
         policy: result.policy,
       });
     }
@@ -288,7 +290,9 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
   }
 }
 
-function contextPackShortlist(pack: ContextPack) {
+function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?: boolean } = {}) {
+  const deepContextReturned = shouldReturnDeepContext(pack, options.includeDeepContext);
+
   return {
     contextPackId: pack.id,
     confidence: pack.confidence,
@@ -311,8 +315,12 @@ function contextPackShortlist(pack: ContextPack) {
         references: item.references,
       })),
     })),
+    deepContextAvailable: Boolean(pack.deepContext),
+    deepContextReturned,
     deepContext: pack.deepContext
-      ? {
+      ? deepContextReturned
+        ? pack.deepContext
+        : {
           budget: pack.deepContext.budget,
           tokenEstimate: pack.deepContext.tokenEstimate,
           sections: pack.deepContext.sections.map((section) => ({
@@ -323,17 +331,33 @@ function contextPackShortlist(pack: ContextPack) {
         }
       : undefined,
     ...(pack.debug ? { debug: pack.debug } : {}),
-    instruction: searchInstruction(pack.contextFit?.fitStatus),
+    instruction: searchInstruction(pack.contextFit?.fitStatus, deepContextReturned),
   };
 }
 
-function searchInstruction(fitStatus: ContextFitStatus | undefined): string {
+function shouldReturnDeepContext(pack: ContextPack, includeDeepContext: boolean | undefined): boolean {
+  if (!includeDeepContext || !pack.deepContext) {
+    return false;
+  }
+
+  return pack.contextFit?.fitStatus !== 'insufficient';
+}
+
+function searchInstruction(fitStatus: ContextFitStatus | undefined, deepContextReturned = false): string {
   if (fitStatus === 'insufficient') {
     return 'Context fit is insufficient. Ask a clarifying question or continue with fresh context instead of relying on this pack.';
   }
 
   if (fitStatus === 'needs_confirmation') {
+    if (deepContextReturned) {
+      return 'Context fit needs confirmation. Review the returned deep context before relying on it, then record a context decision.';
+    }
+
     return 'Context fit needs confirmation. Review the shortlist and confirm it is appropriate before using the full pack.';
+  }
+
+  if (deepContextReturned) {
+    return 'Use the returned deep context before working and record a selected context decision.';
   }
 
   return 'Review the shortlist. Call tuberosa_get_context_pack only after the user or agent confirms this pack is appropriate.';
@@ -419,9 +443,10 @@ function getPrompt(params: Record<string, unknown>) {
           content: {
             type: 'text',
             text: [
-              'Before starting the task, call tuberosa_search_context with the user prompt, current project, cwd, files, symbols, and errors when known.',
-              'Show the ranked shortlist with confidence and source references.',
-              'If the context is rejected, call tuberosa_feedback_context and retry once. If it still misses, continue with fresh context and ask a clarifying question.',
+              'Before starting the task, call tuberosa_start_session with the user prompt, current project, cwd, files, symbols, errors, contextMode layered, and includeDeepContext true when known.',
+              'Use returned deep context when deepContextReturned is true; otherwise inspect the shortlist and fetch the full pack only after confirming it is appropriate.',
+              'Record selected, rejected, stale, irrelevant, or missing_context with tuberosa_record_context_decision before finishing the session.',
+              'If the context is rejected, record the decision and retry once. If it still misses, continue with fresh context only after recording missing_context or an explicit bypass reason.',
               args.prompt ? `User prompt: ${args.prompt}` : undefined,
             ].filter(Boolean).join('\n'),
           },
@@ -569,6 +594,7 @@ function tools() {
           tokenBudget: { type: 'number' },
           contextMode: { type: 'string', enum: ['compact', 'layered'] },
           deepContextBudget: { type: 'number' },
+          includeDeepContext: { type: 'boolean' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           bypassCache: { type: 'boolean' },
           debug: { type: 'boolean' },
@@ -606,6 +632,7 @@ function tools() {
           tokenBudget: { type: 'number' },
           contextMode: { type: 'string', enum: ['compact', 'layered'] },
           deepContextBudget: { type: 'number' },
+          includeDeepContext: { type: 'boolean' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           bypassCache: { type: 'boolean' },
           debug: { type: 'boolean' },

@@ -266,6 +266,7 @@ export function validateContextSearchInput(value: unknown): ContextSearchInput {
     tokenBudget: readOptionalPositiveNumber(record, 'tokenBudget', 'context search input'),
     contextMode: readOptionalEnum(record, 'contextMode', CONTEXT_MODES, 'context search input'),
     deepContextBudget: readOptionalPositiveNumber(record, 'deepContextBudget', 'context search input'),
+    includeDeepContext: readOptionalBoolean(record, 'includeDeepContext', 'context search input'),
     rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'context search input'),
     bypassCache: readOptionalBoolean(record, 'bypassCache', 'context search input'),
     debug: readOptionalBoolean(record, 'debug', 'context search input'),
