@@ -8,6 +8,10 @@ import type {
   FeedbackInput,
   CleanupOperationsInput,
   KnowledgePatchInput,
+  KnowledgeRelationInput,
+  KnowledgeRelationPatchInput,
+  KnowledgeRelationTargetKind,
+  KnowledgeRelationType,
   KnowledgeReviewFilter,
   KnowledgeStatus,
   KnowledgeInput,
@@ -82,6 +86,25 @@ const LABEL_TYPES = [
 ] as const satisfies readonly LabelType[];
 
 const REFERENCE_TYPES = ['file', 'url', 'commit', 'tool', 'conversation', 'external'] as const;
+const KNOWLEDGE_RELATION_TYPES = [
+  'contains',
+  'references',
+  'mentions_file',
+  'mentions_symbol',
+  'resolves_error',
+  'supersedes',
+  'depends_on',
+  'related_to',
+  'derived_from_session',
+] as const satisfies readonly KnowledgeRelationType[];
+const KNOWLEDGE_RELATION_TARGET_KINDS = [
+  'knowledge',
+  'file',
+  'symbol',
+  'error',
+  'session',
+  'reference',
+] as const satisfies readonly KnowledgeRelationTargetKind[];
 const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly IngestionMode[];
 const FEEDBACK_TYPES = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'] as const;
 const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
@@ -130,6 +153,41 @@ export function validateKnowledgePatchInput(value: unknown): KnowledgePatchInput
     labels: readOptionalLabels(record.labels, 'knowledge patch input.labels'),
     references: readOptionalReferences(record.references, 'knowledge patch input.references'),
   };
+}
+
+export function validateKnowledgeRelationInput(value: unknown): KnowledgeRelationInput {
+  const record = expectObject(value, 'knowledge relation input');
+  const input: KnowledgeRelationInput = {
+    project: readOptionalString(record, 'project', 'knowledge relation input'),
+    fromKnowledgeId: readRequiredString(record, 'fromKnowledgeId', 'knowledge relation input'),
+    relationType: readRequiredEnum(record, 'relationType', KNOWLEDGE_RELATION_TYPES, 'knowledge relation input'),
+    targetKind: readRequiredEnum(record, 'targetKind', KNOWLEDGE_RELATION_TARGET_KINDS, 'knowledge relation input'),
+    targetKnowledgeId: readOptionalString(record, 'targetKnowledgeId', 'knowledge relation input'),
+    targetValue: readOptionalString(record, 'targetValue', 'knowledge relation input'),
+    confidence: readOptionalRelationConfidence(record, 'confidence', 'knowledge relation input'),
+    inferred: readOptionalBoolean(record, 'inferred', 'knowledge relation input'),
+    metadata: readOptionalObject(record, 'metadata', 'knowledge relation input'),
+  };
+  ensureRelationTarget(input.targetKnowledgeId, input.targetValue, 'knowledge relation input');
+  return input;
+}
+
+export function validateKnowledgeRelationPatchInput(value: unknown): KnowledgeRelationPatchInput {
+  const record = expectObject(value, 'knowledge relation patch input');
+  const patch: KnowledgeRelationPatchInput = {
+    relationType: readOptionalEnum(record, 'relationType', KNOWLEDGE_RELATION_TYPES, 'knowledge relation patch input'),
+    targetKind: readOptionalEnum(record, 'targetKind', KNOWLEDGE_RELATION_TARGET_KINDS, 'knowledge relation patch input'),
+    targetKnowledgeId: readOptionalNullableString(record, 'targetKnowledgeId', 'knowledge relation patch input'),
+    targetValue: readOptionalNullableString(record, 'targetValue', 'knowledge relation patch input'),
+    confidence: readOptionalRelationConfidence(record, 'confidence', 'knowledge relation patch input'),
+    inferred: readOptionalBoolean(record, 'inferred', 'knowledge relation patch input'),
+    metadata: readOptionalObject(record, 'metadata', 'knowledge relation patch input'),
+  };
+  if (patch.targetKnowledgeId === null && patch.targetValue === null) {
+    throw validationIssue('knowledge relation patch input.targetValue', 'must leave at least one target identifier.');
+  }
+
+  return patch;
 }
 
 export function validateIngestFilesRequest(value: unknown): IngestFilesRequest {
@@ -475,6 +533,15 @@ function readOptionalPositiveNumber(record: Record<string, unknown>, key: string
   return value;
 }
 
+function readOptionalRelationConfidence(record: Record<string, unknown>, key: string, path: string): number | undefined {
+  const value = readOptionalNumber(record, key, path);
+  if (value !== undefined && (value < 0 || value > 1)) {
+    throw validationIssue(`${path}.${key}`, 'must be between 0 and 1.');
+  }
+
+  return value;
+}
+
 function readOptionalPositiveInteger(record: Record<string, unknown>, key: string, path: string): number | undefined {
   const value = readOptionalNumber(record, key, path);
   if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
@@ -548,6 +615,12 @@ function expectObject(value: unknown, path: string): Record<string, unknown> {
   }
 
   return value as Record<string, unknown>;
+}
+
+function ensureRelationTarget(targetKnowledgeId: string | undefined, targetValue: string | undefined, path: string): void {
+  if (!targetKnowledgeId && !targetValue) {
+    throw validationIssue(`${path}.targetValue`, 'must be provided when targetKnowledgeId is not provided.');
+  }
 }
 
 function validationIssue(path: string, message: string): ValidationError {

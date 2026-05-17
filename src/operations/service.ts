@@ -6,6 +6,9 @@ import type {
   CreateBackupInput,
   CleanupOperationsInput,
   KnowledgePatchInput,
+  KnowledgeRelationInput,
+  KnowledgeRelationPatchInput,
+  ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
   ReflectionDraftPatchInput,
@@ -40,6 +43,26 @@ export class OperationsService {
 
   updateKnowledge(id: string, patch: KnowledgePatchInput) {
     return this.store.updateKnowledge(id, patch);
+  }
+
+  listKnowledgeRelations(options: ListKnowledgeRelationsOptions) {
+    return this.store.listKnowledgeRelations(options);
+  }
+
+  getKnowledgeRelation(id: string) {
+    return this.store.getKnowledgeRelation(id);
+  }
+
+  createKnowledgeRelation(input: KnowledgeRelationInput) {
+    return this.store.createKnowledgeRelation(input);
+  }
+
+  updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput) {
+    return this.store.updateKnowledgeRelation(id, patch);
+  }
+
+  deleteKnowledgeRelation(id: string) {
+    return this.store.deleteKnowledgeRelation(id);
   }
 
   listLabels(options: { project?: string; limit: number }) {
@@ -86,6 +109,18 @@ export class OperationsService {
 
   cleanup(input: CleanupOperationsInput) {
     return this.store.cleanupOperations(input);
+  }
+
+  exportProjectMap(options: { project?: string; limit: number }) {
+    return this.store.exportProjectMap(options);
+  }
+
+  exportKnowledgeGraphJsonl(options: { project?: string; limit: number }) {
+    return this.store.exportKnowledgeGraphJsonl(options);
+  }
+
+  exportReadableSummary(options: { project?: string; limit: number }) {
+    return this.store.exportReadableSummary(options);
   }
 
   createBackup(input: CreateBackupInput = {}) {

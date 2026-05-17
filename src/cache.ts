@@ -18,13 +18,19 @@ export async function createCache(config: AppConfig): Promise<Cache> {
     return new MemoryCache();
   }
 
-  const client = createClient({ url: config.redisUrl });
+  const client = createClient({
+    url: config.redisUrl,
+    socket: {
+      reconnectStrategy: false,
+    },
+  });
   client.on('error', (error) => {
     console.error('[redis]', error.message);
   });
   try {
     await client.connect();
   } catch (error) {
+    await client.disconnect().catch(() => undefined);
     throw new CacheError('Redis cache connection failed.', error);
   }
   return new RedisCache(client as RedisClientType);

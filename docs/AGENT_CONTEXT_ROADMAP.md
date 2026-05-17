@@ -232,6 +232,12 @@ Planned work:
 - Add debug trace fields explaining why related knowledge entered a context pack.
 - Add export commands and HTTP endpoints for project maps and graph JSONL.
 - Add stale relation cleanup when document atoms are re-ingested or sources are archived.
+- Add a pending reflection review workflow for agents and users:
+  - MCP tools to list pending reflection drafts, inspect a draft, and record review decisions.
+  - Review decisions should support approve, reject, and needs-changes style outcomes.
+  - Review output should include a compact evaluation rubric for accuracy, usefulness, scope, privacy/safety, labels, references, and duplicate risk.
+  - Add a prompt that asks the user to evaluate pending drafts before they become searchable memory.
+  - Keep approval explicit; drafts must never become searchable memory only because an agent created them.
 - Keep graph traversal bounded so weakly related knowledge does not flood agent context.
 
 Acceptance:
@@ -240,6 +246,9 @@ Acceptance:
 - Users can inspect a project map without reading raw database rows.
 - Retrieval debug shows relation paths used to include graph-expanded candidates.
 - Re-ingesting an atomic document removes stale atom relations.
+- Agents can list pending reflection drafts through MCP, present them for user review, and record approve/reject/needs-changes decisions.
+- Reflection draft review includes enough evaluation detail to explain why a memory was approved, rejected, or sent back for changes.
+- Approved reflection memories remain explicitly user-reviewed before they become searchable knowledge.
 - Generated organization exports are reproducible and are not treated as the runtime source of truth.
 - Existing search, backup, restore, and reflection flows continue to work when no relations exist.
 

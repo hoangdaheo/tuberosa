@@ -214,6 +214,55 @@ test('atomic markdown re-ingestion updates sections and deletes stale atoms', as
   equal(pack.sections[0].items[0].title, 'Auth > Login flow');
 });
 
+test('graph retrieval includes one-hop related knowledge with debug trace', async () => {
+  const { ingestion, retrieval, store } = createTestServices();
+
+  const handler = await ingestion.ingestKnowledge({
+    project: 'billing-app',
+    sourceType: 'file',
+    sourceUri: 'src/payments/handler.ts',
+    itemType: 'code_ref',
+    title: 'Payment handler',
+    summary: 'Payment handler entry point.',
+    content: 'Payment handler accepts checkout events and calls billing workflows.',
+    labels: [{ type: 'file', value: 'src/payments/handler.ts', weight: 1 }],
+    references: [{ type: 'file', uri: 'src/payments/handler.ts' }],
+  });
+  const retryPolicy = await ingestion.ingestKnowledge({
+    project: 'billing-app',
+    sourceType: 'manual',
+    sourceUri: 'manual://billing/retry-policy',
+    itemType: 'workflow',
+    title: 'Billing retry policy',
+    summary: 'Retry policy for billing workflows.',
+    content: 'Billing retries must be idempotent and must not double-charge customers.',
+    labels: [{ type: 'business_area', value: 'billing', weight: 0.8 }],
+  });
+  await store.createKnowledgeRelation({
+    project: 'billing-app',
+    fromKnowledgeId: handler.id,
+    relationType: 'depends_on',
+    targetKind: 'knowledge',
+    targetKnowledgeId: retryPolicy.id,
+    confidence: 0.95,
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'billing-app',
+    prompt: 'Update src/payments/handler.ts safely',
+    files: ['src/payments/handler.ts'],
+    bypassCache: true,
+    debug: true,
+  });
+  const selectedIds = pack.sections.flatMap((section) => section.items.map((item) => item.knowledgeId));
+  const graphIds = pack.debug?.stages
+    .find((stage) => stage.name === 'graph')
+    ?.candidates.map((candidate) => candidate.knowledgeId) ?? [];
+
+  ok(graphIds.includes(retryPolicy.id));
+  ok(selectedIds.includes(retryPolicy.id));
+});
+
 test('ingestion redacts secrets before storage and retrieval', async () => {
   const { ingestion, retrieval } = createTestServices();
 

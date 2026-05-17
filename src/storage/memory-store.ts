@@ -12,13 +12,20 @@ import type {
   FeedbackInput,
   FinishAgentSessionInput,
   KnowledgeFeedbackSummary,
+  KnowledgeGraphJsonlExport,
   KnowledgeInput,
   KnowledgePatchInput,
+  KnowledgeRelation,
+  KnowledgeRelationInput,
+  KnowledgeRelationPatchInput,
   LabelInput,
   LabelRecord,
+  ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
+  ProjectMapExport,
   RecordAgentContextDecisionInput,
+  ReadableSummaryExport,
   ReferenceInput,
   ReflectionDraft,
   ReflectionDraftPatchInput,
@@ -41,6 +48,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly knowledgeSourceUris = new Map<string, string>();
   private readonly packs = new Map<string, ContextPack>();
   private readonly drafts = new Map<string, ReflectionDraft>();
+  private readonly relations = new Map<string, KnowledgeRelation>();
   private readonly agentSessions = new Map<string, AgentSession>();
   private readonly agentDecisions = new Map<string, AgentContextDecision>();
   private readonly feedback: FeedbackEvent[] = [];
@@ -91,6 +99,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       this.knowledge.delete(id);
       this.knowledgeSourceUris.delete(id);
       this.deleteChunksForKnowledge(id);
+      this.deleteRelationsForKnowledge(id);
       deleted += 1;
     }
 
@@ -138,6 +147,82 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     this.knowledge.set(id, updated);
 
     return updated;
+  }
+
+  async replaceInferredKnowledgeRelations(
+    knowledgeId: string,
+    relations: KnowledgeRelationInput[],
+  ): Promise<KnowledgeRelation[]> {
+    for (const [id, relation] of this.relations.entries()) {
+      if (relation.fromKnowledgeId === knowledgeId && relation.inferred) {
+        this.relations.delete(id);
+      }
+    }
+
+    const created: KnowledgeRelation[] = [];
+    for (const relation of relations) {
+      created.push(await this.createKnowledgeRelation({ ...relation, inferred: true }));
+    }
+
+    return created;
+  }
+
+  async listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]> {
+    return [...this.relations.values()]
+      .filter((relation) => !options.project || relation.project === options.project)
+      .filter((relation) => !options.fromKnowledgeId || relation.fromKnowledgeId === options.fromKnowledgeId)
+      .filter((relation) => !options.targetKnowledgeId || relation.targetKnowledgeId === options.targetKnowledgeId)
+      .filter((relation) => !options.targetValue || relation.targetValue === options.targetValue)
+      .filter((relation) => !options.relationType || relation.relationType === options.relationType)
+      .filter((relation) => options.inferred === undefined || relation.inferred === options.inferred)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
+    return this.relations.get(id);
+  }
+
+  async createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation> {
+    const from = this.knowledge.get(input.fromKnowledgeId);
+    const now = new Date().toISOString();
+    const relation: KnowledgeRelation = {
+      ...input,
+      id: randomUUID(),
+      project: input.project ?? from?.project,
+      confidence: input.confidence ?? 0.7,
+      inferred: input.inferred ?? false,
+      metadata: input.metadata ?? {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.relations.set(relation.id, relation);
+    return relation;
+  }
+
+  async updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined> {
+    const current = this.relations.get(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const updated: KnowledgeRelation = {
+      ...current,
+      relationType: patch.relationType ?? current.relationType,
+      targetKind: patch.targetKind ?? current.targetKind,
+      targetKnowledgeId: patch.targetKnowledgeId === null ? undefined : patch.targetKnowledgeId ?? current.targetKnowledgeId,
+      targetValue: patch.targetValue === null ? undefined : patch.targetValue ?? current.targetValue,
+      confidence: patch.confidence ?? current.confidence,
+      inferred: patch.inferred ?? current.inferred,
+      metadata: patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      updatedAt: new Date().toISOString(),
+    };
+    this.relations.set(id, updated);
+    return updated;
+  }
+
+  async deleteKnowledgeRelation(id: string): Promise<boolean> {
+    return this.relations.delete(id);
   }
 
   async listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]> {
@@ -201,6 +286,52 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     const memoryTypes = new Set(['memory', 'workflow', 'rule', 'bugfix']);
     const terms = new Set(classified.lexicalQuery.toLowerCase().match(/[a-z0-9_./:-]+/g) ?? []);
     return this.rankByText(terms, 'memory', options, (item) => memoryTypes.has(item.itemType));
+  }
+
+  async searchGraphRelations(
+    classified: ClassifiedQuery,
+    options: SearchOptions & { seedKnowledgeIds?: string[] },
+  ): Promise<SearchCandidate[]> {
+    const directTargets = graphTargetTerms(classified);
+    const seedKnowledgeIds = new Set(options.seedKnowledgeIds ?? []);
+    const scored = new Map<string, number>();
+
+    for (const relation of this.relations.values()) {
+      const item = this.knowledge.get(relation.fromKnowledgeId);
+      if (!item || !this.allowed(item, options) || item.status !== 'approved') {
+        continue;
+      }
+
+      const directScore = directTargets.has(graphRelationKey(relation.targetKind, relation.targetValue));
+      if (directScore) {
+        const score = 0.95 * relation.confidence;
+        scored.set(item.id, Math.max(scored.get(item.id) ?? 0, score));
+      }
+
+      if (seedKnowledgeIds.has(relation.fromKnowledgeId) && relation.targetKnowledgeId) {
+        const score = 0.68 * relation.confidence;
+        scored.set(relation.targetKnowledgeId, Math.max(scored.get(relation.targetKnowledgeId) ?? 0, score));
+      }
+
+      if (relation.targetKnowledgeId && seedKnowledgeIds.has(relation.targetKnowledgeId)) {
+        const score = 0.68 * relation.confidence;
+        scored.set(relation.fromKnowledgeId, Math.max(scored.get(relation.fromKnowledgeId) ?? 0, score));
+      }
+    }
+
+    const candidates = [...scored.entries()]
+      .map(([knowledgeId, rawScore]) => {
+        const item = this.knowledge.get(knowledgeId);
+        const chunk = [...this.chunks.values()].find((candidate) => candidate.knowledgeId === knowledgeId);
+        return item && chunk && this.allowed(item, options) && item.status === 'approved'
+          ? this.toCandidate(item, chunk, 'graph', rawScore)
+          : undefined;
+      })
+      .filter((candidate): candidate is SearchCandidate => Boolean(candidate))
+      .sort((left, right) => right.rawScore - left.rawScore)
+      .slice(0, options.limit);
+
+    return withRanks(candidates);
   }
 
   async createContextQuery(): Promise<string> {
@@ -422,6 +553,84 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return draft;
   }
 
+  async exportProjectMap(options: { project?: string; limit: number }): Promise<ProjectMapExport> {
+    const knowledge = await this.listKnowledge({ project: options.project, limit: options.limit });
+    const relations = await this.listKnowledgeRelations({ project: options.project, limit: options.limit });
+    const labels = await this.listLabels({ project: options.project, limit: options.limit });
+    const sources = new Map<string, { uri?: string; title: string; itemCount: number }>();
+    const relationCounts = new Map<KnowledgeRelation['relationType'], number>();
+
+    for (const item of knowledge) {
+      const key = item.sourceUri ?? item.title;
+      const source = sources.get(key) ?? { uri: item.sourceUri, title: item.sourceUri ?? item.title, itemCount: 0 };
+      source.itemCount += 1;
+      sources.set(key, source);
+    }
+
+    for (const relation of relations) {
+      relationCounts.set(relation.relationType, (relationCounts.get(relation.relationType) ?? 0) + 1);
+    }
+
+    return {
+      project: options.project,
+      generatedAt: new Date().toISOString(),
+      knowledgeCount: knowledge.length,
+      relationCount: relations.length,
+      labelCount: labels.length,
+      sources: [...sources.values()].sort((left, right) => right.itemCount - left.itemCount || left.title.localeCompare(right.title)),
+      relationTypes: [...relationCounts.entries()]
+        .map(([type, count]) => ({ type, count }))
+        .sort((left, right) => right.count - left.count || left.type.localeCompare(right.type)),
+    };
+  }
+
+  async exportKnowledgeGraphJsonl(options: { project?: string; limit: number }): Promise<KnowledgeGraphJsonlExport> {
+    const knowledge = await this.listKnowledge({ project: options.project, limit: options.limit });
+    const relations = await this.listKnowledgeRelations({ project: options.project, limit: options.limit });
+    const lines = [
+      ...knowledge.map((item) => JSON.stringify({
+        kind: 'knowledge',
+        id: item.id,
+        project: item.project,
+        title: item.title,
+        itemType: item.itemType,
+        sourceUri: item.sourceUri,
+        labels: item.labels,
+      })),
+      ...relations.map((relation) => JSON.stringify({ kind: 'relation', ...relation })),
+    ];
+
+    return {
+      project: options.project,
+      generatedAt: new Date().toISOString(),
+      content: lines.join('\n'),
+    };
+  }
+
+  async exportReadableSummary(options: { project?: string; limit: number }): Promise<ReadableSummaryExport> {
+    const map = await this.exportProjectMap(options);
+    const lines = [
+      `# ${options.project ?? 'All Projects'} Knowledge Summary`,
+      '',
+      `Generated: ${map.generatedAt}`,
+      `Knowledge items: ${map.knowledgeCount}`,
+      `Relations: ${map.relationCount}`,
+      `Labels: ${map.labelCount}`,
+      '',
+      '## Sources',
+      ...map.sources.map((source) => `- ${source.title}: ${source.itemCount}`),
+      '',
+      '## Relation Types',
+      ...map.relationTypes.map((relation) => `- ${relation.type}: ${relation.count}`),
+    ];
+
+    return {
+      project: options.project,
+      generatedAt: map.generatedAt,
+      content: lines.join('\n'),
+    };
+  }
+
   async cleanupOperations(input: CleanupOperationsInput): Promise<CleanupOperationsResult> {
     const olderThanDays = input.olderThanDays ?? 30;
     const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
@@ -470,6 +679,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         { name: 'labels', rows: [] },
         { name: 'knowledge_labels', rows: [] },
         { name: 'knowledge_references', rows: [] },
+        { name: 'knowledge_relations', rows: [...this.relations.values()].map((relation) => ({ ...relation })) },
         { name: 'knowledge_chunks', rows: [...this.chunks.values()].map((chunk) => ({ ...chunk })) },
         { name: 'reflection_drafts', rows: [...this.drafts.values()].map((draft) => ({ ...draft })) },
         { name: 'context_queries', rows: [] },
@@ -496,6 +706,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     this.knowledgeSourceUris.clear();
     this.packs.clear();
     this.drafts.clear();
+    this.relations.clear();
     this.agentSessions.clear();
     this.agentDecisions.clear();
     this.feedback.length = 0;
@@ -517,6 +728,10 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     for (const row of tableRows(input.tables, 'knowledge_chunks')) {
       const chunk = row as unknown as MemoryChunk;
       this.chunks.set(chunk.id, chunk);
+    }
+    for (const row of tableRows(input.tables, 'knowledge_relations')) {
+      const relation = row as unknown as KnowledgeRelation;
+      this.relations.set(relation.id, relation);
     }
     for (const row of tableRows(input.tables, 'context_packs')) {
       const pack = row as unknown as ContextPack;
@@ -572,6 +787,14 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     for (const [chunkId, chunk] of this.chunks.entries()) {
       if (chunk.knowledgeId === knowledgeId) {
         this.chunks.delete(chunkId);
+      }
+    }
+  }
+
+  private deleteRelationsForKnowledge(knowledgeId: string): void {
+    for (const [relationId, relation] of this.relations.entries()) {
+      if (relation.fromKnowledgeId === knowledgeId || relation.targetKnowledgeId === knowledgeId) {
+        this.relations.delete(relationId);
       }
     }
   }
@@ -718,6 +941,18 @@ function knowledgeMatchesReview(
 
 function withRanks(candidates: SearchCandidate[]): SearchCandidate[] {
   return candidates.map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+}
+
+function graphTargetTerms(classified: ClassifiedQuery): Set<string> {
+  return new Set([
+    ...classified.files.map((file) => graphRelationKey('file', file)),
+    ...classified.symbols.map((symbol) => graphRelationKey('symbol', symbol)),
+    ...classified.errors.map((error) => graphRelationKey('error', error)),
+  ]);
+}
+
+function graphRelationKey(kind: string, value: string | undefined): string {
+  return `${kind}:${normalizeLabel(value ?? '')}`;
 }
 
 function feedbackMatchesProject(

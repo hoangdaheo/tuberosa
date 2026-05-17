@@ -13,14 +13,21 @@ import type {
   FeedbackEvent,
   FeedbackInput,
   FinishAgentSessionInput,
+  KnowledgeGraphJsonlExport,
   KnowledgePatchInput,
   KnowledgeFeedbackSummary,
   KnowledgeInput,
+  KnowledgeRelation,
+  KnowledgeRelationInput,
+  KnowledgeRelationPatchInput,
   LabelInput,
   LabelRecord,
+  ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
+  ProjectMapExport,
   RecordAgentContextDecisionInput,
+  ReadableSummaryExport,
   ReferenceInput,
   ReflectionDraft,
   ReflectionDraftPatchInput,
@@ -72,6 +79,11 @@ const BACKUP_TABLES: BackupTableDefinition[] = [
     name: 'knowledge_references',
     columns: ['id', 'knowledge_id', 'ref_type', 'uri', 'line_start', 'line_end', 'commit_sha', 'metadata', 'created_at'],
     selectSql: 'SELECT id, knowledge_id, ref_type, uri, line_start, line_end, commit_sha, metadata, created_at FROM knowledge_references ORDER BY created_at, id',
+  },
+  {
+    name: 'knowledge_relations',
+    columns: ['id', 'project_id', 'from_knowledge_id', 'relation_type', 'target_kind', 'target_knowledge_id', 'target_value', 'confidence', 'inferred', 'metadata', 'created_at', 'updated_at'],
+    selectSql: 'SELECT id, project_id, from_knowledge_id, relation_type, target_kind, target_knowledge_id, target_value, confidence, inferred, metadata, created_at, updated_at FROM knowledge_relations ORDER BY created_at, id',
   },
   {
     name: 'knowledge_chunks',
@@ -267,6 +279,111 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return this.getKnowledge(id);
   }
 
+  async replaceInferredKnowledgeRelations(
+    knowledgeId: string,
+    relations: KnowledgeRelationInput[],
+  ): Promise<KnowledgeRelation[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM knowledge_relations WHERE from_knowledge_id = $1 AND inferred = true', [knowledgeId]);
+      const created: KnowledgeRelation[] = [];
+      for (const relation of relations) {
+        created.push(await this.insertKnowledgeRelation(client, { ...relation, inferred: true }));
+      }
+      await client.query('COMMIT');
+      return created;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]> {
+    const result = await this.pool.query(
+      `
+        ${relationSelect()}
+        WHERE ($2::text IS NULL OR p.name = $2)
+          AND ($3::uuid IS NULL OR kr.from_knowledge_id = $3)
+          AND ($4::uuid IS NULL OR kr.target_knowledge_id = $4)
+          AND ($5::text IS NULL OR kr.target_value = $5)
+          AND ($6::text IS NULL OR kr.relation_type = $6)
+          AND ($7::boolean IS NULL OR kr.inferred = $7)
+        ORDER BY kr.created_at DESC
+        LIMIT $1
+      `,
+      [
+        options.limit,
+        options.project ?? null,
+        options.fromKnowledgeId ?? null,
+        options.targetKnowledgeId ?? null,
+        options.targetValue ?? null,
+        options.relationType ?? null,
+        options.inferred ?? null,
+      ],
+    );
+
+    return result.rows.map(mapRelationRow);
+  }
+
+  async getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
+    const result = await this.pool.query(
+      `
+        ${relationSelect()}
+        WHERE kr.id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? mapRelationRow(result.rows[0]) : undefined;
+  }
+
+  async createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation> {
+    return this.insertKnowledgeRelation(this.pool, input);
+  }
+
+  async updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined> {
+    const current = await this.getKnowledgeRelation(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const result = await this.pool.query(
+      `
+        UPDATE knowledge_relations
+        SET relation_type = $2,
+          target_kind = $3,
+          target_knowledge_id = $4,
+          target_value = $5,
+          confidence = $6,
+          inferred = $7,
+          metadata = $8,
+          updated_at = now()
+        WHERE id = $1
+        RETURNING id
+      `,
+      [
+        id,
+        patch.relationType ?? current.relationType,
+        patch.targetKind ?? current.targetKind,
+        patch.targetKnowledgeId === null ? null : patch.targetKnowledgeId ?? current.targetKnowledgeId ?? null,
+        patch.targetValue === null ? null : patch.targetValue ?? current.targetValue ?? null,
+        patch.confidence ?? current.confidence,
+        patch.inferred ?? current.inferred,
+        patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      ],
+    );
+
+    return result.rowCount ? this.getKnowledgeRelation(id) : undefined;
+  }
+
+  async deleteKnowledgeRelation(id: string): Promise<boolean> {
+    const result = await this.pool.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
+    return Boolean(result.rowCount);
+  }
+
   async listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]> {
     const result = await this.pool.query(
       `
@@ -397,6 +514,68 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         options.rejectedKnowledgeIds ?? [],
         options.limit,
         `%${classified.lexicalQuery.toLowerCase()}%`,
+      ],
+    );
+
+    return result.rows.map((row, index) => mapCandidateRow(row, index));
+  }
+
+  async searchGraphRelations(
+    classified: ClassifiedQuery,
+    options: SearchOptions & { seedKnowledgeIds?: string[] },
+  ): Promise<SearchCandidate[]> {
+    const graphTargets = [
+      ...classified.files.map((value) => ({ kind: 'file', value: normalizeLabel(value) })),
+      ...classified.symbols.map((value) => ({ kind: 'symbol', value: normalizeLabel(value) })),
+      ...classified.errors.map((value) => ({ kind: 'error', value: normalizeLabel(value) })),
+    ];
+    const seedKnowledgeIds = options.seedKnowledgeIds ?? [];
+
+    if (graphTargets.length === 0 && seedKnowledgeIds.length === 0) {
+      return [];
+    }
+
+    const result = await this.pool.query(
+      `
+        WITH graph_targets AS (
+          SELECT target->>'kind' AS kind, target->>'value' AS value
+          FROM jsonb_array_elements($1::jsonb) target
+        ),
+        graph_matches AS (
+          SELECT kr.from_knowledge_id AS knowledge_id, 0.95 * kr.confidence AS graph_score
+          FROM knowledge_relations kr
+          JOIN graph_targets gt ON gt.kind = kr.target_kind
+            AND gt.value = trim(both '-' from regexp_replace(lower(COALESCE(kr.target_value, '')), '[^a-z0-9._/-]+', '-', 'g'))
+          UNION ALL
+          SELECT kr.target_knowledge_id AS knowledge_id, 0.68 * kr.confidence AS graph_score
+          FROM knowledge_relations kr
+          WHERE kr.from_knowledge_id = ANY($2::uuid[])
+            AND kr.target_knowledge_id IS NOT NULL
+          UNION ALL
+          SELECT kr.from_knowledge_id AS knowledge_id, 0.68 * kr.confidence AS graph_score
+          FROM knowledge_relations kr
+          WHERE kr.target_knowledge_id = ANY($2::uuid[])
+        ),
+        graph_scores AS (
+          SELECT knowledge_id, max(graph_score)::real AS graph_score
+          FROM graph_matches
+          WHERE knowledge_id IS NOT NULL
+          GROUP BY knowledge_id
+        )
+        ${candidateSelect('graph', 'gm.graph_score')}
+        JOIN graph_scores gm ON gm.knowledge_id = ki.id
+        WHERE ki.status = 'approved'
+          AND ($3::text IS NULL OR p.name = $3)
+          AND NOT (ki.id = ANY($4::uuid[]))
+        ORDER BY raw_score DESC
+        LIMIT $5
+      `,
+      [
+        JSON.stringify(graphTargets),
+        seedKnowledgeIds,
+        options.project ?? null,
+        options.rejectedKnowledgeIds ?? [],
+        options.limit,
       ],
     );
 
@@ -856,6 +1035,88 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rows[0] ? mapReflectionDraftRow(result.rows[0]) : undefined;
   }
 
+  async exportProjectMap(options: { project?: string; limit: number }): Promise<ProjectMapExport> {
+    const [knowledge, relations, labels] = await Promise.all([
+      this.listKnowledge({ project: options.project, limit: options.limit }),
+      this.listKnowledgeRelations({ project: options.project, limit: options.limit }),
+      this.listLabels({ project: options.project, limit: options.limit }),
+    ]);
+    const sources = new Map<string, { uri?: string; title: string; itemCount: number }>();
+    const relationCounts = new Map<KnowledgeRelation['relationType'], number>();
+
+    for (const item of knowledge) {
+      const key = item.sourceUri ?? item.title;
+      const source = sources.get(key) ?? { uri: item.sourceUri, title: item.sourceUri ?? item.title, itemCount: 0 };
+      source.itemCount += 1;
+      sources.set(key, source);
+    }
+
+    for (const relation of relations) {
+      relationCounts.set(relation.relationType, (relationCounts.get(relation.relationType) ?? 0) + 1);
+    }
+
+    return {
+      project: options.project,
+      generatedAt: new Date().toISOString(),
+      knowledgeCount: knowledge.length,
+      relationCount: relations.length,
+      labelCount: labels.length,
+      sources: [...sources.values()].sort((left, right) => right.itemCount - left.itemCount || left.title.localeCompare(right.title)),
+      relationTypes: [...relationCounts.entries()]
+        .map(([type, count]) => ({ type, count }))
+        .sort((left, right) => right.count - left.count || left.type.localeCompare(right.type)),
+    };
+  }
+
+  async exportKnowledgeGraphJsonl(options: { project?: string; limit: number }): Promise<KnowledgeGraphJsonlExport> {
+    const [knowledge, relations] = await Promise.all([
+      this.listKnowledge({ project: options.project, limit: options.limit }),
+      this.listKnowledgeRelations({ project: options.project, limit: options.limit }),
+    ]);
+    const lines = [
+      ...knowledge.map((item) => JSON.stringify({
+        kind: 'knowledge',
+        id: item.id,
+        project: item.project,
+        title: item.title,
+        itemType: item.itemType,
+        sourceUri: item.sourceUri,
+        labels: item.labels,
+      })),
+      ...relations.map((relation) => JSON.stringify({ kind: 'relation', ...relation })),
+    ];
+
+    return {
+      project: options.project,
+      generatedAt: new Date().toISOString(),
+      content: lines.join('\n'),
+    };
+  }
+
+  async exportReadableSummary(options: { project?: string; limit: number }): Promise<ReadableSummaryExport> {
+    const map = await this.exportProjectMap(options);
+    const lines = [
+      `# ${options.project ?? 'All Projects'} Knowledge Summary`,
+      '',
+      `Generated: ${map.generatedAt}`,
+      `Knowledge items: ${map.knowledgeCount}`,
+      `Relations: ${map.relationCount}`,
+      `Labels: ${map.labelCount}`,
+      '',
+      '## Sources',
+      ...map.sources.map((source) => `- ${source.title}: ${source.itemCount}`),
+      '',
+      '## Relation Types',
+      ...map.relationTypes.map((relation) => `- ${relation.type}: ${relation.count}`),
+    ];
+
+    return {
+      project: options.project,
+      generatedAt: map.generatedAt,
+      content: lines.join('\n'),
+    };
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
@@ -1237,6 +1498,45 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       );
     }
   }
+
+  private async insertKnowledgeRelation(
+    client: Queryable,
+    input: KnowledgeRelationInput,
+  ): Promise<KnowledgeRelation> {
+    const projectId = input.project
+      ? await this.ensureProject(client, input.project)
+      : null;
+    const result = await client.query(
+      `
+        WITH inserted AS (
+          INSERT INTO knowledge_relations (
+            project_id, from_knowledge_id, relation_type, target_kind,
+            target_knowledge_id, target_value, confidence, inferred, metadata
+          )
+          VALUES (
+            COALESCE($1, (SELECT project_id FROM knowledge_items WHERE id = $2)),
+            $2, $3, $4, $5, $6, $7, $8, $9
+          )
+          RETURNING *
+        )
+        SELECT inserted.*, p.name AS project
+        FROM inserted
+        LEFT JOIN projects p ON p.id = inserted.project_id
+      `,
+      [
+        projectId,
+        input.fromKnowledgeId,
+        input.relationType,
+        input.targetKind,
+        input.targetKnowledgeId ?? null,
+        input.targetValue ?? null,
+        input.confidence ?? 0.7,
+        input.inferred ?? false,
+        input.metadata ?? {},
+      ],
+    );
+    return mapRelationRow(result.rows[0]);
+  }
 }
 
 function knowledgeSelect(): string {
@@ -1323,6 +1623,26 @@ function candidateSelect(source: string, scoreExpression: string): string {
   `;
 }
 
+function relationSelect(): string {
+  return `
+    SELECT
+      kr.id,
+      p.name AS project,
+      kr.from_knowledge_id,
+      kr.relation_type,
+      kr.target_kind,
+      kr.target_knowledge_id,
+      kr.target_value,
+      kr.confidence,
+      kr.inferred,
+      kr.metadata,
+      kr.created_at,
+      kr.updated_at
+    FROM knowledge_relations kr
+    LEFT JOIN projects p ON p.id = kr.project_id
+  `;
+}
+
 function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
   return {
     id: String(row.id),
@@ -1340,6 +1660,23 @@ function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
     labels: (row.labels ?? []) as LabelInput[],
     references: (row.references ?? []) as ReferenceInput[],
     freshnessAt: row.freshness_at ? toIso(row.freshness_at) : undefined,
+    createdAt: toIso(row.created_at),
+    updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
+  };
+}
+
+function mapRelationRow(row: Record<string, unknown>): KnowledgeRelation {
+  return {
+    id: String(row.id),
+    project: row.project ? String(row.project) : undefined,
+    fromKnowledgeId: String(row.from_knowledge_id),
+    relationType: row.relation_type as KnowledgeRelation['relationType'],
+    targetKind: row.target_kind as KnowledgeRelation['targetKind'],
+    targetKnowledgeId: row.target_knowledge_id ? String(row.target_knowledge_id) : undefined,
+    targetValue: row.target_value ? String(row.target_value) : undefined,
+    confidence: Number(row.confidence ?? 0.7),
+    inferred: Boolean(row.inferred),
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
   };

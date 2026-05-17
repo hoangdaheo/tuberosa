@@ -93,6 +93,35 @@ test('operations API reviews, updates, imports, and lists audit records', async 
     const labels = await get(services, `/labels?project=${project}`) as Array<Record<string, unknown>>;
     ok(labels.some((label) => label.type === 'severity' && label.value === 'review'));
 
+    const inferredRelations = await get(services, `/operations/relations?project=${project}&inferred=true`) as Array<Record<string, unknown>>;
+    ok(inferredRelations.some((relation) => relation.relationType === 'mentions_file'));
+
+    const manualRelation = await post(services, '/operations/relations', {
+      project,
+      fromKnowledgeId: imported[0].id,
+      relationType: 'related_to',
+      targetKind: 'knowledge',
+      targetKnowledgeId: lowTrust.id,
+      confidence: 0.6,
+    }) as Record<string, unknown>;
+    equal(manualRelation.inferred, false);
+
+    const patchedRelation = await patch(services, `/operations/relations/${manualRelation.id}`, {
+      confidence: 0.8,
+      metadata: { reviewer: 'node-test' },
+    }) as Record<string, unknown>;
+    equal(patchedRelation.confidence, 0.8);
+    equal((patchedRelation.metadata as Record<string, unknown>).reviewer, 'node-test');
+
+    const projectMap = await get(services, `/operations/organization/project-map?project=${project}`) as Record<string, unknown>;
+    ok((projectMap.relationCount as number) >= 1);
+
+    const graphJsonl = await get(services, `/operations/organization/knowledge-graph.jsonl?project=${project}`) as Record<string, unknown>;
+    ok(String(graphJsonl.content).includes('"kind":"relation"'));
+
+    const readableSummary = await get(services, `/operations/organization/readable-summary?project=${project}`) as Record<string, unknown>;
+    ok(String(readableSummary.content).includes('Knowledge Summary'));
+
     const search = await post(services, '/context/search', {
       project,
       prompt: 'How should operations cleanup work?',
@@ -152,6 +181,13 @@ test('operations API reviews, updates, imports, and lists audit records', async 
     }) as Record<string, unknown>;
     equal(cleanup.dryRun, true);
     ok(cleanup.deleted);
+
+    const deleteRelation = await dispatchHttp(services, {
+      method: 'DELETE',
+      url: `/operations/relations/${manualRelation.id}`,
+    });
+    equal(deleteRelation.status, 200);
+    equal((deleteRelation.body as Record<string, unknown>).deleted, true);
   } finally {
     await services.close();
   }

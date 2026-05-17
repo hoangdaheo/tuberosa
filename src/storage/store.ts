@@ -13,10 +13,17 @@ import type {
   KnowledgePatchInput,
   KnowledgeFeedbackSummary,
   KnowledgeInput,
+  KnowledgeGraphJsonlExport,
+  KnowledgeRelation,
+  KnowledgeRelationInput,
+  KnowledgeRelationPatchInput,
   LabelRecord,
+  ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
+  ProjectMapExport,
   RecordAgentContextDecisionInput,
+  ReadableSummaryExport,
   ReflectionDraft,
   ReflectionDraftPatchInput,
   ReflectionDraftInput,
@@ -46,11 +53,21 @@ export interface KnowledgeStore {
   listKnowledge(options: ListKnowledgeOptions): Promise<StoredKnowledge[]>;
   getKnowledge(id: string): Promise<StoredKnowledge | undefined>;
   updateKnowledge(id: string, patch: KnowledgePatchInput): Promise<StoredKnowledge | undefined>;
+  replaceInferredKnowledgeRelations(knowledgeId: string, relations: KnowledgeRelationInput[]): Promise<KnowledgeRelation[]>;
+  listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]>;
+  getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined>;
+  createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation>;
+  updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined>;
+  deleteKnowledgeRelation(id: string): Promise<boolean>;
   listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]>;
   searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]>;
   searchVector(embedding: number[], options: SearchOptions): Promise<SearchCandidate[]>;
   searchMetadata(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]>;
   searchMemories(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]>;
+  searchGraphRelations(classified: ClassifiedQuery, options: SearchOptions & { seedKnowledgeIds?: string[] }): Promise<SearchCandidate[]>;
+  exportProjectMap(options: { project?: string; limit: number }): Promise<ProjectMapExport>;
+  exportKnowledgeGraphJsonl(options: { project?: string; limit: number }): Promise<KnowledgeGraphJsonlExport>;
+  exportReadableSummary(options: { project?: string; limit: number }): Promise<ReadableSummaryExport>;
   createContextQuery(input: {
     project?: string;
     prompt: string;

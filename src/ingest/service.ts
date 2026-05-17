@@ -1,6 +1,7 @@
 import type { ModelProvider } from '../model/provider.js';
 import type { KnowledgeInput, KnowledgeItemType, LabelInput, ReferenceInput } from '../types.js';
 import { IngestionLimitAppError } from '../errors.js';
+import { KnowledgeRelationInference } from '../relations/inference.js';
 import { classifyQuery, labelsFromClassification } from '../retrieval/classifier.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { estimateTokens, splitIntoChunks, uniqueStrings } from '../util/text.js';
@@ -34,6 +35,7 @@ export class IngestionLimitError extends IngestionLimitAppError {}
 export class IngestionService {
   private readonly atomizers: DocumentAtomizer[];
   private readonly safety: KnowledgeSafetyService;
+  private readonly relationInference: KnowledgeRelationInference;
   private readonly maxContentBytes?: number;
 
   constructor(
@@ -43,6 +45,7 @@ export class IngestionService {
   ) {
     this.atomizers = options.atomizers ?? [new MarkdownAtomizer()];
     this.safety = options.safety ?? new KnowledgeSafetyService();
+    this.relationInference = new KnowledgeRelationInference();
     this.maxContentBytes = options.maxContentBytes;
   }
 
@@ -50,7 +53,9 @@ export class IngestionService {
     this.ensureContentWithinLimit(input.content);
     const sanitizedInput = this.safety.sanitizeKnowledgeInput(input);
     const chunks = await this.buildChunks(sanitizedInput);
-    return this.store.upsertKnowledge(sanitizedInput, chunks);
+    const stored = await this.store.upsertKnowledge(sanitizedInput, chunks);
+    await this.store.replaceInferredKnowledgeRelations(stored.id, this.relationInference.infer(stored));
+    return stored;
   }
 
   async ingestFiles(project: string, files: IngestFileInput[], options: IngestFilesOptions = {}) {

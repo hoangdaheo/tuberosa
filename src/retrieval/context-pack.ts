@@ -4,6 +4,7 @@ import { clamp, truncate } from '../util/text.js';
 
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
 const GENERAL_MIN_FINAL_SCORE = 0.35;
+const GRAPH_EVIDENCE_MIN_RAW_SCORE = 0.45;
 
 export interface AssembleContextPackInput {
   queryId?: string;
@@ -55,8 +56,16 @@ function filterAcceptedCandidates(input: AssembleContextPackInput): RankedCandid
   const rejectedIds = new Set(input.rejectedKnowledgeIds ?? []);
   const filtered = input.candidates.filter((candidate) => !rejectedIds.has(candidate.knowledgeId));
   const threshold = hasAnchors(input.classified) ? ANCHORED_MIN_FINAL_SCORE : GENERAL_MIN_FINAL_SCORE;
-  const strong = filtered.filter((candidate, index) => index === 0 || candidate.finalScore >= threshold);
+  const strong = filtered.filter((candidate, index) => (
+    index === 0
+    || candidate.finalScore >= threshold
+    || isGraphEvidence(candidate)
+  ));
   return strong.length ? strong : filtered.slice(0, 1);
+}
+
+function isGraphEvidence(candidate: RankedCandidate): boolean {
+  return candidate.source === 'graph' && candidate.rawScore >= GRAPH_EVIDENCE_MIN_RAW_SCORE;
 }
 
 function hasAnchors(classified: ClassifiedQuery): boolean {

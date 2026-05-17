@@ -217,6 +217,23 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
     const labels = await store.listLabels({ project, limit: 20 });
     ok(labels.some((label) => label.value === 'paywall'));
 
+    const inferredRelations = await store.listKnowledgeRelations({ project, inferred: true, limit: 20 });
+    ok(inferredRelations.some((relation) => relation.relationType === 'mentions_symbol' && relation.targetValue === 'PaywallSelectionModal'));
+
+    const manualRelation = await store.createKnowledgeRelation({
+      project,
+      fromKnowledgeId: updatedPaywall.id,
+      relationType: 'related_to',
+      targetKind: 'knowledge',
+      targetKnowledgeId: unrelated.id,
+      confidence: 0.6,
+    });
+    const updatedRelation = await store.updateKnowledgeRelation(manualRelation.id, {
+      confidence: 0.75,
+      metadata: { source: 'integration-test' },
+    });
+    equal(updatedRelation?.confidence, 0.75);
+
     const contextPacks = await store.listContextPacks({ project, limit: 20 });
     ok(contextPacks.some((item) => item.id === pack.id));
 
@@ -238,7 +255,9 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
     const backup = await store.exportBackup();
     const backupCounts = await store.restoreBackup({ tables: backup.tables, dryRun: true });
     ok(backup.tables.some((table) => table.name === 'knowledge_chunks' && table.rows.length > 0));
+    ok(backup.tables.some((table) => table.name === 'knowledge_relations' && table.rows.length > 0));
     ok(backupCounts.knowledge_items > 0);
+    equal(await store.deleteKnowledgeRelation(manualRelation.id), true);
   } finally {
     await Promise.allSettled([store.close(), cache.close()]);
   }

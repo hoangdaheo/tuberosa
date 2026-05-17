@@ -192,11 +192,25 @@ export class RetrievalService {
       lexical: this.safety.sanitizeSearchCandidates(lexical),
       memory: this.safety.sanitizeSearchCandidates(memory),
       vector: this.safety.sanitizeSearchCandidates(vector),
+      graph: [] as KnowledgeSearchResult['graph'],
     };
+    const seedKnowledgeIds = uniqueStrings([
+      ...safeResults.metadata,
+      ...safeResults.lexical,
+      ...safeResults.memory,
+      ...safeResults.vector,
+    ].map((candidate) => candidate.knowledgeId));
+    const graph = await timed(
+      'graph',
+      this.store.searchGraphRelations(classified, { ...options, seedKnowledgeIds }),
+      debug,
+    );
+    safeResults.graph = this.safety.sanitizeSearchCandidates(graph);
     debug?.recordStage('metadata', safeResults.metadata);
     debug?.recordStage('lexical', safeResults.lexical);
     debug?.recordStage('memory', safeResults.memory);
     debug?.recordStage('vector', safeResults.vector);
+    debug?.recordStage('graph', safeResults.graph);
 
     return safeResults;
   }
@@ -210,7 +224,7 @@ export class RetrievalService {
   ): Promise<RankedCandidate[]> {
     const fusionStartedAt = Date.now();
     const fused = fuseCandidates(
-      [candidates.metadata, candidates.lexical, candidates.memory, candidates.vector],
+      [candidates.metadata, candidates.lexical, candidates.memory, candidates.vector, candidates.graph],
       classified,
     ).slice(0, RERANK_LIMIT);
     debug?.recordTiming('fusion', fusionStartedAt);

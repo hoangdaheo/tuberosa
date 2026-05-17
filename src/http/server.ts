@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
+import type { KnowledgeRelationType } from '../types.js';
 import {
   validateContextSearchInput,
   validateBackupRetentionInput,
@@ -12,6 +13,8 @@ import {
   validateIngestFilesRequest,
   validateKnowledgeInput,
   validateKnowledgePatchInput,
+  validateKnowledgeRelationInput,
+  validateKnowledgeRelationPatchInput,
   validateKnowledgeReviewFilter,
   validateKnowledgeStatusQuery,
   validateRecordAgentContextDecisionInput,
@@ -276,6 +279,80 @@ function createRoutes(): HttpRoute[] {
     },
     {
       method: 'GET',
+      match: exactPath('/operations/relations'),
+      handle: ({ services, url }) => services.operations.listKnowledgeRelations(readRelationListOptions(url)),
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/relations'),
+      handle: async ({ services, request }) => {
+        const body = validateKnowledgeRelationInput(await readJsonBody(request, services.config.maxRequestBytes));
+        return services.operations.createKnowledgeRelation(body);
+      },
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/operations\/relations\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const relation = await services.operations.getKnowledgeRelation(params.id);
+        if (!relation) {
+          throw new NotFoundError('Knowledge relation not found.');
+        }
+
+        return relation;
+      },
+    },
+    {
+      method: 'PATCH',
+      match: pathPattern(/^\/operations\/relations\/([^/]+)$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateKnowledgeRelationPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const relation = await services.operations.updateKnowledgeRelation(params.id, body);
+        if (!relation) {
+          throw new NotFoundError('Knowledge relation not found.');
+        }
+
+        return relation;
+      },
+    },
+    {
+      method: 'DELETE',
+      match: pathPattern(/^\/operations\/relations\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const deleted = await services.operations.deleteKnowledgeRelation(params.id);
+        if (!deleted) {
+          throw new NotFoundError('Knowledge relation not found.');
+        }
+
+        return { deleted: true };
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/organization/project-map'),
+      handle: ({ services, url }) => services.operations.exportProjectMap({
+        project: url.searchParams.get('project') ?? undefined,
+        limit: readLimit(url),
+      }),
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/organization/knowledge-graph.jsonl'),
+      handle: ({ services, url }) => services.operations.exportKnowledgeGraphJsonl({
+        project: url.searchParams.get('project') ?? undefined,
+        limit: readLimit(url),
+      }),
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/organization/readable-summary'),
+      handle: ({ services, url }) => services.operations.exportReadableSummary({
+        project: url.searchParams.get('project') ?? undefined,
+        limit: readLimit(url),
+      }),
+    },
+    {
+      method: 'GET',
       match: exactPath('/feedback-events'),
       handle: ({ services, url }) => services.operations.listFeedbackEvents(readListRecordsOptions(url)),
     },
@@ -521,6 +598,23 @@ function readListRecordsOptions(url: URL) {
   return {
     project: url.searchParams.get('project') ?? undefined,
     status: url.searchParams.get('status') ?? undefined,
+    limit: readLimit(url),
+  };
+}
+
+function readRelationListOptions(url: URL) {
+  const inferred = url.searchParams.get('inferred');
+  if (inferred !== null && inferred !== 'true' && inferred !== 'false') {
+    throw new HttpError(400, 'Query parameter "inferred" must be true or false.');
+  }
+
+  return {
+    project: url.searchParams.get('project') ?? undefined,
+    fromKnowledgeId: url.searchParams.get('fromKnowledgeId') ?? undefined,
+    targetKnowledgeId: url.searchParams.get('targetKnowledgeId') ?? undefined,
+    targetValue: url.searchParams.get('targetValue') ?? undefined,
+    relationType: (url.searchParams.get('relationType') ?? undefined) as KnowledgeRelationType | undefined,
+    inferred: inferred === null ? undefined : inferred === 'true',
     limit: readLimit(url),
   };
 }

@@ -4,6 +4,7 @@ import { clamp } from '../util/text.js';
 const SOURCE_WEIGHTS: Record<SearchCandidate['source'], number> = {
   metadata: 1.15,
   reference: 1.12,
+  graph: 1.1,
   memory: 1.08,
   lexical: 1,
   vector: 0.92,
@@ -53,7 +54,7 @@ function sourceWeight(candidate: SearchCandidate, classified: ClassifiedQuery): 
   let weight = SOURCE_WEIGHTS[candidate.source];
 
   if (classified.files.length || classified.symbols.length || classified.errors.length) {
-    if (candidate.source === 'metadata' || candidate.source === 'lexical') {
+    if (candidate.source === 'metadata' || candidate.source === 'lexical' || candidate.source === 'graph') {
       weight += 0.18;
     }
     if (candidate.source === 'vector') {

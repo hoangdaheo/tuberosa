@@ -52,6 +52,7 @@ const BACKUP_TABLES: BackupTableName[] = [
   'labels',
   'knowledge_labels',
   'knowledge_references',
+  'knowledge_relations',
   'knowledge_chunks',
   'reflection_drafts',
   'context_queries',

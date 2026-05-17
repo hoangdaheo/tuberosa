@@ -62,6 +62,66 @@ export interface ReferenceInput {
   metadata?: Record<string, unknown>;
 }
 
+export type KnowledgeRelationType =
+  | 'contains'
+  | 'references'
+  | 'mentions_file'
+  | 'mentions_symbol'
+  | 'resolves_error'
+  | 'supersedes'
+  | 'depends_on'
+  | 'related_to'
+  | 'derived_from_session';
+
+export type KnowledgeRelationTargetKind =
+  | 'knowledge'
+  | 'file'
+  | 'symbol'
+  | 'error'
+  | 'session'
+  | 'reference';
+
+export interface KnowledgeRelationInput {
+  project?: string;
+  fromKnowledgeId: string;
+  relationType: KnowledgeRelationType;
+  targetKind: KnowledgeRelationTargetKind;
+  targetKnowledgeId?: string;
+  targetValue?: string;
+  confidence?: number;
+  inferred?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeRelationPatchInput {
+  relationType?: KnowledgeRelationType;
+  targetKind?: KnowledgeRelationTargetKind;
+  targetKnowledgeId?: string | null;
+  targetValue?: string | null;
+  confidence?: number;
+  inferred?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeRelation extends KnowledgeRelationInput {
+  id: string;
+  project?: string;
+  confidence: number;
+  inferred: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ListKnowledgeRelationsOptions {
+  project?: string;
+  fromKnowledgeId?: string;
+  targetKnowledgeId?: string;
+  targetValue?: string;
+  relationType?: KnowledgeRelationType;
+  inferred?: boolean;
+  limit: number;
+}
+
 export interface KnowledgeInput {
   project: string;
   sourceType: string;
@@ -190,7 +250,7 @@ export interface RerankResult {
   model?: string;
 }
 
-export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'reference';
+export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'reference' | 'graph';
 
 export interface SearchCandidate {
   knowledgeId: string;
@@ -375,6 +435,7 @@ export type BackupTableName =
   | 'labels'
   | 'knowledge_labels'
   | 'knowledge_references'
+  | 'knowledge_relations'
   | 'knowledge_chunks'
   | 'reflection_drafts'
   | 'context_queries'
@@ -556,6 +617,35 @@ export interface AgentSessionPolicy {
   instruction: string;
 }
 
+export interface ProjectMapExport {
+  project?: string;
+  generatedAt: string;
+  knowledgeCount: number;
+  relationCount: number;
+  labelCount: number;
+  sources: Array<{
+    uri?: string;
+    title: string;
+    itemCount: number;
+  }>;
+  relationTypes: Array<{
+    type: KnowledgeRelationType;
+    count: number;
+  }>;
+}
+
+export interface KnowledgeGraphJsonlExport {
+  project?: string;
+  generatedAt: string;
+  content: string;
+}
+
+export interface ReadableSummaryExport {
+  project?: string;
+  generatedAt: string;
+  content: string;
+}
+
 export interface SearchOptions {
   project?: string;
   limit: number;
@@ -567,9 +657,10 @@ export interface KnowledgeSearchResult {
   vector: SearchCandidate[];
   metadata: SearchCandidate[];
   memory: SearchCandidate[];
+  graph: SearchCandidate[];
 }
 
-export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'fusion' | 'rerank' | 'fit';
+export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'fusion' | 'rerank' | 'fit';
 
 export type RetrievalDebugTimingName =
   | RetrievalDebugStageName
