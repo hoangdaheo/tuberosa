@@ -924,6 +924,7 @@ export interface RetrievalDebugCandidate {
   fitReasons?: string[];
   fitMissingSignals?: string[];
   references: ReferenceInput[];
+  graphPaths?: Array<Record<string, unknown>>;
 }
 
 export interface RetrievalDebugStage {

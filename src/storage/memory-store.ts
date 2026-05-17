@@ -145,6 +145,9 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       updatedAt: new Date().toISOString(),
     };
     this.knowledge.set(id, updated);
+    if (shouldDropInferredRelationsForStatus(patch.status)) {
+      this.deleteRelationsForKnowledge(id, { inferredOnly: true });
+    }
 
     return updated;
   }
@@ -294,7 +297,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   ): Promise<SearchCandidate[]> {
     const directTargets = graphTargetTerms(classified);
     const seedKnowledgeIds = new Set(options.seedKnowledgeIds ?? []);
-    const scored = new Map<string, number>();
+    const scored = new Map<string, GraphScore>();
 
     for (const relation of this.relations.values()) {
       const item = this.knowledge.get(relation.fromKnowledgeId);
@@ -305,27 +308,37 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       const directScore = directTargets.has(graphRelationKey(relation.targetKind, relation.targetValue));
       if (directScore) {
         const score = 0.95 * relation.confidence;
-        scored.set(item.id, Math.max(scored.get(item.id) ?? 0, score));
+        keepBestGraphScore(scored, item.id, score, relation, 'target_signal');
       }
 
       if (seedKnowledgeIds.has(relation.fromKnowledgeId) && relation.targetKnowledgeId) {
         const score = 0.68 * relation.confidence;
-        scored.set(relation.targetKnowledgeId, Math.max(scored.get(relation.targetKnowledgeId) ?? 0, score));
+        keepBestGraphScore(scored, relation.targetKnowledgeId, score, relation, 'seed_outbound');
       }
 
       if (relation.targetKnowledgeId && seedKnowledgeIds.has(relation.targetKnowledgeId)) {
         const score = 0.68 * relation.confidence;
-        scored.set(relation.fromKnowledgeId, Math.max(scored.get(relation.fromKnowledgeId) ?? 0, score));
+        keepBestGraphScore(scored, relation.fromKnowledgeId, score, relation, 'seed_inbound');
       }
     }
 
     const candidates = [...scored.entries()]
-      .map(([knowledgeId, rawScore]) => {
+      .map((entry): SearchCandidate | undefined => {
+        const [knowledgeId, graphScore] = entry;
         const item = this.knowledge.get(knowledgeId);
         const chunk = [...this.chunks.values()].find((candidate) => candidate.knowledgeId === knowledgeId);
-        return item && chunk && this.allowed(item, options) && item.status === 'approved'
-          ? this.toCandidate(item, chunk, 'graph', rawScore)
-          : undefined;
+        if (!item || !chunk || !this.allowed(item, options) || item.status !== 'approved') {
+          return undefined;
+        }
+
+        const candidate = this.toCandidate(item, chunk, 'graph', graphScore.score);
+        return {
+          ...candidate,
+          metadata: {
+            ...(candidate.metadata ?? {}),
+            graphPaths: graphScore.paths,
+          },
+        };
       })
       .filter((candidate): candidate is SearchCandidate => Boolean(candidate))
       .sort((left, right) => right.rawScore - left.rawScore)
@@ -791,8 +804,12 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     }
   }
 
-  private deleteRelationsForKnowledge(knowledgeId: string): void {
+  private deleteRelationsForKnowledge(knowledgeId: string, options: { inferredOnly?: boolean } = {}): void {
     for (const [relationId, relation] of this.relations.entries()) {
+      if (options.inferredOnly && !relation.inferred) {
+        continue;
+      }
+
       if (relation.fromKnowledgeId === knowledgeId || relation.targetKnowledgeId === knowledgeId) {
         this.relations.delete(relationId);
       }
@@ -941,6 +958,59 @@ function knowledgeMatchesReview(
 
 function withRanks(candidates: SearchCandidate[]): SearchCandidate[] {
   return candidates.map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+}
+
+interface GraphScore {
+  score: number;
+  paths: GraphPath[];
+}
+
+interface GraphPath {
+  relationId: string;
+  relationType: KnowledgeRelation['relationType'];
+  fromKnowledgeId: string;
+  targetKind: KnowledgeRelation['targetKind'];
+  targetKnowledgeId?: string;
+  targetValue?: string;
+  confidence: number;
+  reason: 'target_signal' | 'seed_outbound' | 'seed_inbound';
+}
+
+function keepBestGraphScore(
+  scored: Map<string, GraphScore>,
+  knowledgeId: string,
+  score: number,
+  relation: KnowledgeRelation,
+  reason: GraphPath['reason'],
+): void {
+  const path: GraphPath = {
+    relationId: relation.id,
+    relationType: relation.relationType,
+    fromKnowledgeId: relation.fromKnowledgeId,
+    targetKind: relation.targetKind,
+    targetKnowledgeId: relation.targetKnowledgeId,
+    targetValue: relation.targetValue,
+    confidence: relation.confidence,
+    reason,
+  };
+  const existing = scored.get(knowledgeId);
+  if (!existing) {
+    scored.set(knowledgeId, { score, paths: [path] });
+    return;
+  }
+
+  if (score > existing.score) {
+    scored.set(knowledgeId, { score, paths: [path, ...existing.paths].slice(0, 3) });
+    return;
+  }
+
+  if (score === existing.score) {
+    scored.set(knowledgeId, { ...existing, paths: [...existing.paths, path].slice(0, 3) });
+  }
+}
+
+function shouldDropInferredRelationsForStatus(status: StoredKnowledge['status'] | undefined): boolean {
+  return status === 'archived' || status === 'blocked';
 }
 
 function graphTargetTerms(classified: ClassifiedQuery): Set<string> {

@@ -9,90 +9,54 @@ Tuberosa is a local-first context broker for agentic AI tools. It should retriev
 Current roadmap state:
 
 - Phase 0 through Phase 6 are complete.
-- Phase 7 Knowledge Organization Graph remains in progress.
-- Recent work added a full error-log agent workflow on top of the filesystem-backed incident journal:
-  - collect/retrieve compact incident context
-  - cluster recurring incidents by fingerprint
-  - create pending reflection drafts from selected logs
-  - guide an agent to fix an incident
-  - record structured resolution evidence after verification
-- Raw error logs remain physical journals, not searchable knowledge. Durable lessons still become searchable only through reviewed and approved reflection drafts.
+- Phase 7 Knowledge Organization Graph core work is now complete.
+- Remaining Phase 7 follow-ups are optional hardening and product polish, such as CLI commands for organization exports and context-search enrichment from selected error-log summaries.
+- Raw error logs remain physical journals, not searchable durable knowledge. Durable lessons still become searchable only through reviewed and approved reflection drafts.
 
 ## Current State Of The Code
 
-Phase 7 graph and reflection review work is still present:
+Implemented Phase 7 and adjacent memory/review work:
 
-- `knowledge_relations` storage, inference, graph-aware retrieval expansion, operations APIs, organization exports, backup coverage, and tests are implemented.
+- `knowledge_relations` storage, migrations, memory/Postgres implementations, backup/restore coverage, validators, and operations APIs are implemented.
+- Relation inference runs during ingestion from labels, references, source URI, metadata source paths, section paths, and agent-session provenance.
+- Retrieval performs bounded graph expansion after metadata, lexical, memory, and vector candidate discovery.
+- Context-pack assembly allows strong graph-evidence candidates through anchored thresholds, so one-hop related knowledge can reach agents without weakening semantic thresholds globally.
+- Organization export surfaces exist for project maps, graph JSONL, and readable summaries.
 - Pending reflection review tools are implemented:
   - `tuberosa_list_reflection_drafts`
   - `tuberosa_get_reflection_draft`
   - `tuberosa_review_reflection_draft`
 - Startup migration preflight is implemented through `TUBEROSA_AUTO_MIGRATE=true` by default.
 
-Error-log collection and transformation is now implemented:
+Recent error-log workflow work:
 
-- `ErrorLogService.collectLogs()` reuses the physical journal scan with broader filters and pagination.
-- `ErrorLogInsightService` now provides:
-  - compact summaries without raw stack/message detail
-  - category/severity/status/file/symbol/error/tag rollups
-  - fingerprint clusters for recurring incidents
-  - an `agentBrief` for AI agents
-  - reflection draft creation from explicit `errorLogIds`
-  - structured incident resolution with root cause, fix summary, changed files, verification commands, notes, metadata, and optional reflection linkage
-- HTTP routes added:
+- `ErrorLogService.collectLogs()` scans the filesystem-backed incident journal with filters and pagination.
+- `ErrorLogInsightService` provides compact incident summaries, rollups, fingerprint clusters, an agent brief, reflection-draft creation from selected log ids, and structured resolution metadata.
+- HTTP routes exist for collection, reflection draft creation, and resolution:
   - `GET /operations/error-logs/collection`
   - `POST /operations/error-logs/reflection-drafts`
   - `POST /operations/error-logs/:id/resolve`
-- MCP tools added:
-  - `tuberosa_collect_error_logs`
-  - `tuberosa_create_error_log_reflection_draft`
-  - `tuberosa_resolve_error_log`
-- MCP prompts added:
-  - `tuberosa_review_error_logs`
-  - `tuberosa_fix_error_log`
-- CLI commands added through `pnpm run error-logs`:
-  - `collect`, `list`, and `get` inspect filesystem-backed incidents without requiring HTTP/MCP
-  - `draft` creates a pending reflection draft from selected error-log ids
-  - `resolve` records root cause, fix summary, changed files, verification commands, and optional reflection linkage
+- MCP tools/prompts exist for reviewing and fixing error logs.
+- CLI commands exist through `pnpm run error-logs`:
+  - `collect`, `list`, `get`
+  - `draft`
+  - `resolve`
 
-Graph-aware context-fit signals are now implemented:
+Recent graph-aware context-fit work:
 
 - Retrieval annotates graph-expanded candidates with anchored file, symbol, and error signals covered by seed candidates.
-- Context-fit scoring now gives graph-expanded candidates explicit `graph connection` reasons.
+- Context-fit scoring gives graph-expanded candidates explicit `graph connection` reasons.
 - Candidate fit reasons can include `connected file:...`, `connected symbol:...`, `connected error:...`, `connected session:...`, and `connected incident lesson`.
 - Aggregate context fit can count graph-connected anchored signals as covered, so one-hop related knowledge explains why it belongs in the pack.
+- Graph debug candidates now include `graphPaths` with the relation id, relation type, source knowledge id, target kind/value/id, confidence, and whether the candidate came from a direct target signal, outbound seed edge, or inbound seed edge.
+
+Latest stale relation cleanup work:
+
+- Re-ingesting an atomized file as a single document now deletes previous atom records and their inferred atom relations.
+- Re-ingesting an atomized file still removes deleted section atoms and cascades their relations.
+- Archiving or blocking a knowledge item removes inferred relations from or to that item while preserving manually curated relations.
 
 Latest verification passed:
-
-```bash
-pnpm run build
-pnpm test
-git diff --check
-```
-
-Targeted tests also passed:
-
-```bash
-node --test --import tsx test/error-log.test.ts
-node --test --import tsx test/api-boundary.test.ts
-node --test --import tsx test/operations.test.ts
-```
-
-Latest follow-up verification after adding the error-log CLI:
-
-```bash
-pnpm run build
-pnpm test
-pnpm run eval:retrieval
-pnpm run test:integration
-git diff --check
-pnpm run error-logs --help
-pnpm run error-logs list --project tuberosa --limit 2
-```
-
-`pnpm run error-logs ...` required running outside the sandbox because `tsx` could not open its IPC socket inside the sandbox (`listen EPERM /tmp/tsx-1000/...pipe`). The CLI itself passed after escalation.
-
-Latest follow-up verification after adding graph-aware context-fit signals:
 
 ```bash
 node --test --import tsx test/retrieval.test.ts
@@ -103,33 +67,31 @@ pnpm run test:integration
 git diff --check
 ```
 
+The `pnpm run error-logs --help` and `pnpm run error-logs list --project tuberosa --limit 2` smoke checks passed earlier, but required running outside the sandbox because `tsx` could not open its IPC socket inside the sandbox (`listen EPERM /tmp/tsx-1000/...pipe`).
+
 ## Files Actively Edited
 
-Files actively edited for the error-log workflow and graph-aware context-fit work:
+The current worktree contains the stale-relation/debug updates plus earlier Phase 7/error-log work. Files worth reviewing before a commit:
 
+- `docs/AGENT_CONTEXT_ROADMAP.md`
 - `docs/FLOW_LOGIC.md`
 - `docs/SETUP_AND_USAGE.md`
 - `handoff.md`
+- `package.json`
 - `scripts/error-logs.ts`
-- `src/app.ts`
+- `src/ingest/service.ts`
 - `src/error-log/insights.ts`
-- `src/error-log/service.ts`
-- `src/http/server.ts`
-- `src/mcp/server.ts`
+- `src/retrieval/debug.ts`
 - `src/retrieval/context-fit.ts`
 - `src/retrieval/service.ts`
+- `src/storage/memory-store.ts`
+- `src/storage/postgres-store.ts`
 - `src/types.ts`
-- `src/validation.ts`
-- `test/api-boundary.test.ts`
-- `test/error-log.test.ts`
-- `test/flow-regression.test.ts`
-- `test/operations.test.ts`
 - `test/retrieval.test.ts`
 
-Previously active broader Phase 7 files are still in the worktree history/context and should be reviewed before commit:
+Earlier Phase 7 slices also touched or depend on:
 
 - `.env.example`
-- `docs/AGENT_CONTEXT_ROADMAP.md`
 - `migrations/001_init.sql`
 - `migrations/002_agent_sessions.sql`
 - `migrations/002_knowledge_relations.sql`
@@ -143,21 +105,21 @@ Previously active broader Phase 7 files are still in the worktree history/contex
 - `src/relations/inference.ts`
 - `src/retrieval/context-pack.ts`
 - `src/retrieval/fusion.ts`
-- `src/retrieval/service.ts`
 - `src/storage/memory-store.ts`
 - `src/storage/postgres-store.ts`
 - `src/storage/store.ts`
-- several existing tests under `test/`
+- several tests under `test/`
 
 ## Everything Tried That Failed
 
-Failures or corrections during this latest error-log workflow:
+Recent failures or corrections:
 
-- First full `pnpm test` after adding collection failed in `test/error-log.test.ts`. The duplicate-fingerprint fixture did not include the same stack top frame, so the two intended duplicate incidents were treated as separate fingerprints. The fixture was corrected by adding the same stack frame to the second incident.
+- The first full `pnpm test` after adding error-log collection failed in `test/error-log.test.ts`. The duplicate-fingerprint fixture did not include the same stack top frame, so the two intended duplicate incidents were treated as separate fingerprints. The fixture was corrected by adding the same stack frame to the second incident.
 - A GitNexus exploration MCP call was cancelled by the environment earlier, so codebase understanding continued through direct source inspection and Tuberosa context lookup.
+- `pnpm run error-logs ...` failed inside the sandbox with `listen EPERM /tmp/tsx-1000/...pipe`; rerunning outside the sandbox passed. This is a sandbox/tsx IPC limitation, not a CLI behavior failure.
 - No current verification command is failing.
 
-Older known failures that remain useful context:
+Older useful failures:
 
 - Earlier Phase 7 graph work initially failed build due to narrow TypeScript inference in `src/relations/inference.ts`; fixed by building a typed `RelationSeed[]`.
 - Graph expansion initially appeared in debug but was filtered during context-pack assembly; fixed with a narrow graph-evidence allowance.
@@ -168,8 +130,8 @@ Older known failures that remain useful context:
 
 Recommended next steps:
 
-1. Review the full worktree diff before commit because this branch contains multiple Phase 7 slices plus the new error-log workflow.
-2. Run the broader verification set before handoff/commit if time allows:
+1. Review the full worktree diff before commit because this branch contains multiple Phase 7 slices plus the error-log workflow.
+2. Re-run the standard verification set before commit:
    ```bash
    pnpm run build
    pnpm test
@@ -177,17 +139,14 @@ Recommended next steps:
    pnpm run test:integration
    git diff --check
    ```
-3. Consider adding context-search enrichment from selected error-log summaries, without making raw logs searchable durable knowledge.
-4. Add stale relation cleanup for archived sources and re-ingested non-atomic documents.
-5. Add richer relation-path debug output beyond the current `graph` candidate stage.
+3. Consider CLI commands for organization exports if HTTP export shape is accepted.
+4. Consider context-search enrichment from selected error-log summaries, while preserving the rule that raw error logs are not searchable durable knowledge.
+5. Move into Phase 8 retrieval quality hardening if Phase 7 export polish is sufficient.
 
 Suggested manual smoke after starting the app:
 
 ```bash
 curl 'http://localhost:3027/operations/error-logs/collection?project=tuberosa&status=open&limit=10'
-curl -X POST http://localhost:3027/operations/error-logs/<error-log-id>/resolve \
-  -H 'Content-Type: application/json' \
-  -d '{"rootCause":"...","resolutionSummary":"...","changedFiles":[],"verificationCommands":["pnpm test"]}'
 pnpm run error-logs collect --project tuberosa --status open --brief
 pnpm run error-logs resolve <error-log-id> --root-cause "..." --summary "..." --verification-command "pnpm test"
 ```

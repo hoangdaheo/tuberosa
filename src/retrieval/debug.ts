@@ -175,6 +175,11 @@ function toDebugCandidate(candidate: SearchCandidate | RankedCandidate): Retriev
   if (ranked.fitMissingSignals) {
     debugCandidate.fitMissingSignals = ranked.fitMissingSignals;
   }
+  if (Array.isArray(candidate.metadata?.graphPaths)) {
+    debugCandidate.graphPaths = candidate.metadata.graphPaths
+      .filter((path): path is Record<string, unknown> => Boolean(path) && typeof path === 'object')
+      .slice(0, 3);
+  }
 
   return debugCandidate;
 }

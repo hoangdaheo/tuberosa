@@ -229,9 +229,9 @@ Planned work:
   - one-hop related knowledge second
   - optional two-hop expansion only when debug or explicit mode is enabled
 - Done: add graph-aware context-fit signals showing which files, symbols, errors, sessions, and incident lessons are connected.
-- Add debug trace fields explaining why related knowledge entered a context pack.
+- Done: add debug trace fields explaining why related knowledge entered a context pack, including relation id, type, direction reason, source knowledge, and target.
 - Add export commands and HTTP endpoints for project maps and graph JSONL.
-- Add stale relation cleanup when document atoms are re-ingested or sources are archived.
+- Done: add stale relation cleanup when document atoms are re-ingested, when an atomized file is re-ingested as a single document, and when knowledge is archived or blocked.
 - Add a pending reflection review workflow for agents and users:
   - MCP tools to list pending reflection drafts, inspect a draft, and record review decisions.
   - Review decisions should support approve, reject, and needs-changes style outcomes.
@@ -252,7 +252,58 @@ Acceptance:
 - Generated organization exports are reproducible and are not treated as the runtime source of truth.
 - Existing search, backup, restore, and reflection flows continue to work when no relations exist.
 
-## Phase 8: Retrieval Quality Hardening
+## Phase 8: Agent Context Compliance And Evaluation
+
+Goal: make Tuberosa context retrieval an auditable agent workflow instead of an optional best-effort habit.
+
+Problem this phase addresses:
+
+- Agents can skip `tuberosa_search_context` or `tuberosa_start_session` and still complete work, which defeats the purpose of Tuberosa as the context broker.
+- Existing MCP prompts recommend fetching context, but there is no measurable compliance signal proving the agent did it.
+- Retrieval eval measures whether Tuberosa can find useful knowledge, not whether agents actually ask for and evaluate that knowledge before working.
+- Context fit can say `needs_confirmation` or `insufficient`, but agents are not required to record whether they selected, rejected, bypassed, or reported missing context.
+
+Policy:
+
+- First version is warn-and-record, not a hard gate.
+- The canonical auditable startup path is `tuberosa_start_session`.
+- Direct `tuberosa_search_context` remains supported for manual or lightweight use, but does not prove session compliance by itself.
+- Agents may bypass context only by recording an explicit bypass reason.
+
+Planned work:
+
+- Update the MCP bootstrap prompt to prefer `tuberosa_start_session` before work and reserve `tuberosa_search_context` for direct/manual lookup.
+- Add context compliance metadata to agent sessions without a schema migration:
+  - `compliant`: session has context and a selected context decision
+  - `needs_decision`: context was fetched but no decision was recorded
+  - `missing_context_recorded`: context was insufficient and the agent recorded `missing_context`
+  - `bypassed`: agent supplied a context bypass reason
+  - `non_compliant`: no context evidence and no bypass reason
+- Add compliance output to session policy and finish results so agents see explicit warnings before ending work.
+- Add optional `contextBypassReason` to session finish input.
+- Keep finish non-blocking, but persist non-compliance in session metadata for review.
+- Add `pnpm run eval:agent-context` to evaluate agent workflow compliance separately from retrieval quality.
+- Add agent-context eval cases:
+  - start session, select context, finish as compliant
+  - start session, finish without decision, warn as `needs_decision`
+  - insufficient context plus `missing_context` decision, record as handled
+  - explicit bypass reason, record as `bypassed`
+  - direct search only, confirm it is unaudited and not counted as compliant session work
+- Update setup and usage docs with the expected agent startup flow:
+  1. call `tuberosa_start_session`
+  2. inspect `contextFit`
+  3. record `selected`, `rejected`, `stale`, `irrelevant`, or `missing_context`
+  4. finish the session with compliance evidence or a bypass reason
+
+Acceptance:
+
+- Agents receive explicit runtime warnings when they did not record context use.
+- Compliance evidence is stored with the session.
+- Eval fails if the standard session workflow can skip context without warning.
+- Existing `tuberosa_search_context` behavior remains backward compatible.
+- Compliance eval is separate from retrieval eval so retrieval quality and agent behavior can regress independently.
+
+## Phase 9: Retrieval Quality Hardening
 
 Goal: make Tuberosa reliable for vague, continuation-style, and high-risk agent tasks where flat semantic search can return plausible but wrong context.
 
@@ -318,7 +369,8 @@ Acceptance:
 - Add `metadata.taxonomy` for knowledge and reflection memories in Phase 3.
 - Add backup health, verification, and retention endpoints in Phase 6.
 - Add relation inspection, graph export, and project-map endpoints in Phase 7.
-- Add knowledge-gap and conflict-review records in Phase 8.
+- Add context compliance metadata and finish-session bypass reason support in Phase 8.
+- Add knowledge-gap and conflict-review records in Phase 9.
 - Keep existing endpoints and MCP tools backward compatible.
 
 ## Test Plan
@@ -341,7 +393,8 @@ Additional checks:
 - Phase 5: retrieval eval in hash mode, plus provider-mode tests with mocked model responses.
 - Phase 6: backup scheduler, verification, retention, and restore preflight tests in memory mode plus Postgres integration coverage when Docker is available.
 - Phase 7: relation inference, stale relation cleanup, graph export determinism, and graph-expanded retrieval tests.
-- Phase 8: hard retrieval eval fixtures for vague continuation, stale semantic matches, supersession, conflict review, missing-context learning, and fallback policy.
+- Phase 8: agent-context compliance eval for selected decisions, missing-context handling, bypasses, direct-search-only non-compliance, and finish warnings.
+- Phase 9: hard retrieval eval fixtures for vague continuation, stale semantic matches, supersession, conflict review, missing-context learning, and fallback policy.
 
 ## Assumptions
 

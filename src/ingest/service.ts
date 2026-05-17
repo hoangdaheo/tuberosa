@@ -80,14 +80,14 @@ export class IngestionService {
     inputs: KnowledgeInput[],
   ): Promise<void> {
     const atomicInputs = inputs.filter((input) => input.metadata?.ingestionMode === 'atomic');
-    if (mode !== 'atomic' || atomicInputs.length === 0) {
+    if (mode === 'atomic' && atomicInputs.length === 0) {
       return;
     }
 
     await this.store.deleteStaleFileAtoms({
       project,
       sourcePath,
-      keepSourceUris: atomicInputs.map((input) => input.sourceUri),
+      keepSourceUris: mode === 'atomic' ? atomicInputs.map((input) => input.sourceUri) : [],
     });
   }
 

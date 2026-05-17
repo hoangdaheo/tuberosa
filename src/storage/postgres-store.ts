@@ -268,6 +268,17 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         await this.attachReferences(client, id, patch.references);
       }
 
+      if (shouldDropInferredRelationsForStatus(patch.status)) {
+        await client.query(
+          `
+            DELETE FROM knowledge_relations
+            WHERE inferred = true
+              AND (from_knowledge_id = $1 OR target_knowledge_id = $1)
+          `,
+          [id],
+        );
+      }
+
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -542,27 +553,66 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
           FROM jsonb_array_elements($1::jsonb) target
         ),
         graph_matches AS (
-          SELECT kr.from_knowledge_id AS knowledge_id, 0.95 * kr.confidence AS graph_score
+          SELECT
+            kr.from_knowledge_id AS knowledge_id,
+            0.95 * kr.confidence AS graph_score,
+            jsonb_build_object(
+              'relationId', kr.id,
+              'relationType', kr.relation_type,
+              'fromKnowledgeId', kr.from_knowledge_id,
+              'targetKind', kr.target_kind,
+              'targetKnowledgeId', kr.target_knowledge_id,
+              'targetValue', kr.target_value,
+              'confidence', kr.confidence,
+              'reason', 'target_signal'
+            ) AS graph_path
           FROM knowledge_relations kr
           JOIN graph_targets gt ON gt.kind = kr.target_kind
             AND gt.value = trim(both '-' from regexp_replace(lower(COALESCE(kr.target_value, '')), '[^a-z0-9._/-]+', '-', 'g'))
           UNION ALL
-          SELECT kr.target_knowledge_id AS knowledge_id, 0.68 * kr.confidence AS graph_score
+          SELECT
+            kr.target_knowledge_id AS knowledge_id,
+            0.68 * kr.confidence AS graph_score,
+            jsonb_build_object(
+              'relationId', kr.id,
+              'relationType', kr.relation_type,
+              'fromKnowledgeId', kr.from_knowledge_id,
+              'targetKind', kr.target_kind,
+              'targetKnowledgeId', kr.target_knowledge_id,
+              'targetValue', kr.target_value,
+              'confidence', kr.confidence,
+              'reason', 'seed_outbound'
+            ) AS graph_path
           FROM knowledge_relations kr
           WHERE kr.from_knowledge_id = ANY($2::uuid[])
             AND kr.target_knowledge_id IS NOT NULL
           UNION ALL
-          SELECT kr.from_knowledge_id AS knowledge_id, 0.68 * kr.confidence AS graph_score
+          SELECT
+            kr.from_knowledge_id AS knowledge_id,
+            0.68 * kr.confidence AS graph_score,
+            jsonb_build_object(
+              'relationId', kr.id,
+              'relationType', kr.relation_type,
+              'fromKnowledgeId', kr.from_knowledge_id,
+              'targetKind', kr.target_kind,
+              'targetKnowledgeId', kr.target_knowledge_id,
+              'targetValue', kr.target_value,
+              'confidence', kr.confidence,
+              'reason', 'seed_inbound'
+            ) AS graph_path
           FROM knowledge_relations kr
           WHERE kr.target_knowledge_id = ANY($2::uuid[])
         ),
         graph_scores AS (
-          SELECT knowledge_id, max(graph_score)::real AS graph_score
+          SELECT DISTINCT ON (knowledge_id)
+            knowledge_id,
+            graph_score::real,
+            jsonb_build_array(graph_path) AS graph_paths
           FROM graph_matches
           WHERE knowledge_id IS NOT NULL
-          GROUP BY knowledge_id
+          ORDER BY knowledge_id, graph_score DESC
         )
-        ${candidateSelect('graph', 'gm.graph_score')}
+        ${candidateSelect('graph', 'gm.graph_score', 'gm.graph_paths')}
         JOIN graph_scores gm ON gm.knowledge_id = ki.id
         WHERE ki.status = 'approved'
           AND ($3::text IS NULL OR p.name = $3)
@@ -1581,7 +1631,7 @@ function knowledgeSelect(): string {
   `;
 }
 
-function candidateSelect(source: string, scoreExpression: string): string {
+function candidateSelect(source: string, scoreExpression: string, graphPathsExpression?: string): string {
   return `
     SELECT
       ki.id AS knowledge_id,
@@ -1595,7 +1645,9 @@ function candidateSelect(source: string, scoreExpression: string): string {
       ki.trust_level,
       kc.token_estimate,
       ki.freshness_at,
-      ki.metadata,
+      ${graphPathsExpression
+        ? `ki.metadata || jsonb_build_object('graphPaths', ${graphPathsExpression})`
+        : 'ki.metadata'} AS metadata,
       ki.created_at,
       '${source}'::text AS source,
       ${scoreExpression}::real AS raw_score,
@@ -1742,6 +1794,10 @@ function feedbackExistsSql(type: FeedbackEvent['feedbackType']): string {
         AND ki.id = ANY(fe.rejected_knowledge_ids)
     )
   `;
+}
+
+function shouldDropInferredRelationsForStatus(status: StoredKnowledge['status'] | undefined): boolean {
+  return status === 'archived' || status === 'blocked';
 }
 
 function normalizeBackupRow(row: Record<string, unknown>): Record<string, unknown> {

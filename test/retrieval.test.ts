@@ -219,6 +219,90 @@ test('atomic markdown re-ingestion updates sections and deletes stale atoms', as
   equal(pack.sections[0].items[0].title, 'Auth > Login flow');
 });
 
+test('document re-ingestion deletes previous atoms and inferred atom relations', async () => {
+  const { ingestion, store } = createTestServices();
+
+  const atoms = await ingestion.ingestFiles('agent-memory', [{
+    project: 'agent-memory',
+    path: 'docs/auth.md',
+    content: [
+      '# Auth',
+      '',
+      'Auth guidance.',
+      '',
+      '## Refresh token rotation',
+      '',
+      'Refresh tokens rotate on every use.',
+    ].join('\n'),
+  }], { mode: 'atomic' });
+  const refreshAtom = atoms.find((item) => item.title === 'Auth > Refresh token rotation');
+
+  ok(refreshAtom);
+  ok((await store.listKnowledgeRelations({ project: 'agent-memory', fromKnowledgeId: refreshAtom.id, inferred: true, limit: 20 })).length > 0);
+
+  const documents = await ingestion.ingestFiles('agent-memory', [{
+    project: 'agent-memory',
+    path: 'docs/auth.md',
+    content: [
+      '# Auth',
+      '',
+      'Auth now lives as one document instead of section atoms.',
+    ].join('\n'),
+  }], { mode: 'document' });
+  const items = await store.listKnowledge({ project: 'agent-memory', limit: 20 });
+  const staleRelations = await store.listKnowledgeRelations({ project: 'agent-memory', fromKnowledgeId: refreshAtom.id, limit: 20 });
+
+  equal(documents.length, 1);
+  equal(items.some((item) => item.id === refreshAtom.id), false);
+  equal(items.some((item) => item.metadata.ingestionMode === 'atomic'), false);
+  equal(staleRelations.length, 0);
+});
+
+test('archiving knowledge removes inferred graph relations without deleting manual relations', async () => {
+  const { ingestion, store } = createTestServices();
+
+  const source = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://auth/archive-source',
+    itemType: 'wiki',
+    title: 'Archive source',
+    summary: 'Source relation origin.',
+    content: 'Archive source mentions AuthService.',
+    labels: [{ type: 'symbol', value: 'AuthService', weight: 1 }],
+  });
+  const target = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://auth/archive-target',
+    itemType: 'wiki',
+    title: 'Archive target',
+    summary: 'Target relation destination.',
+    content: 'Archive target.',
+  });
+  const inferred = await store.createKnowledgeRelation({
+    project: 'agent-memory',
+    fromKnowledgeId: source.id,
+    relationType: 'related_to',
+    targetKind: 'knowledge',
+    targetKnowledgeId: target.id,
+    inferred: true,
+  });
+  const manual = await store.createKnowledgeRelation({
+    project: 'agent-memory',
+    fromKnowledgeId: source.id,
+    relationType: 'depends_on',
+    targetKind: 'knowledge',
+    targetKnowledgeId: target.id,
+  });
+
+  await store.updateKnowledge(source.id, { status: 'archived' });
+  const relations = await store.listKnowledgeRelations({ project: 'agent-memory', limit: 20 });
+
+  equal(relations.some((relation) => relation.id === inferred.id), false);
+  equal(relations.some((relation) => relation.id === manual.id), true);
+});
+
 test('graph retrieval includes one-hop related knowledge with debug trace', async () => {
   const { ingestion, retrieval, store } = createTestServices();
 
@@ -265,8 +349,14 @@ test('graph retrieval includes one-hop related knowledge with debug trace', asyn
   const graphIds = pack.debug?.stages
     .find((stage) => stage.name === 'graph')
     ?.candidates.map((candidate) => candidate.knowledgeId) ?? [];
+  const graphRetryDebug = pack.debug?.stages
+    .find((stage) => stage.name === 'graph')
+    ?.candidates.find((candidate) => candidate.knowledgeId === retryPolicy.id);
 
   ok(graphIds.includes(retryPolicy.id));
+  equal(graphRetryDebug?.graphPaths?.[0]?.relationType, 'depends_on');
+  equal(graphRetryDebug?.graphPaths?.[0]?.fromKnowledgeId, handler.id);
+  equal(graphRetryDebug?.graphPaths?.[0]?.targetKnowledgeId, retryPolicy.id);
   ok(selectedIds.includes(retryPolicy.id));
   ok(retryItem?.fitReasons?.includes('graph connection'));
   ok(retryItem?.fitReasons?.includes('connected file:src/payments/handler.ts'));
