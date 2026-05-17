@@ -302,6 +302,7 @@ pnpm run migrate
 pnpm run import:docs --project tuberosa docs/FLOW_LOGIC.md
 pnpm run backup
 pnpm run restore --backup <backup-id> --dry-run
+pnpm run error-logs collect --project tuberosa --status open --brief
 ```
 
 Command purpose:
@@ -319,6 +320,7 @@ Command purpose:
 - `backup`: create a portable JSONL backup in `TUBEROSA_BACKUP_DIR`.
 - `backup --status`, `--list`, `--verify`, `--prune`: inspect, verify, and maintain the backup catalog.
 - `restore`: dry-run or replace-restore from a backup id or path. Restore runs verification and preflight checks first.
+- `error-logs`: collect, inspect, create reflection drafts from, and resolve filesystem-backed incident journals.
 
 ## 9. HTTP API Usage
 
@@ -589,6 +591,9 @@ Collect compact incident context for agents:
 
 ```bash
 curl 'http://localhost:3027/operations/error-logs/collection?project=newsletter-app&status=open&limit=50'
+pnpm run error-logs collect --project newsletter-app --status open --limit 50 --brief
+pnpm run error-logs list --project newsletter-app --status open --category agent_tool
+pnpm run error-logs get <error-log-id> --markdown
 ```
 
 After the fix is durable, create a reflection draft for the lesson and link it to the incident:
@@ -599,6 +604,8 @@ curl -X POST http://localhost:3027/operations/error-logs/reflection-drafts \
   -d '{
     "errorLogIds": ["<error-log-id>"]
   }'
+
+pnpm run error-logs draft <error-log-id>
 
 curl -X PATCH http://localhost:3027/operations/error-logs/<error-log-id> \
   -H 'Content-Type: application/json' \
@@ -621,6 +628,13 @@ curl -X POST http://localhost:3027/operations/error-logs/<error-log-id>/resolve 
     "verificationCommands": ["pnpm test"],
     "reflectionDraftId": "<reflection-draft-id>"
   }'
+
+pnpm run error-logs resolve <error-log-id> \
+  --root-cause "The test fixture expected the old paywall response shape." \
+  --summary "Updated the fixture and verified the paywall tests." \
+  --changed-file test/paywall.test.ts \
+  --verification-command "pnpm test" \
+  --reflection-draft-id <reflection-draft-id>
 ```
 
 Automatic capture records unexpected Tuberosa HTTP and MCP failures when `TUBEROSA_ERROR_LOG_AUTO_CAPTURE=true`. It stores safe request context only, not full HTTP bodies or full MCP arguments. Normal validation and not-found errors are skipped unless `TUBEROSA_ERROR_LOG_CAPTURE_CLIENT_ERRORS=true`.
@@ -1007,7 +1021,7 @@ Expected QA outcome:
 - Integration tests pass when Docker services are reachable, or skip cleanly when they are not.
 - Health endpoint returns `ok: true`.
 - Search returns a context pack with references and match reasons.
-- Search returns context fit metadata for ready, confirmation-needed, or insufficient context.
+- Search returns context fit metadata for ready, confirmation-needed, or insufficient context, including graph-connected signals when related knowledge is selected.
 - Debug search returns stages and selected candidates.
 - Feedback updates context pack status or returns a retry.
 - Agent sessions store initial context, decisions, final outcome, and optional reflection draft ids.

@@ -333,6 +333,11 @@ Entry points:
 - MCP `tuberosa_get_error_log`
 - MCP `tuberosa_update_error_log`
 - MCP `tuberosa_resolve_error_log`
+- CLI `pnpm run error-logs collect`
+- CLI `pnpm run error-logs list`
+- CLI `pnpm run error-logs get`
+- CLI `pnpm run error-logs draft`
+- CLI `pnpm run error-logs resolve`
 
 Flow:
 
@@ -464,6 +469,7 @@ Entry points:
 - CLI `pnpm run import:docs`
 - CLI `pnpm run backup`
 - CLI `pnpm run restore`
+- CLI `pnpm run error-logs`
 
 Review flow:
 
@@ -610,7 +616,7 @@ Tool flow:
 
 1. `tools/list` returns direct retrieval tools and session workflow tools.
 2. `tools/call` dispatches by name.
-3. `tuberosa_search_context` returns compact shortlist details, context fit, and candidate fit reasons.
+3. `tuberosa_search_context` returns compact shortlist details, context fit, and candidate fit reasons, including graph-connected file, symbol, error, session, and incident-lesson signals when relation expansion contributed a candidate.
 4. `tuberosa_get_context_pack` returns full pack.
 5. `tuberosa_start_session` creates a session and returns a shortlist plus policy.
 6. `tuberosa_record_context_decision` records feedback and a session audit decision.

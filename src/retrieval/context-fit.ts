@@ -99,6 +99,7 @@ export class ContextFitEvaluator {
     score += trustAdjustment(candidate, reasons, missingSignals);
     score += freshnessAdjustment(candidate, input.now ?? new Date(), reasons, missingSignals);
     score += safetyAdjustment(candidate.metadata, reasons, missingSignals);
+    score += graphAdjustment(candidate, reasons);
     score += feedbackAdjustment(candidate, rejectedIds, reasons, missingSignals);
 
     const fitScore = roundScore(clamp(score, 0, 1));
@@ -272,7 +273,9 @@ function aggregateSignalCoverage(signals: string[], candidates: RankedCandidate[
 function candidateMatchesSignal(candidate: RankedCandidate, signal: string): boolean {
   const rawSignal = signal.toLowerCase();
   const normalizedSignal = normalizeLabel(signal);
-  return candidateSearchText(candidate).includes(rawSignal) || candidateNormalizedText(candidate).includes(normalizedSignal);
+  return candidateSearchText(candidate).includes(rawSignal)
+    || candidateNormalizedText(candidate).includes(normalizedSignal)
+    || graphConnectedSignals(candidate).some((connected) => sameSignal(connected, signal));
 }
 
 function candidateSupportsTask(candidate: RankedCandidate, taskType: TaskType): boolean {
@@ -371,6 +374,79 @@ function safetyAdjustment(
   }
 
   return 0;
+}
+
+function graphAdjustment(candidate: RankedCandidate, reasons: string[]): number {
+  if (candidate.source !== 'graph') {
+    return 0;
+  }
+
+  let score = 0.04;
+  reasons.push('graph connection');
+
+  for (const file of graphContextSignals(candidate.metadata, 'files')) {
+    reasons.push(`connected file:${file}`);
+    score += 0.025;
+  }
+  for (const symbol of graphContextSignals(candidate.metadata, 'symbols')) {
+    reasons.push(`connected symbol:${symbol}`);
+    score += 0.025;
+  }
+  for (const error of graphContextSignals(candidate.metadata, 'errors')) {
+    reasons.push(`connected error:${error}`);
+    score += 0.025;
+  }
+  for (const session of sessionSignals(candidate)) {
+    reasons.push(`connected session:${session}`);
+    score += 0.015;
+  }
+  if (isIncidentLesson(candidate)) {
+    reasons.push('connected incident lesson');
+    score += 0.02;
+  }
+
+  return Math.min(score, 0.12);
+}
+
+function graphConnectedSignals(candidate: RankedCandidate): string[] {
+  return [
+    ...graphContextSignals(candidate.metadata, 'files'),
+    ...graphContextSignals(candidate.metadata, 'symbols'),
+    ...graphContextSignals(candidate.metadata, 'errors'),
+  ];
+}
+
+function graphContextSignals(metadata: Record<string, unknown> | undefined, key: 'files' | 'symbols' | 'errors'): string[] {
+  const graphContextFit = metadata?.graphContextFit;
+  if (!graphContextFit || typeof graphContextFit !== 'object') {
+    return [];
+  }
+
+  const values = (graphContextFit as Record<string, unknown>)[key];
+  return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string') : [];
+}
+
+function sessionSignals(candidate: RankedCandidate): string[] {
+  const sessionIds = [
+    metadataString(candidate.metadata, 'agentSessionId'),
+    ...candidate.references
+      .filter((reference) => reference.type === 'conversation')
+      .map((reference) => reference.uri.replace(/^conversation:\/\//, '')),
+  ].filter((value): value is string => Boolean(value));
+
+  return unique(sessionIds).slice(0, 4);
+}
+
+function isIncidentLesson(candidate: RankedCandidate): boolean {
+  if (metadataString(candidate.metadata, 'taxonomy') === 'incident_lesson') {
+    return true;
+  }
+
+  if (metadataString(candidate.metadata, 'triggerType') === 'error_recovery') {
+    return true;
+  }
+
+  return candidate.references.some((reference) => reference.uri.startsWith('tuberosa://error-logs/'));
 }
 
 function feedbackAdjustment(

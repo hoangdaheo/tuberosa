@@ -27,7 +27,7 @@ const SEVERITY_ORDER: ErrorLogSeverity[] = ['debug', 'info', 'notice', 'warning'
 export class ErrorLogInsightService {
   constructor(
     private readonly errorLogs: ErrorLogService,
-    private readonly reflection: ReflectionService,
+    private readonly reflection?: ReflectionService,
   ) {}
 
   async collect(options: CollectErrorLogsOptions): Promise<ErrorLogCollection> {
@@ -50,6 +50,10 @@ export class ErrorLogInsightService {
   }
 
   async createReflectionDraft(input: CreateErrorLogReflectionDraftInput): Promise<CreateErrorLogReflectionDraftResult> {
+    if (!this.reflection) {
+      throw new ValidationError('Reflection draft creation requires configured reflection storage.');
+    }
+
     const logs = await this.readSelectedLogs(input.errorLogIds);
     const project = resolveDraftProject(logs, input.project);
     const draftInput = buildReflectionDraftInput(logs, project, input);

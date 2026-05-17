@@ -260,12 +260,17 @@ test('graph retrieval includes one-hop related knowledge with debug trace', asyn
     debug: true,
   });
   const selectedIds = pack.sections.flatMap((section) => section.items.map((item) => item.knowledgeId));
+  const selectedItems = pack.sections.flatMap((section) => section.items);
+  const retryItem = selectedItems.find((item) => item.knowledgeId === retryPolicy.id);
   const graphIds = pack.debug?.stages
     .find((stage) => stage.name === 'graph')
     ?.candidates.map((candidate) => candidate.knowledgeId) ?? [];
 
   ok(graphIds.includes(retryPolicy.id));
   ok(selectedIds.includes(retryPolicy.id));
+  ok(retryItem?.fitReasons?.includes('graph connection'));
+  ok(retryItem?.fitReasons?.includes('connected file:src/payments/handler.ts'));
+  ok(pack.contextFit?.fitReasons.includes('covered file:1/1'));
 });
 
 test('ingestion redacts secrets before storage and retrieval', async () => {

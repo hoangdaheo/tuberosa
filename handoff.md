@@ -4,52 +4,81 @@ Date: 2026-05-17
 
 ## Goal We Are Working Toward
 
-Tuberosa is a local-first context broker for agentic AI tools. It should retrieve the right project/user knowledge before an agent starts work, preserve provenance through labels/references/scores/context packs/feedback/sessions/backups, and turn durable lessons into reviewed reflection memories so future agents avoid repeated mistakes.
+Tuberosa is a local-first context broker for agentic AI tools. It should retrieve the right project and user knowledge before agents start work, preserve provenance through labels, references, scores, context packs, feedback, sessions, backups, graph relations, error incidents, and review decisions, and turn durable lessons into reviewed reflection memories so future agents avoid repeated mistakes.
 
-The current roadmap state is:
+Current roadmap state:
 
 - Phase 0 through Phase 6 are complete.
-- Phase 7 Knowledge Organization Graph has been started in this session.
-- The first Phase 7 slice is implemented and verified: relation storage, relation inference, operations APIs, organization exports, graph-aware retrieval expansion, backup coverage, and focused tests.
-- Phase 7 is not complete yet. Remaining work should stay scoped to graph relation cleanup, richer graph-aware fit signals, and export/CLI refinements before moving to Phase 8.
+- Phase 7 Knowledge Organization Graph remains in progress.
+- Recent work added a full error-log agent workflow on top of the filesystem-backed incident journal:
+  - collect/retrieve compact incident context
+  - cluster recurring incidents by fingerprint
+  - create pending reflection drafts from selected logs
+  - guide an agent to fix an incident
+  - record structured resolution evidence after verification
+- Raw error logs remain physical journals, not searchable knowledge. Durable lessons still become searchable only through reviewed and approved reflection drafts.
 
 ## Current State Of The Code
 
-Phase 6 is implemented and verified:
+Phase 7 graph and reflection review work is still present:
 
-- Backup lifecycle logic lives in `src/operations/backup-service.ts`.
-- `OperationsService` is back to a thin operations facade and delegates backup behavior to `BackupService`.
-- The HTTP app process owns scheduled backups. `createAppServices()` constructs services but does not start timers; `src/index.ts` starts scheduled backups after the HTTP server listens.
-- Backups still use portable JSONL under `TUBEROSA_BACKUP_DIR` with `manifest.json` plus table-level files.
-- New backup manifests include per-table SHA-256 checksums, source store, schema version, app version or commit when available, embedding dimensions, and model provider metadata.
-- Restore dry-run and replace restore run verification and schema/embedding preflight before the store is touched.
-- Backup status, verification, and retention are exposed through HTTP and CLI.
-- Write-through backup hooks exist for approved reflections and bulk/import file operations, throttled by config.
-- Retention pruning is deterministic, prunes only verified complete backup directories, and keeps the latest backup plus the latest successful backup.
-- Recovery runbooks are documented in `docs/SETUP_AND_USAGE.md`.
-- `docs/AGENT_CONTEXT_ROADMAP.md` now marks Phase 6 as done on 2026-05-17.
+- `knowledge_relations` storage, inference, graph-aware retrieval expansion, operations APIs, organization exports, backup coverage, and tests are implemented.
+- Pending reflection review tools are implemented:
+  - `tuberosa_list_reflection_drafts`
+  - `tuberosa_get_reflection_draft`
+  - `tuberosa_review_reflection_draft`
+- Startup migration preflight is implemented through `TUBEROSA_AUTO_MIGRATE=true` by default.
 
-Phase 7 first slice is implemented:
+Error-log collection and transformation is now implemented:
 
-- Relation domain types were added for the controlled taxonomy from the roadmap.
-- Storage contract now supports relation CRUD, inferred relation replacement, graph relation search, and organization exports.
-- Memory and Postgres stores implement `knowledge_relations`.
-- `migrations/002_knowledge_relations.sql` adds the durable relation table for existing databases; `migrations/001_init.sql` was updated for fresh installs.
-- Ingestion now infers read-only relations from labels, references, source URI, atomic source metadata, section path, and agent session provenance.
-- HTTP operations endpoints now expose relation list/get/create/update/delete and organization export surfaces:
-  - `GET /operations/relations`
-  - `POST /operations/relations`
-  - `GET /operations/relations/:id`
-  - `PATCH /operations/relations/:id`
-  - `DELETE /operations/relations/:id`
-  - `GET /operations/organization/project-map`
-  - `GET /operations/organization/knowledge-graph.jsonl`
-  - `GET /operations/organization/readable-summary`
-- Retrieval now adds bounded graph candidates after metadata/lexical/memory/vector searches and records a `graph` debug stage.
-- Context-pack assembly allows strong graph-evidence candidates through anchored thresholds so one-hop related knowledge can reach agents without weakening semantic thresholds globally.
-- Backup/restore export includes `knowledge_relations`.
+- `ErrorLogService.collectLogs()` reuses the physical journal scan with broader filters and pagination.
+- `ErrorLogInsightService` now provides:
+  - compact summaries without raw stack/message detail
+  - category/severity/status/file/symbol/error/tag rollups
+  - fingerprint clusters for recurring incidents
+  - an `agentBrief` for AI agents
+  - reflection draft creation from explicit `errorLogIds`
+  - structured incident resolution with root cause, fix summary, changed files, verification commands, notes, metadata, and optional reflection linkage
+- HTTP routes added:
+  - `GET /operations/error-logs/collection`
+  - `POST /operations/error-logs/reflection-drafts`
+  - `POST /operations/error-logs/:id/resolve`
+- MCP tools added:
+  - `tuberosa_collect_error_logs`
+  - `tuberosa_create_error_log_reflection_draft`
+  - `tuberosa_resolve_error_log`
+- MCP prompts added:
+  - `tuberosa_review_error_logs`
+  - `tuberosa_fix_error_log`
+- CLI commands added through `pnpm run error-logs`:
+  - `collect`, `list`, and `get` inspect filesystem-backed incidents without requiring HTTP/MCP
+  - `draft` creates a pending reflection draft from selected error-log ids
+  - `resolve` records root cause, fix summary, changed files, verification commands, and optional reflection linkage
 
-Verification run after the Phase 7 first slice:
+Graph-aware context-fit signals are now implemented:
+
+- Retrieval annotates graph-expanded candidates with anchored file, symbol, and error signals covered by seed candidates.
+- Context-fit scoring now gives graph-expanded candidates explicit `graph connection` reasons.
+- Candidate fit reasons can include `connected file:...`, `connected symbol:...`, `connected error:...`, `connected session:...`, and `connected incident lesson`.
+- Aggregate context fit can count graph-connected anchored signals as covered, so one-hop related knowledge explains why it belongs in the pack.
+
+Latest verification passed:
+
+```bash
+pnpm run build
+pnpm test
+git diff --check
+```
+
+Targeted tests also passed:
+
+```bash
+node --test --import tsx test/error-log.test.ts
+node --test --import tsx test/api-boundary.test.ts
+node --test --import tsx test/operations.test.ts
+```
+
+Latest follow-up verification after adding the error-log CLI:
 
 ```bash
 pnpm run build
@@ -57,57 +86,60 @@ pnpm test
 pnpm run eval:retrieval
 pnpm run test:integration
 git diff --check
+pnpm run error-logs --help
+pnpm run error-logs list --project tuberosa --limit 2
 ```
 
-All passed.
+`pnpm run error-logs ...` required running outside the sandbox because `tsx` could not open its IPC socket inside the sandbox (`listen EPERM /tmp/tsx-1000/...pipe`). The CLI itself passed after escalation.
 
-Verification run after the Phase 6 implementation:
+Latest follow-up verification after adding graph-aware context-fit signals:
 
 ```bash
+node --test --import tsx test/retrieval.test.ts
 pnpm run build
 pnpm test
 pnpm run eval:retrieval
 pnpm run test:integration
 git diff --check
 ```
-
-All passed.
 
 ## Files Actively Edited
 
-Phase 6 implementation files:
+Files actively edited for the error-log workflow and graph-aware context-fit work:
+
+- `docs/FLOW_LOGIC.md`
+- `docs/SETUP_AND_USAGE.md`
+- `handoff.md`
+- `scripts/error-logs.ts`
+- `src/app.ts`
+- `src/error-log/insights.ts`
+- `src/error-log/service.ts`
+- `src/http/server.ts`
+- `src/mcp/server.ts`
+- `src/retrieval/context-fit.ts`
+- `src/retrieval/service.ts`
+- `src/types.ts`
+- `src/validation.ts`
+- `test/api-boundary.test.ts`
+- `test/error-log.test.ts`
+- `test/flow-regression.test.ts`
+- `test/operations.test.ts`
+- `test/retrieval.test.ts`
+
+Previously active broader Phase 7 files are still in the worktree history/context and should be reviewed before commit:
 
 - `.env.example`
 - `docs/AGENT_CONTEXT_ROADMAP.md`
-- `docs/FLOW_LOGIC.md`
-- `docs/SETUP_AND_USAGE.md`
-- `scripts/backup.ts`
-- `scripts/eval-retrieval.ts`
-- `src/app.ts`
-- `src/config.ts`
-- `src/http/server.ts`
-- `src/index.ts`
-- `src/operations/backup-service.ts`
-- `src/operations/service.ts`
-- `src/types.ts`
-- `src/validation.ts`
-- `test/agent-session.test.ts`
-- `test/api-boundary.test.ts`
-- `test/evaluation.test.ts`
-- `test/flow-regression.test.ts`
-- `test/integration.test.ts`
-- `test/operations.test.ts`
-- `test/retrieval.test.ts`
-- `handoff.md`
-
-Phase 7 first-slice files:
-
 - `migrations/001_init.sql`
+- `migrations/002_agent_sessions.sql`
 - `migrations/002_knowledge_relations.sql`
-- `src/http/server.ts`
+- `scripts/eval-retrieval.ts`
+- `src/cache.ts`
+- `src/config.ts`
 - `src/ingest/service.ts`
 - `src/operations/backup-service.ts`
 - `src/operations/service.ts`
+- `src/reflection/service.ts`
 - `src/relations/inference.ts`
 - `src/retrieval/context-pack.ts`
 - `src/retrieval/fusion.ts`
@@ -115,51 +147,47 @@ Phase 7 first-slice files:
 - `src/storage/memory-store.ts`
 - `src/storage/postgres-store.ts`
 - `src/storage/store.ts`
-- `src/types.ts`
-- `src/validation.ts`
-- `test/integration.test.ts`
-- `test/operations.test.ts`
-- `test/retrieval.test.ts`
-
-`handoff.md` is untracked in the current worktree and was rewritten at the end of the session as the handoff note.
+- several existing tests under `test/`
 
 ## Everything Tried That Failed
 
-Verification failures in the Phase 7 first slice:
+Failures or corrections during this latest error-log workflow:
 
-- First `pnpm run build` failed because `src/relations/inference.ts` used a `flatMap` shape that TypeScript inferred too narrowly. Rewrote label inference to build a typed `RelationSeed[]`.
-- First `pnpm test` failed because graph expansion appeared in debug but context-pack assembly filtered the one-hop candidate under anchored thresholds. Added a narrow graph-evidence allowance based on graph raw score.
+- First full `pnpm test` after adding collection failed in `test/error-log.test.ts`. The duplicate-fingerprint fixture did not include the same stack top frame, so the two intended duplicate incidents were treated as separate fingerprints. The fixture was corrected by adding the same stack frame to the second incident.
+- A GitNexus exploration MCP call was cancelled by the environment earlier, so codebase understanding continued through direct source inspection and Tuberosa context lookup.
+- No current verification command is failing.
 
-No verification command is currently failing.
+Older known failures that remain useful context:
 
-Design issues found and corrected before handoff:
-
-- First pass put too much backup lifecycle code directly in `OperationsService`. This was refactored into `src/operations/backup-service.ts` so `OperationsService` remains a readable orchestration facade.
-- First pass started scheduled backups from `createAppServices()`. That would affect CLI, MCP stdio, tests, and worker processes that also construct app services. The scheduler start was moved to `src/index.ts`, so only the long-running HTTP app owns the scheduled timer.
-- First pass had the manual `pnpm run backup` path pass `prune: true`, which could unexpectedly prune during a normal manual backup command. That was changed so manual backup remains backward compatible; pruning is explicit through `pnpm run backup --prune` or scheduled retention.
-
-Tuberosa MCP context retrieval was used at session start. It returned useful backup-related memories but missed several target files, so it was recorded as selected only as supporting memory and local source inspection remained the source of truth.
+- Earlier Phase 7 graph work initially failed build due to narrow TypeScript inference in `src/relations/inference.ts`; fixed by building a typed `RelationSeed[]`.
+- Graph expansion initially appeared in debug but was filtered during context-pack assembly; fixed with a narrow graph-evidence allowance.
+- Reflection review build/tests initially failed around optional rubric metadata and prompt expectations; validation now compacts undefined fields and tests include the pending-reflection prompt.
+- Local Postgres access from sandboxed commands can still fail with `connect EPERM 127.0.0.1:5432` unless local-network access is approved. This is an environment permission issue, not an application schema issue.
 
 ## Improvement Plan And Next Step
 
-Immediate next step:
+Recommended next steps:
 
-- Review and commit the Phase 6 plus Phase 7 first-slice changes, including the new relation migration and `src/relations/inference.ts`.
+1. Review the full worktree diff before commit because this branch contains multiple Phase 7 slices plus the new error-log workflow.
+2. Run the broader verification set before handoff/commit if time allows:
+   ```bash
+   pnpm run build
+   pnpm test
+   pnpm run eval:retrieval
+   pnpm run test:integration
+   git diff --check
+   ```
+3. Consider adding context-search enrichment from selected error-log summaries, without making raw logs searchable durable knowledge.
+4. Add stale relation cleanup for archived sources and re-ingested non-atomic documents.
+5. Add richer relation-path debug output beyond the current `graph` candidate stage.
 
-Recommended pre-commit command set:
+Suggested manual smoke after starting the app:
 
 ```bash
-pnpm run build
-pnpm test
-pnpm run eval:retrieval
-pnpm run test:integration
-git diff --check
+curl 'http://localhost:3027/operations/error-logs/collection?project=tuberosa&status=open&limit=10'
+curl -X POST http://localhost:3027/operations/error-logs/<error-log-id>/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{"rootCause":"...","resolutionSummary":"...","changedFiles":[],"verificationCommands":["pnpm test"]}'
+pnpm run error-logs collect --project tuberosa --status open --brief
+pnpm run error-logs resolve <error-log-id> --root-cause "..." --summary "..." --verification-command "pnpm test"
 ```
-
-Next Phase 7 implementation steps:
-
-1. Add stale relation cleanup for archived sources and re-ingested non-atomic documents where manual/inferred relation behavior needs a clearer policy.
-2. Add graph-aware context-fit signals that explicitly report connected files, symbols, errors, and sessions.
-3. Consider CLI commands for organization exports if the HTTP export shape is accepted.
-4. Add richer relation-path debug output beyond the current `graph` candidate stage.
-5. Keep Phase 8 retrieval-quality hardening out of this phase unless explicitly redirected.

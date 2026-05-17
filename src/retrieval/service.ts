@@ -205,7 +205,16 @@ export class RetrievalService {
       this.store.searchGraphRelations(classified, { ...options, seedKnowledgeIds }),
       debug,
     );
-    safeResults.graph = this.safety.sanitizeSearchCandidates(graph);
+    safeResults.graph = enrichGraphCandidates(
+      this.safety.sanitizeSearchCandidates(graph),
+      classified,
+      [
+        ...safeResults.metadata,
+        ...safeResults.lexical,
+        ...safeResults.memory,
+        ...safeResults.vector,
+      ],
+    );
     debug?.recordStage('metadata', safeResults.metadata);
     debug?.recordStage('lexical', safeResults.lexical);
     debug?.recordStage('memory', safeResults.memory);
@@ -318,6 +327,56 @@ function normalizeSearchInput(input: ContextSearchInput): NormalizedContextSearc
     rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
     debug: input.debug ?? false,
   };
+}
+
+function enrichGraphCandidates(
+  graphCandidates: KnowledgeSearchResult['graph'],
+  classified: ClassifiedQuery,
+  seedCandidates: KnowledgeSearchResult['graph'],
+): KnowledgeSearchResult['graph'] {
+  if (graphCandidates.length === 0) {
+    return [];
+  }
+
+  const connectedSignals = compactRecord({
+    files: signalsCoveredBySeeds(classified.files, seedCandidates),
+    symbols: signalsCoveredBySeeds(classified.symbols, seedCandidates),
+    errors: signalsCoveredBySeeds(classified.errors, seedCandidates),
+  });
+
+  if (Object.keys(connectedSignals).length === 0) {
+    return graphCandidates;
+  }
+
+  return graphCandidates.map((candidate) => ({
+    ...candidate,
+    metadata: {
+      ...(candidate.metadata ?? {}),
+      graphContextFit: connectedSignals,
+    },
+  }));
+}
+
+function signalsCoveredBySeeds(signals: string[], seedCandidates: KnowledgeSearchResult['graph']): string[] {
+  return uniqueStrings(signals.filter((signal) => seedCandidates.some((candidate) => candidateContainsSignal(candidate, signal))));
+}
+
+function candidateContainsSignal(candidate: KnowledgeSearchResult['graph'][number], signal: string): boolean {
+  const text = [
+    candidate.title,
+    candidate.summary,
+    candidate.content,
+    candidate.contextualContent,
+    candidate.labels.map((label) => `${label.type}:${label.value}`).join(' '),
+    candidate.references.map((reference) => reference.uri).join(' '),
+    JSON.stringify(candidate.metadata ?? {}),
+  ].join(' ').toLowerCase();
+
+  return text.includes(signal.toLowerCase());
+}
+
+function compactRecord<T extends Record<string, string[]>>(record: T): Partial<T> {
+  return Object.fromEntries(Object.entries(record).filter(([, values]) => values.length > 0)) as Partial<T>;
 }
 
 function fingerprintSearch(

@@ -228,7 +228,7 @@ Planned work:
   - exact file/symbol/error matches first
   - one-hop related knowledge second
   - optional two-hop expansion only when debug or explicit mode is enabled
-- Add graph-aware context-fit signals showing which files, symbols, errors, and sessions are connected.
+- Done: add graph-aware context-fit signals showing which files, symbols, errors, sessions, and incident lessons are connected.
 - Add debug trace fields explaining why related knowledge entered a context pack.
 - Add export commands and HTTP endpoints for project maps and graph JSONL.
 - Add stale relation cleanup when document atoms are re-ingested or sources are archived.
