@@ -78,6 +78,7 @@ export async function createAppServices(): Promise<AppServices> {
     physicalMirror: {
       enabled: config.physicalMirrorEnabled,
       dir: config.physicalMirrorDir,
+      debounceMs: config.physicalMirrorDebounceMs,
     },
   });
 

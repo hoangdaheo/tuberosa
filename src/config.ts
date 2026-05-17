@@ -27,6 +27,7 @@ export interface AppConfig {
   backupWriteThroughThrottleSeconds: number;
   physicalMirrorEnabled?: boolean;
   physicalMirrorDir?: string;
+  physicalMirrorDebounceMs: number;
   errorLogDir: string;
   errorLogMaxBytes: number;
   errorLogAutoCapture: boolean;
@@ -63,6 +64,7 @@ export function loadConfig(): AppConfig {
     backupWriteThroughThrottleSeconds: Number(process.env.TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS ?? 10 * 60),
     physicalMirrorEnabled: readBoolean(process.env.TUBEROSA_PHYSICAL_MIRROR_ENABLED, true),
     physicalMirrorDir: process.env.TUBEROSA_PHYSICAL_MIRROR_DIR ?? '.tuberosa/current',
+    physicalMirrorDebounceMs: Number(process.env.TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS ?? 500),
     errorLogDir: process.env.TUBEROSA_ERROR_LOG_DIR ?? '.tuberosa/error-logs',
     errorLogMaxBytes: Number(process.env.TUBEROSA_ERROR_LOG_MAX_BYTES ?? 256 * 1024),
     errorLogAutoCapture: readBoolean(process.env.TUBEROSA_ERROR_LOG_AUTO_CAPTURE, true),

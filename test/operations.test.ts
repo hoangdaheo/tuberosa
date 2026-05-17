@@ -41,6 +41,7 @@ const config: AppConfig = {
   backupRetentionMaxAgeDays: 30,
   backupWriteThrough: false,
   backupWriteThroughThrottleSeconds: 600,
+  physicalMirrorDebounceMs: 500,
   errorLogDir: ".tuberosa/test-error-logs",
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
@@ -502,6 +503,144 @@ test('physical mirror coalesces overlapping sync requests into latest state', as
   }
 });
 
+test('physical mirror debounces rapid request calls into one export', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const mirrorDir = await mkdtemp(join(tmpdir(), 'tuberosa-current-'));
+  const store = new CountingExportStore();
+  const backups = new BackupService(store, {
+    backupDir,
+    storeKind: 'memory',
+    physicalMirror: {
+      enabled: true,
+      dir: mirrorDir,
+      debounceMs: 25,
+    },
+  });
+
+  try {
+    backups.requestPhysicalMirror('first');
+    backups.requestPhysicalMirror('second');
+    backups.requestPhysicalMirror('third');
+
+    equal(store.exportCallCount, 0);
+
+    const manifest = await waitForMirrorContent(
+      join(mirrorDir, 'manifest.json'),
+      (content) => content.includes('"reason": "third"'),
+    );
+    equal(store.exportCallCount, 1);
+    ok(manifest.includes('"mirror": true'));
+  } finally {
+    await backups.close();
+    await store.close();
+    await rm(backupDir, { recursive: true, force: true });
+    await rm(mirrorDir, { recursive: true, force: true });
+  }
+});
+
+test('physical mirror writes latest state when a request arrives during active sync', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const mirrorDir = await mkdtemp(join(tmpdir(), 'tuberosa-current-'));
+  const store = new DelayedExportStore();
+  const backups = new BackupService(store, {
+    backupDir,
+    storeKind: 'memory',
+    physicalMirror: {
+      enabled: true,
+      dir: mirrorDir,
+      debounceMs: 5,
+    },
+  });
+
+  try {
+    backups.requestPhysicalMirror('first');
+    await waitFor(() => store.exportCallCount === 1);
+
+    backups.requestPhysicalMirror('second');
+    store.releaseFirstExport();
+
+    const manifest = await waitForMirrorContent(
+      join(mirrorDir, 'manifest.json'),
+      (content) => content.includes('"reason": "second"'),
+    );
+    equal(store.exportCallCount, 2);
+    ok(manifest.includes('"mirror": true'));
+  } finally {
+    await backups.close();
+    await store.close();
+    await rm(backupDir, { recursive: true, force: true });
+    await rm(mirrorDir, { recursive: true, force: true });
+  }
+});
+
+test('manual physical mirror sync bypasses debounce and clears pending timer', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const mirrorDir = await mkdtemp(join(tmpdir(), 'tuberosa-current-'));
+  const store = new CountingExportStore();
+  const backups = new BackupService(store, {
+    backupDir,
+    storeKind: 'memory',
+    physicalMirror: {
+      enabled: true,
+      dir: mirrorDir,
+      debounceMs: 50,
+    },
+  });
+
+  try {
+    backups.requestPhysicalMirror('queued');
+    const summary = await backups.syncPhysicalMirror('manual');
+
+    equal(summary?.id, 'current');
+    equal(store.exportCallCount, 1);
+
+    const manifest = await waitForMirrorContent(
+      join(mirrorDir, 'manifest.json'),
+      (content) => content.includes('"reason": "manual"'),
+    );
+    ok(manifest.includes('"mirror": true'));
+
+    await delay(75);
+    equal(store.exportCallCount, 1);
+  } finally {
+    await backups.close();
+    await store.close();
+    await rm(backupDir, { recursive: true, force: true });
+    await rm(mirrorDir, { recursive: true, force: true });
+  }
+});
+
+test('physical mirror close flushes a pending debounced request', async () => {
+  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
+  const mirrorDir = await mkdtemp(join(tmpdir(), 'tuberosa-current-'));
+  const store = new CountingExportStore();
+  const backups = new BackupService(store, {
+    backupDir,
+    storeKind: 'memory',
+    physicalMirror: {
+      enabled: true,
+      dir: mirrorDir,
+      debounceMs: 1_000,
+    },
+  });
+
+  try {
+    backups.requestPhysicalMirror('closing');
+    await backups.close();
+
+    equal(store.exportCallCount, 1);
+    const manifest = await waitForMirrorContent(
+      join(mirrorDir, 'manifest.json'),
+      (content) => content.includes('"reason": "closing"'),
+    );
+    ok(manifest.includes('"mirror": true'));
+  } finally {
+    await store.close();
+    await rm(backupDir, { recursive: true, force: true });
+    await rm(mirrorDir, { recursive: true, force: true });
+  }
+});
+
 function createTestServices(
   backupDir = '.tuberosa/test-backups',
   errorLogDir = '.tuberosa/test-error-logs',
@@ -520,6 +659,7 @@ function createTestServices(
     physicalMirror: {
       enabled: Boolean(physicalMirrorDir),
       dir: physicalMirrorDir,
+      debounceMs: 10,
     },
   });
   const errorLogs = new ErrorLogService({ rootDir: errorLogDir });
@@ -539,9 +679,18 @@ function createTestServices(
     errorLogInsights,
     safety: {} as AppServices['safety'],
     async close() {
-      await Promise.allSettled([cache.close(), store.close()]);
+      await Promise.allSettled([operations.close(), cache.close(), store.close()]);
     },
   };
+}
+
+class CountingExportStore extends MemoryKnowledgeStore {
+  exportCallCount = 0;
+
+  override async exportBackup() {
+    this.exportCallCount += 1;
+    return super.exportBackup();
+  }
 }
 
 class DelayedExportStore extends MemoryKnowledgeStore {
@@ -565,6 +714,19 @@ class DelayedExportStore extends MemoryKnowledgeStore {
   }
 }
 
+async function waitFor(predicate: () => boolean): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    lastError = new Error('Condition was not met before timeout.');
+    await delay(25);
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Condition was not met before timeout.');
+}
+
 async function waitForMirrorContent(path: string, predicate: (content: string) => boolean): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -577,10 +739,14 @@ async function waitForMirrorContent(path: string, predicate: (content: string) =
     } catch (error) {
       lastError = error;
     }
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await delay(25);
   }
 
   throw lastError instanceof Error ? lastError : new Error(`Mirror file not found: ${path}`);
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function post(services: AppServices, url: string, body: unknown): Promise<unknown> {

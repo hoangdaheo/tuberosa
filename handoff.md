@@ -93,7 +93,7 @@ Phase 8/9 context-depth and compliance work is implemented:
   - `non_compliant`
 - `pnpm run eval:agent-context` checks the compliance workflow.
 
-Physical mirror support is implemented and partially optimized:
+Physical mirror support is implemented and debounce-optimized:
 
 - `.tuberosa/current` is a generated readable mirror of live DB state and is ignored by git.
 - The mirror writes JSONL tables plus readable Markdown:
@@ -104,13 +104,15 @@ Physical mirror support is implemented and partially optimized:
 - Mirror sync requests are fired after context search, context feedback, agent session start, context decision, session finish, knowledge ingestion/update, relation create/update/delete, file import/ingest, reflection create/update/review/approve, error-log reflection draft creation, cleanup, and backup restore.
 - Mirror writes are serialized/coalesced while a sync is in flight.
 - If a second request arrives during an active sync, the drain loop performs a second latest-state write after the active write finishes.
+- Automatic `requestPhysicalMirror(reason)` calls use a timer debounce controlled by `TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS`, default `500`.
+- Manual `syncPhysicalMirror(reason)` bypasses debounce and runs immediately.
+- `BackupService.close()` clears pending mirror timers and flushes pending mirror work.
 - Failed mirror writes clean up their temp directory.
 - Context-pack Markdown rendering supports both Postgres nested `pack` rows and memory-store direct pack rows.
 
 Important current limitation:
 
-- True timer-based debounce is not implemented yet. Overlapping mirror requests are coalesced, but sequential rapid requests can still each trigger a full export/write if no sync is active.
-- Every mirror sync still exports all backup tables and writes all JSONL/Markdown. This is acceptable for small local data, but debounce should be the next optimization before larger-history use.
+- Every mirror sync still exports all backup tables and writes all JSONL/Markdown. This is acceptable for small local data, especially with debounce, but dirty-table tracking or partial mirror writes may be useful later if real data volume makes full mirror writes too expensive.
 
 ## Files Actively Edited
 
@@ -136,7 +138,13 @@ Tests and eval:
 - `test/retrieval.test.ts`
 - `test/operations.test.ts`
 - `test/api-boundary.test.ts`
+- `test/config.test.ts`
+- `test/agent-session.test.ts`
+- `test/evaluation.test.ts`
+- `test/flow-regression.test.ts`
+- `test/integration.test.ts`
 - `scripts/eval-agent-context.ts`
+- `scripts/eval-retrieval.ts`
 
 Docs/config:
 
@@ -224,43 +232,36 @@ pnpm run error-logs list --project tuberosa --limit 2
 
 Those error-log CLI checks required running outside the sandbox because `tsx` could not open its IPC socket inside the sandbox.
 
+Latest debounce-slice verification also passed:
+
+```bash
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run build
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:retrieval
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:agent-context
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run test:integration
+git diff --check
+```
+
+`pnpm run eval:agent-context` still hits the known sandbox `tsx` IPC `listen EPERM /tmp/tsx-1000/...pipe` failure inside the sandbox; rerunning outside the sandbox with approval passed.
+
 ## Continue From Here
 
 The next agent should continue the same Phase 8/9 integration slice. Do not restart from Phase 7 or split this into a separate v2 project.
 
 Recommended next step:
 
-1. Implement true timer-based debounce for physical mirror requests.
-   - Add `TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS`, default around `500`.
-   - Add it to `AppConfig`, `.env.example`, README, and setup docs.
-   - Keep manual `syncPhysicalMirror()` immediate.
-   - Change `requestPhysicalMirror(reason)` to mark dirty, store the latest reason, and start/reset a short timer instead of immediately syncing.
-   - When the timer fires, run the existing serialized drain loop.
-   - If a request arrives during an active sync, keep the current dirty-flag behavior so a second latest-state write runs after the active write.
-   - On `close()`, clear the timer and flush pending mirror work.
+1. Improve continuation-aware retrieval for handoff-style work.
+   - The latest Tuberosa session retrieved a loosely relevant pack first and missed `handoff.md`, `src/config.ts`, and `test/operations.test.ts`.
+   - The later targeted layered search returned a useful backup-scheduler memory and valid `deepContext.sections`, but still missed the config/test files.
+   - Consider using recent session/handoff signals more strongly, and consider indexing or linking handoff-style docs as first-class continuation context.
 
-2. Add debounce tests.
-   - Multiple rapid `requestPhysicalMirror()` calls should produce one export after debounce.
-   - A request during an active sync should still produce a second latest-state export.
-   - Manual `syncPhysicalMirror()` should bypass debounce.
-   - `close()` should flush pending mirror work.
+2. Normalize pending reflection draft labels before approval.
+   - Draft `a6ff6e04-e1b3-4527-81ce-bff14626f6f9` was reviewed and marked `needs_changes`.
+   - Accuracy, usefulness, scope, references, privacy, and duplicate risk passed.
+   - Labels need cleanup because suggested labels included noisy generic values such as `The`, `rest`, and `go`.
 
-3. Re-check mirror trigger coverage before commit.
-   - Confirm every DB mutation that affects exported tables either requests a mirror or is intentionally excluded.
-   - Raw physical error logs should remain excluded from `.tuberosa/current`.
-
-4. Manually inspect a real context pack.
-   - Start the app or use MCP.
-   - Run a Tuberosa project query with `contextMode: "layered"` and `deepContextBudget: 60000`.
-   - Confirm the compact shortlist is readable.
-   - Confirm `deepContext.sections` contains expanded chunk content.
-
-5. Review pending reflection drafts.
-   - The previous session noted draft `a6ff6e04-e1b3-4527-81ce-bff14626f6f9`.
-   - Approve it only after checking accuracy, usefulness, labels, references, privacy, and duplicate risk.
-
-6. Optional later hardening after debounce.
-   - Add stronger continuation-aware retrieval using recent sessions and handoff-style knowledge.
+3. Optional later hardening.
    - Add supersession/conflict handling so newer memories can suppress stale ones.
    - Add a CLI command for physical mirror sync/status.
    - Add a human-friendly context-pack inspection command that prints compact plus deep context together.

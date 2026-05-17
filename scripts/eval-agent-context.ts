@@ -32,6 +32,7 @@ const config: AppConfig = {
   backupWriteThrough: false,
   backupWriteThroughThrottleSeconds: 600,
   physicalMirrorEnabled: false,
+  physicalMirrorDebounceMs: 500,
   errorLogDir: '.tuberosa/test-error-logs',
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,

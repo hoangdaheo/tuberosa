@@ -42,6 +42,7 @@ export interface BackupScheduleOptions {
 export interface PhysicalMirrorOptions {
   enabled?: boolean;
   dir?: string;
+  debounceMs?: number;
 }
 
 export interface BackupServiceOptions {
@@ -79,10 +80,12 @@ export class BackupService {
   private readonly backupDir: string;
   private readonly physicalMirrorDir: string;
   private readonly physicalMirrorEnabled: boolean;
+  private readonly physicalMirrorDebounceMs: number;
   private readonly storeKind: 'postgres' | 'memory';
   private readonly metadata: BackupRuntimeMetadata;
   private readonly schedule: Required<BackupScheduleOptions>;
   private timer: NodeJS.Timeout | undefined;
+  private physicalMirrorTimer: NodeJS.Timeout | undefined;
   private inFlightBackup: Promise<BackupSummary> | undefined;
   private inFlightPhysicalMirror: Promise<BackupSummary | undefined> | undefined;
   private physicalMirrorDirty = false;
@@ -101,6 +104,10 @@ export class BackupService {
     this.backupDir = resolve(options.backupDir ?? '.tuberosa/backups');
     this.physicalMirrorDir = resolve(options.physicalMirror?.dir ?? '.tuberosa/current');
     this.physicalMirrorEnabled = options.physicalMirror?.enabled ?? false;
+    const physicalMirrorDebounceMs = options.physicalMirror?.debounceMs ?? 500;
+    this.physicalMirrorDebounceMs = Number.isFinite(physicalMirrorDebounceMs)
+      ? Math.max(0, physicalMirrorDebounceMs)
+      : 500;
     this.storeKind = options.storeKind ?? 'memory';
     this.metadata = options.metadata ?? {};
     this.schedule = {
@@ -170,19 +177,10 @@ export class BackupService {
       return undefined;
     }
 
+    this.clearPhysicalMirrorTimer();
     this.physicalMirrorDirty = true;
     this.physicalMirrorReason = reason;
-
-    if (this.inFlightPhysicalMirror) {
-      return this.inFlightPhysicalMirror;
-    }
-
-    this.inFlightPhysicalMirror = this.drainPhysicalMirror();
-    try {
-      return await this.inFlightPhysicalMirror;
-    } finally {
-      this.inFlightPhysicalMirror = undefined;
-    }
+    return this.flushPhysicalMirror();
   }
 
   async verifyBackup(input: { backupIdOrPath?: string } = {}): Promise<BackupVerificationResult> {
@@ -376,8 +374,12 @@ export class BackupService {
 
   async close(): Promise<void> {
     this.stopScheduledBackups();
+    this.clearPhysicalMirrorTimer();
     if (this.inFlightBackup) {
       await this.inFlightBackup.catch(() => undefined);
+    }
+    if (this.physicalMirrorEnabled && (this.physicalMirrorDirty || this.inFlightPhysicalMirror)) {
+      await this.flushPhysicalMirror().catch(() => undefined);
     }
   }
 
@@ -418,9 +420,45 @@ export class BackupService {
       return;
     }
 
-    void this.syncPhysicalMirror(reason).catch((error) => {
-      this.schedulerState.lastError = error instanceof Error ? error.message : String(error);
-    });
+    this.physicalMirrorDirty = true;
+    this.physicalMirrorReason = reason;
+
+    if (this.inFlightPhysicalMirror) {
+      return;
+    }
+
+    this.clearPhysicalMirrorTimer();
+    this.physicalMirrorTimer = setTimeout(() => {
+      this.physicalMirrorTimer = undefined;
+      void this.flushPhysicalMirror().catch((error) => this.recordPhysicalMirrorError(error));
+    }, this.physicalMirrorDebounceMs);
+    this.physicalMirrorTimer.unref();
+  }
+
+  private async flushPhysicalMirror(): Promise<BackupSummary | undefined> {
+    if (this.inFlightPhysicalMirror) {
+      return this.inFlightPhysicalMirror;
+    }
+
+    this.inFlightPhysicalMirror = this.drainPhysicalMirror();
+    try {
+      return await this.inFlightPhysicalMirror;
+    } finally {
+      this.inFlightPhysicalMirror = undefined;
+    }
+  }
+
+  private clearPhysicalMirrorTimer(): void {
+    if (!this.physicalMirrorTimer) {
+      return;
+    }
+
+    clearTimeout(this.physicalMirrorTimer);
+    this.physicalMirrorTimer = undefined;
+  }
+
+  private recordPhysicalMirrorError(error: unknown): void {
+    this.schedulerState.lastError = error instanceof Error ? error.message : String(error);
   }
 
   private async drainPhysicalMirror(): Promise<BackupSummary | undefined> {

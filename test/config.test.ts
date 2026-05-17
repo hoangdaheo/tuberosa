@@ -10,6 +10,14 @@ test('config enables startup migrations by default and supports opt out', () => 
   equal(disabledConfig.autoMigrate, false);
 });
 
+test('config reads physical mirror debounce with default', () => {
+  const defaultConfig = withEnv({ TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS: undefined }, () => loadConfig());
+  equal(defaultConfig.physicalMirrorDebounceMs, 500);
+
+  const configured = withEnv({ TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS: '250' }, () => loadConfig());
+  equal(configured.physicalMirrorDebounceMs, 250);
+});
+
 function withEnv<T>(patch: Record<string, string | undefined>, run: () => T): T {
   const previous = new Map<string, string | undefined>();
 

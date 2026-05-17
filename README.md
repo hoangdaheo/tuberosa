@@ -110,6 +110,7 @@ Important variables:
 | `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for one knowledge content field before chunking. |
 | `TUBEROSA_PHYSICAL_MIRROR_ENABLED` | `true` | Keep `.tuberosa/current` synced as the latest readable mirror of live DB state. |
 | `TUBEROSA_PHYSICAL_MIRROR_DIR` | `.tuberosa/current` | Directory for the physical mirror. |
+| `TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS` | `500` | Delay before coalescing automatic physical mirror requests. Manual syncs run immediately. |
 
 `text-embedding-3-small` defaults to 1536 dimensions, which matches `migrations/001_init.sql`.
 

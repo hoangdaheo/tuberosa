@@ -96,6 +96,7 @@ Important variables:
 | `TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS` | `600` | Minimum time between write-through backup requests. |
 | `TUBEROSA_PHYSICAL_MIRROR_ENABLED` | `true` | Maintain a readable latest mirror of live DB state under `.tuberosa/current`. |
 | `TUBEROSA_PHYSICAL_MIRROR_DIR` | `.tuberosa/current` | Physical mirror directory. This is a convenience view, not the source of truth. |
+| `TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS` | `500` | Delay before coalescing automatic physical mirror requests. Manual syncs run immediately. |
 | `TUBEROSA_ERROR_LOG_DIR` | `.tuberosa/error-logs` | Local folder for sanitized physical error-log incidents. Do not commit or share this folder because logs can contain private project details. |
 | `TUBEROSA_ERROR_LOG_MAX_BYTES` | `262144` | Maximum stored size for one error incident before message, stack, or metadata fields are truncated. |
 | `TUBEROSA_ERROR_LOG_AUTO_CAPTURE` | `true` | Automatically record unexpected Tuberosa HTTP and MCP failures into the physical error-log journal. |
@@ -848,7 +849,7 @@ pnpm run restore --backup before-paywall-refactor --replace
 
 Backups include project records, sources, knowledge items, labels, references, chunks and embeddings, reflection drafts, context queries, packs, feedback events, agent sessions, and agent context decisions. Restoring chunks is necessary because chunks are what retrieval searches and feeds to agents.
 
-The physical mirror under `.tuberosa/current` is different from timestamped backups. It is overwritten from the live store after important knowledge, reflection, relation, import, and session-finish changes, and includes readable Markdown summaries beside JSONL exports. Use it for human inspection; restore from timestamped backups.
+The physical mirror under `.tuberosa/current` is different from timestamped backups. It is overwritten from the live store after important knowledge, reflection, relation, import, and session-finish changes, and includes readable Markdown summaries beside JSONL exports. Automatic mirror requests are debounced so rapid mutation bursts coalesce into one latest-state write; manual syncs still run immediately. Use it for human inspection; restore from timestamped backups.
 
 Each new backup manifest records table row counts, per-table SHA-256 checksums, source store, schema version, app version or commit when available, model provider, and embedding dimensions. Older backups without checksum metadata still list and can restore if table coverage and row counts pass, but verification reports degraded health.
 
