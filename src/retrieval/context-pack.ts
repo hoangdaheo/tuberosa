@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import type { ClassifiedQuery, ContextFit, ContextPack, RankedCandidate } from '../types.js';
-import { clamp, truncate } from '../util/text.js';
+import type {
+  ActionableMissingSignals,
+  ClassifiedQuery,
+  ContextEvidenceCategory,
+  ContextEvidenceStrength,
+  ContextFit,
+  ContextPack,
+  ContextPackOrientation,
+  RankedCandidate,
+} from '../types.js';
+import { clamp, truncate, uniqueStrings } from '../util/text.js';
 
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
 const GENERAL_MIN_FINAL_SCORE = 0.35;
@@ -30,10 +39,12 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
   const supportingBudget = Math.ceil(budget * 0.34);
   const optionalBudget = budget - essentialBudget - supportingBudget;
 
-  const accepted = filterAcceptedCandidates(input);
+  const accepted = prioritizeUsefulCandidates(filterAcceptedCandidates(input), input);
   const essential = takeWithinBudget(accepted, essentialBudget, 0, 4);
   const supporting = takeWithinBudget(without(accepted, essential), supportingBudget, 0, 6);
   const optional = takeWithinBudget(without(accepted, [...essential, ...supporting]), optionalBudget, 0, 8);
+  const selected = [...essential, ...supporting, ...optional];
+  const actionableMissingSignals = buildActionableMissingSignals(input.contextFit?.missingSignals ?? []);
 
   const topScore = accepted[0]?.finalScore ?? 0;
   const density = Math.min(1, accepted.length / 6);
@@ -49,6 +60,8 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     status: 'proposed',
     classified: input.classified,
     contextFit: input.contextFit,
+    orientation: buildOrientation(input, selected, actionableMissingSignals),
+    actionableMissingSignals,
     sections: [
       { name: 'essential', items: sanitizeItems(essential), tokenEstimate: sumTokens(essential) },
       { name: 'supporting', items: sanitizeItems(supporting), tokenEstimate: sumTokens(supporting) },
@@ -85,6 +98,381 @@ function hasAnchors(classified: ClassifiedQuery): boolean {
     || classified.businessAreas.length
     || classified.technologies.length,
   );
+}
+
+function prioritizeUsefulCandidates(candidates: RankedCandidate[], input: AssembleContextPackInput): RankedCandidate[] {
+  return candidates
+    .map((candidate) => annotateUsefulness(candidate, input.classified))
+    .sort((left, right) => {
+      const categoryDelta = evidenceCategoryPriority(left.evidenceCategory) - evidenceCategoryPriority(right.evidenceCategory);
+      if (categoryDelta !== 0) {
+        return categoryDelta;
+      }
+
+      return right.finalScore - left.finalScore || left.rank - right.rank;
+    });
+}
+
+function annotateUsefulness(candidate: RankedCandidate, classified: ClassifiedQuery): RankedCandidate {
+  const directSignals = directTaskSignals(candidate, classified);
+  const category = evidenceCategory(candidate, classified, directSignals);
+  const strength = evidenceStrength(candidate, category, directSignals);
+
+  return {
+    ...candidate,
+    evidenceCategory: category,
+    evidenceStrength: strength,
+    usefulnessReason: usefulnessReason(candidate, category, directSignals),
+    actionableMissingSignals: buildActionableMissingSignals(candidate.fitMissingSignals ?? []),
+  };
+}
+
+function evidenceCategory(
+  candidate: RankedCandidate,
+  classified: ClassifiedQuery,
+  directSignals: string[],
+): ContextEvidenceCategory {
+  if (directSignals.length > 0) {
+    return 'directTaskEvidence';
+  }
+
+  if (isPriorLesson(candidate)) {
+    return 'priorLessons';
+  }
+
+  if (candidate.source === 'graph' || hasOnlyWeakSemanticReasons(candidate)) {
+    return 'adjacentContext';
+  }
+
+  if (isWorkflowGuidance(candidate, classified)) {
+    return 'workflowGuidance';
+  }
+
+  return 'adjacentContext';
+}
+
+function directTaskSignals(candidate: RankedCandidate, classified: ClassifiedQuery): string[] {
+  const reasons = [...candidate.matchReasons, ...(candidate.fitReasons ?? [])];
+  const explicitReasonSignals = reasons.flatMap((reason) => {
+    if (reason.startsWith('file:')) {
+      return [`file:${reason.slice('file:'.length)}`];
+    }
+    if (reason.startsWith('symbol:')) {
+      return [`symbol:${reason.slice('symbol:'.length)}`];
+    }
+    if (reason.startsWith('error:')) {
+      return [`error:${reason.slice('error:'.length)}`];
+    }
+    if (reason.startsWith('matched file:')) {
+      return [`file:${reason.slice('matched file:'.length)}`];
+    }
+    if (reason.startsWith('matched symbol:')) {
+      return [`symbol:${reason.slice('matched symbol:'.length)}`];
+    }
+    if (reason.startsWith('matched error:')) {
+      return [`error:${reason.slice('matched error:'.length)}`];
+    }
+    return [];
+  });
+
+  const labelSignals = candidate.labels.flatMap((label) => {
+    if (label.type === 'file' && classified.files.includes(label.value)) {
+      return [`file:${label.value}`];
+    }
+    if (label.type === 'symbol' && classified.symbols.includes(label.value)) {
+      return [`symbol:${label.value}`];
+    }
+    if (label.type === 'error' && classified.errors.includes(label.value)) {
+      return [`error:${label.value}`];
+    }
+    return [];
+  });
+
+  const referenceSignals = candidate.references.flatMap((reference) => (
+    reference.type === 'file' && classified.files.includes(reference.uri)
+      ? [`file:${reference.uri}`]
+      : []
+  ));
+
+  const continuationSignals = classified.intent.workflowStage === 'continuation'
+    ? candidate.references
+      .filter((reference) => reference.type === 'file' && isContinuationAnchorFile(reference.uri))
+      .map((reference) => `file:${reference.uri}`)
+    : [];
+
+  return uniqueStrings([...explicitReasonSignals, ...labelSignals, ...referenceSignals, ...continuationSignals]).slice(0, 8);
+}
+
+function isContinuationAnchorFile(value: string): boolean {
+  return value === 'handoff.md'
+    || value === 'tuberosa-project.md'
+    || value.endsWith('/AGENT_CONTEXT_ROADMAP.md')
+    || value === 'docs/AGENT_CONTEXT_ROADMAP.md';
+}
+
+function isPriorLesson(candidate: RankedCandidate): boolean {
+  const isLesson = candidate.itemType === 'memory'
+    || candidate.itemType === 'bugfix'
+    || candidate.itemType === 'conversation'
+    || candidate.matchReasons.includes('prior approved memory')
+    || candidate.matchReasons.some((reason) => reason.startsWith('feedback:selected'))
+    || candidate.references.some((reference) => reference.uri.startsWith('reflection://') || reference.uri.startsWith('tuberosa://agent-sessions/'));
+
+  return isLesson && ((candidate.fitScore ?? 0) >= 0.65 || hasDirectReason(candidate));
+}
+
+function hasDirectReason(candidate: RankedCandidate): boolean {
+  return candidate.matchReasons.some((reason) => (
+    reason.startsWith('file:')
+    || reason.startsWith('symbol:')
+    || reason.startsWith('error:')
+  ));
+}
+
+function hasOnlyWeakSemanticReasons(candidate: RankedCandidate): boolean {
+  return candidate.matchReasons.some((reason) => reason === 'vector match')
+    && !candidate.matchReasons.some((reason) => reason.startsWith('file:') || reason.startsWith('symbol:') || reason.startsWith('error:') || reason.startsWith('feedback:selected'));
+}
+
+function isWorkflowGuidance(candidate: RankedCandidate, classified: ClassifiedQuery): boolean {
+  return candidate.itemType === 'workflow'
+    || candidate.itemType === 'spec'
+    || candidate.itemType === 'rule'
+    || candidate.itemType === 'wiki'
+    || candidate.labels.some((label) => (
+      label.type === 'workflow_stage'
+      || label.type === 'task_type' && label.value === classified.taskType
+      || label.type === 'business_area' && classified.businessAreas.includes(label.value)
+    ));
+}
+
+function evidenceStrength(
+  candidate: RankedCandidate,
+  category: ContextEvidenceCategory,
+  directSignals: string[],
+): ContextEvidenceStrength {
+  if (
+    category === 'directTaskEvidence'
+    && (directSignals.length >= 2 || (candidate.fitScore ?? 0) >= 0.72 || candidate.finalScore >= 0.78)
+  ) {
+    return 'strong';
+  }
+
+  if ((candidate.fitScore ?? 0) >= 0.55 || candidate.finalScore >= 0.65 || directSignals.length > 0) {
+    return 'moderate';
+  }
+
+  return 'weak';
+}
+
+function usefulnessReason(
+  candidate: RankedCandidate,
+  category: ContextEvidenceCategory,
+  directSignals: string[],
+): string {
+  if (category === 'directTaskEvidence') {
+    return `Direct task evidence from ${directSignals.slice(0, 3).join(', ')}.`;
+  }
+
+  if (category === 'priorLessons') {
+    return 'Prior lesson or selected memory tied to similar work; use after direct task evidence.';
+  }
+
+  if (category === 'workflowGuidance') {
+    return `Workflow guidance for ${candidate.itemType} context; use to preserve project conventions.`;
+  }
+
+  return 'Adjacent related context; inspect only if direct evidence is not enough.';
+}
+
+function evidenceCategoryPriority(category: ContextEvidenceCategory | undefined): number {
+  switch (category) {
+    case 'directTaskEvidence':
+      return 0;
+    case 'priorLessons':
+      return 1;
+    case 'workflowGuidance':
+      return 2;
+    case 'adjacentContext':
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function buildOrientation(
+  input: AssembleContextPackInput,
+  selected: RankedCandidate[],
+  missingSignals: ActionableMissingSignals,
+): ContextPackOrientation {
+  const recommendedFiles = recommendedFilesFor(input.classified, selected);
+
+  return {
+    inferredTask: input.classified.intent.taskGoal,
+    workflowStage: input.classified.intent.workflowStage,
+    taskType: input.classified.taskType,
+    confidence: input.classified.confidence,
+    recommendedFiles,
+    likelySurfaces: likelySurfacesFor(recommendedFiles, selected),
+    verificationCommands: verificationCommandsFor(input.classified, input.prompt, recommendedFiles.map((file) => file.path)),
+    missingSignals,
+    notes: orientationNotes(input, selected),
+  };
+}
+
+function recommendedFilesFor(
+  classified: ClassifiedQuery,
+  selected: RankedCandidate[],
+): ContextPackOrientation['recommendedFiles'] {
+  const files = uniqueStrings([
+    ...(classified.intent.workflowStage === 'continuation' && classified.project === 'tuberosa'
+      ? ['handoff.md', 'docs/AGENT_CONTEXT_ROADMAP.md', 'tuberosa-project.md']
+      : []),
+    ...classified.files,
+    ...selected
+      .filter((candidate) => candidate.evidenceCategory === 'directTaskEvidence')
+      .flatMap((candidate) => [
+        ...candidate.labels.filter((label) => label.type === 'file').map((label) => label.value),
+        ...candidate.references.filter((reference) => reference.type === 'file').map((reference) => reference.uri),
+      ]),
+  ].filter(isLikelyProjectFile)).slice(0, 8);
+
+  return files.map((path) => ({
+    path,
+    reason: recommendedFileReason(path, classified),
+  }));
+}
+
+function recommendedFileReason(path: string, classified: ClassifiedQuery): string {
+  if (path === 'handoff.md') {
+    return 'Current continuation state and next-step notes.';
+  }
+  if (path === 'tuberosa-project.md') {
+    return 'Project intent and agent workflow constraints.';
+  }
+  if (path.endsWith('AGENT_CONTEXT_ROADMAP.md')) {
+    return 'Roadmap phase scope and acceptance criteria.';
+  }
+  if (path.startsWith('test/') || path.includes('/test/')) {
+    return 'Likely regression test surface for this task.';
+  }
+  if (classified.intent.workflowStage === 'continuation') {
+    return 'Recent selected-session or handoff signal for continued work.';
+  }
+  return 'Direct file evidence from the current task.';
+}
+
+function likelySurfacesFor(
+  recommendedFiles: ContextPackOrientation['recommendedFiles'],
+  selected: RankedCandidate[],
+): string[] {
+  const codeFiles = recommendedFiles
+    .map((file) => file.path)
+    .filter((path) => !path.endsWith('.md'));
+
+  if (codeFiles.length > 0) {
+    return codeFiles.slice(0, 8);
+  }
+
+  return uniqueStrings(selected
+    .filter((candidate) => candidate.evidenceCategory === 'directTaskEvidence')
+    .map((candidate) => candidate.title))
+    .slice(0, 5);
+}
+
+function verificationCommandsFor(
+  classified: ClassifiedQuery,
+  prompt: string,
+  files: string[],
+): string[] {
+  if (classified.project !== 'tuberosa') {
+    return [];
+  }
+
+  const commands: string[] = [];
+  if (classified.taskType !== 'planning' && classified.taskType !== 'exploration') {
+    commands.push('pnpm run build', 'pnpm test');
+  }
+
+  const text = `${prompt}\n${files.join('\n')}`.toLowerCase();
+  if (/\bretrieval\b|context-pack|classifier|ranking|rerank|signal/.test(text)) {
+    commands.push('pnpm run eval:retrieval');
+  }
+  if (/\bagent[-_\s]?context\b|\bagent session\b|\bmcp\b|context-decision|start_session|finish_session/.test(text)) {
+    commands.push('pnpm run eval:agent-context');
+  }
+  if (/\bstorage\b|\bmigration\b|\bpostgres\b|\bredis\b|\bdocker\b|\bcache\b/.test(text)) {
+    commands.push('pnpm run test:integration');
+  }
+
+  return uniqueStrings(commands).slice(0, 5);
+}
+
+function orientationNotes(input: AssembleContextPackInput, selected: RankedCandidate[]): string[] {
+  const notes = [...input.classified.intent.uncertaintyReasons];
+  if (input.contextFit?.fitStatus === 'insufficient') {
+    notes.push('Context fit is insufficient; ask for clarification or inspect the missing local files first.');
+  } else if (input.contextFit?.fitStatus === 'needs_confirmation') {
+    notes.push('Context fit needs confirmation before relying on the pack.');
+  }
+
+  if (selected.some((candidate) => candidate.evidenceCategory === 'adjacentContext')) {
+    notes.push('Adjacent context is lower priority than direct task evidence.');
+  }
+
+  return uniqueStrings(notes).slice(0, 6);
+}
+
+function buildActionableMissingSignals(signals: string[]): ActionableMissingSignals {
+  const buckets: ActionableMissingSignals = {
+    files: [],
+    symbols: [],
+    errors: [],
+    docs: [],
+    intent: [],
+    other: [],
+  };
+
+  for (const signal of signals) {
+    const value = signal.trim();
+    if (!value) {
+      continue;
+    }
+
+    if (value.startsWith('missing file:')) {
+      pushMissingSignal(buckets.files, value.slice('missing file:'.length));
+    } else if (value.startsWith('missing symbol:')) {
+      pushMissingSignal(buckets.symbols, value.slice('missing symbol:'.length));
+    } else if (value.startsWith('missing error:')) {
+      pushMissingSignal(buckets.errors, value.slice('missing error:'.length));
+    } else if (/handoff|roadmap|doc|docs|project/i.test(value)) {
+      pushMissingSignal(buckets.docs, value);
+    } else if (/project is unclear|task type is unclear|no concrete|unclear/i.test(value)) {
+      pushMissingSignal(buckets.intent, value);
+    } else {
+      pushMissingSignal(buckets.other, value);
+    }
+  }
+
+  return {
+    files: uniqueStrings(buckets.files).slice(0, 8),
+    symbols: uniqueStrings(buckets.symbols).slice(0, 8),
+    errors: uniqueStrings(buckets.errors).slice(0, 8),
+    docs: uniqueStrings(buckets.docs).slice(0, 8),
+    intent: uniqueStrings(buckets.intent).slice(0, 8),
+    other: uniqueStrings(buckets.other).slice(0, 8),
+  };
+}
+
+function pushMissingSignal(target: string[], value: string): void {
+  const trimmed = value.trim();
+  if (trimmed) {
+    target.push(trimmed);
+  }
+}
+
+function isLikelyProjectFile(value: string): boolean {
+  return /^[\w./-]+\.[a-zA-Z0-9]+$/.test(value) && !value.includes('://');
 }
 
 function takeWithinBudget(candidates: RankedCandidate[], budget: number, min: number, max: number): RankedCandidate[] {

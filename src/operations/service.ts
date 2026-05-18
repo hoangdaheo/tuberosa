@@ -26,6 +26,7 @@ import type {
   RestoreBackupInput,
 } from '../types.js';
 import type { StoredKnowledge } from '../types.js';
+import { ValidationError } from '../errors.js';
 import { normalizeLabel } from '../util/text.js';
 import { validateKnowledgePatchInput } from '../validation.js';
 import { BackupService, type BackupServiceOptions } from './backup-service.js';
@@ -200,6 +201,24 @@ export class OperationsService {
         result.action = 'knowledge_marked_needs_review';
         result.knowledgeId = proposal.affectedKnowledgeId;
       }
+    } else if (proposal.proposalType === 'auto_memory_cleanup' && proposal.affectedKnowledgeId) {
+      const cleanupAction = readAutoMemoryCleanupAction(proposal);
+      if (cleanupAction.action === 'archive') {
+        await this.markKnowledgeStatus(proposal.affectedKnowledgeId, 'archived');
+        result.action = 'knowledge_archived';
+        result.knowledgeId = proposal.affectedKnowledgeId;
+      } else if (cleanupAction.action === 'supersede') {
+        const relation = await this.ensureSupersedesRelation(proposal, cleanupAction.supersedingKnowledgeId);
+        result.action = 'auto_memory_superseded';
+        result.relationId = relation.id;
+        result.supersedingKnowledgeId = cleanupAction.supersedingKnowledgeId;
+        await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
+        result.markedNeedsReview = proposal.affectedKnowledgeId;
+      } else {
+        await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
+        result.action = 'knowledge_marked_needs_review';
+        result.knowledgeId = proposal.affectedKnowledgeId;
+      }
     } else if (proposal.affectedKnowledgeId) {
       await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
       result.action = 'knowledge_marked_needs_review';
@@ -212,10 +231,17 @@ export class OperationsService {
     return result;
   }
 
-  private async ensureSupersedesRelation(proposal: LearningProposal) {
+  private async ensureSupersedesRelation(
+    proposal: LearningProposal,
+    candidateKnowledgeId = proposal.candidateKnowledgeId,
+  ) {
+    if (!candidateKnowledgeId || !proposal.affectedKnowledgeId) {
+      throw new Error(`Cannot approve learning proposal: supersedes action requires candidate and affected knowledge ids (${proposal.id}).`);
+    }
+
     const existing = await this.store.listKnowledgeRelations({
       project: proposal.project,
-      fromKnowledgeId: proposal.candidateKnowledgeId,
+      fromKnowledgeId: candidateKnowledgeId,
       relationType: 'supersedes',
       limit: 100,
     });
@@ -226,7 +252,7 @@ export class OperationsService {
 
     return this.store.createKnowledgeRelation({
       project: proposal.project,
-      fromKnowledgeId: proposal.candidateKnowledgeId as string,
+      fromKnowledgeId: candidateKnowledgeId,
       relationType: 'supersedes',
       targetKind: 'knowledge',
       targetKnowledgeId: proposal.affectedKnowledgeId,
@@ -255,7 +281,11 @@ export class OperationsService {
   }
 
   private async markKnowledgeNeedsReview(knowledgeId: string): Promise<void> {
-    const updated = await this.store.updateKnowledge(knowledgeId, { status: 'needs_review' });
+    await this.markKnowledgeStatus(knowledgeId, 'needs_review');
+  }
+
+  private async markKnowledgeStatus(knowledgeId: string, status: 'needs_review' | 'archived'): Promise<void> {
+    const updated = await this.store.updateKnowledge(knowledgeId, { status });
     if (!updated) {
       throw new Error(`Cannot approve learning proposal: affected knowledge not found (${knowledgeId}).`);
     }
@@ -419,6 +449,51 @@ function readSuggestedReferences(proposal: LearningProposal): ReferenceInput[] {
   }
 
   return validateKnowledgePatchInput({ references: value }).references ?? [];
+}
+
+type AutoMemoryCleanupAction =
+  | { action: 'needs_review' }
+  | { action: 'archive' }
+  | { action: 'supersede'; supersedingKnowledgeId: string };
+
+function readAutoMemoryCleanupAction(proposal: LearningProposal): AutoMemoryCleanupAction {
+  const value = proposal.metadata.cleanupAction;
+  if (value === undefined) {
+    return { action: 'needs_review' };
+  }
+
+  if (value === 'needs_review') {
+    return { action: 'needs_review' };
+  }
+
+  if (value === 'archive') {
+    return { action: 'archive' };
+  }
+
+  if (value === 'supersede') {
+    const supersedingKnowledgeId = metadataString(proposal.metadata, 'supersedingKnowledgeId')
+      ?? proposal.candidateKnowledgeId;
+    if (!supersedingKnowledgeId) {
+      throw learningProposalMetadataIssue(
+        'supersedingKnowledgeId',
+        'must be a non-empty string when cleanupAction is "supersede".',
+      );
+    }
+
+    return { action: 'supersede', supersedingKnowledgeId };
+  }
+
+  throw learningProposalMetadataIssue('cleanupAction', 'must be one of: needs_review, archive, supersede.');
+}
+
+function metadataString(metadata: Record<string, unknown>, key: string): string | undefined {
+  const value = metadata[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function learningProposalMetadataIssue(key: string, message: string): ValidationError {
+  const path = `learning proposal patch input.metadata.${key}`;
+  return new ValidationError(`${path} ${message}`, [{ path, message: `${path} ${message}` }]);
 }
 
 function mergeLabels(labels: LabelInput[]): LabelInput[] {

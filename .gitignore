@@ -6,6 +6,7 @@ dist/
 .tuberosa/backups/
 .tuberosa/current/
 .tuberosa/error-logs/
+.tuberosa/test-error-logs/
 coverage/
 npm-debug.log*
 *.tsbuildinfo

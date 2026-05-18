@@ -6,6 +6,7 @@ import { IngestionService } from '../src/ingest/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { classifyQuery } from '../src/retrieval/classifier.js';
+import { assembleContextPack } from '../src/retrieval/context-pack.js';
 import { ContextFitEvaluator } from '../src/retrieval/context-fit.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
@@ -87,6 +88,111 @@ test('classifier anchors continuation prompts to handoff context', () => {
   ok(classified.intent.requiredEvidenceTypes.includes('handoff'));
   ok(classified.intent.requiredEvidenceTypes.includes('session_history'));
   ok(classified.intent.uncertaintyReasons.includes('continuation prompt relies on handoff or recent selected-session context'));
+});
+
+test('classifier suppresses roadmap meta words and sequencing technology noise', () => {
+  const classified = classifyQuery({
+    prompt: [
+      'Before ending the session, load docs/AGENT_CONTEXT_ROADMAP.md and docs/FLOW_LOGIC.md.',
+      'Added, Updated, Verified, and Next are roadmap notes, not symbols or framework evidence.',
+    ].join(' '),
+    cwd: '/home/nash/tuberosa',
+  });
+
+  equal(classified.symbols.includes('Before'), false);
+  equal(classified.symbols.includes('Added'), false);
+  equal(classified.symbols.includes('Updated'), false);
+  equal(classified.symbols.includes('Verified'), false);
+  equal(classified.symbols.includes('AGENT_CONTEXT_ROADMAP'), false);
+  equal(classified.errors.includes('AGENT_CONTEXT_ROADMAP'), false);
+  equal(classified.errors.includes('FLOW_LOGIC'), false);
+  equal(classified.technologies.includes('next'), false);
+  ok(classified.files.includes('docs/AGENT_CONTEXT_ROADMAP.md'));
+  ok(classified.files.includes('docs/FLOW_LOGIC.md'));
+});
+
+test('context pack usefulness prioritizes direct task evidence and returns startup orientation', () => {
+  const classified: ClassifiedQuery = {
+    project: 'tuberosa',
+    taskType: 'implementation',
+    confidence: 0.8,
+    files: ['src/retrieval/context-pack.ts'],
+    symbols: ['assembleContextPack'],
+    errors: [],
+    technologies: [],
+    businessAreas: ['search'],
+    exactTerms: ['src/retrieval/context-pack.ts', 'assembleContextPack', 'search'],
+    lexicalQuery: 'src/retrieval/context-pack.ts assembleContextPack search',
+    intent: {
+      taskGoal: 'implement requested change',
+      workflowStage: 'implementation',
+      impliedFiles: ['src/retrieval/context-pack.ts'],
+      impliedSymbols: ['assembleContextPack'],
+      impliedDomains: ['search'],
+      recentSessionReferences: [],
+      requiredEvidenceTypes: ['spec', 'workflow', 'code_reference'],
+      uncertaintyReasons: [],
+    },
+  };
+  const direct = rankedCandidate({
+    knowledgeId: 'direct',
+    title: 'Context pack assembler',
+    itemType: 'code_ref',
+    finalScore: 0.68,
+    labels: [
+      { type: 'file', value: 'src/retrieval/context-pack.ts', weight: 1 },
+      { type: 'symbol', value: 'assembleContextPack', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/retrieval/context-pack.ts' }],
+    matchReasons: ['file:src/retrieval/context-pack.ts', 'symbol:assembleContextPack'],
+    fitScore: 0.9,
+  });
+  const priorWorkflow = rankedCandidate({
+    knowledgeId: 'prior',
+    title: 'Selected retrieval workflow lesson',
+    itemType: 'workflow',
+    finalScore: 0.94,
+    matchReasons: ['metadata match', 'vector match', 'feedback:selected:4'],
+    references: [{ type: 'conversation', uri: 'reflection://draft/retrieval-workflow' }],
+    labels: [{ type: 'business_area', value: 'search', weight: 1 }],
+    fitScore: 0.68,
+  });
+  const adjacent = rankedCandidate({
+    knowledgeId: 'adjacent',
+    title: 'Adjacent backup scheduler memory',
+    itemType: 'workflow',
+    source: 'graph',
+    finalScore: 0.82,
+    matchReasons: ['vector match', 'graph match'],
+    labels: [{ type: 'business_area', value: 'storage', weight: 1 }],
+    fitScore: 0.32,
+    fitMissingSignals: ['missing file:src/retrieval/context-pack.ts'],
+  });
+
+  const pack = assembleContextPack({
+    project: 'tuberosa',
+    prompt: 'Improve context-pack usefulness in src/retrieval/context-pack.ts',
+    classified,
+    candidates: [priorWorkflow, adjacent, direct],
+    tokenBudget: 4000,
+    contextFit: {
+      fitStatus: 'ready',
+      fitScore: 0.86,
+      fitReasons: ['covered file:1/1', 'covered symbol:1/1'],
+      missingSignals: ['missing symbol:ContextUsefulness'],
+    },
+  });
+  const items = pack.sections.flatMap((section) => section.items);
+
+  equal(items[0].knowledgeId, 'direct');
+  equal(items[0].evidenceCategory, 'directTaskEvidence');
+  equal(items[0].evidenceStrength, 'strong');
+  ok(items[0].usefulnessReason?.includes('file:src/retrieval/context-pack.ts'));
+  equal(items.find((item) => item.knowledgeId === 'prior')?.evidenceCategory, 'priorLessons');
+  equal(items.find((item) => item.knowledgeId === 'adjacent')?.evidenceCategory, 'adjacentContext');
+  deepEqual(pack.actionableMissingSignals?.symbols, ['ContextUsefulness']);
+  ok(pack.orientation?.recommendedFiles.some((file) => file.path === 'src/retrieval/context-pack.ts'));
+  ok(pack.orientation?.verificationCommands.includes('pnpm run eval:retrieval'));
 });
 
 test('continuation retrieval uses files from recent selected session context', async () => {

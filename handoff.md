@@ -4,135 +4,124 @@ Date: 2026-05-19
 
 ## Goal We Are Working Toward
 
-Tuberosa is a local-first context broker and learning layer for AI agents. The goal is that a normal user can prompt an AI agent naturally, the agent can ask Tuberosa for the right project context, record whether the context was useful or wrong, and let Tuberosa learn durable lessons from the session without the user memorizing special query or reflection prompts.
+Tuberosa is a local-first context broker and learning layer for AI agents. The goal is that a normal user can prompt an agent naturally, the agent can ask Tuberosa for the right project context, record whether the context was useful or wrong, and let Tuberosa learn durable reviewed lessons without the user memorizing special prompts.
 
-The active direction remains Phase 9 Retrieval Quality Hardening from `docs/AGENT_CONTEXT_ROADMAP.md`.
+The active direction is still `docs/AGENT_CONTEXT_ROADMAP.md`, with Phase 9 mostly hardened and Phase 10 now in progress:
 
-- Agents should enrich vague prompts with project, cwd, files, symbols, errors, recent selected sessions, and handoff or roadmap context.
-- `tuberosa_finish_session` should be able to extract useful learning from the conversation and session evidence.
-- Auto-approved memory must be strict, grounded, safe, deduplicated, and reviewable.
-- Bad or weak auto-memory must be easy for agents to find, filter, and clean up.
-- Missing-context and negative-feedback learning are still in progress.
+- Phase 9: make continuation, stale-memory suppression, supersession, missing-context learning, and graph-expanded retrieval reliable.
+- Phase 10: make returned context more useful at task start by reducing adjacent noise, improving startup orientation, and making item explanations actionable.
 
 ## Current State Of The Code
 
-Implemented in previous sessions (see previous handoff for full history):
+Implemented before this handoff:
 
-- Automatic session learning wired into `AgentSessionService.finishSession`.
-- Reviewable negative-feedback learning records (proposals and gaps) via `RetrievalService`.
-- Operations API for `GET/PATCH /operations/knowledge-gaps` and `GET/PATCH /operations/learning-proposals`.
-- Auto-memory cleanup and review filters.
-- Storage/backup support for review tables (`knowledge_gaps`, `learning_proposals`).
+- Agent session workflow, context compliance metadata, and one-call layered context are in place.
+- Retrieval has deterministic structured intent, continuation anchors, graph expansion, stale/superseded suppression, conflict records, knowledge gaps, and learning proposals.
+- Negative feedback creates reviewable `learning_proposals` and `knowledge_gaps` rather than mutating trusted knowledge directly.
+- Provider-backed reranking now uses an evidence-first prompt and structured evidence payload.
+- Retrieval eval fixtures cover superseded workflows, conflicting freshness, missing-context gaps, and graph-expanded media policy.
 
-Implemented in this session:
+Implemented in the latest work:
 
-- **Reviewed missing label/reference proposal actions.**
-  - `OperationsService.updateLearningProposal()` now supports a reviewed metadata shape for label/reference proposal approval:
-    - `metadata.suggestedLabels` for `missing_label` proposals.
-    - `metadata.suggestedReferences` for `missing_reference` proposals.
-  - Approving `missing_label` merges reviewed labels into the affected knowledge without duplicating existing labels with the same normalized type/value.
-  - Approving `missing_reference` merges reviewed references into the affected knowledge without duplicating existing type/URI/line/commit matches.
-  - If a label/reference proposal has no structured suggestion, approval preserves the previous fallback behavior and marks affected knowledge `needs_review`.
-  - Malformed structured suggestions fail validation and keep approval retryable because `metadata.approvalAction` is still only written after the concrete action succeeds.
-  - `test/operations.test.ts` covers label/reference application and dedupe behavior.
+- **Reviewed learning proposal approval actions.**
+  - `supersedes` approval creates or reuses a `supersedes` relation and marks affected knowledge `needs_review`.
+  - `missing_label` approval can merge reviewed `metadata.suggestedLabels`.
+  - `missing_reference` approval can merge reviewed `metadata.suggestedReferences`.
+  - `auto_memory_cleanup` approval now supports reviewed `metadata.cleanupAction`:
+    - default or `"needs_review"` marks affected auto-memory `needs_review`.
+    - `"archive"` marks affected auto-memory `archived`.
+    - `"supersede"` plus `metadata.supersedingKnowledgeId` creates or reuses a `supersedes` relation from the reviewed replacement to the affected auto-memory, then marks the affected auto-memory `needs_review`.
+  - `metadata.approvalAction` stays server-owned. Client-supplied values are stripped, and failed approval actions remain retryable.
 
-- **Learning proposal approval hardening.**
-  - `OperationsService.updateLearningProposal()` now strips client-supplied `metadata.approvalAction` on approval, so callers cannot fake the server-owned idempotency marker and bypass the concrete approval mutation.
-  - Approval action failures now propagate instead of being saved as `{ action: "error" }` in `approvalAction`; this keeps failed approvals retryable.
-  - `supersedes` approval now reuses an existing candidate→affected `supersedes` relation when retrying, preventing duplicate relation edges after partial failures.
-  - Knowledge status updates now throw a clear error if the affected knowledge id no longer exists.
-  - `test/operations.test.ts` covers client metadata bypass attempts and retry after a simulated approval failure.
+- **MCP schema and `taskType` smoothing.**
+  - User feedback: the failed `tuberosa_start_session` call with `taskType: "development"` should have been prevented or smoothed by the agent-facing contract.
+  - `src/mcp/server.ts` now advertises canonical enum values for startup/search `taskType`, `contextMode`, feedback types, learning mode, reflection draft status, and finish/reflection enums from exported validation constants.
+  - `src/validation.ts` normalizes common `taskType` aliases before dispatch:
+    - `development`, `coding` -> `implementation`
+    - `bug`, `bugfix`, `bug_fix`, `investigation` -> `debugging`
+  - `test/api-boundary.test.ts` covers both the advertised schemas and runtime alias normalization for `tuberosa_search_context` and `tuberosa_start_session`.
 
-- **MCP finish-session schema hardening.**
-  - The previous session log showed two failed `tuberosa_finish_session` calls caused by malformed arguments: a reflection draft without `triggerType`, then a free-form `outcome` string instead of the required enum.
-  - Runtime validation was correct, but the MCP `tools/list` schema was too loose (`outcome` was just `string`, and nested `reflectionDraft` was unconstrained).
-  - `src/mcp/server.ts` now advertises enum values for `tuberosa_finish_session.outcome`, `reflectionDraft.triggerType`, and `reflectionDraft.itemType`; nested reflection drafts also declare required `title`, `summary`, `content`, and `triggerType`.
-  - `tuberosa_reflect` now advertises the same `triggerType` and `itemType` enums.
-  - `test/api-boundary.test.ts` verifies the finish-session tool schema exposes those constraints.
+- **Roadmap/docs update.**
+  - `docs/AGENT_CONTEXT_ROADMAP.md` now captures the schema mismatch as Phase 10 feedback and marks enum-schema/alias smoothing as started.
+  - `docs/SETUP_AND_USAGE.md` documents valid `taskType` values and alias behavior.
+  - `docs/FLOW_LOGIC.md` and `docs/SETUP_AND_USAGE.md` document reviewed proposal approval behavior.
 
-- **Previous Phase 9 retrieval fixture work remains in place.**
-
-- **Missing-context and graph-expanded retrieval eval coverage.**
-  - `RetrievalEvaluator` now supports an optional `expectedKnowledgeGap` assertion on feedback events.
-  - `missing_context` eval feedback now verifies an open knowledge-gap record with expected prompt, reason, missing signals, and context-pack linkage.
-  - Added a graph-expanded retrieval fixture where `src/api/media-upload.ts` / `MediaUploadHandler` pulls in the related current image intake policy through a one-hop `depends_on` relation.
-  - Added an insufficient-fit missing-context case and a graph-expanded media-policy case to `eval/retrieval-fixtures.json`.
-
-- **Provider-backed reranking prompt hardening.**
-  - `src/model/provider.ts` now has an evidence-first OpenAI rerank system prompt that explicitly prefers concrete evidence coverage over generic semantic similarity.
-  - OpenAI rerank payloads now include structured candidate evidence: exact file/symbol/error matches, technology and business-area matches, task/project match, required evidence-type coverage, graph paths, feedback metadata when present, freshness, and stale/suppression risk signals.
-  - Hash-mode reranking behavior remains unchanged.
-  - `test/model-provider.test.ts` covers the provider rerank prompt and structured payload contract without network calls.
-
-- **Eval fixture relations support.**
-  - New `RetrievalEvalRelation` type and `KnowledgeRelationCreator` interface in `retrieval-evaluator.ts`.
-  - `RetrievalEvalFixture` now supports an optional `relations` array.
-  - `seedRelations()` private method creates relations using the eval ID index before running cases.
-  - `fixture-loader.ts` parses and validates the `relations` array.
-  - Both `scripts/eval-retrieval.ts` and `test/evaluation.test.ts` now pass `store` as the 4th constructor argument to supply a relation creator.
-
-- **Two new hard retrieval eval cases.**
-  - `superseded-workflow-demoted`: verifies that a `supersedes` relation + freshness demotion prevents the old deployment runbook from appearing in top-K when the current runbook is queried.
-  - `conflicting-memories-freshness`: verifies that a stale low-trust rate-limit policy is demoted below the current policy even when both match the same query topic.
-
-- **Bug fix: `isGraphEvidence` threshold bypass for superseded candidates.**
-  - Root cause: the `supersedes` graph edge caused the legacy item to appear as a `seed_outbound` graph candidate with rawScore≥0.45, bypassing the `filterAcceptedCandidates` score threshold entirely.
-  - Fix: `isGraphEvidence` in `context-pack.ts` now returns false when the candidate carries a `suppression:superseded:*` match reason.
-  - This keeps the original graph evidence behavior (bypass threshold for fresh, related graph items) while correctly applying the anchored threshold (0.6) to superseded items found via graph traversal.
-
-- **`eval/retrieval-fixtures.json` extended.**
-  - Added 7 new knowledge items total across this Phase 9 fixture work: deploy runbooks, rate-limit policies, and media upload/image intake policy records.
-  - Added `relations` array with two `supersedes` entries and one `depends_on` entry.
-  - Added 4 new eval cases total: superseded workflow demotion, conflicting freshness, missing-context insufficient fit, and graph-expanded media policy.
-  - Added `missing_context` feedback fixture coverage that asserts a matching knowledge-gap record is created.
+- **Phase 10 context-usefulness slice.**
+  - `assembleContextPack()` now annotates returned items with `evidenceCategory`, `evidenceStrength`, `usefulnessReason`, and item-level `actionableMissingSignals`.
+  - Pack assembly now orders `directTaskEvidence` ahead of `priorLessons`, `workflowGuidance`, and `adjacentContext` before section budgets are applied.
+  - Context packs now include an `orientation` block with inferred task, workflow stage, task type, recommended files, likely surfaces, likely Tuberosa verification commands, missing-signal buckets, and notes.
+  - MCP shortlist output now exposes the new orientation and item usefulness fields.
+  - Classifier/continuation hygiene now suppresses generic roadmap/meta words such as `Before`, `Added`, `Updated`, `Verified`, `Tuberosa`, `Agent`, and `Context`; all-caps document identifiers with underscores are not surfaced as symbols/errors; `next` requires stronger Next.js evidence before being treated as technology.
+  - Tests cover direct-evidence ordering, startup orientation, missing-signal buckets, MCP projection, and noisy roadmap symbol/technology suppression.
 
 ## Files Actively Edited
 
-- `src/evaluation/retrieval-evaluator.ts`
-  - Adds `KnowledgeRelationCreator` interface, `RetrievalEvalRelation` type, `relations` field in fixture, `seedRelations()` method, 4th constructor param.
-  - Adds `KnowledgeGapReader` and `expectedKnowledgeGap` feedback assertions for missing-context eval coverage.
-- `src/evaluation/fixture-loader.ts`
-  - Adds `parseRelation()` and parses `relations` array in `parseRetrievalEvalFixture`.
-  - Parses `expectedKnowledgeGap` on feedback events.
-- `src/retrieval/context-pack.ts`
-  - `isGraphEvidence` now excludes candidates with `suppression:superseded:*` match reason.
 - `src/operations/service.ts`
-  - Hardened learning-proposal approval idempotency, retry behavior, and supersedes relation reuse.
-  - Applies reviewed `metadata.suggestedLabels` and `metadata.suggestedReferences` for `missing_label`/`missing_reference` approvals.
+  - Approval idempotency hardening.
+  - Concrete approval actions for `supersedes`, `missing_label`, `missing_reference`, and `auto_memory_cleanup`.
 - `src/mcp/server.ts`
-  - Tightened finish-session and reflection tool schemas so agents see valid outcome/trigger/item enums before calling.
-- `src/model/provider.ts`
-  - Adds `OPENAI_RERANK_SYSTEM_PROMPT` and `buildOpenAiRerankPayload()` with structured evidence fields for provider reranking.
-- `eval/retrieval-fixtures.json`
-  - 7 new knowledge items, 2 supersedes relations, 1 depends_on relation, 4 new eval cases, and missing-context gap assertion coverage.
-- `test/model-provider.test.ts`
-  - Verifies provider rerank prompt wording and payload evidence fields.
+  - MCP tool schemas now use exported validation constants for agent-facing enums.
+  - MCP shortlist output exposes `orientation`, pack-level `actionableMissingSignals`, and item usefulness fields.
+- `src/validation.ts`
+  - Exports canonical enum constants used by MCP schemas.
+  - Normalizes common `taskType` aliases.
+- `src/types.ts`
+  - Adds Phase 10 context-usefulness and orientation response types.
+- `src/retrieval/classifier.ts`
+  - Filters generic roadmap/meta words and all-caps document identifiers from weak symbol/error evidence.
+- `src/retrieval/context-pack.ts`
+  - Adds usefulness categorization, direct-evidence ordering, orientation construction, and actionable missing-signal buckets.
+- `src/retrieval/debug.ts`
+  - Includes usefulness fields in retrieval debug candidates.
+- `src/retrieval/service.ts`
+  - Carries usefulness fields into deep context and tightens continuation symbol/error hygiene.
 - `test/operations.test.ts`
-  - Added regression coverage for approvalAction spoofing, retryable approval failures, and reviewed label/reference application.
+  - Covers approvalAction spoofing, retryable failures, label/reference approval actions, and auto-memory cleanup actions.
 - `test/api-boundary.test.ts`
-  - Added MCP schema regression coverage for finish-session outcome and reflection draft enums.
-- `scripts/eval-retrieval.ts`
-  - Passes `store` as 4th arg to `RetrievalEvaluator`.
-- `test/evaluation.test.ts`
-  - Passes `store` as 4th arg to `RetrievalEvaluator`.
+  - Covers finish/reflection schema enums, startup/search taskType enum schemas, feedback enum schemas, and `development` taskType alias normalization.
+  - Covers MCP projection of orientation and item usefulness fields.
+- `test/retrieval.test.ts`
+  - Covers Phase 10 item categorization/direct-evidence ordering, startup orientation, actionable missing signals, and classifier signal hygiene.
+- `src/evaluation/retrieval-evaluator.ts`
+  - Supports fixture relations and expected knowledge-gap assertions.
+- `src/evaluation/fixture-loader.ts`
+  - Parses fixture relations and expected knowledge-gap feedback assertions.
+- `src/retrieval/context-pack.ts`
+  - Keeps `isGraphEvidence` from bypassing thresholds for candidates carrying `suppression:superseded:*`.
+- `src/model/provider.ts`
+  - Adds evidence-first OpenAI rerank prompt and structured evidence payload builder.
+- `eval/retrieval-fixtures.json`
+  - Adds hard Phase 9 fixtures for supersession, conflicts, missing-context gaps, and graph expansion.
 - `docs/AGENT_CONTEXT_ROADMAP.md`
-  - Marks Phase 9 supersession/conflict eval work as started.
-  - Marks reviewed missing-label/reference approval actions as started and lists the next remaining priorities.
+  - Tracks Phase 9 completion work and Phase 10 context-usefulness next steps.
 - `docs/FLOW_LOGIC.md`
-  - Documents concrete `missing_label` and `missing_reference` approval behavior.
+  - Documents feedback learning and proposal approval flow.
 - `docs/SETUP_AND_USAGE.md`
-  - Documents `metadata.suggestedLabels` and `metadata.suggestedReferences`.
-  - Notes provider rerank sends compact evidence fields to the model.
-- `docs/FLOW_LOGIC.md`
-  - Documents the evidence-first provider rerank prompt and payload signals.
+  - Documents proposal review metadata, provider rerank evidence payloads, and taskType schema/alias behavior.
 - `handoff.md`
-  - Updated to reflect current state.
+  - This updated handoff.
 
 ## Everything Tried That Failed Or Needed Correction
 
-- First approach: exclude `supersedes` from `seed_outbound` graph traversal in memory-store and postgres-store.
-  - Broke the existing test "intent suppression demotes superseded workflows" which expected the legacy item to appear via graph traversal.
-  - Reverted, replaced with the `isGraphEvidence` check instead.
+- Initial MCP startup in the prior task used `taskType: "development"`.
+  - Runtime validation rejected it because canonical task types are `debugging`, `implementation`, `refactor`, `review`, `planning`, `exploration`, `testing`, and `unknown`.
+  - Fix: MCP schemas now expose the enum, and validation normalizes common aliases such as `development`.
+
+- Earlier `tuberosa_finish_session` attempts failed with malformed arguments.
+  - One call omitted required `reflectionDraft.triggerType`.
+  - Another used a free-form `outcome` string instead of the required enum.
+  - Fix: finish/reflection MCP schemas now expose outcome, trigger type, and item type enums with nested required fields.
+
+- First attempted supersession fix excluded `supersedes` from `seed_outbound` graph traversal.
+  - That broke the existing test expecting legacy knowledge to remain visible through graph traversal.
+  - Fix: keep graph traversal intact and make `isGraphEvidence` return false for candidates carrying a superseded suppression reason, so normal score thresholds still apply.
+
+- `pnpm run eval:agent-context` failed inside the sandbox with `listen EPERM` on a `/tmp/tsx-*` IPC pipe.
+  - This matches the known handoff note.
+  - Rerunning outside the sandbox with escalation passed.
+
+- During this handoff update, `handoff.md` appeared empty in the working tree while the index still contained the previous handoff.
+  - Corrected by rewriting `handoff.md` from the loaded roadmap, current diffs, and current session state rather than reverting user or staged changes.
 
 ## Verification Already Run
 
@@ -140,59 +129,87 @@ Latest checks for this continuation passed:
 
 ```bash
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run build
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/retrieval.test.ts test/api-boundary.test.ts
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:retrieval
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:agent-context
+git diff --check
+git diff --cached --check
+```
+
+Earlier checks for retrieval fixture/provider work also passed:
+
+```bash
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:retrieval
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/model-provider.test.ts
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/evaluation.test.ts
-PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/operations.test.ts
-PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
-git diff --check
-```
-
-Previous session checks also passed before this continuation:
-
-```bash
-PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/api-boundary.test.ts
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run test:integration
-PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:retrieval
-PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:agent-context
 ```
 
 Notes:
 
-- `eval:retrieval` passes all 11 cases (7 original + 4 hard Phase 9 cases) with 100% on all metrics.
-- `pnpm test` passes all test files.
-- `eval:agent-context` may need to run outside the sandbox because `tsx` can hit `listen EPERM` on its IPC pipe under `/tmp`; rerun with escalation if that happens.
+- `eval:retrieval` passes all 11 cases with 100% on the reported metrics.
+- `pnpm test` passes all current test files.
+- Re-run `pnpm run eval:agent-context` with escalation if `tsx` hits `/tmp` IPC `EPERM`.
+
+## Audit Plan For Previous Changes
+
+Before building the next feature, audit the current changes in this order:
+
+1. **Working-tree hygiene.**
+   - Run `git status --short` and distinguish staged work from unstaged continuation work.
+   - Do not accidentally revert staged changes from prior work.
+
+2. **MCP schema contract audit.**
+   - Inspect `tools/list` output for `tuberosa_search_context`, `tuberosa_start_session`, `tuberosa_record_context_decision`, `tuberosa_feedback_context`, and `tuberosa_finish_session`.
+   - Confirm enum fields in schemas match exported constants in `src/validation.ts`.
+   - Confirm runtime alias normalization still preserves canonical stored `taskType`.
+
+3. **Learning proposal approval audit.**
+   - Review `OperationsService.updateLearningProposal()` for idempotency: no action should re-run after `metadata.approvalAction` exists.
+   - Confirm malformed label/reference/cleanup metadata fails before writing `approvalAction`.
+   - Confirm retry behavior after partial failure does not duplicate `supersedes` relations.
+
+4. **Retrieval behavior audit.**
+   - Run `pnpm run eval:retrieval` after any future ranking, context-pack explanation, signal hygiene, or retrieval fixture change.
+   - Specifically verify superseded graph candidates remain thresholded by `isGraphEvidence`.
+
+5. **Agent compliance audit.**
+   - Run `pnpm run eval:agent-context` after any session, MCP startup, context-decision, or finish-session schema change.
+   - If sandboxed `tsx` fails with `/tmp` IPC `EPERM`, rerun with escalation and record it.
+
+6. **Docs and handoff audit.**
+   - Confirm `docs/AGENT_CONTEXT_ROADMAP.md`, `docs/FLOW_LOGIC.md`, `docs/SETUP_AND_USAGE.md`, and `handoff.md` describe the same behavior.
+   - Keep examples aligned with canonical enum values and reviewed-memory safety rules.
 
 ## Improve Plan And Next Steps
 
-Continue Phase 9 from `docs/AGENT_CONTEXT_ROADMAP.md`.
+Roadmap-informed next work should continue Phase 10 Agent Context Usefulness Hardening.
 
 Recommended next steps:
 
-1. **Expand proposal approval actions.**
-   - Approved `supersedes` proposal already creates or reuses the actual `supersedes` relation and marks affected knowledge `needs_review`.
-   - Approved `auto_memory_cleanup` already marks affected knowledge `needs_review`.
-   - Done: approved `missing_label` proposals merge reviewed `metadata.suggestedLabels` into affected knowledge.
-   - Done: approved `missing_reference` proposals merge reviewed `metadata.suggestedReferences` into affected knowledge.
-   - Keep `metadata.approvalAction` server-owned; do not let clients supply or overwrite it.
+1. **Cap and tune prior lessons.**
+   - Normal startup packs should include the most useful 3-6 prior lessons and demote weakly related selected memories unless debug/deep context asks for more.
+   - The first slice already distinguishes direct evidence, prior lessons, workflow guidance, and adjacent context; tune limits only after checking real Tuberosa startup output.
 
-2. **Complete auto-memory cleanup actions.**
-   - `auto_memory_cleanup` proposal approval → mark affected knowledge as `needs_review`, `archived`, or superseded.
+2. **Enrich context-pack explanations further.**
+   - Current `usefulnessReason` is compact and category-based.
+   - Next pass should explicitly call out freshness/stale risk, supersession, graph-path contribution, and feedback contribution when those signals are present.
 
-3. **Missing-context and graph-expanded eval fixtures.**
-   - Done: `missing_context` feedback creates knowledge-gap records (regression fixture).
-   - Done: graph-expanded case where a graph-related current item beats stale legacy context.
+3. **Add context-quality feedback metadata.**
+   - Use existing feedback/session decision metadata to record useful-but-noisy, too much adjacent context, missing startup orientation, missing current handoff, and missing verification commands.
+   - Do not create another review queue until there is evidence the existing feedback model cannot handle it.
 
-4. **Provider-backed reranking.**
-   - Done: prompts and candidate payloads prefer evidence coverage over generic similarity.
-
-5. **Richer context-pack explanations.**
-   - Each item clearly shows: exact match, graph relation, feedback, freshness, stale risk, supersession.
+4. **Verification for the next implementation.**
+   - Always run `pnpm run build`, targeted tests, `pnpm test`, and `git diff --check`.
+   - Also run `pnpm run eval:retrieval` for ranking/context-pack/signal changes.
+   - Also run `pnpm run eval:agent-context` for MCP/session/startup changes.
 
 ## Notes For The Next Agent
 
-- Do not ignore `handoff.md`; this file is part of the Phase 9 continuation retrieval strategy.
+- Start by calling Tuberosa and recording the selected context decision; this repo uses Tuberosa as its own continuation workflow.
+- Read `docs/AGENT_CONTEXT_ROADMAP.md`, `handoff.md`, and `tuberosa-project.md` before substantial work.
 - Do not auto-trust raw conversation as memory. Keep learning grounded, labeled, referenced, and reviewable.
-- Do not create a separate v2 effort. Continue Phase 9 Retrieval Quality Hardening.
-- Prefer existing abstractions: `AgentSessionService`, `ReflectionService`, `RetrievalService`, `KnowledgeStore`, review filters, feedback events, reflection drafts, and knowledge relations.
-- The `isGraphEvidence` fix in `context-pack.ts` is the correct approach for suppressed-but-graph-traversed candidates. Do not reintroduce the `seed_outbound` exclusion in the stores.
+- Do not create a separate v2 effort. Continue Phase 9/Phase 10 from the roadmap.
+- Prefer existing abstractions: `AgentSessionService`, `RetrievalService`, `ReflectionService`, `KnowledgeStore`, review filters, feedback events, reflection drafts, and knowledge relations.
+- Keep changes surgical. The next implementation should likely touch retrieval/context-pack assembly and tests, not broad storage or schema migrations.

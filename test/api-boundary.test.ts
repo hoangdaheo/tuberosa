@@ -92,7 +92,8 @@ test('valid MCP tool calls are validated then dispatched', async () => {
     structuredContent?: {
       contextPackId?: string;
       contextFit?: { fitStatus?: string };
-      sections?: Array<{ items: Array<{ fitReasons?: string[] }> }>;
+      orientation?: { inferredTask?: string };
+      sections?: Array<{ items: Array<{ fitReasons?: string[]; evidenceCategory?: string; usefulnessReason?: string }> }>;
       deepContextReturned?: boolean;
       deepContext?: { sections?: Array<{ itemCount?: number; items?: unknown[] }> };
     };
@@ -100,10 +101,73 @@ test('valid MCP tool calls are validated then dispatched', async () => {
 
   equal(result.structuredContent?.contextPackId, 'pack-1');
   equal(result.structuredContent?.contextFit?.fitStatus, 'ready');
+  equal(result.structuredContent?.orientation?.inferredTask, 'understand existing code or workflow');
   equal(result.structuredContent?.sections?.[0]?.items[0]?.fitReasons?.[0], 'project:agent-memory');
+  equal(result.structuredContent?.sections?.[0]?.items[0]?.evidenceCategory, 'workflowGuidance');
+  equal(result.structuredContent?.sections?.[0]?.items[0]?.usefulnessReason, 'Workflow guidance for wiki context.');
   equal(result.structuredContent?.deepContextReturned, false);
   equal(result.structuredContent?.deepContext?.sections?.[0]?.itemCount, 1);
   equal(result.structuredContent?.deepContext?.sections?.[0]?.items, undefined);
+});
+
+test('MCP taskType aliases normalize before dispatch', async () => {
+  const searchResult = await handleMcpRequest(fakeServices({
+    retrieval: {
+      searchContext: async (input: { taskType?: string }) => {
+        equal(input.taskType, 'implementation');
+        return samplePack();
+      },
+    },
+  }), {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_search_context',
+      arguments: {
+        project: 'agent-memory',
+        prompt: 'Find auth guidance',
+        taskType: 'development',
+      },
+    },
+  }) as { structuredContent?: { contextPackId?: string } };
+
+  equal(searchResult.structuredContent?.contextPackId, 'pack-1');
+
+  const startResult = await handleMcpRequest(fakeServices({
+    agentSessions: {
+      startSession: async (input: { taskType?: string }) => {
+        equal(input.taskType, 'implementation');
+        return {
+          session: {
+            id: 'session-1',
+            project: 'agent-memory',
+            prompt: 'Find auth guidance',
+            status: 'active',
+            initialContextPackId: 'pack-1',
+            reflectionDraftIds: [],
+            metadata: {},
+            createdAt: new Date().toISOString(),
+          },
+          contextPack: samplePack(),
+          policy: {
+            action: 'proceed',
+            instruction: 'Context fit is ready.',
+          },
+        };
+      },
+    },
+  }), {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_start_session',
+      arguments: {
+        project: 'agent-memory',
+        prompt: 'Find auth guidance',
+        taskType: 'Development',
+      },
+    },
+  }) as { structuredContent?: { session?: { id?: string } } };
+
+  equal(startResult.structuredContent?.session?.id, 'session-1');
 });
 
 test('MCP context search can return one-call layered deep context when requested', async () => {
@@ -297,6 +361,39 @@ test('MCP finish session accepts automatic learning mode', async () => {
 
   equal(result.structuredContent?.learningDecision?.mode, 'draft_only');
   equal(result.structuredContent?.learningDecision?.status, 'drafted');
+});
+
+test('MCP agent workflow schemas expose task and feedback enums', async () => {
+  const toolsList = await handleMcpRequest(fakeServices(), { method: 'tools/list' }) as {
+    tools: Array<{
+      name: string;
+      inputSchema?: {
+        properties?: Record<string, {
+          enum?: string[];
+          required?: string[];
+          properties?: Record<string, { enum?: string[] }>;
+        }>;
+      };
+    }>;
+  };
+
+  const taskTypes = ['debugging', 'implementation', 'refactor', 'review', 'planning', 'exploration', 'testing', 'unknown'];
+  const feedbackTypes = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'];
+  const searchTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_search_context');
+  const startTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_start_session');
+  const feedbackTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_feedback_context');
+  const decisionTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_record_context_decision');
+
+  ok(searchTool);
+  ok(startTool);
+  ok(feedbackTool);
+  ok(decisionTool);
+  deepEqual(searchTool.inputSchema?.properties?.taskType?.enum, taskTypes);
+  deepEqual(startTool.inputSchema?.properties?.taskType?.enum, taskTypes);
+  deepEqual(searchTool.inputSchema?.properties?.contextMode?.enum, ['compact', 'layered']);
+  deepEqual(startTool.inputSchema?.properties?.contextMode?.enum, ['compact', 'layered']);
+  deepEqual(feedbackTool.inputSchema?.properties?.feedbackType?.enum, feedbackTypes);
+  deepEqual(decisionTool.inputSchema?.properties?.feedbackType?.enum, feedbackTypes);
 });
 
 test('MCP finish session schema exposes outcome and reflection draft enums', async () => {
@@ -908,6 +1005,32 @@ function samplePack(overrides: Partial<ContextPack> = {}): ContextPack {
       fitReasons: ['covered project:agent-memory'],
       missingSignals: [],
     },
+    orientation: {
+      inferredTask: 'understand existing code or workflow',
+      workflowStage: 'exploration',
+      taskType: 'exploration',
+      confidence: 0.7,
+      recommendedFiles: [],
+      likelySurfaces: ['Auth workflow'],
+      verificationCommands: [],
+      missingSignals: {
+        files: [],
+        symbols: [],
+        errors: [],
+        docs: [],
+        intent: [],
+        other: [],
+      },
+      notes: [],
+    },
+    actionableMissingSignals: {
+      files: [],
+      symbols: [],
+      errors: [],
+      docs: [],
+      intent: [],
+      other: [],
+    },
     sections: [
       {
         name: 'essential',
@@ -936,6 +1059,17 @@ function samplePack(overrides: Partial<ContextPack> = {}): ContextPack {
             fitScore: 0.82,
             fitReasons: ['project:agent-memory'],
             fitMissingSignals: [],
+            evidenceCategory: 'workflowGuidance',
+            evidenceStrength: 'moderate',
+            usefulnessReason: 'Workflow guidance for wiki context.',
+            actionableMissingSignals: {
+              files: [],
+              symbols: [],
+              errors: [],
+              docs: [],
+              intent: [],
+              other: [],
+            },
           },
         ],
       },

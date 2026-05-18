@@ -506,10 +506,16 @@ Important response fields:
 - `queryId`: stored query id.
 - `confidence`: pack-level confidence.
 - `contextFit`: fit status, fit score, fit reasons, and missing signals for deciding whether to use the pack.
+- `orientation`: inferred task, recommended files, likely surfaces, likely verification commands, actionable missing-signal buckets, and uncertainty notes.
+- `actionableMissingSignals`: pack-level missing signals grouped into files, symbols, errors, docs, intent, and other.
 - `classified`: extracted files, symbols, errors, technologies, business areas, and lexical query.
 - `sections`: `essential`, `supporting`, and `optional` groups.
 - `sections[].items[].matchReasons`: why a candidate matched.
 - `sections[].items[].fitReasons`: why a candidate fits the classified task.
+- `sections[].items[].evidenceCategory`: `directTaskEvidence`, `priorLessons`, `workflowGuidance`, or `adjacentContext`.
+- `sections[].items[].evidenceStrength`: `strong`, `moderate`, or `weak`.
+- `sections[].items[].usefulnessReason`: compact agent-facing explanation of how to use the item.
+- `sections[].items[].actionableMissingSignals`: item-level missing signals grouped into actionable buckets.
 - `sections[].items[].references`: file, URL, commit, tool, conversation, or external references.
 
 ### Search Context With Debug Trace
@@ -602,14 +608,19 @@ Approving a learning proposal executes a concrete action based on `proposalType`
 - `missing_label` with reviewed `metadata.suggestedLabels` → merges those labels into the affected knowledge.
 - `missing_reference` with reviewed `metadata.suggestedReferences` → merges those references into the affected knowledge.
 - `missing_label` or `missing_reference` without structured suggestions → marks the affected knowledge as `needs_review`.
-- `auto_memory_cleanup` or `missing_relation` → marks the affected knowledge as `needs_review`.
+- `auto_memory_cleanup` without reviewed cleanup metadata → marks the affected knowledge as `needs_review`.
+- `auto_memory_cleanup` with `metadata.cleanupAction: "archive"` → marks the affected knowledge as `archived`.
+- `auto_memory_cleanup` with `metadata.cleanupAction: "supersede"` and `metadata.supersedingKnowledgeId` → creates or reuses a `supersedes` relation from the superseding knowledge to the affected auto-memory, then marks the affected auto-memory as `needs_review`.
+- `missing_relation` → marks the affected knowledge as `needs_review`.
 
-Reviewed label/reference proposal metadata uses the same label and reference shapes as knowledge writes:
+Reviewed label/reference proposal metadata uses the same label and reference shapes as knowledge writes. Reviewed auto-memory cleanup metadata can choose a concrete cleanup action:
 
 ```json
 {
   "suggestedLabels": [{ "type": "file", "value": "docs/runbook.md", "weight": 0.9 }],
-  "suggestedReferences": [{ "type": "file", "uri": "docs/runbook.md", "lineStart": 3 }]
+  "suggestedReferences": [{ "type": "file", "uri": "docs/runbook.md", "lineStart": 3 }],
+  "cleanupAction": "supersede",
+  "supersedingKnowledgeId": "<reviewed-knowledge-id>"
 }
 ```
 
@@ -1005,14 +1016,17 @@ Recommended agent flow:
 
 1. Prefer `tuberosa_start_session` before implementation or debugging.
 2. Pass the user's normal prompt as-is, then add inferred project, cwd, files, symbols, errors, task type, `contextMode: "layered"`, and `includeDeepContext: true` when known.
-3. If `deepContextReturned` is true, use the returned expanded context before working; otherwise inspect the shortlist and fetch the full pack only after confirming it is appropriate.
-4. Follow the returned policy: proceed, confirm, or clarify.
-5. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.
-6. If a retry pack is returned, review its context fit before using it.
-7. Finish with `tuberosa_finish_session`; by default automatic learning extracts the durable lesson from the session summary and only auto-approves when strict gates pass. If context was intentionally skipped, include `contextBypassReason`.
-8. When an error should be fixed later, call `tuberosa_record_error_log` with sanitized message, stack, command, files, symbols, errors, and references.
-9. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, `tuberosa_reflect`, and `tuberosa_record_error_log`) for manual or one-off workflows.
-10. Review `learningCandidate` drafts that were marked `needs_changes`, clean up bad memories with knowledge review operations, and link fixed incidents with `tuberosa_update_error_log`.
+   - MCP schemas advertise valid `taskType` values: `debugging`, `implementation`, `refactor`, `review`, `planning`, `exploration`, `testing`, and `unknown`.
+   - If unsure, omit `taskType` or use `unknown`. Runtime validation also normalizes common aliases such as `development` and `coding` to `implementation`.
+3. Inspect `orientation` for inferred task, recommended files, likely surfaces, verification commands, and actionable missing-signal buckets.
+4. If `deepContextReturned` is true, use the returned expanded context before working; otherwise inspect the shortlist and fetch the full pack only after confirming it is appropriate.
+5. Follow the returned policy: proceed, confirm, or clarify.
+6. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.
+7. If a retry pack is returned, review its context fit before using it.
+8. Finish with `tuberosa_finish_session`; by default automatic learning extracts the durable lesson from the session summary and only auto-approves when strict gates pass. If context was intentionally skipped, include `contextBypassReason`.
+9. When an error should be fixed later, call `tuberosa_record_error_log` with sanitized message, stack, command, files, symbols, errors, and references.
+10. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, `tuberosa_reflect`, and `tuberosa_record_error_log`) for manual or one-off workflows.
+11. Review `learningCandidate` drafts that were marked `needs_changes`, clean up bad memories with knowledge review operations, and link fixed incidents with `tuberosa_update_error_log`.
 
 Use `debug: true` in `tuberosa_search_context` only when diagnosing retrieval quality.
 

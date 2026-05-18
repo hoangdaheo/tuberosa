@@ -591,11 +591,15 @@ function isLikelyProjectFile(value: string): boolean {
 }
 
 function isUsefulContinuationSymbol(value: string): boolean {
-  return /^[A-Za-z_$][\w$.:#-]{2,}$/.test(value) && !CONTINUATION_SYMBOL_STOP_WORDS.has(value);
+  return /^[A-Za-z_$][\w$.:#-]{2,}$/.test(value)
+    && !CONTINUATION_SYMBOL_STOP_WORDS.has(value.toLowerCase())
+    && !isLikelyDocumentIdentifier(value);
 }
 
 function isUsefulContinuationError(value: string): boolean {
-  return /^[A-Za-z0-9_-]{3,}$/.test(value);
+  return /^[A-Za-z0-9_-]{3,}$/.test(value)
+    && (/\d/.test(value) || /(?:Error|Exception|Failure)$/.test(value))
+    && !isLikelyDocumentIdentifier(value);
 }
 
 function mergeExplicitAndInferred(
@@ -627,16 +631,36 @@ function isContinuationPrompt(prompt: string): boolean {
 }
 
 const CONTINUATION_SYMBOL_STOP_WORDS = new Set([
-  'Continue',
-  'Continuation',
-  'Current',
-  'Phase',
-  'Roadmap',
-  'The',
-  'For',
-  'Keep',
-  'Strip',
+  'continue',
+  'continuation',
+  'current',
+  'phase',
+  'roadmap',
+  'the',
+  'for',
+  'keep',
+  'strip',
+  'before',
+  'after',
+  'added',
+  'updated',
+  'verified',
+  'loaded',
+  'implemented',
+  'improve',
+  'focus',
+  'next',
+  'agent',
+  'context',
+  'usefulness',
+  'hardening',
+  'tuberosa',
+  'mcp',
 ]);
+
+function isLikelyDocumentIdentifier(value: string): boolean {
+  return /^[A-Z][A-Z0-9_]+$/.test(value) && value.includes('_') && !/\d/.test(value);
+}
 
 function normalizeSearchInput(input: ContextSearchInput, config: AppConfig): NormalizedContextSearchInput {
   return {
@@ -710,6 +734,10 @@ function buildDeepContextItem(
     rank: candidate.rank,
     finalScore: candidate.finalScore,
     matchReasons: candidate.matchReasons,
+    evidenceCategory: candidate.evidenceCategory,
+    evidenceStrength: candidate.evidenceStrength,
+    usefulnessReason: candidate.usefulnessReason,
+    actionableMissingSignals: candidate.actionableMissingSignals,
     chunkIds,
     content,
     contextualContent,

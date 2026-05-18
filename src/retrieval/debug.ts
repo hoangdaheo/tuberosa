@@ -175,6 +175,15 @@ function toDebugCandidate(candidate: SearchCandidate | RankedCandidate): Retriev
   if (ranked.fitMissingSignals) {
     debugCandidate.fitMissingSignals = ranked.fitMissingSignals;
   }
+  if (ranked.evidenceCategory) {
+    debugCandidate.evidenceCategory = ranked.evidenceCategory;
+  }
+  if (ranked.evidenceStrength) {
+    debugCandidate.evidenceStrength = ranked.evidenceStrength;
+  }
+  if (ranked.usefulnessReason) {
+    debugCandidate.usefulnessReason = ranked.usefulnessReason;
+  }
   if (Array.isArray(candidate.metadata?.graphPaths)) {
     debugCandidate.graphPaths = candidate.metadata.graphPaths
       .filter((path): path is Record<string, unknown> => Boolean(path) && typeof path === 'object')

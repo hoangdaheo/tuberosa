@@ -258,12 +258,21 @@ Pack-level `contextFit` includes:
 
 When fit is `insufficient`, agents should ask a clarifying question or continue without relying on the pack. Sparse searches still return the best available candidate, but the fit metadata makes the uncertainty explicit.
 
+Pack assembly also adds context-usefulness metadata without changing storage schema:
+
+- `evidenceCategory`: `directTaskEvidence`, `priorLessons`, `workflowGuidance`, or `adjacentContext`
+- `evidenceStrength`: `strong`, `moderate`, or `weak`
+- `usefulnessReason`: compact agent-facing explanation for why to use the item
+- `actionableMissingSignals`: item-level missing signals grouped by files, symbols, errors, docs, intent, and other
+- `orientation`: pack-level startup guidance with inferred task, recommended files, likely surfaces, verification commands, missing-signal buckets, and notes
+
 `assembleContextPack` enforces token budget and section shape:
 
 - Candidates below the final-score floor are removed before sectioning, except the top candidate.
 - Anchored searches are prompts with files, symbols, errors, business areas, or technologies.
 - Anchored searches use a stricter final-score floor so unrelated optional context does not leak into packs.
 - General searches use a lower final-score floor to keep useful semantic matches.
+- Direct task evidence is ordered ahead of prior lessons, workflow guidance, and adjacent context before section budgets are applied.
 - Minimum effective budget is `900` tokens.
 - Essential section receives about 52 percent of budget.
 - Supporting section receives about 34 percent.
@@ -310,7 +319,10 @@ Flow:
    - `missing_label` with `affectedKnowledgeId` and reviewed `metadata.suggestedLabels` → merges those labels into the affected knowledge.
    - `missing_reference` with `affectedKnowledgeId` and reviewed `metadata.suggestedReferences` → merges those references into the affected knowledge.
    - `missing_label` or `missing_reference` without structured suggestions → marks `affectedKnowledgeId` as `needs_review`.
-   - `auto_memory_cleanup` or `missing_relation` with `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
+   - `auto_memory_cleanup` with no `metadata.cleanupAction`, or with `metadata.cleanupAction: "needs_review"` → marks `affectedKnowledgeId` as `needs_review`.
+   - `auto_memory_cleanup` with `metadata.cleanupAction: "archive"` → marks `affectedKnowledgeId` as `archived`.
+   - `auto_memory_cleanup` with `metadata.cleanupAction: "supersede"` and `metadata.supersedingKnowledgeId` → creates or reuses a `supersedes` relation from that reviewed knowledge item to `affectedKnowledgeId`, then marks `affectedKnowledgeId` as `needs_review`.
+   - `missing_relation` with `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
    - The action result is stored in `proposal.metadata.approvalAction`. Subsequent PATCH calls with `status: "approved"` skip the action because `approvalAction` is already present.
 6. `rejected`, `irrelevant`, and `stale` trigger retry.
 6. Retry input uses the original prompt and project.

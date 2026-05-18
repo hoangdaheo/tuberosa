@@ -435,6 +435,7 @@ Planned work:
   - Started: approved `missing_label` proposals can merge reviewed `metadata.suggestedLabels` into affected knowledge labels.
   - Started: approved `missing_reference` proposals can merge reviewed `metadata.suggestedReferences` into affected knowledge references.
   - Started: label/reference proposal approval falls back to marking affected knowledge `needs_review` when no structured suggestion is present, and keeps `metadata.approvalAction` server-owned.
+  - Started: approved `auto_memory_cleanup` proposals can now apply reviewed cleanup actions: mark auto-memory `needs_review`, archive it, or create a reviewed `supersedes` relation before marking it `needs_review`.
   - missing-context feedback can create reviewable "knowledge gap" records
   - Started: missing-context feedback now creates open `knowledge_gaps` records with project, prompt, classified intent, missing signals, context pack, feedback, and session provenance when available.
   - Started: retrieval eval fixtures can now assert that `missing_context` feedback creates a matching open knowledge-gap record.
@@ -478,7 +479,7 @@ Acceptance:
 
 ## Phase 10: Agent Context Usefulness Hardening
 
-Status: Planned.
+Status: In progress as of 2026-05-19.
 
 Goal: make Tuberosa's returned context more useful to agents at task start by improving first-pass orientation, not by returning more context.
 
@@ -499,6 +500,7 @@ Session feedback from 2026-05-19:
 - Signal hygiene still needs work. A prompt such as "Before ending the session..." produced generic symbols like `Before` and `Tuberosa`; previous continuation prompts also exposed words like `Added`, `Updated`, `Verified`, and `Next` as symbols or technologies.
 - For a new task, Tuberosa should provide an explicit startup orientation: what local files to read first, why those files matter, which prior lessons are direct evidence, which items are only adjacent, and what verification commands are likely relevant.
 - Agents need a first-class way to report context as "selected but noisy" or "selected but missing orientation" so useful packs can still produce improvement signals without being marked rejected.
+- Agent-facing tool schemas should prevent avoidable startup mistakes. A session-start call with `taskType: "development"` failed because the runtime validator knew the enum but the MCP schema advertised a plain string.
 
 Planned work:
 
@@ -507,7 +509,8 @@ Planned work:
   - `priorLessons`: selected memories directly tied to the task.
   - `workflowGuidance`: general project workflow rules.
   - `adjacentContext`: lower-priority related memories.
-- Rank direct task evidence above general workflow memories when both are available.
+- Started: returned items now include `evidenceCategory`, `evidenceStrength`, `usefulnessReason`, and item-level `actionableMissingSignals` derived from existing match, fit, feedback, and graph signals.
+- Started: direct task evidence ranks above prior lessons, workflow guidance, and adjacent context during pack assembly.
 - Cap normal startup packs to the most useful 3-6 prior lessons unless debug mode or a larger deep-context request is used.
 - Add new-task orientation behavior:
   - summarize the inferred task and confidence in one compact block
@@ -515,11 +518,14 @@ Planned work:
   - list the most likely implementation or documentation surface
   - list likely verification commands or explain why verification is unclear
   - distinguish direct evidence from adjacent memories
+- Started: context packs now include an `orientation` block with inferred task, workflow stage, task type, recommended files, likely surfaces, likely Tuberosa verification commands, missing-signal buckets, and uncertainty notes.
 - Add signal hygiene before presenting context:
   - suppress generic documentation words as symbols unless backed by code references
   - treat file basenames and all-caps document identifiers as file evidence, not symbol or error evidence, when they came from paths
-  - avoid classifying sequencing words such as "next" as technologies without stronger evidence
-  - add stop-word coverage for ordinary meta-task words such as `Before`, `Added`, `Updated`, and `Verified`
+  - Started: MCP schemas now advertise canonical `taskType`, `contextMode`, feedback, learning, and reflection status enums from validation constants, and runtime validation normalizes common `taskType` aliases such as `development` to `implementation`.
+  - Started: classifier and continuation-signal filters now suppress generic roadmap/meta symbols such as `Before`, `Added`, `Updated`, `Verified`, `Tuberosa`, `Agent`, and `Context`.
+  - Started: all-caps document identifiers with underscores, such as `AGENT_CONTEXT_ROADMAP` and `FLOW_LOGIC`, are filtered from symbol/error evidence while their `.md` paths remain file evidence.
+  - Started: sequencing word `next` is no longer classified as Next.js technology unless stronger framework evidence is present.
 - Add a compact orientation block for continuation/startup output:
   - recommended files to inspect first
   - likely implementation surface
@@ -531,11 +537,13 @@ Planned work:
   - freshness or stale risk
   - graph or feedback contribution
   - missing evidence, when applicable
+- Started: MCP shortlist output now surfaces the usefulness fields from pack assembly alongside existing match reasons and fit reasons.
 - Group missing signals into actionable buckets:
   - files to inspect
   - symbols to inspect
   - docs or handoff gaps
   - unclear project or task intent
+- Started: pack-level and item-level missing signals are grouped into `files`, `symbols`, `errors`, `docs`, `intent`, and `other`.
 - Record optional context-quality feedback through existing feedback or session-decision metadata:
   - useful direct evidence
   - too much adjacent noise

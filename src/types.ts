@@ -437,7 +437,19 @@ export interface RankedCandidate extends SearchCandidate {
   fitScore?: number;
   fitReasons?: string[];
   fitMissingSignals?: string[];
+  evidenceCategory?: ContextEvidenceCategory;
+  evidenceStrength?: ContextEvidenceStrength;
+  usefulnessReason?: string;
+  actionableMissingSignals?: ActionableMissingSignals;
 }
+
+export type ContextEvidenceCategory =
+  | 'directTaskEvidence'
+  | 'priorLessons'
+  | 'workflowGuidance'
+  | 'adjacentContext';
+
+export type ContextEvidenceStrength = 'strong' | 'moderate' | 'weak';
 
 export type ContextFitStatus = 'ready' | 'needs_confirmation' | 'insufficient';
 
@@ -446,6 +458,30 @@ export interface ContextFit {
   fitScore: number;
   fitReasons: string[];
   missingSignals: string[];
+}
+
+export interface ActionableMissingSignals {
+  files: string[];
+  symbols: string[];
+  errors: string[];
+  docs: string[];
+  intent: string[];
+  other: string[];
+}
+
+export interface ContextPackOrientation {
+  inferredTask: string;
+  workflowStage: RetrievalWorkflowStage;
+  taskType: TaskType;
+  confidence: number;
+  recommendedFiles: Array<{
+    path: string;
+    reason: string;
+  }>;
+  likelySurfaces: string[];
+  verificationCommands: string[];
+  missingSignals: ActionableMissingSignals;
+  notes: string[];
 }
 
 export interface ContextPackSection {
@@ -477,6 +513,10 @@ export interface DeepContextItem {
   rank: number;
   finalScore: number;
   matchReasons: string[];
+  evidenceCategory?: ContextEvidenceCategory;
+  evidenceStrength?: ContextEvidenceStrength;
+  usefulnessReason?: string;
+  actionableMissingSignals?: ActionableMissingSignals;
   chunkIds: string[];
   content: string;
   contextualContent: string;
@@ -505,6 +545,8 @@ export interface ContextPack {
   status: 'proposed' | 'selected' | 'rejected';
   classified: ClassifiedQuery;
   contextFit?: ContextFit;
+  orientation?: ContextPackOrientation;
+  actionableMissingSignals?: ActionableMissingSignals;
   sections: ContextPackSection[];
   deepContext?: DeepContext;
   rejectedKnowledgeIds: string[];
@@ -1163,6 +1205,9 @@ export interface RetrievalDebugCandidate {
   matchReasons: string[];
   fitReasons?: string[];
   fitMissingSignals?: string[];
+  evidenceCategory?: ContextEvidenceCategory;
+  evidenceStrength?: ContextEvidenceStrength;
+  usefulnessReason?: string;
   references: ReferenceInput[];
   graphPaths?: Array<Record<string, unknown>>;
 }

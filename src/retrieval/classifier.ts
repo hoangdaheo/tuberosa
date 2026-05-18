@@ -370,12 +370,17 @@ function extractContinuationFiles(lower: string): string[] {
 function extractSymbols(prompt: string): string[] {
   const codeSpans = [...prompt.matchAll(/`([^`]+)`/g)].map((match) => match[1]).filter((value) => /^[A-Za-z_$][\w$.:#-]+$/.test(value));
   const camelCase = prompt.match(/\b[A-Z][A-Za-z0-9_]*(?:Service|Controller|Repository|Provider|Handler|Store|Model|Schema|Config|Client)\b/g) ?? [];
-  const pascalCase = (prompt.match(/\b[A-Z][A-Za-z0-9_]{2,}\b/g) ?? []).filter((value) => !SYMBOL_STOP_WORDS.has(value));
+  const pascalCase = (prompt.match(/\b[A-Z][A-Za-z0-9_]{2,}\b/g) ?? [])
+    .filter((value) => !SYMBOL_STOP_WORDS.has(value) && !isLikelyDocumentIdentifier(value));
   const functions = [...prompt.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((match) => match[1]);
   return uniqueStrings([...codeSpans, ...camelCase, ...pascalCase, ...functions]);
 }
 
 function matchesTechnology(lower: string, term: string): boolean {
+  if (term === 'next') {
+    return /\b(next\.js|nextjs|next\s+(?:app|application|project|repo|site|route|router|page|api|server|config)|app\/(?:page|layout|route)\.[jt]sx?)\b/.test(lower);
+  }
+
   if (term === 'go') {
     return /\b(golang|go\s+(?:api|app|code|module|package|project|repo|runtime|server|service)|[\w./-]+\.go)\b/.test(lower);
   }
@@ -392,7 +397,7 @@ function extractErrors(prompt: string): string[] {
     ...(prompt.match(/\b[A-Z][A-Z0-9_]*(?:Error|Exception|Failure)\b/g) ?? []),
     ...(prompt.match(/\b[A-Z]{2,}[-_][A-Z0-9_-]+\b/g) ?? []),
     ...(prompt.match(/\b(?:TS|ERR|E)[-_]?\d{3,6}\b/g) ?? []),
-  ]);
+  ].filter((value) => !isLikelyDocumentIdentifier(value)));
 }
 
 function extractQuotedTerms(prompt: string): string[] {
@@ -437,6 +442,16 @@ const STOP_WORDS = new Set([
   'their',
   'your',
   'using',
+  'before',
+  'after',
+  'added',
+  'updated',
+  'verified',
+  'loaded',
+  'implemented',
+  'improve',
+  'focus',
+  'next',
 ]);
 
 const SYMBOL_STOP_WORDS = new Set([
@@ -459,6 +474,22 @@ const SYMBOL_STOP_WORDS = new Set([
   'For',
   'Keep',
   'Strip',
+  'Before',
+  'After',
+  'Added',
+  'Updated',
+  'Verified',
+  'Loaded',
+  'Implemented',
+  'Improve',
+  'Focus',
+  'Next',
+  'Agent',
+  'Context',
+  'Usefulness',
+  'Hardening',
+  'Tuberosa',
+  'MCP',
   'How',
   'What',
   'When',
@@ -472,3 +503,7 @@ const SYMBOL_STOP_WORDS = new Set([
   'Postgres',
   'Redis',
 ]);
+
+function isLikelyDocumentIdentifier(value: string): boolean {
+  return /^[A-Z][A-Z0-9_]+$/.test(value) && value.includes('_') && !/\d/.test(value);
+}

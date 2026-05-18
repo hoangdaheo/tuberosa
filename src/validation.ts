@@ -57,7 +57,7 @@ interface ValidationIssue {
   message: string;
 }
 
-const KNOWLEDGE_ITEM_TYPES = [
+export const KNOWLEDGE_ITEM_TYPES = [
   'spec',
   'workflow',
   'memory',
@@ -68,7 +68,7 @@ const KNOWLEDGE_ITEM_TYPES = [
   'conversation',
 ] as const satisfies readonly KnowledgeItemType[];
 
-const TRIGGER_TYPES = [
+export const TRIGGER_TYPES = [
   'complex_task_success',
   'error_recovery',
   'user_correction',
@@ -76,7 +76,7 @@ const TRIGGER_TYPES = [
   'manual',
 ] as const satisfies readonly TriggerType[];
 
-const TASK_TYPES = [
+export const TASK_TYPES = [
   'debugging',
   'implementation',
   'refactor',
@@ -86,6 +86,15 @@ const TASK_TYPES = [
   'testing',
   'unknown',
 ] as const satisfies readonly TaskType[];
+
+const TASK_TYPE_ALIASES = new Map<string, TaskType>([
+  ['bug', 'debugging'],
+  ['bug_fix', 'debugging'],
+  ['bugfix', 'debugging'],
+  ['coding', 'implementation'],
+  ['development', 'implementation'],
+  ['investigation', 'debugging'],
+]);
 
 const LABEL_TYPES = [
   'project',
@@ -123,10 +132,10 @@ const KNOWLEDGE_RELATION_TARGET_KINDS = [
   'reference',
 ] as const satisfies readonly KnowledgeRelationTargetKind[];
 const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly IngestionMode[];
-const CONTEXT_MODES = ['compact', 'layered'] as const;
-const FEEDBACK_TYPES = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'] as const;
-const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
-const AGENT_LEARNING_MODES = ['auto', 'draft_only', 'off'] as const satisfies readonly AgentLearningMode[];
+export const CONTEXT_MODES = ['compact', 'layered'] as const;
+export const FEEDBACK_TYPES = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'] as const;
+export const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
+export const AGENT_LEARNING_MODES = ['auto', 'draft_only', 'off'] as const satisfies readonly AgentLearningMode[];
 const KNOWLEDGE_STATUSES = ['approved', 'needs_review', 'archived', 'blocked'] as const satisfies readonly KnowledgeStatus[];
 const KNOWLEDGE_REVIEW_FILTERS = [
   'questionable',
@@ -148,7 +157,7 @@ const LEARNING_PROPOSAL_TYPES = [
   'supersedes',
   'auto_memory_cleanup',
 ] as const satisfies readonly LearningProposalType[];
-const REFLECTION_DRAFT_STATUSES = [
+export const REFLECTION_DRAFT_STATUSES = [
   'pending',
   'approved',
   'rejected',
@@ -302,7 +311,7 @@ export function validateContextSearchInput(value: unknown): ContextSearchInput {
     project: readOptionalString(record, 'project', 'context search input'),
     repoHint: readOptionalString(record, 'repoHint', 'context search input'),
     cwd: readOptionalString(record, 'cwd', 'context search input'),
-    taskType: readOptionalEnum(record, 'taskType', TASK_TYPES, 'context search input'),
+    taskType: readOptionalTaskType(record, 'taskType', 'context search input'),
     files: readOptionalStringArray(record, 'files', 'context search input'),
     symbols: readOptionalStringArray(record, 'symbols', 'context search input'),
     errors: readOptionalStringArray(record, 'errors', 'context search input'),
@@ -923,6 +932,37 @@ function readOptionalEnum<T extends string>(
   }
 
   return value as T;
+}
+
+function readOptionalTaskType(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+): TaskType | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throw validationIssue(`${path}.${key}`, `must be one of: ${TASK_TYPES.join(', ')}.`);
+  }
+
+  const normalized = taskTypeToken(value);
+  if (TASK_TYPES.includes(normalized as TaskType)) {
+    return normalized as TaskType;
+  }
+
+  const alias = TASK_TYPE_ALIASES.get(normalized);
+  if (alias) {
+    return alias;
+  }
+
+  throw validationIssue(`${path}.${key}`, `must be one of: ${TASK_TYPES.join(', ')}.`);
+}
+
+function taskTypeToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
 function readOptionalEnumArray<T extends string>(

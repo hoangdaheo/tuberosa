@@ -404,6 +404,101 @@ test('learning proposal approval actions execute concrete mutations and record r
     const cleanupKnowledgeAfter = await services.store.getKnowledge(cleanupKnowledge.id);
     equal(cleanupKnowledgeAfter?.status, 'needs_review');
 
+    const archiveKnowledge = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal/auto-memory-archive',
+      itemType: 'memory',
+      title: 'Noisy auto-approved memory',
+      summary: 'Memory should be archived after review.',
+      content: 'Noisy session context.',
+      trustLevel: 55,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [],
+      metadata: { source: 'agent_session_finish', learningMode: 'auto' },
+    }, []);
+
+    const archiveProposal = await services.store.createLearningProposal({
+      project,
+      proposalType: 'auto_memory_cleanup',
+      affectedKnowledgeId: archiveKnowledge.id,
+      reason: 'Reviewer confirmed this auto-memory should be archived.',
+      evidence: [`knowledge:${archiveKnowledge.id}`],
+      metadata: { source: 'test' },
+    });
+
+    const approvedArchive = await patch(
+      services,
+      `/operations/learning-proposals/${archiveProposal.id}`,
+      { status: 'approved', metadata: { cleanupAction: 'archive' } },
+    ) as Record<string, unknown>;
+
+    const archiveAction = (approvedArchive.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    equal(archiveAction.action, 'knowledge_archived');
+    equal(archiveAction.knowledgeId, archiveKnowledge.id);
+    const archiveKnowledgeAfter = await services.store.getKnowledge(archiveKnowledge.id);
+    equal(archiveKnowledgeAfter?.status, 'archived');
+
+    const replacementMemory = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal/auto-memory-replacement',
+      itemType: 'memory',
+      title: 'Reviewed replacement memory',
+      summary: 'Reviewed memory supersedes the noisy auto-memory.',
+      content: 'Use this reviewed session lesson instead.',
+      trustLevel: 90,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [],
+    }, []);
+    const supersededAutoMemory = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal/auto-memory-superseded',
+      itemType: 'memory',
+      title: 'Superseded auto-approved memory',
+      summary: 'Auto-memory should point to a reviewed replacement.',
+      content: 'Old session context.',
+      trustLevel: 60,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [],
+      metadata: { source: 'agent_session_finish', learningMode: 'auto' },
+    }, []);
+
+    const supersedeCleanupProposal = await services.store.createLearningProposal({
+      project,
+      proposalType: 'auto_memory_cleanup',
+      affectedKnowledgeId: supersededAutoMemory.id,
+      reason: 'Reviewer confirmed a reviewed memory supersedes this auto-memory.',
+      evidence: [`knowledge:${supersededAutoMemory.id}`, `knowledge:${replacementMemory.id}`],
+      metadata: { source: 'test' },
+    });
+
+    const approvedSupersedeCleanup = await patch(
+      services,
+      `/operations/learning-proposals/${supersedeCleanupProposal.id}`,
+      {
+        status: 'approved',
+        metadata: {
+          cleanupAction: 'supersede',
+          supersedingKnowledgeId: replacementMemory.id,
+        },
+      },
+    ) as Record<string, unknown>;
+
+    const supersedeCleanupAction = (approvedSupersedeCleanup.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    equal(supersedeCleanupAction.action, 'auto_memory_superseded');
+    equal(supersedeCleanupAction.supersedingKnowledgeId, replacementMemory.id);
+    equal(supersedeCleanupAction.markedNeedsReview, supersededAutoMemory.id);
+    const supersededAutoMemoryAfter = await services.store.getKnowledge(supersededAutoMemory.id);
+    equal(supersededAutoMemoryAfter?.status, 'needs_review');
+    const cleanupRelations = await services.store.listKnowledgeRelations({
+      fromKnowledgeId: replacementMemory.id,
+      relationType: 'supersedes',
+      limit: 10,
+    });
+    equal(cleanupRelations.filter((relation) => relation.targetKnowledgeId === supersededAutoMemory.id).length, 1);
+
     const enrichmentKnowledge = await services.store.upsertKnowledge({
       project,
       sourceType: 'manual',

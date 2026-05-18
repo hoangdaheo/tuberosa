@@ -2,6 +2,14 @@ import type { AppServices } from '../app.js';
 import { NotFoundError, toAppError, ValidationError, type AppError } from '../errors.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
+  AGENT_LEARNING_MODES,
+  AGENT_SESSION_OUTCOMES,
+  CONTEXT_MODES,
+  FEEDBACK_TYPES,
+  KNOWLEDGE_ITEM_TYPES,
+  REFLECTION_DRAFT_STATUSES,
+  TASK_TYPES,
+  TRIGGER_TYPES,
   expectRecord,
   validateCollectErrorLogsInput,
   validateContextPackIdArguments,
@@ -27,10 +35,6 @@ interface JsonRpcRequest {
   method: string;
   params?: Record<string, unknown>;
 }
-
-const AGENT_SESSION_OUTCOME_VALUES = ['completed', 'failed', 'blocked', 'cancelled'] as const;
-const TRIGGER_TYPE_VALUES = ['complex_task_success', 'error_recovery', 'user_correction', 'non_trivial_workflow', 'manual'] as const;
-const KNOWLEDGE_ITEM_TYPE_VALUES = ['spec', 'workflow', 'memory', 'bugfix', 'code_ref', 'rule', 'wiki', 'conversation'] as const;
 
 export async function handleMcpRequest(services: AppServices, request: JsonRpcRequest): Promise<unknown> {
   try {
@@ -301,6 +305,8 @@ function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?:
     contextPackId: pack.id,
     confidence: pack.confidence,
     contextFit: pack.contextFit,
+    orientation: pack.orientation,
+    actionableMissingSignals: pack.actionableMissingSignals,
     project: pack.project,
     classified: pack.classified,
     sections: pack.sections.map((section) => ({
@@ -316,6 +322,10 @@ function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?:
         fitScore: item.fitScore,
         fitReasons: item.fitReasons,
         fitMissingSignals: item.fitMissingSignals,
+        evidenceCategory: item.evidenceCategory,
+        evidenceStrength: item.evidenceStrength,
+        usefulnessReason: item.usefulnessReason,
+        actionableMissingSignals: item.actionableMissingSignals,
         references: item.references,
       })),
     })),
@@ -592,12 +602,16 @@ function tools() {
           project: { type: 'string' },
           repoHint: { type: 'string' },
           cwd: { type: 'string' },
-          taskType: { type: 'string' },
+          taskType: {
+            type: 'string',
+            enum: [...TASK_TYPES],
+            description: 'Canonical task type. If unsure, omit this field or use unknown.',
+          },
           files: { type: 'array', items: { type: 'string' } },
           symbols: { type: 'array', items: { type: 'string' } },
           errors: { type: 'array', items: { type: 'string' } },
           tokenBudget: { type: 'number' },
-          contextMode: { type: 'string', enum: ['compact', 'layered'] },
+          contextMode: { type: 'string', enum: [...CONTEXT_MODES] },
           deepContextBudget: { type: 'number' },
           includeDeepContext: { type: 'boolean' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
@@ -630,12 +644,16 @@ function tools() {
           project: { type: 'string' },
           repoHint: { type: 'string' },
           cwd: { type: 'string' },
-          taskType: { type: 'string' },
+          taskType: {
+            type: 'string',
+            enum: [...TASK_TYPES],
+            description: 'Canonical task type. If unsure, omit this field or use unknown.',
+          },
           files: { type: 'array', items: { type: 'string' } },
           symbols: { type: 'array', items: { type: 'string' } },
           errors: { type: 'array', items: { type: 'string' } },
           tokenBudget: { type: 'number' },
-          contextMode: { type: 'string', enum: ['compact', 'layered'] },
+          contextMode: { type: 'string', enum: [...CONTEXT_MODES] },
           deepContextBudget: { type: 'number' },
           includeDeepContext: { type: 'boolean' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
@@ -657,7 +675,7 @@ function tools() {
         properties: {
           sessionId: { type: 'string' },
           contextPackId: { type: 'string' },
-          feedbackType: { type: 'string' },
+          feedbackType: { type: 'string', enum: [...FEEDBACK_TYPES] },
           reason: { type: 'string' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           metadata: { type: 'object' },
@@ -673,10 +691,10 @@ function tools() {
         required: ['sessionId', 'outcome'],
         properties: {
           sessionId: { type: 'string' },
-          outcome: { type: 'string', enum: [...AGENT_SESSION_OUTCOME_VALUES] },
+          outcome: { type: 'string', enum: [...AGENT_SESSION_OUTCOMES] },
           summary: { type: 'string' },
           contextBypassReason: { type: 'string' },
-          learningMode: { type: 'string', enum: ['auto', 'draft_only', 'off'] },
+          learningMode: { type: 'string', enum: [...AGENT_LEARNING_MODES] },
           metadata: { type: 'object' },
           reflectionDraft: {
             type: 'object',
@@ -686,8 +704,8 @@ function tools() {
               title: { type: 'string' },
               summary: { type: 'string' },
               content: { type: 'string' },
-              itemType: { type: 'string', enum: [...KNOWLEDGE_ITEM_TYPE_VALUES] },
-              triggerType: { type: 'string', enum: [...TRIGGER_TYPE_VALUES] },
+              itemType: { type: 'string', enum: [...KNOWLEDGE_ITEM_TYPES] },
+              triggerType: { type: 'string', enum: [...TRIGGER_TYPES] },
               labels: { type: 'array', items: { type: 'object' } },
               references: { type: 'array', items: { type: 'object' } },
               metadata: { type: 'object' },
@@ -708,8 +726,8 @@ function tools() {
           title: { type: 'string' },
           summary: { type: 'string' },
           content: { type: 'string' },
-          itemType: { type: 'string', enum: [...KNOWLEDGE_ITEM_TYPE_VALUES] },
-          triggerType: { type: 'string', enum: [...TRIGGER_TYPE_VALUES] },
+          itemType: { type: 'string', enum: [...KNOWLEDGE_ITEM_TYPES] },
+          triggerType: { type: 'string', enum: [...TRIGGER_TYPES] },
           labels: { type: 'array', items: { type: 'object' } },
           references: { type: 'array', items: { type: 'object' } },
           metadata: { type: 'object' },
@@ -724,7 +742,7 @@ function tools() {
         type: 'object',
         properties: {
           project: { type: 'string' },
-          status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'needs_changes'] },
+          status: { type: 'string', enum: [...REFLECTION_DRAFT_STATUSES] },
           limit: { type: 'number' },
         },
       },
@@ -780,7 +798,7 @@ function tools() {
         properties: {
           contextPackId: { type: 'string' },
           project: { type: 'string' },
-          feedbackType: { type: 'string' },
+          feedbackType: { type: 'string', enum: [...FEEDBACK_TYPES] },
           reason: { type: 'string' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           metadata: { type: 'object' },
