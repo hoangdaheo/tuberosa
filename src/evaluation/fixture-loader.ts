@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type {
   RetrievalEvalCase,
   RetrievalEvalClassificationExpectation,
+  RetrievalEvalExpectedKnowledgeGap,
   RetrievalEvalFeedbackEvent,
   RetrievalEvalFixture,
   RetrievalEvalKnowledge,
@@ -103,6 +104,28 @@ function parseFeedbackEvent(value: unknown, path: string): RetrievalEvalFeedback
     knowledgeIds: optionalStringArray(item.knowledgeIds, `${path}.knowledgeIds`),
     reason: optionalString(item.reason, `${path}.reason`),
     metadata: item.metadata as RetrievalEvalFeedbackEvent['metadata'],
+    expectedKnowledgeGap: parseExpectedKnowledgeGap(
+      item.expectedKnowledgeGap,
+      `${path}.expectedKnowledgeGap`,
+    ),
+  };
+}
+
+function parseExpectedKnowledgeGap(
+  value: unknown,
+  path: string,
+): RetrievalEvalExpectedKnowledgeGap | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const item = expectRecord(value, path);
+  return {
+    status: optionalString(item.status, `${path}.status`) as RetrievalEvalExpectedKnowledgeGap['status'],
+    promptIncludes: optionalString(item.promptIncludes, `${path}.promptIncludes`),
+    reasonIncludes: optionalString(item.reasonIncludes, `${path}.reasonIncludes`),
+    missingSignals: optionalStringArray(item.missingSignals, `${path}.missingSignals`),
+    contextPackIdRequired: optionalBoolean(item.contextPackIdRequired, `${path}.contextPackIdRequired`),
   };
 }
 
@@ -176,6 +199,18 @@ function optionalNumber(value: unknown, path: string): number | undefined {
 
   if (typeof value !== 'number' || Number.isNaN(value)) {
     throw new Error(`${path} must be a number.`);
+  }
+
+  return value;
+}
+
+function optionalBoolean(value: unknown, path: string): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'boolean') {
+    throw new Error(`${path} must be a boolean.`);
   }
 
   return value;

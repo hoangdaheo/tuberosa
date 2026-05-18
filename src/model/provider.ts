@@ -17,6 +17,17 @@ export interface ModelProvider {
   rerank(input: RerankInput): Promise<RerankResult>;
 }
 
+export const OPENAI_RERANK_SYSTEM_PROMPT = [
+  'Rerank candidate knowledge for a coding agent.',
+  'Prefer concrete evidence coverage over generic semantic similarity.',
+  'Strong evidence includes exact project, file, symbol, error, task, and required evidence type matches.',
+  'Also value bounded graph relations, current or fresh references, high-trust reviewed knowledge, and positive feedback signals.',
+  'Penalize stale, superseded, rejected, irrelevant, cross-project, weakly related, or generic background candidates.',
+  'Do not reward repeated prompt wording unless the candidate also contains concrete task evidence.',
+  'Score only useful candidates from 0 to 1 and explain each score with the specific evidence or risk that drove it.',
+  'Return JSON only.',
+].join(' ');
+
 export function createModelProvider(config: AppConfig): ModelProvider {
   if (config.modelProvider === 'openai' && config.openAiApiKey) {
     return new OpenAiModelProvider(config);
@@ -145,28 +156,10 @@ class OpenAiModelProvider implements ModelProvider {
     const response = await fetchOpenAiJson(
       this.config,
       this.config.openAiRerankModel,
-      [
-        'Rerank candidate knowledge for a coding agent.',
-        'Prefer candidates with concrete evidence for the task files, symbols, errors, workflow stage, and project.',
-        'Penalize generic semantic matches, stale-looking context, and candidates that do not answer the user task.',
-        'Return JSON only with one score from 0 to 1 for each useful candidate.',
-      ].join(' '),
+      OPENAI_RERANK_SYSTEM_PROMPT,
       'candidate_rerank',
       rerankSchema(input.candidates.length),
-      {
-        prompt: input.prompt,
-        classified: {
-          taskType: input.classified.taskType,
-          project: input.classified.project,
-          files: input.classified.files,
-          symbols: input.classified.symbols,
-          errors: input.classified.errors,
-          technologies: input.classified.technologies,
-          businessAreas: input.classified.businessAreas,
-          exactTerms: input.classified.exactTerms,
-        },
-        candidates: input.candidates.map(toRerankPayload),
-      },
+      buildOpenAiRerankPayload(input),
     );
 
     if (!response.ok) {
@@ -383,7 +376,30 @@ async function applyProviderRerank(
   };
 }
 
-function toRerankPayload(candidate: RankedCandidate): Record<string, unknown> {
+export function buildOpenAiRerankPayload(input: RerankInput): Record<string, unknown> {
+  return {
+    prompt: input.prompt,
+    classified: {
+      taskType: input.classified.taskType,
+      project: input.classified.project,
+      files: input.classified.files,
+      symbols: input.classified.symbols,
+      errors: input.classified.errors,
+      technologies: input.classified.technologies,
+      businessAreas: input.classified.businessAreas,
+      exactTerms: input.classified.exactTerms,
+      intent: {
+        taskGoal: input.classified.intent.taskGoal,
+        workflowStage: input.classified.intent.workflowStage,
+        requiredEvidenceTypes: input.classified.intent.requiredEvidenceTypes,
+        uncertaintyReasons: input.classified.intent.uncertaintyReasons,
+      },
+    },
+    candidates: input.candidates.map((candidate) => toRerankPayload(candidate, input.classified)),
+  };
+}
+
+function toRerankPayload(candidate: RankedCandidate, classified: RerankInput['classified']): Record<string, unknown> {
   return {
     knowledgeId: candidate.knowledgeId,
     title: truncate(candidate.title, 160),
@@ -396,8 +412,107 @@ function toRerankPayload(candidate: RankedCandidate): Record<string, unknown> {
     matchReasons: candidate.matchReasons.slice(0, 10),
     labels: candidate.labels.slice(0, 16).map((label) => `${label.type}:${label.value}`),
     references: candidate.references.slice(0, 10).map((reference) => reference.uri),
+    freshnessAt: candidate.freshnessAt,
+    evidence: buildCandidateEvidence(candidate, classified),
     content: truncate(candidate.contextualContent || candidate.content, 900),
   };
+}
+
+function buildCandidateEvidence(
+  candidate: RankedCandidate,
+  classified: RerankInput['classified'],
+): Record<string, unknown> {
+  return {
+    exactFiles: matchedSignals(candidate, classified.files),
+    exactSymbols: matchedSignals(candidate, classified.symbols),
+    exactErrors: matchedSignals(candidate, classified.errors),
+    exactTechnologies: matchedLabelSignals(candidate, 'technology', classified.technologies),
+    exactBusinessAreas: matchedLabelSignals(candidate, 'business_area', classified.businessAreas),
+    taskMatch: candidate.labels.some((label) => label.type === 'task_type' && sameSignal(label.value, classified.taskType)),
+    projectMatch: sameSignal(candidate.project, classified.project),
+    requiredEvidenceTypes: matchedEvidenceTypes(candidate, classified.intent.requiredEvidenceTypes),
+    graphPaths: metadataRecordArray(candidate.metadata?.graphPaths).slice(0, 3),
+    feedback: metadataRecord(candidate.metadata?.feedback),
+    freshness: {
+      freshnessAt: candidate.freshnessAt,
+      staleMetadata: candidate.metadata?.stale === true,
+      staleLanguage: staleLanguage(candidate),
+    },
+    riskSignals: candidate.matchReasons
+      .filter((reason) => /stale|superseded|rejected|irrelevant|suppression/i.test(reason))
+      .slice(0, 8),
+  };
+}
+
+function matchedSignals(candidate: RankedCandidate, signals: string[]): string[] {
+  const text = candidateEvidenceText(candidate);
+  return signals.filter((signal) => text.includes(signal.toLowerCase()));
+}
+
+function matchedLabelSignals(candidate: RankedCandidate, labelType: string, signals: string[]): string[] {
+  return signals.filter((signal) => candidate.labels.some((label) => (
+    label.type === labelType && sameSignal(label.value, signal)
+  )));
+}
+
+function matchedEvidenceTypes(candidate: RankedCandidate, evidenceTypes: string[]): string[] {
+  const text = candidateEvidenceText(candidate);
+  return evidenceTypes.filter((evidenceType) => {
+    if (evidenceType === 'code_reference') {
+      return candidate.itemType === 'code_ref' || candidate.references.some((reference) => reference.type === 'file');
+    }
+
+    if (evidenceType === 'bugfix') {
+      return candidate.itemType === 'bugfix';
+    }
+
+    if (evidenceType === 'workflow') {
+      return candidate.itemType === 'workflow' || candidate.labels.some((label) => label.type === 'workflow_stage');
+    }
+
+    if (evidenceType === 'docs' || evidenceType === 'spec') {
+      return candidate.itemType === 'wiki' || candidate.references.some((reference) => reference.type === 'file');
+    }
+
+    if (evidenceType === 'reflection_memory' || evidenceType === 'incident_lesson') {
+      return candidate.itemType === 'memory' || candidate.itemType === 'bugfix';
+    }
+
+    return text.includes(evidenceType.replaceAll('_', ' ')) || text.includes(evidenceType);
+  });
+}
+
+function candidateEvidenceText(candidate: RankedCandidate): string {
+  return [
+    candidate.project,
+    candidate.title,
+    candidate.summary,
+    candidate.content,
+    candidate.contextualContent,
+    candidate.itemType,
+    candidate.source,
+    candidate.matchReasons.join(' '),
+    candidate.labels.map((label) => `${label.type}:${label.value}`).join(' '),
+    candidate.references.map((reference) => `${reference.type}:${reference.uri}`).join(' '),
+  ].join(' ').toLowerCase();
+}
+
+function staleLanguage(candidate: RankedCandidate): boolean {
+  return /\b(stale|superseded|deprecated|legacy|obsolete|outdated)\b/i.test(
+    `${candidate.title} ${candidate.summary} ${candidate.content}`,
+  );
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function metadataRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function sameSignal(left: string | undefined, right: string | undefined): boolean {
+  return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
 }
 
 function roundScore(value: number): number {

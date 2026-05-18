@@ -52,6 +52,18 @@ Implemented in this session:
 
 - **Previous Phase 9 retrieval fixture work remains in place.**
 
+- **Missing-context and graph-expanded retrieval eval coverage.**
+  - `RetrievalEvaluator` now supports an optional `expectedKnowledgeGap` assertion on feedback events.
+  - `missing_context` eval feedback now verifies an open knowledge-gap record with expected prompt, reason, missing signals, and context-pack linkage.
+  - Added a graph-expanded retrieval fixture where `src/api/media-upload.ts` / `MediaUploadHandler` pulls in the related current image intake policy through a one-hop `depends_on` relation.
+  - Added an insufficient-fit missing-context case and a graph-expanded media-policy case to `eval/retrieval-fixtures.json`.
+
+- **Provider-backed reranking prompt hardening.**
+  - `src/model/provider.ts` now has an evidence-first OpenAI rerank system prompt that explicitly prefers concrete evidence coverage over generic semantic similarity.
+  - OpenAI rerank payloads now include structured candidate evidence: exact file/symbol/error matches, technology and business-area matches, task/project match, required evidence-type coverage, graph paths, feedback metadata when present, freshness, and stale/suppression risk signals.
+  - Hash-mode reranking behavior remains unchanged.
+  - `test/model-provider.test.ts` covers the provider rerank prompt and structured payload contract without network calls.
+
 - **Eval fixture relations support.**
   - New `RetrievalEvalRelation` type and `KnowledgeRelationCreator` interface in `retrieval-evaluator.ts`.
   - `RetrievalEvalFixture` now supports an optional `relations` array.
@@ -69,16 +81,19 @@ Implemented in this session:
   - This keeps the original graph evidence behavior (bypass threshold for fresh, related graph items) while correctly applying the anchored threshold (0.6) to superseded items found via graph traversal.
 
 - **`eval/retrieval-fixtures.json` extended.**
-  - Added 4 new knowledge items: `current-deploy-runbook`, `legacy-deploy-runbook`, `current-rate-limit-policy`, `legacy-rate-limit-policy`.
-  - Added `relations` array with two `supersedes` entries.
-  - Added 2 new eval cases.
+  - Added 7 new knowledge items total across this Phase 9 fixture work: deploy runbooks, rate-limit policies, and media upload/image intake policy records.
+  - Added `relations` array with two `supersedes` entries and one `depends_on` entry.
+  - Added 4 new eval cases total: superseded workflow demotion, conflicting freshness, missing-context insufficient fit, and graph-expanded media policy.
+  - Added `missing_context` feedback fixture coverage that asserts a matching knowledge-gap record is created.
 
 ## Files Actively Edited
 
 - `src/evaluation/retrieval-evaluator.ts`
   - Adds `KnowledgeRelationCreator` interface, `RetrievalEvalRelation` type, `relations` field in fixture, `seedRelations()` method, 4th constructor param.
+  - Adds `KnowledgeGapReader` and `expectedKnowledgeGap` feedback assertions for missing-context eval coverage.
 - `src/evaluation/fixture-loader.ts`
   - Adds `parseRelation()` and parses `relations` array in `parseRetrievalEvalFixture`.
+  - Parses `expectedKnowledgeGap` on feedback events.
 - `src/retrieval/context-pack.ts`
   - `isGraphEvidence` now excludes candidates with `suppression:superseded:*` match reason.
 - `src/operations/service.ts`
@@ -86,8 +101,12 @@ Implemented in this session:
   - Applies reviewed `metadata.suggestedLabels` and `metadata.suggestedReferences` for `missing_label`/`missing_reference` approvals.
 - `src/mcp/server.ts`
   - Tightened finish-session and reflection tool schemas so agents see valid outcome/trigger/item enums before calling.
+- `src/model/provider.ts`
+  - Adds `OPENAI_RERANK_SYSTEM_PROMPT` and `buildOpenAiRerankPayload()` with structured evidence fields for provider reranking.
 - `eval/retrieval-fixtures.json`
-  - 4 new knowledge items, 2 supersedes relations, 2 new eval cases.
+  - 7 new knowledge items, 2 supersedes relations, 1 depends_on relation, 4 new eval cases, and missing-context gap assertion coverage.
+- `test/model-provider.test.ts`
+  - Verifies provider rerank prompt wording and payload evidence fields.
 - `test/operations.test.ts`
   - Added regression coverage for approvalAction spoofing, retryable approval failures, and reviewed label/reference application.
 - `test/api-boundary.test.ts`
@@ -103,6 +122,9 @@ Implemented in this session:
   - Documents concrete `missing_label` and `missing_reference` approval behavior.
 - `docs/SETUP_AND_USAGE.md`
   - Documents `metadata.suggestedLabels` and `metadata.suggestedReferences`.
+  - Notes provider rerank sends compact evidence fields to the model.
+- `docs/FLOW_LOGIC.md`
+  - Documents the evidence-first provider rerank prompt and payload signals.
 - `handoff.md`
   - Updated to reflect current state.
 
@@ -118,6 +140,9 @@ Latest checks for this continuation passed:
 
 ```bash
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run build
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:retrieval
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/model-provider.test.ts
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/evaluation.test.ts
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/operations.test.ts
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
 git diff --check
@@ -134,7 +159,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:agent-contex
 
 Notes:
 
-- `eval:retrieval` passes all 9 cases (7 original + 2 new) with 100% on all metrics.
+- `eval:retrieval` passes all 11 cases (7 original + 4 hard Phase 9 cases) with 100% on all metrics.
 - `pnpm test` passes all test files.
 - `eval:agent-context` may need to run outside the sandbox because `tsx` can hit `listen EPERM` on its IPC pipe under `/tmp`; rerun with escalation if that happens.
 
@@ -154,12 +179,12 @@ Recommended next steps:
 2. **Complete auto-memory cleanup actions.**
    - `auto_memory_cleanup` proposal approval → mark affected knowledge as `needs_review`, `archived`, or superseded.
 
-3. **Add missing-context and graph-expanded eval fixtures.**
-   - `missing_context` feedback creates knowledge-gap records (regression fixture).
-   - Graph-expanded case where a graph-related current item beats a stale semantic match.
+3. **Missing-context and graph-expanded eval fixtures.**
+   - Done: `missing_context` feedback creates knowledge-gap records (regression fixture).
+   - Done: graph-expanded case where a graph-related current item beats stale legacy context.
 
 4. **Provider-backed reranking.**
-   - Prompts that prefer evidence coverage over generic similarity.
+   - Done: prompts and candidate payloads prefer evidence coverage over generic similarity.
 
 5. **Richer context-pack explanations.**
    - Each item clearly shows: exact match, graph relation, feedback, freshness, stale risk, supersession.

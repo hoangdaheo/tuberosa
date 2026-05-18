@@ -426,6 +426,7 @@ Planned work:
   - Started: deterministic conflict records now persist in `knowledge_conflicts`, with an operations detector for overlapping file/symbol/error/reference evidence plus opposing summary language or freshness signals.
   - Started: unresolved conflicts are listable and reviewable through operations endpoints, and reviewers can mark them resolved or dismissed without automatically creating supersession edges.
 - Add provider-backed reranking prompts that prefer evidence coverage over generic semantic similarity.
+  - Started: OpenAI reranking now uses an evidence-first system prompt and structured candidate evidence payload with exact file/symbol/error/domain matches, required evidence types, graph paths, feedback metadata when present, freshness, and stale/suppression risk signals.
 - Add negative feedback learning:
   - rejected or stale context can propose missing labels, missing relations, or supersession edges
   - Started: rejected/irrelevant/stale feedback now creates open `learning_proposals` review records instead of mutating labels, relations, or rankings directly.
@@ -436,6 +437,7 @@ Planned work:
   - Started: label/reference proposal approval falls back to marking affected knowledge `needs_review` when no structured suggestion is present, and keeps `metadata.approvalAction` server-owned.
   - missing-context feedback can create reviewable "knowledge gap" records
   - Started: missing-context feedback now creates open `knowledge_gaps` records with project, prompt, classified intent, missing signals, context pack, feedback, and session provenance when available.
+  - Started: retrieval eval fixtures can now assert that `missing_context` feedback creates a matching open knowledge-gap record.
 - Add retrieval fallback policy:
   - exact anchored search first
   - relation expansion second
@@ -457,13 +459,11 @@ Planned work:
   - Started: conflicting-freshness eval fixture verifies that a stale low-trust policy is demoted below the current one when both share the same topic.
   - Started: `isGraphEvidence` threshold bypass is now suppressed for graph candidates that carry a `supersedes` suppression reason, so a superseded item reachable via graph traversal is still filtered by the anchored score threshold.
   - Started: eval fixture `relations` support added to `RetrievalEvaluator` via a new `KnowledgeRelationCreator` interface and `seedRelations` seeding step.
-  - missing-context retry behavior
-  - graph-expanded retrieval
+  - Started: missing-context eval fixture covers insufficient fit plus the created knowledge-gap record and expected missing signals.
+  - Started: graph-expanded retrieval eval fixture covers a one-hop `depends_on` relation where a file/symbol-matched API entrypoint brings in the related current policy while stale legacy policy stays out.
 
 Next remaining implementation priorities:
 
-- Add missing-context and graph-expanded retrieval eval fixtures.
-- Add provider-backed reranking prompts that prefer evidence coverage over generic similarity.
 - Enrich context-pack explanations for exact matches, graph relations, feedback, freshness, stale risk, and supersession.
 
 Acceptance:
@@ -492,6 +492,14 @@ Problem this phase addresses:
 - Current output can misclassify ordinary roadmap words such as "next" as technologies.
 - Continuation output does not yet provide a compact "recommended next code path" that tells the agent which local files, tests, or review queues to inspect first.
 
+Session feedback from 2026-05-19:
+
+- Tuberosa returned the right class of knowledge for Phase 9 continuation work: current handoff/roadmap-oriented memories, prior continuation retrieval lessons, graph-expansion lessons, and workflow guidance.
+- The context was still noisier than ideal. Adjacent backup, migration, and scheduler memories appeared in supporting context for a roadmap-feedback task even though the immediate action was mostly documentation and session review.
+- Signal hygiene still needs work. A prompt such as "Before ending the session..." produced generic symbols like `Before` and `Tuberosa`; previous continuation prompts also exposed words like `Added`, `Updated`, `Verified`, and `Next` as symbols or technologies.
+- For a new task, Tuberosa should provide an explicit startup orientation: what local files to read first, why those files matter, which prior lessons are direct evidence, which items are only adjacent, and what verification commands are likely relevant.
+- Agents need a first-class way to report context as "selected but noisy" or "selected but missing orientation" so useful packs can still produce improvement signals without being marked rejected.
+
 Planned work:
 
 - Add a context-pack usefulness layer that categorizes returned items:
@@ -501,10 +509,17 @@ Planned work:
   - `adjacentContext`: lower-priority related memories.
 - Rank direct task evidence above general workflow memories when both are available.
 - Cap normal startup packs to the most useful 3-6 prior lessons unless debug mode or a larger deep-context request is used.
+- Add new-task orientation behavior:
+  - summarize the inferred task and confidence in one compact block
+  - list files/docs the agent should load before editing, such as `handoff.md`, `tuberosa-project.md`, and roadmap files when applicable
+  - list the most likely implementation or documentation surface
+  - list likely verification commands or explain why verification is unclear
+  - distinguish direct evidence from adjacent memories
 - Add signal hygiene before presenting context:
   - suppress generic documentation words as symbols unless backed by code references
   - treat file basenames and all-caps document identifiers as file evidence, not symbol or error evidence, when they came from paths
   - avoid classifying sequencing words such as "next" as technologies without stronger evidence
+  - add stop-word coverage for ordinary meta-task words such as `Before`, `Added`, `Updated`, and `Verified`
 - Add a compact orientation block for continuation/startup output:
   - recommended files to inspect first
   - likely implementation surface
@@ -524,6 +539,8 @@ Planned work:
 - Record optional context-quality feedback through existing feedback or session-decision metadata:
   - useful direct evidence
   - too much adjacent noise
+  - useful but noisy
+  - missing startup orientation
   - missing current handoff
   - missing verification commands
   - missing file or symbol references
@@ -533,6 +550,7 @@ Acceptance:
 - A new agent starting a Tuberosa task receives current handoff or roadmap context and the most relevant prior lessons without unrelated workflow memory dominating the pack.
 - The output does not present generic roadmap/documentation words as important symbols or technologies unless there is concrete code evidence.
 - Continuation output includes a concise next-step orientation that points the agent to the most likely local files and verification checks.
+- Vague new-task output tells the agent which project files to load first and clearly separates direct evidence from adjacent memory.
 - Each returned item explains why it was included in terms an agent can act on.
 - Missing signals tell the agent what to inspect locally or ask the user next.
 - Existing retrieval, feedback, session compliance, and deep-context behavior remain backward compatible.

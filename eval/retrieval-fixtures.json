@@ -452,6 +452,102 @@
           "uri": "docs/api/legacy-rate-limit.md"
         }
       ]
+    },
+    {
+      "evalId": "media-upload-entrypoint",
+      "sourceType": "file",
+      "sourceUri": "src/api/media-upload.ts",
+      "itemType": "code_ref",
+      "title": "Media upload API entrypoint",
+      "summary": "MediaUploadHandler performs request checks in src/api/media-upload.ts.",
+      "content": "MediaUploadHandler lives in src/api/media-upload.ts. It performs request checks and depends on the image intake policy for accepted upload constraints.",
+      "trustLevel": 86,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "metadata": {
+        "taxonomy": "code_reference"
+      },
+      "labels": [
+        {
+          "type": "file",
+          "value": "src/api/media-upload.ts",
+          "weight": 1
+        },
+        {
+          "type": "symbol",
+          "value": "MediaUploadHandler",
+          "weight": 1
+        },
+        {
+          "type": "business_area",
+          "value": "content",
+          "weight": 0.8
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "src/api/media-upload.ts"
+        }
+      ]
+    },
+    {
+      "evalId": "image-intake-policy",
+      "sourceType": "wiki",
+      "sourceUri": "docs/media/image-intake-policy.md",
+      "itemType": "wiki",
+      "title": "Image intake policy",
+      "summary": "Accepted upload constraints for media images.",
+      "content": "Accepted media intake allows PNG and JPEG only, caps payloads at 5 MB, strips EXIF metadata, and rejects unknown MIME types before storage.",
+      "trustLevel": 90,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "metadata": {
+        "taxonomy": "domain_rule"
+      },
+      "labels": [
+        {
+          "type": "file",
+          "value": "docs/media/image-intake-policy.md",
+          "weight": 1
+        },
+        {
+          "type": "business_area",
+          "value": "content",
+          "weight": 0.8
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "docs/media/image-intake-policy.md"
+        }
+      ]
+    },
+    {
+      "evalId": "legacy-image-intake-policy",
+      "sourceType": "memory",
+      "sourceUri": "memory://legacy-image-intake",
+      "itemType": "memory",
+      "title": "Legacy image intake policy",
+      "summary": "Old media intake constraints that are no longer current.",
+      "content": "Legacy media intake allowed GIF uploads up to 20 MB and kept all metadata. This memory is outdated and should not guide current request checks.",
+      "trustLevel": 30,
+      "freshnessAt": "2023-01-01T00:00:00.000Z",
+      "metadata": {
+        "taxonomy": "domain_rule"
+      },
+      "labels": [
+        {
+          "type": "business_area",
+          "value": "content",
+          "weight": 0.8
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "docs/media/legacy-image-intake.md"
+        }
+      ]
     }
   ],
   "feedbackEvents": [
@@ -466,6 +562,27 @@
         "legacy-auth-flow"
       ],
       "reason": "Legacy auth notes should not outrank current token rotation guidance."
+    },
+    {
+      "feedbackType": "missing_context",
+      "prompt": "Find docs/email/sender-identity.md SenderIdentityPolicy onboarding steps.",
+      "reason": "Need sender identity documentation for onboarding.",
+      "metadata": {
+        "missingSignals": [
+          "file:docs/email/sender-identity.md",
+          "symbol:SenderIdentityPolicy"
+        ]
+      },
+      "expectedKnowledgeGap": {
+        "status": "open",
+        "promptIncludes": "sender-identity",
+        "reasonIncludes": "sender identity documentation",
+        "missingSignals": [
+          "file:docs/email/sender-identity.md",
+          "symbol:SenderIdentityPolicy"
+        ],
+        "contextPackIdRequired": true
+      }
     }
   ],
   "cases": [
@@ -698,6 +815,45 @@
           "docs/api/rate-limit.md"
         ]
       }
+    },
+    {
+      "id": "missing-context-insufficient",
+      "prompt": "Find docs/email/sender-identity.md SenderIdentityPolicy onboarding steps.",
+      "expectedContextFitStatus": "insufficient",
+      "expectedClassification": {
+        "files": [
+          "docs/email/sender-identity.md"
+        ],
+        "symbols": [
+          "SenderIdentityPolicy"
+        ]
+      }
+    },
+    {
+      "id": "graph-expanded-media-policy",
+      "prompt": "Update src/api/media-upload.ts MediaUploadHandler request checks.",
+      "expectedKnowledgeIds": [
+        "media-upload-entrypoint"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "media-upload-entrypoint",
+        "image-intake-policy"
+      ],
+      "unexpectedKnowledgeIds": [
+        "legacy-image-intake-policy"
+      ],
+      "minConfidence": 0.74,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.72,
+      "expectedClassification": {
+        "files": [
+          "src/api/media-upload.ts"
+        ],
+        "symbols": [
+          "MediaUploadHandler"
+        ],
+        "taskType": "implementation"
+      }
     }
   ],
   "relations": [
@@ -714,6 +870,13 @@
       "targetKind": "knowledge",
       "toEvalId": "legacy-rate-limit-policy",
       "confidence": 0.9
+    },
+    {
+      "fromEvalId": "media-upload-entrypoint",
+      "relationType": "depends_on",
+      "targetKind": "knowledge",
+      "toEvalId": "image-intake-policy",
+      "confidence": 0.95
     }
   ]
 }

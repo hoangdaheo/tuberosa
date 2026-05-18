@@ -4,9 +4,11 @@ import type {
   ContextFitStatus,
   ContextSearchInput,
   FeedbackInput,
+  KnowledgeGap,
   KnowledgeInput,
   KnowledgeRelation,
   KnowledgeRelationInput,
+  LearningReviewStatus,
   RankedCandidate,
   StoredKnowledge,
   TaskType,
@@ -22,6 +24,15 @@ export interface ContextSearcher {
 
 export interface FeedbackRecorder {
   recordFeedback(input: FeedbackInput): Promise<unknown>;
+}
+
+export interface KnowledgeGapReader {
+  listKnowledgeGaps(options: {
+    project?: string;
+    status?: LearningReviewStatus;
+    contextPackId?: string;
+    limit: number;
+  }): Promise<KnowledgeGap[]>;
 }
 
 export interface KnowledgeRelationCreator {
@@ -77,6 +88,15 @@ export interface RetrievalEvalFeedbackEvent {
   knowledgeIds?: string[];
   reason?: string;
   metadata?: Record<string, unknown>;
+  expectedKnowledgeGap?: RetrievalEvalExpectedKnowledgeGap;
+}
+
+export interface RetrievalEvalExpectedKnowledgeGap {
+  status?: LearningReviewStatus;
+  promptIncludes?: string;
+  reasonIncludes?: string;
+  missingSignals?: string[];
+  contextPackIdRequired?: boolean;
 }
 
 export interface RetrievalEvalFixture {
@@ -167,6 +187,7 @@ export class RetrievalEvaluator {
     private readonly searcher: ContextSearcher,
     private readonly feedbackRecorder: FeedbackRecorder | undefined = isFeedbackRecorder(searcher) ? searcher : undefined,
     private readonly relationCreator: KnowledgeRelationCreator | undefined = undefined,
+    private readonly gapReader: KnowledgeGapReader | undefined = isKnowledgeGapReader(relationCreator) ? relationCreator : undefined,
   ) {}
 
   async run(fixture: RetrievalEvalFixture, options: RetrievalEvalOptions = {}): Promise<RetrievalEvalReport> {
@@ -242,6 +263,36 @@ export class RetrievalEvaluator {
         rejectedKnowledgeIds,
         metadata: event.metadata,
       });
+
+      if (event.expectedKnowledgeGap) {
+        await this.assertExpectedKnowledgeGap(fixture, event, contextPackId);
+      }
+    }
+  }
+
+  private async assertExpectedKnowledgeGap(
+    fixture: RetrievalEvalFixture,
+    event: RetrievalEvalFeedbackEvent,
+    contextPackId: string | undefined,
+  ): Promise<void> {
+    if (!this.gapReader) {
+      throw new Error('Retrieval eval fixture expects knowledge gaps but no gap reader is configured.');
+    }
+
+    const expected = event.expectedKnowledgeGap;
+    if (!expected) {
+      return;
+    }
+
+    const gaps = await this.gapReader.listKnowledgeGaps({
+      project: event.project ?? fixture.project,
+      status: expected.status ?? 'open',
+      contextPackId,
+      limit: 20,
+    });
+    const matchingGap = gaps.find((gap) => knowledgeGapMatches(gap, expected, contextPackId));
+    if (!matchingGap) {
+      throw new Error(`Expected missing_context feedback to create a matching knowledge gap for prompt: ${event.prompt ?? event.reason ?? fixture.name}`);
     }
   }
 
@@ -502,4 +553,32 @@ function round(value: number): number {
 
 function isFeedbackRecorder(value: unknown): value is FeedbackRecorder {
   return Boolean(value && typeof value === 'object' && 'recordFeedback' in value);
+}
+
+function isKnowledgeGapReader(value: unknown): value is KnowledgeGapReader {
+  return Boolean(value && typeof value === 'object' && 'listKnowledgeGaps' in value);
+}
+
+function knowledgeGapMatches(
+  gap: KnowledgeGap,
+  expected: RetrievalEvalExpectedKnowledgeGap,
+  contextPackId: string | undefined,
+): boolean {
+  if (expected.contextPackIdRequired !== false && (!contextPackId || gap.contextPackId !== contextPackId)) {
+    return false;
+  }
+
+  if (expected.promptIncludes && !gap.prompt.toLowerCase().includes(expected.promptIncludes.toLowerCase())) {
+    return false;
+  }
+
+  if (expected.reasonIncludes && !gap.reason?.toLowerCase().includes(expected.reasonIncludes.toLowerCase())) {
+    return false;
+  }
+
+  if (expected.missingSignals && !containsAll(gap.missingSignals, expected.missingSignals)) {
+    return false;
+  }
+
+  return true;
 }

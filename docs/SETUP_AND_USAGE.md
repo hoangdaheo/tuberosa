@@ -535,6 +535,7 @@ The debug trace includes:
 - Timing per stage.
 - Query rewrite input/output summary when `OPENAI_REWRITE_MODEL` is configured.
 - Provider rerank input ids and scoring decisions when `OPENAI_RERANK_MODEL` is configured.
+- Provider rerank candidate evidence for exact matches, graph paths, freshness, and stale-risk signals is sent to the model but only compact ids and scoring decisions are exposed in normal debug summaries.
 - Candidate lists for metadata, lexical, memory, vector, fusion, rerank, and fit.
 - Raw, fused, rerank, final, and fit scores when available.
 - Final selected candidates by context-pack section.
