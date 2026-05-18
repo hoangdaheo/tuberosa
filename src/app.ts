@@ -30,7 +30,7 @@ export interface AppServices {
   close(): Promise<void>;
 }
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 export async function createAppServices(): Promise<AppServices> {
   const config = loadConfig();

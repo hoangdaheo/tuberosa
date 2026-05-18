@@ -17,7 +17,11 @@ import type {
   ErrorLogStatus,
   KnowledgeConflictPatchInput,
   KnowledgeConflictStatus,
+  KnowledgeGapPatchInput,
   KnowledgePatchInput,
+  LearningProposalPatchInput,
+  LearningProposalType,
+  LearningReviewStatus,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
   KnowledgeRelationTargetKind,
@@ -136,6 +140,14 @@ const KNOWLEDGE_REVIEW_FILTERS = [
   'risky_auto_memory',
 ] as const satisfies readonly KnowledgeReviewFilter[];
 const KNOWLEDGE_CONFLICT_STATUSES = ['open', 'resolved', 'dismissed'] as const satisfies readonly KnowledgeConflictStatus[];
+const LEARNING_REVIEW_STATUSES = ['open', 'approved', 'dismissed', 'needs_changes'] as const satisfies readonly LearningReviewStatus[];
+const LEARNING_PROPOSAL_TYPES = [
+  'missing_label',
+  'missing_reference',
+  'missing_relation',
+  'supersedes',
+  'auto_memory_cleanup',
+] as const satisfies readonly LearningProposalType[];
 const REFLECTION_DRAFT_STATUSES = [
   'pending',
   'approved',
@@ -247,6 +259,22 @@ export function validateKnowledgeConflictPatchInput(value: unknown): KnowledgeCo
   return {
     status: readOptionalEnum(record, 'status', KNOWLEDGE_CONFLICT_STATUSES, 'knowledge conflict patch input'),
     metadata: readOptionalObject(record, 'metadata', 'knowledge conflict patch input'),
+  };
+}
+
+export function validateKnowledgeGapPatchInput(value: unknown): KnowledgeGapPatchInput {
+  const record = expectObject(value, 'knowledge gap patch input');
+  return {
+    status: readOptionalEnum(record, 'status', LEARNING_REVIEW_STATUSES, 'knowledge gap patch input'),
+    metadata: readOptionalObject(record, 'metadata', 'knowledge gap patch input'),
+  };
+}
+
+export function validateLearningProposalPatchInput(value: unknown): LearningProposalPatchInput {
+  const record = expectObject(value, 'learning proposal patch input');
+  return {
+    status: readOptionalEnum(record, 'status', LEARNING_REVIEW_STATUSES, 'learning proposal patch input'),
+    metadata: readOptionalObject(record, 'metadata', 'learning proposal patch input'),
   };
 }
 
@@ -600,6 +628,30 @@ export function validateKnowledgeStatusQuery(value: string | null): KnowledgeSta
   }
 
   return value as KnowledgeStatus;
+}
+
+export function validateLearningReviewStatusQuery(value: string | null): LearningReviewStatus | undefined {
+  if (value === null) {
+    return undefined;
+  }
+
+  if (!LEARNING_REVIEW_STATUSES.includes(value as LearningReviewStatus)) {
+    throw validationIssue('query.status', `must be one of: ${LEARNING_REVIEW_STATUSES.join(', ')}.`);
+  }
+
+  return value as LearningReviewStatus;
+}
+
+export function validateLearningProposalTypeQuery(value: string | null): LearningProposalType | undefined {
+  if (value === null) {
+    return undefined;
+  }
+
+  if (!LEARNING_PROPOSAL_TYPES.includes(value as LearningProposalType)) {
+    throw validationIssue('query.proposalType', `must be one of: ${LEARNING_PROPOSAL_TYPES.join(', ')}.`);
+  }
+
+  return value as LearningProposalType;
 }
 
 export function validateContextPackIdArguments(value: unknown): { contextPackId: string } {

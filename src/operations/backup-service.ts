@@ -69,6 +69,8 @@ const BACKUP_TABLES: BackupTableName[] = [
   'feedback_events',
   'agent_sessions',
   'agent_context_decisions',
+  'knowledge_gaps',
+  'learning_proposals',
 ];
 
 const REQUIRED_RETRIEVAL_TABLES: BackupTableName[] = [

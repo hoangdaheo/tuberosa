@@ -14,17 +14,25 @@ import type {
   KnowledgeConflict,
   KnowledgeConflictInput,
   KnowledgeConflictPatchInput,
+  KnowledgeGap,
+  KnowledgeGapInput,
+  KnowledgeGapPatchInput,
   KnowledgeFeedbackSummary,
   KnowledgeGraphJsonlExport,
   KnowledgeInput,
   KnowledgeChunkRecord,
   KnowledgePatchInput,
+  LearningProposal,
+  LearningProposalInput,
+  LearningProposalPatchInput,
   KnowledgeRelation,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
   LabelInput,
   LabelRecord,
   ListKnowledgeConflictsOptions,
+  ListKnowledgeGapsOptions,
+  ListLearningProposalsOptions,
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
@@ -39,7 +47,7 @@ import type {
   SearchOptions,
   StoredKnowledge,
 } from '../types.js';
-import { estimateTokens, normalizeLabel } from '../util/text.js';
+import { estimateTokens, normalizeLabel, uniqueStrings } from '../util/text.js';
 import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 interface MemoryChunk extends ChunkInput {
@@ -55,6 +63,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly drafts = new Map<string, ReflectionDraft>();
   private readonly relations = new Map<string, KnowledgeRelation>();
   private readonly conflicts = new Map<string, KnowledgeConflict>();
+  private readonly gaps = new Map<string, KnowledgeGap>();
+  private readonly proposals = new Map<string, LearningProposal>();
   private readonly agentSessions = new Map<string, AgentSession>();
   private readonly agentDecisions = new Map<string, AgentContextDecision>();
   private readonly feedback: FeedbackEvent[] = [];
@@ -288,6 +298,110 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return updated;
   }
 
+  async createKnowledgeGap(input: KnowledgeGapInput): Promise<KnowledgeGap> {
+    const existing = input.sourceFeedbackId
+      ? [...this.gaps.values()].find((gap) => gap.sourceFeedbackId === input.sourceFeedbackId)
+      : undefined;
+    const now = new Date().toISOString();
+    const gap: KnowledgeGap = {
+      ...input,
+      id: existing?.id ?? randomUUID(),
+      status: existing?.status ?? 'open',
+      missingSignals: uniqueStrings(input.missingSignals),
+      metadata: {
+        ...(existing?.metadata ?? {}),
+        ...(input.metadata ?? {}),
+      },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      reviewedAt: existing?.reviewedAt,
+    };
+    this.gaps.set(gap.id, gap);
+    return gap;
+  }
+
+  async listKnowledgeGaps(options: ListKnowledgeGapsOptions): Promise<KnowledgeGap[]> {
+    return [...this.gaps.values()]
+      .filter((gap) => !options.project || gap.project === options.project)
+      .filter((gap) => !options.status || gap.status === options.status)
+      .filter((gap) => !options.sourceSessionId || gap.sourceSessionId === options.sourceSessionId)
+      .filter((gap) => !options.contextPackId || gap.contextPackId === options.contextPackId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async updateKnowledgeGap(id: string, patch: KnowledgeGapPatchInput): Promise<KnowledgeGap | undefined> {
+    const current = this.gaps.get(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const updated: KnowledgeGap = {
+      ...current,
+      status: patch.status ?? current.status,
+      metadata: patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      updatedAt: new Date().toISOString(),
+      reviewedAt: patch.status && patch.status !== 'open' ? new Date().toISOString() : current.reviewedAt,
+    };
+    this.gaps.set(id, updated);
+    return updated;
+  }
+
+  async createLearningProposal(input: LearningProposalInput): Promise<LearningProposal> {
+    const existing = input.sourceFeedbackId
+      ? [...this.proposals.values()].find((proposal) => (
+        proposal.sourceFeedbackId === input.sourceFeedbackId
+        && proposal.proposalType === input.proposalType
+        && proposal.affectedKnowledgeId === input.affectedKnowledgeId
+      ))
+      : undefined;
+    const now = new Date().toISOString();
+    const proposal: LearningProposal = {
+      ...input,
+      id: existing?.id ?? randomUUID(),
+      status: existing?.status ?? 'open',
+      evidence: uniqueStrings(input.evidence),
+      metadata: {
+        ...(existing?.metadata ?? {}),
+        ...(input.metadata ?? {}),
+      },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      reviewedAt: existing?.reviewedAt,
+    };
+    this.proposals.set(proposal.id, proposal);
+    return proposal;
+  }
+
+  async listLearningProposals(options: ListLearningProposalsOptions): Promise<LearningProposal[]> {
+    return [...this.proposals.values()]
+      .filter((proposal) => !options.project || proposal.project === options.project)
+      .filter((proposal) => !options.status || proposal.status === options.status)
+      .filter((proposal) => !options.proposalType || proposal.proposalType === options.proposalType)
+      .filter((proposal) => !options.sourceSessionId || proposal.sourceSessionId === options.sourceSessionId)
+      .filter((proposal) => !options.contextPackId || proposal.contextPackId === options.contextPackId)
+      .filter((proposal) => !options.affectedKnowledgeId || proposal.affectedKnowledgeId === options.affectedKnowledgeId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async updateLearningProposal(id: string, patch: LearningProposalPatchInput): Promise<LearningProposal | undefined> {
+    const current = this.proposals.get(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const updated: LearningProposal = {
+      ...current,
+      status: patch.status ?? current.status,
+      metadata: patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      updatedAt: new Date().toISOString(),
+      reviewedAt: patch.status && patch.status !== 'open' ? new Date().toISOString() : current.reviewedAt,
+    };
+    this.proposals.set(id, updated);
+    return updated;
+  }
+
   async listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]> {
     const counts = new Map<string, LabelRecord>();
     for (const item of this.knowledge.values()) {
@@ -446,18 +560,20 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return this.packs.get(id);
   }
 
-  async recordFeedback(input: FeedbackInput): Promise<void> {
-    this.feedback.push({
+  async recordFeedback(input: FeedbackInput): Promise<FeedbackEvent> {
+    const event: FeedbackEvent = {
       ...input,
       id: randomUUID(),
       createdAt: new Date().toISOString(),
-    });
+    };
+    this.feedback.push(event);
     if (input.contextPackId) {
       const pack = this.packs.get(input.contextPackId);
       if (pack) {
         pack.status = input.feedbackType === 'selected' ? 'selected' : 'rejected';
       }
     }
+    return event;
   }
 
   async listFeedbackEvents(options: ListRecordsOptions): Promise<FeedbackEvent[]> {
@@ -765,7 +881,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   async exportBackup(): Promise<BackupExportData> {
     return {
       tables: [
-        { name: 'projects', rows: uniqueProjectRows([...this.knowledge.values()], [...this.packs.values()], [...this.agentSessions.values()], [...this.drafts.values()]) },
+        { name: 'projects', rows: uniqueProjectRows([...this.knowledge.values()], [...this.packs.values()], [...this.agentSessions.values()], [...this.drafts.values()], [...this.gaps.values()], [...this.proposals.values()]) },
         { name: 'knowledge_sources', rows: [...this.knowledge.values()].map((item) => ({ knowledgeId: item.id, uri: this.knowledgeSourceUris.get(item.id) ?? item.sourceUri, sourceType: item.sourceType })) },
         { name: 'knowledge_items', rows: [...this.knowledge.values()].map((item) => ({ ...item })) },
         { name: 'labels', rows: [] },
@@ -780,6 +896,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         { name: 'feedback_events', rows: this.feedback.map((feedback) => ({ ...feedback })) },
         { name: 'agent_sessions', rows: [...this.agentSessions.values()].map((session) => ({ ...session })) },
         { name: 'agent_context_decisions', rows: [...this.agentDecisions.values()].map((decision) => ({ ...decision })) },
+        { name: 'knowledge_gaps', rows: [...this.gaps.values()].map((gap) => ({ ...gap })) },
+        { name: 'learning_proposals', rows: [...this.proposals.values()].map((proposal) => ({ ...proposal })) },
       ],
     };
   }
@@ -801,6 +919,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     this.drafts.clear();
     this.relations.clear();
     this.conflicts.clear();
+    this.gaps.clear();
+    this.proposals.clear();
     this.agentSessions.clear();
     this.agentDecisions.clear();
     this.feedback.length = 0;
@@ -830,6 +950,14 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     for (const row of tableRows(input.tables, 'knowledge_conflicts')) {
       const conflict = row as unknown as KnowledgeConflict;
       this.conflicts.set(conflict.id, conflict);
+    }
+    for (const row of tableRows(input.tables, 'knowledge_gaps')) {
+      const gap = row as unknown as KnowledgeGap;
+      this.gaps.set(gap.id, gap);
+    }
+    for (const row of tableRows(input.tables, 'learning_proposals')) {
+      const proposal = row as unknown as LearningProposal;
+      this.proposals.set(proposal.id, proposal);
     }
     for (const row of tableRows(input.tables, 'context_packs')) {
       const pack = row as unknown as ContextPack;
@@ -990,12 +1118,16 @@ function uniqueProjectRows(
   packs: ContextPack[],
   sessions: AgentSession[],
   drafts: ReflectionDraft[],
+  gaps: KnowledgeGap[],
+  proposals: LearningProposal[],
 ): Array<Record<string, unknown>> {
   const names = new Set([
     ...knowledge.map((item) => item.project),
     ...packs.map((pack) => pack.project).filter((project): project is string => Boolean(project)),
     ...sessions.map((session) => session.project).filter((project): project is string => Boolean(project)),
     ...drafts.map((draft) => draft.project).filter((project): project is string => Boolean(project)),
+    ...gaps.map((gap) => gap.project).filter((project): project is string => Boolean(project)),
+    ...proposals.map((proposal) => proposal.project).filter((project): project is string => Boolean(project)),
   ]);
 
   return [...names].map((name) => ({ name }));

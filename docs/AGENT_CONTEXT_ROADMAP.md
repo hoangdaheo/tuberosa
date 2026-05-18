@@ -428,7 +428,11 @@ Planned work:
 - Add provider-backed reranking prompts that prefer evidence coverage over generic semantic similarity.
 - Add negative feedback learning:
   - rejected or stale context can propose missing labels, missing relations, or supersession edges
+  - Started: rejected/irrelevant/stale feedback now creates open `learning_proposals` review records instead of mutating labels, relations, or rankings directly.
+  - Started: stale feedback proposes `supersedes` review actions, while rejected/irrelevant feedback proposes relation/label/reference review.
+  - Started: negative feedback against auto-approved session memory creates an `auto_memory_cleanup` proposal for operational review.
   - missing-context feedback can create reviewable "knowledge gap" records
+  - Started: missing-context feedback now creates open `knowledge_gaps` records with project, prompt, classified intent, missing signals, context pack, feedback, and session provenance when available.
 - Add retrieval fallback policy:
   - exact anchored search first
   - relation expansion second

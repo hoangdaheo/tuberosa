@@ -301,13 +301,15 @@ Flow:
 2. If `contextPackId` is present, the pack status is updated:
    - `selected` becomes selected.
    - every other feedback type becomes rejected.
-3. `rejected`, `irrelevant`, and `stale` trigger retry.
-4. Retry input uses the original prompt and project.
-5. Retry rejected ids include:
+3. `missing_context` creates an open `knowledge_gaps` record with prompt, classified intent, missing signals, context pack, feedback id, and agent session provenance when available.
+4. `rejected`, `irrelevant`, and `stale` create open `learning_proposals` records for review. These records propose cleanup, relation/label/reference review, or supersession, but they do not directly mutate approved knowledge or graph relations.
+5. `rejected`, `irrelevant`, and `stale` trigger retry.
+6. Retry input uses the original prompt and project.
+7. Retry rejected ids include:
    - all knowledge ids in the rejected pack
    - explicit `rejectedKnowledgeIds` from feedback
-6. Retry sets `bypassCache: true`.
-7. Search runs again with rejected knowledge excluded.
+8. Retry sets `bypassCache: true`.
+9. Search runs again with rejected knowledge excluded.
 
 Missing-context feedback is recorded but does not automatically retry because there may be no known ids to exclude.
 
@@ -464,6 +466,10 @@ Entry points:
 - HTTP `GET /operations/conflicts`
 - HTTP `POST /operations/conflicts/detect`
 - HTTP `PATCH /operations/conflicts/:id`
+- HTTP `GET /operations/knowledge-gaps`
+- HTTP `PATCH /operations/knowledge-gaps/:id`
+- HTTP `GET /operations/learning-proposals`
+- HTTP `PATCH /operations/learning-proposals/:id`
 - HTTP `POST /operations/import-files`
 - HTTP `POST /operations/cleanup`
 - HTTP error-log operations under `/operations/error-logs`

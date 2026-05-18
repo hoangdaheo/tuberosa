@@ -8,10 +8,14 @@ import type {
   KnowledgeConflict,
   KnowledgeConflictInput,
   KnowledgeConflictPatchInput,
+  KnowledgeGapPatchInput,
   KnowledgePatchInput,
+  LearningProposalPatchInput,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
   ListKnowledgeConflictsOptions,
+  ListKnowledgeGapsOptions,
+  ListLearningProposalsOptions,
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
@@ -115,6 +119,30 @@ export class OperationsService {
       this.requestPhysicalMirror('conflict-updated');
     }
     return conflict;
+  }
+
+  listKnowledgeGaps(options: ListKnowledgeGapsOptions) {
+    return this.store.listKnowledgeGaps(options);
+  }
+
+  async updateKnowledgeGap(id: string, patch: KnowledgeGapPatchInput) {
+    const gap = await this.store.updateKnowledgeGap(id, patch);
+    if (gap) {
+      this.requestPhysicalMirror('knowledge-gap-updated');
+    }
+    return gap;
+  }
+
+  listLearningProposals(options: ListLearningProposalsOptions) {
+    return this.store.listLearningProposals(options);
+  }
+
+  async updateLearningProposal(id: string, patch: LearningProposalPatchInput) {
+    const proposal = await this.store.updateLearningProposal(id, patch);
+    if (proposal) {
+      this.requestPhysicalMirror('learning-proposal-updated');
+    }
+    return proposal;
   }
 
   listLabels(options: { project?: string; limit: number }) {

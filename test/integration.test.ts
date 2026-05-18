@@ -217,7 +217,7 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
     const labels = await store.listLabels({ project, limit: 20 });
     ok(labels.some((label) => label.value === 'paywall'));
 
-    const inferredRelations = await store.listKnowledgeRelations({ project, inferred: true, limit: 20 });
+    const inferredRelations = await store.listKnowledgeRelations({ project, inferred: true, limit: 100 });
     ok(inferredRelations.some((relation) => relation.relationType === 'mentions_symbol' && relation.targetValue === 'PaywallSelectionModal'));
 
     const manualRelation = await store.createKnowledgeRelation({

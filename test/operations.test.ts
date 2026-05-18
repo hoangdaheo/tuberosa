@@ -183,13 +183,14 @@ test('operations API reviews, updates, imports, and lists audit records', async 
     }) as Record<string, unknown>;
     ok(search.id);
 
-    await post(services, '/context/feedback', {
+    const staleFeedback = await post(services, '/context/feedback', {
       contextPackId: search.id,
       project,
       feedbackType: 'stale',
       rejectedKnowledgeIds: [lowTrust.id],
       reason: 'Needs review before reuse.',
-    });
+    }) as Record<string, unknown>;
+    equal((staleFeedback.feedback as Record<string, unknown>).feedbackType, 'stale');
 
     const stale = await get(services, `/knowledge?project=${project}&review=stale`) as Array<Record<string, unknown>>;
     ok(stale.some((item) => item.id === lowTrust.id));
@@ -199,6 +200,37 @@ test('operations API reviews, updates, imports, and lists audit records', async 
 
     const feedback = await get(services, `/feedback-events?project=${project}`) as Array<Record<string, unknown>>;
     ok(feedback.some((event) => event.feedbackType === 'stale'));
+
+    const proposals = await get(services, `/operations/learning-proposals?project=${project}&status=open&type=supersedes`) as Array<Record<string, unknown>>;
+    const staleProposal = proposals.find((proposal) => proposal.affectedKnowledgeId === lowTrust.id);
+    ok(staleProposal);
+    equal(staleProposal.proposalType, 'supersedes');
+
+    const updatedProposal = await patch(services, `/operations/learning-proposals/${staleProposal.id}`, {
+      status: 'needs_changes',
+      metadata: { reviewer: 'operations-test' },
+    }) as Record<string, unknown>;
+    equal(updatedProposal.status, 'needs_changes');
+    equal((updatedProposal.metadata as Record<string, unknown>).reviewer, 'operations-test');
+
+    await post(services, '/context/feedback', {
+      contextPackId: search.id,
+      project,
+      feedbackType: 'missing_context',
+      reason: 'Need current cleanup runbook context.',
+      metadata: { missingSignals: ['file:docs/cleanup-runbook.md'] },
+    });
+
+    const gaps = await get(services, `/operations/knowledge-gaps?project=${project}&status=open&contextPackId=${search.id}`) as Array<Record<string, unknown>>;
+    equal(gaps.length, 1);
+    equal(gaps[0].contextPackId, search.id);
+    ok((gaps[0].missingSignals as string[]).includes('file:docs/cleanup-runbook.md'));
+
+    const updatedGap = await patch(services, `/operations/knowledge-gaps/${gaps[0].id}`, {
+      status: 'dismissed',
+      metadata: { reviewer: 'operations-test' },
+    }) as Record<string, unknown>;
+    equal(updatedGap.status, 'dismissed');
 
     const draft = await post(services, '/reflection-drafts', {
       project,

@@ -10,9 +10,11 @@ import type {
   DeepContext,
   DeepContextItem,
   DeepContextSection,
+  FeedbackEvent,
   FeedbackInput,
   KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
+  LearningProposalType,
   KnowledgeRelation,
   KnowledgeSearchResult,
   QueryRewriteResult,
@@ -141,20 +143,86 @@ export class RetrievalService {
     return pack ? this.safety.sanitizeContextPack(pack) : undefined;
   }
 
-  async recordFeedback(input: FeedbackInput): Promise<{ retry?: ContextPack }> {
-    await this.store.recordFeedback(input);
+  async recordFeedback(input: FeedbackInput): Promise<{ feedback: FeedbackEvent; retry?: ContextPack }> {
+    const feedback = await this.store.recordFeedback(input);
+    const pack = input.contextPackId ? await this.store.getContextPack(input.contextPackId) : undefined;
+    await this.recordFeedbackLearning(input, feedback, pack);
 
-    if (!shouldRetry(input.feedbackType) || !input.contextPackId) {
-      return {};
-    }
-
-    const pack = await this.store.getContextPack(input.contextPackId);
-    if (!pack) {
-      return {};
+    if (!shouldRetry(input.feedbackType) || !input.contextPackId || !pack) {
+      return { feedback };
     }
 
     const retry = await this.searchContext(buildRetryInput(pack, input));
-    return { retry };
+    return { feedback, retry };
+  }
+
+  private async recordFeedbackLearning(
+    input: FeedbackInput,
+    feedback: FeedbackEvent,
+    pack: ContextPack | undefined,
+  ): Promise<void> {
+    const project = input.project ?? pack?.project;
+    const sourceSessionId = metadataUuidString(input.metadata, 'agentSessionId');
+
+    if (input.feedbackType === 'missing_context') {
+      await this.store.createKnowledgeGap({
+        project,
+        sourceFeedbackId: feedback.id,
+        sourceSessionId,
+        contextPackId: input.contextPackId,
+        prompt: pack?.prompt ?? metadataString(input.metadata, 'prompt') ?? input.reason ?? 'Missing context feedback',
+        classified: pack?.classified,
+        missingSignals: feedbackMissingSignals(input, pack),
+        reason: input.reason,
+        metadata: {
+          source: 'feedback',
+          feedbackType: input.feedbackType,
+        },
+      });
+      return;
+    }
+
+    if (!shouldRetry(input.feedbackType)) {
+      return;
+    }
+
+    const affectedKnowledgeIds = feedbackAffectedKnowledgeIds(input, pack);
+    for (const affectedKnowledgeId of affectedKnowledgeIds) {
+      await this.store.createLearningProposal({
+        project,
+        proposalType: proposalTypeForFeedback(input.feedbackType),
+        sourceFeedbackId: feedback.id,
+        sourceSessionId,
+        contextPackId: input.contextPackId,
+        affectedKnowledgeId,
+        reason: proposalReason(input.feedbackType, input.reason),
+        evidence: proposalEvidence(input, pack, affectedKnowledgeId),
+        metadata: {
+          source: 'feedback',
+          feedbackType: input.feedbackType,
+          suggestedAction: suggestedActionForFeedback(input.feedbackType),
+        },
+      });
+
+      const knowledge = await this.store.getKnowledge(affectedKnowledgeId);
+      if (knowledge?.metadata.source === 'agent_session_finish' || knowledge?.metadata.learningMode === 'auto') {
+        await this.store.createLearningProposal({
+          project: project ?? knowledge.project,
+          proposalType: 'auto_memory_cleanup',
+          sourceFeedbackId: feedback.id,
+          sourceSessionId,
+          contextPackId: input.contextPackId,
+          affectedKnowledgeId,
+          reason: `Auto-approved memory received ${input.feedbackType} feedback and needs review.`,
+          evidence: proposalEvidence(input, pack, affectedKnowledgeId),
+          metadata: {
+            source: 'feedback',
+            feedbackType: input.feedbackType,
+            suggestedAction: 'review auto memory status, archive it, or mark it superseded',
+          },
+        });
+      }
+    }
   }
 
   private async getCachedContextPack(
@@ -791,6 +859,72 @@ function rejectedKnowledgeIds(pack: ContextPack, feedback: FeedbackInput): strin
   ];
 }
 
+function feedbackMissingSignals(input: FeedbackInput, pack: ContextPack | undefined): string[] {
+  const metadataSignals = metadataStringArray(input.metadata?.missingSignals);
+  const signals = [
+    ...(pack?.contextFit?.missingSignals ?? []),
+    ...metadataSignals,
+    ...(input.reason ? [input.reason] : []),
+  ];
+
+  return uniqueStrings(signals).slice(0, 16);
+}
+
+function feedbackAffectedKnowledgeIds(input: FeedbackInput, pack: ContextPack | undefined): string[] {
+  if (input.rejectedKnowledgeIds?.length) {
+    return uniqueStrings(input.rejectedKnowledgeIds);
+  }
+
+  return uniqueStrings(pack?.sections.flatMap((section) => section.items.map((item) => item.knowledgeId)) ?? []);
+}
+
+function proposalTypeForFeedback(feedbackType: FeedbackInput['feedbackType']): LearningProposalType {
+  if (feedbackType === 'stale') {
+    return 'supersedes';
+  }
+
+  return 'missing_relation';
+}
+
+function proposalReason(feedbackType: FeedbackInput['feedbackType'], reason: string | undefined): string {
+  if (reason) {
+    return reason;
+  }
+
+  if (feedbackType === 'stale') {
+    return 'Stale context should be reviewed for a supersedes relation or archival.';
+  }
+
+  return 'Rejected or irrelevant context should be reviewed for missing labels, references, or relations.';
+}
+
+function suggestedActionForFeedback(feedbackType: FeedbackInput['feedbackType']): string {
+  if (feedbackType === 'stale') {
+    return 'review for a supersedes relation, freshness update, or archive';
+  }
+
+  return 'review labels, references, and graph relations before changing ranking';
+}
+
+function proposalEvidence(
+  input: FeedbackInput,
+  pack: ContextPack | undefined,
+  affectedKnowledgeId: string,
+): string[] {
+  const item = pack?.sections
+    .flatMap((section) => section.items)
+    .find((candidate) => candidate.knowledgeId === affectedKnowledgeId);
+  const evidence = [
+    `feedback:${input.feedbackType}`,
+    input.contextPackId ? `contextPack:${input.contextPackId}` : undefined,
+    input.reason ? `reason:${input.reason}` : undefined,
+    ...(item?.matchReasons ?? []).slice(0, 6).map((reason) => `match:${reason}`),
+    ...(item?.fitMissingSignals ?? []).slice(0, 6).map((signal) => `missing:${signal}`),
+  ].filter((value): value is string => Boolean(value));
+
+  return uniqueStrings(evidence).slice(0, 16);
+}
+
 function applyFeedbackSummary(
   candidate: RankedCandidate,
   summary: KnowledgeFeedbackSummary | undefined,
@@ -976,6 +1110,13 @@ function candidateText(candidate: RankedCandidate): string {
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === 'string' ? value : undefined;
+}
+
+function metadataUuidString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadataString(metadata, key);
+  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : undefined;
 }
 
 function feedbackStatusFromCandidate(candidate: RankedCandidate): string | undefined {

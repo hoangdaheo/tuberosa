@@ -19,10 +19,14 @@ import {
   validateKnowledgeInput,
   validateKnowledgePatchInput,
   validateKnowledgeConflictPatchInput,
+  validateKnowledgeGapPatchInput,
   validateKnowledgeRelationInput,
   validateKnowledgeRelationPatchInput,
   validateKnowledgeReviewFilter,
   validateKnowledgeStatusQuery,
+  validateLearningProposalPatchInput,
+  validateLearningProposalTypeQuery,
+  validateLearningReviewStatusQuery,
   validateRecordAgentContextDecisionInput,
   validateReflectionDraftPatchInput,
   validateReflectionDraftInput,
@@ -372,6 +376,42 @@ function createRoutes(): HttpRoute[] {
         }
 
         return conflict;
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/knowledge-gaps'),
+      handle: ({ services, url }) => services.operations.listKnowledgeGaps(readKnowledgeGapListOptions(url)),
+    },
+    {
+      method: 'PATCH',
+      match: pathPattern(/^\/operations\/knowledge-gaps\/([^/]+)$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateKnowledgeGapPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const gap = await services.operations.updateKnowledgeGap(params.id, body);
+        if (!gap) {
+          throw new NotFoundError('Knowledge gap not found.');
+        }
+
+        return gap;
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/learning-proposals'),
+      handle: ({ services, url }) => services.operations.listLearningProposals(readLearningProposalListOptions(url)),
+    },
+    {
+      method: 'PATCH',
+      match: pathPattern(/^\/operations\/learning-proposals\/([^/]+)$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateLearningProposalPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const proposal = await services.operations.updateLearningProposal(params.id, body);
+        if (!proposal) {
+          throw new NotFoundError('Learning proposal not found.');
+        }
+
+        return proposal;
       },
     },
     {
@@ -790,6 +830,28 @@ function readConflictListOptions(url: URL) {
   return {
     project: url.searchParams.get('project') ?? undefined,
     status: (status ?? undefined) as KnowledgeConflictStatus | undefined,
+    limit: readLimit(url),
+  };
+}
+
+function readKnowledgeGapListOptions(url: URL) {
+  return {
+    project: url.searchParams.get('project') ?? undefined,
+    status: validateLearningReviewStatusQuery(url.searchParams.get('status')),
+    sourceSessionId: url.searchParams.get('sourceSessionId') ?? undefined,
+    contextPackId: url.searchParams.get('contextPackId') ?? undefined,
+    limit: readLimit(url),
+  };
+}
+
+function readLearningProposalListOptions(url: URL) {
+  return {
+    project: url.searchParams.get('project') ?? undefined,
+    status: validateLearningReviewStatusQuery(url.searchParams.get('status')),
+    proposalType: validateLearningProposalTypeQuery(url.searchParams.get('proposalType') ?? url.searchParams.get('type')),
+    sourceSessionId: url.searchParams.get('sourceSessionId') ?? undefined,
+    contextPackId: url.searchParams.get('contextPackId') ?? undefined,
+    affectedKnowledgeId: url.searchParams.get('affectedKnowledgeId') ?? undefined,
     limit: readLimit(url),
   };
 }

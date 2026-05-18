@@ -13,16 +13,24 @@ import type {
   KnowledgeConflict,
   KnowledgeConflictInput,
   KnowledgeConflictPatchInput,
+  KnowledgeGap,
+  KnowledgeGapInput,
+  KnowledgeGapPatchInput,
   KnowledgePatchInput,
   KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
   KnowledgeInput,
   KnowledgeGraphJsonlExport,
+  LearningProposal,
+  LearningProposalInput,
+  LearningProposalPatchInput,
   KnowledgeRelation,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
   LabelRecord,
   ListKnowledgeConflictsOptions,
+  ListKnowledgeGapsOptions,
+  ListLearningProposalsOptions,
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
@@ -67,6 +75,12 @@ export interface KnowledgeStore {
   listKnowledgeConflicts(options: ListKnowledgeConflictsOptions): Promise<KnowledgeConflict[]>;
   createKnowledgeConflict(input: KnowledgeConflictInput): Promise<KnowledgeConflict>;
   updateKnowledgeConflict(id: string, patch: KnowledgeConflictPatchInput): Promise<KnowledgeConflict | undefined>;
+  createKnowledgeGap(input: KnowledgeGapInput): Promise<KnowledgeGap>;
+  listKnowledgeGaps(options: ListKnowledgeGapsOptions): Promise<KnowledgeGap[]>;
+  updateKnowledgeGap(id: string, patch: KnowledgeGapPatchInput): Promise<KnowledgeGap | undefined>;
+  createLearningProposal(input: LearningProposalInput): Promise<LearningProposal>;
+  listLearningProposals(options: ListLearningProposalsOptions): Promise<LearningProposal[]>;
+  updateLearningProposal(id: string, patch: LearningProposalPatchInput): Promise<LearningProposal | undefined>;
   listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]>;
   listKnowledgeChunks(knowledgeIds: string[]): Promise<KnowledgeChunkRecord[]>;
   searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]>;
@@ -87,7 +101,7 @@ export interface KnowledgeStore {
   saveContextPack(pack: ContextPack): Promise<void>;
   listContextPacks(options: ListRecordsOptions): Promise<ContextPack[]>;
   getContextPack(id: string): Promise<ContextPack | undefined>;
-  recordFeedback(input: FeedbackInput): Promise<void>;
+  recordFeedback(input: FeedbackInput): Promise<FeedbackEvent>;
   listFeedbackEvents(options: ListRecordsOptions): Promise<FeedbackEvent[]>;
   getFeedbackSummaries(knowledgeIds: string[], options?: { project?: string }): Promise<Map<string, KnowledgeFeedbackSummary>>;
   createAgentSession(input: {

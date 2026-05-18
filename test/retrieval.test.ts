@@ -1065,7 +1065,8 @@ test('selected feedback records pack status without retrying', async () => {
   });
   const storedPack = await retrieval.getContextPack(pack.id);
 
-  deepEqual(result, {});
+  equal(result.retry, undefined);
+  equal(result.feedback.feedbackType, 'selected');
   equal(storedPack?.status, 'selected');
 });
 

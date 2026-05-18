@@ -575,15 +575,24 @@ Feedback types:
 - `stale`
 - `missing_context`
 
-Rejected, irrelevant, and stale feedback trigger one retry with rejected knowledge excluded.
+Rejected, irrelevant, and stale feedback trigger one retry with rejected knowledge excluded. They also create open learning proposals for review instead of directly changing labels, graph relations, or approval state.
 
-Feedback also influences later retrieval. Selected context gets a modest ranking boost, while stale, rejected, and irrelevant context is penalized. `missing_context` is stored for review but does not penalize a specific knowledge item.
+Feedback also influences later retrieval. Selected context gets a modest ranking boost, while stale, rejected, and irrelevant context is penalized. `missing_context` creates a reviewable knowledge-gap record but does not penalize a specific knowledge item.
 
 List feedback events for review:
 
 ```bash
 curl 'http://localhost:3027/feedback-events?project=newsletter-app&status=stale'
 ```
+
+Review feedback-created learning records:
+
+```bash
+curl 'http://localhost:3027/operations/learning-proposals?project=newsletter-app&status=open'
+curl 'http://localhost:3027/operations/knowledge-gaps?project=newsletter-app&status=open'
+```
+
+Reviewers can mark either queue item `open`, `approved`, `dismissed`, or `needs_changes` with `PATCH /operations/learning-proposals/:id` or `PATCH /operations/knowledge-gaps/:id`. Approval currently records the review decision only; it does not automatically create labels, relations, supersession edges, or knowledge.
 
 ### Record Error Logs
 

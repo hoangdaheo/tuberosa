@@ -179,6 +179,86 @@ export interface ListKnowledgeConflictsOptions {
   limit: number;
 }
 
+export type LearningReviewStatus = 'open' | 'approved' | 'dismissed' | 'needs_changes';
+
+export type LearningProposalType =
+  | 'missing_label'
+  | 'missing_reference'
+  | 'missing_relation'
+  | 'supersedes'
+  | 'auto_memory_cleanup';
+
+export interface KnowledgeGapInput {
+  project?: string;
+  sourceFeedbackId?: string;
+  sourceSessionId?: string;
+  contextPackId?: string;
+  prompt: string;
+  classified?: ClassifiedQuery;
+  missingSignals: string[];
+  reason?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeGapPatchInput {
+  status?: LearningReviewStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeGap extends KnowledgeGapInput {
+  id: string;
+  status: LearningReviewStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt?: string;
+  reviewedAt?: string;
+}
+
+export interface ListKnowledgeGapsOptions {
+  project?: string;
+  status?: LearningReviewStatus;
+  sourceSessionId?: string;
+  contextPackId?: string;
+  limit: number;
+}
+
+export interface LearningProposalInput {
+  project?: string;
+  proposalType: LearningProposalType;
+  sourceFeedbackId?: string;
+  sourceSessionId?: string;
+  contextPackId?: string;
+  affectedKnowledgeId?: string;
+  candidateKnowledgeId?: string;
+  reason: string;
+  evidence: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface LearningProposalPatchInput {
+  status?: LearningReviewStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LearningProposal extends LearningProposalInput {
+  id: string;
+  status: LearningReviewStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt?: string;
+  reviewedAt?: string;
+}
+
+export interface ListLearningProposalsOptions {
+  project?: string;
+  status?: LearningReviewStatus;
+  proposalType?: LearningProposalType;
+  sourceSessionId?: string;
+  contextPackId?: string;
+  affectedKnowledgeId?: string;
+  limit: number;
+}
+
 export interface KnowledgeInput {
   project: string;
   sourceType: string;
@@ -598,6 +678,8 @@ export type BackupTableName =
   | 'knowledge_references'
   | 'knowledge_relations'
   | 'knowledge_conflicts'
+  | 'knowledge_gaps'
+  | 'learning_proposals'
   | 'knowledge_chunks'
   | 'reflection_drafts'
   | 'context_queries'

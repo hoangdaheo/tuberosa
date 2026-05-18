@@ -16,17 +16,25 @@ import type {
   KnowledgeConflict,
   KnowledgeConflictInput,
   KnowledgeConflictPatchInput,
+  KnowledgeGap,
+  KnowledgeGapInput,
+  KnowledgeGapPatchInput,
   KnowledgeGraphJsonlExport,
   KnowledgePatchInput,
   KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
   KnowledgeInput,
+  LearningProposal,
+  LearningProposalInput,
+  LearningProposalPatchInput,
   KnowledgeRelation,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
   LabelInput,
   LabelRecord,
   ListKnowledgeConflictsOptions,
+  ListKnowledgeGapsOptions,
+  ListLearningProposalsOptions,
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
@@ -130,6 +138,16 @@ const BACKUP_TABLES: BackupTableDefinition[] = [
     name: 'agent_context_decisions',
     columns: ['id', 'session_id', 'context_pack_id', 'decision', 'reason', 'rejected_knowledge_ids', 'retry_context_pack_id', 'metadata', 'created_at'],
     selectSql: 'SELECT id, session_id, context_pack_id, decision, reason, rejected_knowledge_ids, retry_context_pack_id, metadata, created_at FROM agent_context_decisions ORDER BY created_at, id',
+  },
+  {
+    name: 'knowledge_gaps',
+    columns: ['id', 'project_id', 'status', 'source_feedback_id', 'source_session_id', 'context_pack_id', 'prompt', 'classified', 'missing_signals', 'reason', 'metadata', 'created_at', 'updated_at', 'reviewed_at'],
+    selectSql: 'SELECT id, project_id, status, source_feedback_id, source_session_id, context_pack_id, prompt, classified, missing_signals, reason, metadata, created_at, updated_at, reviewed_at FROM knowledge_gaps ORDER BY created_at, id',
+  },
+  {
+    name: 'learning_proposals',
+    columns: ['id', 'project_id', 'proposal_type', 'status', 'source_feedback_id', 'source_session_id', 'context_pack_id', 'affected_knowledge_id', 'candidate_knowledge_id', 'reason', 'evidence', 'metadata', 'created_at', 'updated_at', 'reviewed_at'],
+    selectSql: 'SELECT id, project_id, proposal_type, status, source_feedback_id, source_session_id, context_pack_id, affected_knowledge_id, candidate_knowledge_id, reason, evidence, metadata, created_at, updated_at, reviewed_at FROM learning_proposals ORDER BY created_at, id',
   },
 ];
 
@@ -496,6 +514,215 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rowCount ? this.getKnowledgeConflict(id) : undefined;
   }
 
+  async createKnowledgeGap(input: KnowledgeGapInput): Promise<KnowledgeGap> {
+    const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
+    const result = await this.pool.query(
+      `
+        WITH inserted AS (
+          INSERT INTO knowledge_gaps (
+            project_id, source_feedback_id, source_session_id, context_pack_id,
+            prompt, classified, missing_signals, reason, metadata
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (source_feedback_id)
+          WHERE source_feedback_id IS NOT NULL
+          DO UPDATE SET
+            missing_signals = EXCLUDED.missing_signals,
+            reason = EXCLUDED.reason,
+            metadata = knowledge_gaps.metadata || EXCLUDED.metadata,
+            updated_at = now()
+          RETURNING *
+        )
+        SELECT inserted.*, p.name AS project
+        FROM inserted
+        LEFT JOIN projects p ON p.id = inserted.project_id
+      `,
+      [
+        projectId,
+        input.sourceFeedbackId ?? null,
+        input.sourceSessionId ?? null,
+        input.contextPackId ?? null,
+        input.prompt,
+        input.classified ?? null,
+        input.missingSignals,
+        input.reason ?? null,
+        input.metadata ?? {},
+      ],
+    );
+    return mapKnowledgeGapRow(result.rows[0]);
+  }
+
+  async listKnowledgeGaps(options: ListKnowledgeGapsOptions): Promise<KnowledgeGap[]> {
+    const result = await this.pool.query(
+      `
+        ${knowledgeGapSelect()}
+        WHERE ($2::text IS NULL OR p.name = $2)
+          AND ($3::text IS NULL OR kg.status = $3)
+          AND ($4::uuid IS NULL OR kg.source_session_id = $4)
+          AND ($5::uuid IS NULL OR kg.context_pack_id = $5)
+        ORDER BY kg.created_at DESC
+        LIMIT $1
+      `,
+      [
+        options.limit,
+        options.project ?? null,
+        options.status ?? null,
+        options.sourceSessionId ?? null,
+        options.contextPackId ?? null,
+      ],
+    );
+
+    return result.rows.map(mapKnowledgeGapRow);
+  }
+
+  private async getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined> {
+    const result = await this.pool.query(
+      `
+        ${knowledgeGapSelect()}
+        WHERE kg.id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? mapKnowledgeGapRow(result.rows[0]) : undefined;
+  }
+
+  async updateKnowledgeGap(id: string, patch: KnowledgeGapPatchInput): Promise<KnowledgeGap | undefined> {
+    const current = await this.getKnowledgeGap(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const status = patch.status ?? current.status;
+    const result = await this.pool.query(
+      `
+        UPDATE knowledge_gaps
+        SET status = $2,
+          metadata = $3,
+          updated_at = now(),
+          reviewed_at = CASE WHEN $2 = 'open' THEN NULL ELSE COALESCE(reviewed_at, now()) END
+        WHERE id = $1
+        RETURNING id
+      `,
+      [
+        id,
+        status,
+        patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      ],
+    );
+
+    return result.rowCount ? this.getKnowledgeGap(id) : undefined;
+  }
+
+  async createLearningProposal(input: LearningProposalInput): Promise<LearningProposal> {
+    const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
+    const result = await this.pool.query(
+      `
+        WITH inserted AS (
+          INSERT INTO learning_proposals (
+            project_id, proposal_type, source_feedback_id, source_session_id,
+            context_pack_id, affected_knowledge_id, candidate_knowledge_id,
+            reason, evidence, metadata
+          )
+          VALUES (
+            COALESCE($1, (SELECT project_id FROM knowledge_items WHERE id = $6)),
+            $2, $3, $4, $5, $6, $7, $8, $9, $10
+          )
+          ON CONFLICT (source_feedback_id, proposal_type, affected_knowledge_id)
+          WHERE source_feedback_id IS NOT NULL AND affected_knowledge_id IS NOT NULL
+          DO UPDATE SET
+            reason = EXCLUDED.reason,
+            evidence = EXCLUDED.evidence,
+            metadata = learning_proposals.metadata || EXCLUDED.metadata,
+            updated_at = now()
+          RETURNING *
+        )
+        SELECT inserted.*, p.name AS project
+        FROM inserted
+        LEFT JOIN projects p ON p.id = inserted.project_id
+      `,
+      [
+        projectId,
+        input.proposalType,
+        input.sourceFeedbackId ?? null,
+        input.sourceSessionId ?? null,
+        input.contextPackId ?? null,
+        input.affectedKnowledgeId ?? null,
+        input.candidateKnowledgeId ?? null,
+        input.reason,
+        input.evidence,
+        input.metadata ?? {},
+      ],
+    );
+    return mapLearningProposalRow(result.rows[0]);
+  }
+
+  async listLearningProposals(options: ListLearningProposalsOptions): Promise<LearningProposal[]> {
+    const result = await this.pool.query(
+      `
+        ${learningProposalSelect()}
+        WHERE ($2::text IS NULL OR p.name = $2)
+          AND ($3::text IS NULL OR lp.status = $3)
+          AND ($4::text IS NULL OR lp.proposal_type = $4)
+          AND ($5::uuid IS NULL OR lp.source_session_id = $5)
+          AND ($6::uuid IS NULL OR lp.context_pack_id = $6)
+          AND ($7::uuid IS NULL OR lp.affected_knowledge_id = $7)
+        ORDER BY lp.created_at DESC
+        LIMIT $1
+      `,
+      [
+        options.limit,
+        options.project ?? null,
+        options.status ?? null,
+        options.proposalType ?? null,
+        options.sourceSessionId ?? null,
+        options.contextPackId ?? null,
+        options.affectedKnowledgeId ?? null,
+      ],
+    );
+
+    return result.rows.map(mapLearningProposalRow);
+  }
+
+  private async getLearningProposal(id: string): Promise<LearningProposal | undefined> {
+    const result = await this.pool.query(
+      `
+        ${learningProposalSelect()}
+        WHERE lp.id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? mapLearningProposalRow(result.rows[0]) : undefined;
+  }
+
+  async updateLearningProposal(id: string, patch: LearningProposalPatchInput): Promise<LearningProposal | undefined> {
+    const current = await this.getLearningProposal(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const status = patch.status ?? current.status;
+    const result = await this.pool.query(
+      `
+        UPDATE learning_proposals
+        SET status = $2,
+          metadata = $3,
+          updated_at = now(),
+          reviewed_at = CASE WHEN $2 = 'open' THEN NULL ELSE COALESCE(reviewed_at, now()) END
+        WHERE id = $1
+        RETURNING id
+      `,
+      [
+        id,
+        status,
+        patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      ],
+    );
+
+    return result.rowCount ? this.getLearningProposal(id) : undefined;
+  }
+
   async listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]> {
     const result = await this.pool.query(
       `
@@ -814,14 +1041,16 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return row ? { ...row.pack, status: row.status } : undefined;
   }
 
-  async recordFeedback(input: FeedbackInput): Promise<void> {
+  async recordFeedback(input: FeedbackInput): Promise<FeedbackEvent> {
     const projectId = input.project ? await this.projectIdByName(this.pool, input.project) : null;
-    await this.pool.query(
+    const result = await this.pool.query(
       `
         INSERT INTO feedback_events (
           context_pack_id, project_id, feedback_type, reason, rejected_knowledge_ids, metadata
         )
         VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, context_pack_id, project_id, feedback_type, reason,
+          rejected_knowledge_ids, metadata, created_at
       `,
       [
         input.contextPackId ?? null,
@@ -841,6 +1070,17 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         [status, input.contextPackId],
       );
     }
+
+    return {
+      id: String(result.rows[0].id),
+      contextPackId: result.rows[0].context_pack_id ? String(result.rows[0].context_pack_id) : undefined,
+      project: input.project,
+      feedbackType: result.rows[0].feedback_type as FeedbackEvent['feedbackType'],
+      reason: result.rows[0].reason ? String(result.rows[0].reason) : undefined,
+      rejectedKnowledgeIds: (result.rows[0].rejected_knowledge_ids ?? []) as string[],
+      metadata: (result.rows[0].metadata ?? {}) as Record<string, unknown>,
+      createdAt: toIso(result.rows[0].created_at),
+    };
   }
 
   async listFeedbackEvents(options: ListRecordsOptions): Promise<FeedbackEvent[]> {
@@ -1835,6 +2075,51 @@ function conflictSelect(): string {
   `;
 }
 
+function knowledgeGapSelect(): string {
+  return `
+    SELECT
+      kg.id,
+      p.name AS project,
+      kg.status,
+      kg.source_feedback_id,
+      kg.source_session_id,
+      kg.context_pack_id,
+      kg.prompt,
+      kg.classified,
+      kg.missing_signals,
+      kg.reason,
+      kg.metadata,
+      kg.created_at,
+      kg.updated_at,
+      kg.reviewed_at
+    FROM knowledge_gaps kg
+    LEFT JOIN projects p ON p.id = kg.project_id
+  `;
+}
+
+function learningProposalSelect(): string {
+  return `
+    SELECT
+      lp.id,
+      p.name AS project,
+      lp.proposal_type,
+      lp.status,
+      lp.source_feedback_id,
+      lp.source_session_id,
+      lp.context_pack_id,
+      lp.affected_knowledge_id,
+      lp.candidate_knowledge_id,
+      lp.reason,
+      lp.evidence,
+      lp.metadata,
+      lp.created_at,
+      lp.updated_at,
+      lp.reviewed_at
+    FROM learning_proposals lp
+    LEFT JOIN projects p ON p.id = lp.project_id
+  `;
+}
+
 function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
   return {
     id: String(row.id),
@@ -1888,6 +2173,45 @@ function mapConflictRow(row: Record<string, unknown>): KnowledgeConflict {
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
     resolvedAt: row.resolved_at ? toIso(row.resolved_at) : undefined,
+  };
+}
+
+function mapKnowledgeGapRow(row: Record<string, unknown>): KnowledgeGap {
+  return {
+    id: String(row.id),
+    project: row.project ? String(row.project) : undefined,
+    status: row.status as KnowledgeGap['status'],
+    sourceFeedbackId: row.source_feedback_id ? String(row.source_feedback_id) : undefined,
+    sourceSessionId: row.source_session_id ? String(row.source_session_id) : undefined,
+    contextPackId: row.context_pack_id ? String(row.context_pack_id) : undefined,
+    prompt: String(row.prompt),
+    classified: row.classified ? row.classified as ClassifiedQuery : undefined,
+    missingSignals: Array.isArray(row.missing_signals) ? row.missing_signals.map(String) : [],
+    reason: row.reason ? String(row.reason) : undefined,
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    createdAt: toIso(row.created_at),
+    updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
+    reviewedAt: row.reviewed_at ? toIso(row.reviewed_at) : undefined,
+  };
+}
+
+function mapLearningProposalRow(row: Record<string, unknown>): LearningProposal {
+  return {
+    id: String(row.id),
+    project: row.project ? String(row.project) : undefined,
+    proposalType: row.proposal_type as LearningProposal['proposalType'],
+    status: row.status as LearningProposal['status'],
+    sourceFeedbackId: row.source_feedback_id ? String(row.source_feedback_id) : undefined,
+    sourceSessionId: row.source_session_id ? String(row.source_session_id) : undefined,
+    contextPackId: row.context_pack_id ? String(row.context_pack_id) : undefined,
+    affectedKnowledgeId: row.affected_knowledge_id ? String(row.affected_knowledge_id) : undefined,
+    candidateKnowledgeId: row.candidate_knowledge_id ? String(row.candidate_knowledge_id) : undefined,
+    reason: String(row.reason ?? ''),
+    evidence: Array.isArray(row.evidence) ? row.evidence.map(String) : [],
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    createdAt: toIso(row.created_at),
+    updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
+    reviewedAt: row.reviewed_at ? toIso(row.reviewed_at) : undefined,
   };
 }
 
