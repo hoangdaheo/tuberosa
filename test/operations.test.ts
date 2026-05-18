@@ -122,6 +122,51 @@ test('operations API reviews, updates, imports, and lists audit records', async 
     equal(patchedRelation.confidence, 0.8);
     equal((patchedRelation.metadata as Record<string, unknown>).reviewer, 'node-test');
 
+    const oldWorkflow = await post(services, '/knowledge', {
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://ops/conflict-old',
+      itemType: 'workflow',
+      title: 'Legacy operations cleanup',
+      summary: 'Use legacy cleanup for operations imports.',
+      content: 'Legacy cleanup should run before importing operations docs. This old guidance is stale.',
+      freshnessAt: '2024-01-01T00:00:00.000Z',
+      labels: [{ type: 'file', value: 'docs/ops.md', weight: 1 }],
+      references: [{ type: 'file', uri: 'docs/ops.md' }],
+    }) as Record<string, unknown>;
+    const currentWorkflow = await post(services, '/knowledge', {
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://ops/conflict-current',
+      itemType: 'workflow',
+      title: 'Current operations cleanup',
+      summary: 'Do not use legacy cleanup for operations imports.',
+      content: 'Current cleanup runs after importing operations docs and should be preferred now.',
+      freshnessAt: '2026-05-18T00:00:00.000Z',
+      labels: [{ type: 'file', value: 'docs/ops.md', weight: 1 }],
+      references: [{ type: 'file', uri: 'docs/ops.md' }],
+    }) as Record<string, unknown>;
+
+    const detectedConflicts = await post(services, `/operations/conflicts/detect?project=${project}`, {}) as Array<Record<string, unknown>>;
+    ok(detectedConflicts.some((conflict) => (
+      conflict.conflictType === 'summary_contradiction' &&
+      [conflict.leftKnowledgeId, conflict.rightKnowledgeId].includes(oldWorkflow.id) &&
+      [conflict.leftKnowledgeId, conflict.rightKnowledgeId].includes(currentWorkflow.id)
+    )));
+    ok(detectedConflicts.some((conflict) => conflict.conflictType === 'freshness_conflict'));
+
+    const openConflicts = await get(services, `/operations/conflicts?project=${project}&status=open`) as Array<Record<string, unknown>>;
+    const conflict = openConflicts.find((item) => item.conflictType === 'summary_contradiction') as Record<string, unknown> | undefined;
+    ok(conflict);
+    ok((conflict.sharedEvidence as string[]).includes('file:docs/ops.md'));
+
+    const resolvedConflict = await patch(services, `/operations/conflicts/${conflict.id}`, {
+      status: 'resolved',
+      metadata: { reviewer: 'node-test' },
+    }) as Record<string, unknown>;
+    equal(resolvedConflict.status, 'resolved');
+    equal((resolvedConflict.metadata as Record<string, unknown>).reviewer, 'node-test');
+
     const projectMap = await get(services, `/operations/organization/project-map?project=${project}`) as Record<string, unknown>;
     ok((projectMap.relationCount as number) >= 1);
 

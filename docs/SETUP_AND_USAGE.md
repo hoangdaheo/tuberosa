@@ -454,6 +454,30 @@ curl -X PATCH http://localhost:3027/knowledge/<knowledge-id> \
 
 Knowledge update is intended for review metadata, labels, references, trust, freshness, and status. Re-ingest through `/knowledge`, `/ingest/files`, `/operations/import-files`, or `pnpm run import:docs` when content itself changes so chunks and embeddings stay in sync.
 
+### Review Knowledge Conflicts
+
+Detect reviewable conflicts for approved knowledge that shares strong evidence but has opposing summary or freshness signals:
+
+```bash
+curl -X POST 'http://localhost:3027/operations/conflicts/detect?project=newsletter-app'
+curl 'http://localhost:3027/operations/conflicts?project=newsletter-app&status=open'
+```
+
+Resolve or dismiss a conflict after review:
+
+```bash
+curl -X PATCH http://localhost:3027/operations/conflicts/<conflict-id> \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "status": "resolved",
+    "metadata": {
+      "reviewer": "ops"
+    }
+  }'
+```
+
+Conflict records are review-only. They do not automatically create `supersedes` relations or searchable memory.
+
 ### List Labels
 
 ```bash

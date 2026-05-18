@@ -11,6 +11,9 @@ import type {
   FeedbackEvent,
   FeedbackInput,
   FinishAgentSessionInput,
+  KnowledgeConflict,
+  KnowledgeConflictInput,
+  KnowledgeConflictPatchInput,
   KnowledgeFeedbackSummary,
   KnowledgeGraphJsonlExport,
   KnowledgeInput,
@@ -21,6 +24,7 @@ import type {
   KnowledgeRelationPatchInput,
   LabelInput,
   LabelRecord,
+  ListKnowledgeConflictsOptions,
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
@@ -50,6 +54,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly packs = new Map<string, ContextPack>();
   private readonly drafts = new Map<string, ReflectionDraft>();
   private readonly relations = new Map<string, KnowledgeRelation>();
+  private readonly conflicts = new Map<string, KnowledgeConflict>();
   private readonly agentSessions = new Map<string, AgentSession>();
   private readonly agentDecisions = new Map<string, AgentContextDecision>();
   private readonly feedback: FeedbackEvent[] = [];
@@ -227,6 +232,60 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
   async deleteKnowledgeRelation(id: string): Promise<boolean> {
     return this.relations.delete(id);
+  }
+
+  async listKnowledgeConflicts(options: ListKnowledgeConflictsOptions): Promise<KnowledgeConflict[]> {
+    return [...this.conflicts.values()]
+      .filter((conflict) => !options.project || conflict.project === options.project)
+      .filter((conflict) => !options.status || conflict.status === options.status)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async createKnowledgeConflict(input: KnowledgeConflictInput): Promise<KnowledgeConflict> {
+    const [leftKnowledgeId, rightKnowledgeId] = canonicalKnowledgePair(input.leftKnowledgeId, input.rightKnowledgeId);
+    const existing = [...this.conflicts.values()].find((conflict) => (
+      conflict.leftKnowledgeId === leftKnowledgeId &&
+      conflict.rightKnowledgeId === rightKnowledgeId &&
+      conflict.conflictType === input.conflictType
+    ));
+    if (existing) {
+      return existing;
+    }
+
+    const left = this.knowledge.get(leftKnowledgeId);
+    const now = new Date().toISOString();
+    const conflict: KnowledgeConflict = {
+      ...input,
+      id: randomUUID(),
+      project: input.project ?? left?.project,
+      leftKnowledgeId,
+      rightKnowledgeId,
+      status: 'open',
+      metadata: input.metadata ?? {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.conflicts.set(conflict.id, conflict);
+    return conflict;
+  }
+
+  async updateKnowledgeConflict(id: string, patch: KnowledgeConflictPatchInput): Promise<KnowledgeConflict | undefined> {
+    const current = this.conflicts.get(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const status = patch.status ?? current.status;
+    const updated: KnowledgeConflict = {
+      ...current,
+      status,
+      metadata: patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      updatedAt: new Date().toISOString(),
+      resolvedAt: status === 'open' ? undefined : current.resolvedAt ?? new Date().toISOString(),
+    };
+    this.conflicts.set(id, updated);
+    return updated;
   }
 
   async listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]> {
@@ -713,6 +772,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         { name: 'knowledge_labels', rows: [] },
         { name: 'knowledge_references', rows: [] },
         { name: 'knowledge_relations', rows: [...this.relations.values()].map((relation) => ({ ...relation })) },
+        { name: 'knowledge_conflicts', rows: [...this.conflicts.values()].map((conflict) => ({ ...conflict })) },
         { name: 'knowledge_chunks', rows: [...this.chunks.values()].map((chunk) => ({ ...chunk })) },
         { name: 'reflection_drafts', rows: [...this.drafts.values()].map((draft) => ({ ...draft })) },
         { name: 'context_queries', rows: [] },
@@ -740,6 +800,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     this.packs.clear();
     this.drafts.clear();
     this.relations.clear();
+    this.conflicts.clear();
     this.agentSessions.clear();
     this.agentDecisions.clear();
     this.feedback.length = 0;
@@ -765,6 +826,10 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     for (const row of tableRows(input.tables, 'knowledge_relations')) {
       const relation = row as unknown as KnowledgeRelation;
       this.relations.set(relation.id, relation);
+    }
+    for (const row of tableRows(input.tables, 'knowledge_conflicts')) {
+      const conflict = row as unknown as KnowledgeConflict;
+      this.conflicts.set(conflict.id, conflict);
     }
     for (const row of tableRows(input.tables, 'context_packs')) {
       const pack = row as unknown as ContextPack;
@@ -914,6 +979,10 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
 function tableRows(tables: BackupTableData[], name: BackupTableData['name']): Array<Record<string, unknown>> {
   return tables.find((table) => table.name === name)?.rows ?? [];
+}
+
+function canonicalKnowledgePair(left: string, right: string): [string, string] {
+  return left.localeCompare(right) <= 0 ? [left, right] : [right, left];
 }
 
 function uniqueProjectRows(

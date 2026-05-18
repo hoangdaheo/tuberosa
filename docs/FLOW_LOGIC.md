@@ -457,6 +457,9 @@ Entry points:
 - HTTP `GET /reflection-drafts`
 - HTTP `GET /reflection-drafts/:id`
 - HTTP `PATCH /reflection-drafts/:id`
+- HTTP `GET /operations/conflicts`
+- HTTP `POST /operations/conflicts/detect`
+- HTTP `PATCH /operations/conflicts/:id`
 - HTTP `POST /operations/import-files`
 - HTTP `POST /operations/cleanup`
 - HTTP error-log operations under `/operations/error-logs`
@@ -485,7 +488,9 @@ Review flow:
 3. `PATCH /knowledge/:id` updates review status, trust level, freshness, labels, references, and metadata.
 4. Content updates should use ingestion endpoints or the importer so chunks and embeddings are rebuilt.
 5. Draft review uses list/get/update endpoints before approval turns a draft into searchable memory.
-6. Audit listings expose context packs, feedback events, sessions, and session decisions so users can inspect why context was returned and how it was used.
+6. Conflict detection compares approved knowledge with overlapping file, symbol, error, domain, technology, task, workflow-stage, or reference evidence and records reviewable conflicts when summaries or freshness signals appear contradictory.
+7. Conflict records are review-only. Reviewers can resolve or dismiss them, but Tuberosa does not silently create supersession relations or searchable memories from them.
+8. Audit listings expose context packs, feedback events, sessions, and session decisions so users can inspect why context was returned and how it was used.
 
 Cleanup flow:
 

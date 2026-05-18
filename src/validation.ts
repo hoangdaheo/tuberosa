@@ -14,6 +14,8 @@ import type {
   ErrorLogPatchInput,
   ErrorLogSeverity,
   ErrorLogStatus,
+  KnowledgeConflictPatchInput,
+  KnowledgeConflictStatus,
   KnowledgePatchInput,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
@@ -129,6 +131,7 @@ const KNOWLEDGE_REVIEW_FILTERS = [
   'irrelevant',
   'orphaned',
 ] as const satisfies readonly KnowledgeReviewFilter[];
+const KNOWLEDGE_CONFLICT_STATUSES = ['open', 'resolved', 'dismissed'] as const satisfies readonly KnowledgeConflictStatus[];
 const REFLECTION_DRAFT_STATUSES = [
   'pending',
   'approved',
@@ -233,6 +236,14 @@ export function validateKnowledgeRelationPatchInput(value: unknown): KnowledgeRe
   }
 
   return patch;
+}
+
+export function validateKnowledgeConflictPatchInput(value: unknown): KnowledgeConflictPatchInput {
+  const record = expectObject(value, 'knowledge conflict patch input');
+  return {
+    status: readOptionalEnum(record, 'status', KNOWLEDGE_CONFLICT_STATUSES, 'knowledge conflict patch input'),
+    metadata: readOptionalObject(record, 'metadata', 'knowledge conflict patch input'),
+  };
 }
 
 export function validateIngestFilesRequest(value: unknown): IngestFilesRequest {

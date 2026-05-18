@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
-import type { KnowledgeRelationType } from '../types.js';
+import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
   validateContextSearchInput,
   validateBackupRetentionInput,
@@ -18,6 +18,7 @@ import {
   validateIngestFilesRequest,
   validateKnowledgeInput,
   validateKnowledgePatchInput,
+  validateKnowledgeConflictPatchInput,
   validateKnowledgeRelationInput,
   validateKnowledgeRelationPatchInput,
   validateKnowledgeReviewFilter,
@@ -345,6 +346,32 @@ function createRoutes(): HttpRoute[] {
         }
 
         return { deleted: true };
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/conflicts'),
+      handle: ({ services, url }) => services.operations.listKnowledgeConflicts(readConflictListOptions(url)),
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/conflicts/detect'),
+      handle: ({ services, url }) => services.operations.detectKnowledgeConflicts({
+        project: url.searchParams.get('project') ?? undefined,
+        limit: readLimit(url),
+      }),
+    },
+    {
+      method: 'PATCH',
+      match: pathPattern(/^\/operations\/conflicts\/([^/]+)$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateKnowledgeConflictPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const conflict = await services.operations.updateKnowledgeConflict(params.id, body);
+        if (!conflict) {
+          throw new NotFoundError('Knowledge conflict not found.');
+        }
+
+        return conflict;
       },
     },
     {
@@ -750,6 +777,19 @@ function readRelationListOptions(url: URL) {
     targetValue: url.searchParams.get('targetValue') ?? undefined,
     relationType: (url.searchParams.get('relationType') ?? undefined) as KnowledgeRelationType | undefined,
     inferred: inferred === null ? undefined : inferred === 'true',
+    limit: readLimit(url),
+  };
+}
+
+function readConflictListOptions(url: URL) {
+  const status = url.searchParams.get('status');
+  if (status !== null && !['open', 'resolved', 'dismissed'].includes(status)) {
+    throw new HttpError(400, 'Query parameter "status" must be open, resolved, or dismissed.');
+  }
+
+  return {
+    project: url.searchParams.get('project') ?? undefined,
+    status: (status ?? undefined) as KnowledgeConflictStatus | undefined,
     limit: readLimit(url),
   };
 }

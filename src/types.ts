@@ -144,6 +144,41 @@ export interface ListKnowledgeRelationsOptions {
   limit: number;
 }
 
+export type KnowledgeConflictType = 'summary_contradiction' | 'freshness_conflict';
+
+export type KnowledgeConflictStatus = 'open' | 'resolved' | 'dismissed';
+
+export interface KnowledgeConflictInput {
+  project?: string;
+  leftKnowledgeId: string;
+  rightKnowledgeId: string;
+  conflictType: KnowledgeConflictType;
+  sharedEvidence: string[];
+  reason: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeConflictPatchInput {
+  status?: KnowledgeConflictStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeConflict extends KnowledgeConflictInput {
+  id: string;
+  project?: string;
+  status: KnowledgeConflictStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt?: string;
+  resolvedAt?: string;
+}
+
+export interface ListKnowledgeConflictsOptions {
+  project?: string;
+  status?: KnowledgeConflictStatus;
+  limit: number;
+}
+
 export interface KnowledgeInput {
   project: string;
   sourceType: string;
@@ -545,6 +580,7 @@ export type BackupTableName =
   | 'knowledge_labels'
   | 'knowledge_references'
   | 'knowledge_relations'
+  | 'knowledge_conflicts'
   | 'knowledge_chunks'
   | 'reflection_drafts'
   | 'context_queries'

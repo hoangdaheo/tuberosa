@@ -13,6 +13,9 @@ import type {
   FeedbackEvent,
   FeedbackInput,
   FinishAgentSessionInput,
+  KnowledgeConflict,
+  KnowledgeConflictInput,
+  KnowledgeConflictPatchInput,
   KnowledgeGraphJsonlExport,
   KnowledgePatchInput,
   KnowledgeChunkRecord,
@@ -23,6 +26,7 @@ import type {
   KnowledgeRelationPatchInput,
   LabelInput,
   LabelRecord,
+  ListKnowledgeConflictsOptions,
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
@@ -85,6 +89,11 @@ const BACKUP_TABLES: BackupTableDefinition[] = [
     name: 'knowledge_relations',
     columns: ['id', 'project_id', 'from_knowledge_id', 'relation_type', 'target_kind', 'target_knowledge_id', 'target_value', 'confidence', 'inferred', 'metadata', 'created_at', 'updated_at'],
     selectSql: 'SELECT id, project_id, from_knowledge_id, relation_type, target_kind, target_knowledge_id, target_value, confidence, inferred, metadata, created_at, updated_at FROM knowledge_relations ORDER BY created_at, id',
+  },
+  {
+    name: 'knowledge_conflicts',
+    columns: ['id', 'project_id', 'left_knowledge_id', 'right_knowledge_id', 'conflict_type', 'status', 'shared_evidence', 'reason', 'metadata', 'created_at', 'updated_at', 'resolved_at'],
+    selectSql: 'SELECT id, project_id, left_knowledge_id, right_knowledge_id, conflict_type, status, shared_evidence, reason, metadata, created_at, updated_at, resolved_at FROM knowledge_conflicts ORDER BY created_at, id',
   },
   {
     name: 'knowledge_chunks',
@@ -394,6 +403,97 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   async deleteKnowledgeRelation(id: string): Promise<boolean> {
     const result = await this.pool.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
     return Boolean(result.rowCount);
+  }
+
+  async listKnowledgeConflicts(options: ListKnowledgeConflictsOptions): Promise<KnowledgeConflict[]> {
+    const result = await this.pool.query(
+      `
+        ${conflictSelect()}
+        WHERE ($2::text IS NULL OR p.name = $2)
+          AND ($3::text IS NULL OR kc.status = $3)
+        ORDER BY kc.created_at DESC
+        LIMIT $1
+      `,
+      [options.limit, options.project ?? null, options.status ?? null],
+    );
+
+    return result.rows.map(mapConflictRow);
+  }
+
+  async createKnowledgeConflict(input: KnowledgeConflictInput): Promise<KnowledgeConflict> {
+    const [leftKnowledgeId, rightKnowledgeId] = canonicalKnowledgePair(input.leftKnowledgeId, input.rightKnowledgeId);
+    const projectId = input.project
+      ? await this.ensureProject(this.pool, input.project)
+      : null;
+    const result = await this.pool.query(
+      `
+        WITH inserted AS (
+          INSERT INTO knowledge_conflicts (
+            project_id, left_knowledge_id, right_knowledge_id, conflict_type,
+            shared_evidence, reason, metadata
+          )
+          VALUES (
+            COALESCE($1, (SELECT project_id FROM knowledge_items WHERE id = $2)),
+            $2, $3, $4, $5, $6, $7
+          )
+          ON CONFLICT (left_knowledge_id, right_knowledge_id, conflict_type)
+          DO UPDATE SET updated_at = knowledge_conflicts.updated_at
+          RETURNING *
+        )
+        SELECT inserted.*, p.name AS project
+        FROM inserted
+        LEFT JOIN projects p ON p.id = inserted.project_id
+      `,
+      [
+        projectId,
+        leftKnowledgeId,
+        rightKnowledgeId,
+        input.conflictType,
+        input.sharedEvidence,
+        input.reason,
+        input.metadata ?? {},
+      ],
+    );
+    return mapConflictRow(result.rows[0]);
+  }
+
+  private async getKnowledgeConflict(id: string): Promise<KnowledgeConflict | undefined> {
+    const result = await this.pool.query(
+      `
+        ${conflictSelect()}
+        WHERE kc.id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? mapConflictRow(result.rows[0]) : undefined;
+  }
+
+  async updateKnowledgeConflict(id: string, patch: KnowledgeConflictPatchInput): Promise<KnowledgeConflict | undefined> {
+    const current = await this.getKnowledgeConflict(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const status = patch.status ?? current.status;
+    const result = await this.pool.query(
+      `
+        UPDATE knowledge_conflicts
+        SET status = $2,
+          metadata = $3,
+          updated_at = now(),
+          resolved_at = CASE WHEN $2 = 'open' THEN NULL ELSE COALESCE(resolved_at, now()) END
+        WHERE id = $1
+        RETURNING id
+      `,
+      [
+        id,
+        status,
+        patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      ],
+    );
+
+    return result.rowCount ? this.getKnowledgeConflict(id) : undefined;
   }
 
   async listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]> {
@@ -1715,6 +1815,26 @@ function relationSelect(): string {
   `;
 }
 
+function conflictSelect(): string {
+  return `
+    SELECT
+      kc.id,
+      p.name AS project,
+      kc.left_knowledge_id,
+      kc.right_knowledge_id,
+      kc.conflict_type,
+      kc.status,
+      kc.shared_evidence,
+      kc.reason,
+      kc.metadata,
+      kc.created_at,
+      kc.updated_at,
+      kc.resolved_at
+    FROM knowledge_conflicts kc
+    LEFT JOIN projects p ON p.id = kc.project_id
+  `;
+}
+
 function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
   return {
     id: String(row.id),
@@ -1752,6 +1872,27 @@ function mapRelationRow(row: Record<string, unknown>): KnowledgeRelation {
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
   };
+}
+
+function mapConflictRow(row: Record<string, unknown>): KnowledgeConflict {
+  return {
+    id: String(row.id),
+    project: row.project ? String(row.project) : undefined,
+    leftKnowledgeId: String(row.left_knowledge_id),
+    rightKnowledgeId: String(row.right_knowledge_id),
+    conflictType: row.conflict_type as KnowledgeConflict['conflictType'],
+    status: row.status as KnowledgeConflict['status'],
+    sharedEvidence: Array.isArray(row.shared_evidence) ? row.shared_evidence.map(String) : [],
+    reason: String(row.reason ?? ''),
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    createdAt: toIso(row.created_at),
+    updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
+    resolvedAt: row.resolved_at ? toIso(row.resolved_at) : undefined,
+  };
+}
+
+function canonicalKnowledgePair(left: string, right: string): [string, string] {
+  return left.localeCompare(right) <= 0 ? [left, right] : [right, left];
 }
 
 function knowledgeReviewSql(

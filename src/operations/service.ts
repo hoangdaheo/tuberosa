@@ -5,15 +5,21 @@ import type {
   BackupRetentionInput,
   CreateBackupInput,
   CleanupOperationsInput,
+  KnowledgeConflict,
+  KnowledgeConflictInput,
+  KnowledgeConflictPatchInput,
   KnowledgePatchInput,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
+  ListKnowledgeConflictsOptions,
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
   ReflectionDraftPatchInput,
   RestoreBackupInput,
 } from '../types.js';
+import type { StoredKnowledge } from '../types.js';
+import { normalizeLabel } from '../util/text.js';
 import { BackupService, type BackupServiceOptions } from './backup-service.js';
 
 export interface ImportFilesInput {
@@ -77,6 +83,38 @@ export class OperationsService {
       this.requestPhysicalMirror('relation-deleted');
     }
     return ok;
+  }
+
+  listKnowledgeConflicts(options: ListKnowledgeConflictsOptions) {
+    return this.store.listKnowledgeConflicts(options);
+  }
+
+  async detectKnowledgeConflicts(options: { project?: string; limit: number }) {
+    const knowledge = await this.store.listKnowledge({
+      project: options.project,
+      status: 'approved',
+      limit: options.limit,
+    });
+    const proposed = detectConflicts(knowledge);
+    const created: KnowledgeConflict[] = [];
+
+    for (const conflict of proposed) {
+      created.push(await this.store.createKnowledgeConflict(conflict));
+    }
+
+    if (created.length > 0) {
+      this.requestPhysicalMirror('conflicts-detected');
+    }
+
+    return created;
+  }
+
+  async updateKnowledgeConflict(id: string, patch: KnowledgeConflictPatchInput) {
+    const conflict = await this.store.updateKnowledgeConflict(id, patch);
+    if (conflict) {
+      this.requestPhysicalMirror('conflict-updated');
+    }
+    return conflict;
   }
 
   listLabels(options: { project?: string; limit: number }) {
@@ -198,4 +236,131 @@ export class OperationsService {
   close() {
     return this.backups.close();
   }
+}
+
+function detectConflicts(knowledge: StoredKnowledge[]): KnowledgeConflictInput[] {
+  const conflicts: KnowledgeConflictInput[] = [];
+
+  for (let leftIndex = 0; leftIndex < knowledge.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < knowledge.length; rightIndex += 1) {
+      const left = knowledge[leftIndex];
+      const right = knowledge[rightIndex];
+      if (left.project !== right.project) {
+        continue;
+      }
+
+      const sharedEvidence = sharedConflictEvidence(left, right);
+      if (sharedEvidence.length === 0) {
+        continue;
+      }
+
+      const summaryConflict = hasOpposingSummaryLanguage(left, right);
+      const freshnessConflict = hasFreshnessConflict(left, right);
+      if (summaryConflict) {
+        conflicts.push({
+          project: left.project,
+          leftKnowledgeId: left.id,
+          rightKnowledgeId: right.id,
+          conflictType: 'summary_contradiction' as const,
+          sharedEvidence,
+          reason: 'Shared evidence has opposing summary guidance.',
+          metadata: conflictMetadata(left, right),
+        });
+      }
+
+      if (freshnessConflict) {
+        conflicts.push({
+          project: left.project,
+          leftKnowledgeId: left.id,
+          rightKnowledgeId: right.id,
+          conflictType: 'freshness_conflict' as const,
+          sharedEvidence,
+          reason: 'Shared evidence has competing freshness signals.',
+          metadata: conflictMetadata(left, right),
+        });
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+function sharedConflictEvidence(left: StoredKnowledge, right: StoredKnowledge): string[] {
+  const leftEvidence = evidenceMap(left);
+  const rightEvidence = evidenceMap(right);
+  return [...leftEvidence.entries()]
+    .filter(([key]) => rightEvidence.has(key))
+    .map(([, value]) => value)
+    .slice(0, 12);
+}
+
+function evidenceMap(item: StoredKnowledge): Map<string, string> {
+  const evidence = new Map<string, string>();
+  for (const label of item.labels) {
+    if (!['file', 'symbol', 'error', 'business_area', 'domain', 'technology', 'task_type', 'workflow_stage'].includes(label.type)) {
+      continue;
+    }
+    evidence.set(`label:${label.type}:${normalizeLabel(label.value)}`, `${label.type}:${label.value}`);
+  }
+
+  for (const reference of item.references) {
+    if (reference.type !== 'file' && reference.type !== 'url' && reference.type !== 'external') {
+      continue;
+    }
+    evidence.set(`reference:${reference.type}:${normalizeLabel(reference.uri)}`, `${reference.type}:${reference.uri}`);
+  }
+
+  return evidence;
+}
+
+function hasOpposingSummaryLanguage(left: StoredKnowledge, right: StoredKnowledge): boolean {
+  const leftPolarity = textPolarity(left);
+  const rightPolarity = textPolarity(right);
+  return (
+    (leftPolarity.negative && rightPolarity.positive) ||
+    (leftPolarity.positive && rightPolarity.negative)
+  );
+}
+
+function hasFreshnessConflict(left: StoredKnowledge, right: StoredKnowledge): boolean {
+  const leftTime = left.freshnessAt ? Date.parse(left.freshnessAt) : NaN;
+  const rightTime = right.freshnessAt ? Date.parse(right.freshnessAt) : NaN;
+  if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) {
+    return false;
+  }
+
+  const daysApart = Math.abs(leftTime - rightTime) / (24 * 60 * 60 * 1000);
+  if (daysApart < 30) {
+    return false;
+  }
+
+  const leftPolarity = textPolarity(left);
+  const rightPolarity = textPolarity(right);
+  return leftPolarity.freshness !== rightPolarity.freshness && (
+    leftPolarity.freshness !== 'neutral' ||
+    rightPolarity.freshness !== 'neutral'
+  );
+}
+
+function textPolarity(item: StoredKnowledge) {
+  const text = `${item.title} ${item.summary} ${item.content.slice(0, 800)}`.toLowerCase();
+  return {
+    positive: /\b(use|prefer|should|must|required|enable|allow|current|latest|new)\b/.test(text),
+    negative: /\b(do not|don't|avoid|never|must not|should not|no longer|stale|obsolete|deprecated|legacy)\b/.test(text),
+    freshness: /\b(current|latest|new|now)\b/.test(text)
+      ? 'current'
+      : /\b(old|legacy|stale|obsolete|deprecated)\b/.test(text)
+        ? 'stale'
+        : 'neutral',
+  };
+}
+
+function conflictMetadata(left: StoredKnowledge, right: StoredKnowledge): Record<string, unknown> {
+  return {
+    detector: 'deterministic-overlap-v1',
+    leftTitle: left.title,
+    rightTitle: right.title,
+    leftFreshnessAt: left.freshnessAt,
+    rightFreshnessAt: right.freshnessAt,
+  };
 }

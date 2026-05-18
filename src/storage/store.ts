@@ -10,6 +10,9 @@ import type {
   FeedbackEvent,
   FeedbackInput,
   FinishAgentSessionInput,
+  KnowledgeConflict,
+  KnowledgeConflictInput,
+  KnowledgeConflictPatchInput,
   KnowledgePatchInput,
   KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
@@ -19,6 +22,7 @@ import type {
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
   LabelRecord,
+  ListKnowledgeConflictsOptions,
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
@@ -60,6 +64,9 @@ export interface KnowledgeStore {
   createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation>;
   updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined>;
   deleteKnowledgeRelation(id: string): Promise<boolean>;
+  listKnowledgeConflicts(options: ListKnowledgeConflictsOptions): Promise<KnowledgeConflict[]>;
+  createKnowledgeConflict(input: KnowledgeConflictInput): Promise<KnowledgeConflict>;
+  updateKnowledgeConflict(id: string, patch: KnowledgeConflictPatchInput): Promise<KnowledgeConflict | undefined>;
   listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]>;
   listKnowledgeChunks(knowledgeIds: string[]): Promise<KnowledgeChunkRecord[]>;
   searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]>;

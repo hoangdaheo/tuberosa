@@ -423,6 +423,8 @@ Planned work:
   - Started: candidates superseded by a `supersedes` relation are demoted and annotated with a suppression match reason.
   - conflict detection for knowledge with overlapping labels/references but contradictory summaries or freshness
   - review queue for unresolved conflicts
+  - Started: deterministic conflict records now persist in `knowledge_conflicts`, with an operations detector for overlapping file/symbol/error/reference evidence plus opposing summary language or freshness signals.
+  - Started: unresolved conflicts are listable and reviewable through operations endpoints, and reviewers can mark them resolved or dismissed without automatically creating supersession edges.
 - Add provider-backed reranking prompts that prefer evidence coverage over generic semantic similarity.
 - Add negative feedback learning:
   - rejected or stale context can propose missing labels, missing relations, or supersession edges
