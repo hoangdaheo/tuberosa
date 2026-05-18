@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   const models = new HashModelProvider(defaultConfig.embeddingDimensions);
   const ingestion = new IngestionService(store, models);
   const retrieval = new RetrievalService(store, cache, models, defaultConfig);
-  const evaluator = new RetrievalEvaluator(ingestion, retrieval);
+  const evaluator = new RetrievalEvaluator(ingestion, retrieval, retrieval, store);
 
   try {
     const report = await evaluator.run(fixture, { topK: options.topK });

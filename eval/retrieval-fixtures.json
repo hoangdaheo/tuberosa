@@ -11,16 +11,41 @@
       "summary": "React modal used by the newsletter composer to choose paywall products.",
       "content": "PaywallSelectionModal renders the newsletter paywall picker. It keeps selected product ids stable while editors move between composer steps. The component lives in src/components/paywall-selection-modal.tsx and owns the product selection UI for the paywall workflow.",
       "trustLevel": 82,
-      "metadata": { "taxonomy": "code_reference" },
+      "metadata": {
+        "taxonomy": "code_reference"
+      },
       "labels": [
-        { "type": "business_area", "value": "newsletter", "weight": 1 },
-        { "type": "business_area", "value": "paywall", "weight": 1 },
-        { "type": "technology", "value": "react", "weight": 0.8 },
-        { "type": "file", "value": "src/components/paywall-selection-modal.tsx", "weight": 1 },
-        { "type": "symbol", "value": "PaywallSelectionModal", "weight": 1 }
+        {
+          "type": "business_area",
+          "value": "newsletter",
+          "weight": 1
+        },
+        {
+          "type": "business_area",
+          "value": "paywall",
+          "weight": 1
+        },
+        {
+          "type": "technology",
+          "value": "react",
+          "weight": 0.8
+        },
+        {
+          "type": "file",
+          "value": "src/components/paywall-selection-modal.tsx",
+          "weight": 1
+        },
+        {
+          "type": "symbol",
+          "value": "PaywallSelectionModal",
+          "weight": 1
+        }
       ],
       "references": [
-        { "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }
+        {
+          "type": "file",
+          "uri": "src/components/paywall-selection-modal.tsx"
+        }
       ]
     },
     {
@@ -32,16 +57,41 @@
       "summary": "TS-999 was fixed by preserving selected product ids through the save transition.",
       "content": "When TS-999 appears in PaywallSelectionModal, check the selected product ids reducer before changing the modal props. The previous fix kept ids stable across save and preview transitions in src/components/paywall-selection-modal.tsx.",
       "trustLevel": 92,
-      "metadata": { "taxonomy": "incident_lesson" },
+      "metadata": {
+        "taxonomy": "incident_lesson"
+      },
       "labels": [
-        { "type": "business_area", "value": "paywall", "weight": 1 },
-        { "type": "task_type", "value": "debugging", "weight": 0.9 },
-        { "type": "error", "value": "TS-999", "weight": 1 },
-        { "type": "file", "value": "src/components/paywall-selection-modal.tsx", "weight": 1 },
-        { "type": "symbol", "value": "PaywallSelectionModal", "weight": 1 }
+        {
+          "type": "business_area",
+          "value": "paywall",
+          "weight": 1
+        },
+        {
+          "type": "task_type",
+          "value": "debugging",
+          "weight": 0.9
+        },
+        {
+          "type": "error",
+          "value": "TS-999",
+          "weight": 1
+        },
+        {
+          "type": "file",
+          "value": "src/components/paywall-selection-modal.tsx",
+          "weight": 1
+        },
+        {
+          "type": "symbol",
+          "value": "PaywallSelectionModal",
+          "weight": 1
+        }
       ],
       "references": [
-        { "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }
+        {
+          "type": "file",
+          "uri": "src/components/paywall-selection-modal.tsx"
+        }
       ]
     },
     {
@@ -53,13 +103,26 @@
       "summary": "Auth uses OAuth bearer tokens with refresh token rotation.",
       "content": "The current auth flow uses OAuth bearer tokens. Login returns an access token and a rotating refresh token. Token refresh invalidates the previous refresh token and stores the replacement before returning to the client.",
       "trustLevel": 88,
-      "metadata": { "taxonomy": "project_fact" },
+      "metadata": {
+        "taxonomy": "project_fact"
+      },
       "labels": [
-        { "type": "business_area", "value": "auth", "weight": 1 },
-        { "type": "technology", "value": "node", "weight": 0.5 }
+        {
+          "type": "business_area",
+          "value": "auth",
+          "weight": 1
+        },
+        {
+          "type": "technology",
+          "value": "node",
+          "weight": 0.5
+        }
       ],
       "references": [
-        { "type": "file", "uri": "docs/auth/current.md" }
+        {
+          "type": "file",
+          "uri": "docs/auth/current.md"
+        }
       ]
     },
     {
@@ -71,12 +134,21 @@
       "summary": "Outdated auth notes that mention session cookies.",
       "content": "Legacy auth flow used server-side session cookies and did not rotate refresh tokens. This note is stale and should not be selected when the old knowledge id is rejected.",
       "trustLevel": 25,
-      "metadata": { "taxonomy": "project_fact" },
+      "metadata": {
+        "taxonomy": "project_fact"
+      },
       "labels": [
-        { "type": "business_area", "value": "auth", "weight": 1 }
+        {
+          "type": "business_area",
+          "value": "auth",
+          "weight": 1
+        }
       ],
       "references": [
-        { "type": "file", "uri": "docs/auth/legacy.md" }
+        {
+          "type": "file",
+          "uri": "docs/auth/legacy.md"
+        }
       ]
     },
     {
@@ -88,13 +160,26 @@
       "summary": "Reflection memories should be drafted and approved before becoming searchable.",
       "content": "When an agent learns a new workflow, it should create a reflection draft and wait for review. Only approved reflection memories should be saved into searchable knowledge.",
       "trustLevel": 86,
-      "metadata": { "taxonomy": "workflow" },
+      "metadata": {
+        "taxonomy": "workflow"
+      },
       "labels": [
-        { "type": "workflow_stage", "value": "reflection", "weight": 1 },
-        { "type": "user_preference", "value": "review-before-memory", "weight": 0.9 }
+        {
+          "type": "workflow_stage",
+          "value": "reflection",
+          "weight": 1
+        },
+        {
+          "type": "user_preference",
+          "value": "review-before-memory",
+          "weight": 0.9
+        }
       ],
       "references": [
-        { "type": "tool", "uri": "tuberosa_reflect" }
+        {
+          "type": "tool",
+          "uri": "tuberosa_reflect"
+        }
       ]
     },
     {
@@ -106,17 +191,45 @@
       "summary": "Current work state for continuing Phase 8 and Phase 9 context hardening.",
       "content": "The active work is Phase 8 and Phase 9 context hardening. Continue from handoff.md by preserving layered deep context, context compliance metadata, physical mirror correctness, and one-call agent startup behavior.",
       "trustLevel": 95,
-      "metadata": { "taxonomy": "workflow" },
+      "metadata": {
+        "taxonomy": "workflow"
+      },
       "labels": [
-        { "type": "file", "value": "handoff.md", "weight": 1 },
-        { "type": "file", "value": "docs/AGENT_CONTEXT_ROADMAP.md", "weight": 0.9 },
-        { "type": "task_type", "value": "implementation", "weight": 1 },
-        { "type": "workflow_stage", "value": "continuation", "weight": 1 },
-        { "type": "business_area", "value": "context", "weight": 0.8 }
+        {
+          "type": "file",
+          "value": "handoff.md",
+          "weight": 1
+        },
+        {
+          "type": "file",
+          "value": "docs/AGENT_CONTEXT_ROADMAP.md",
+          "weight": 0.9
+        },
+        {
+          "type": "task_type",
+          "value": "implementation",
+          "weight": 1
+        },
+        {
+          "type": "workflow_stage",
+          "value": "continuation",
+          "weight": 1
+        },
+        {
+          "type": "business_area",
+          "value": "context",
+          "weight": 0.8
+        }
       ],
       "references": [
-        { "type": "file", "uri": "handoff.md" },
-        { "type": "file", "uri": "docs/AGENT_CONTEXT_ROADMAP.md" }
+        {
+          "type": "file",
+          "uri": "handoff.md"
+        },
+        {
+          "type": "file",
+          "uri": "docs/AGENT_CONTEXT_ROADMAP.md"
+        }
       ]
     },
     {
@@ -128,13 +241,26 @@
       "summary": "A plausible but unrelated migration note.",
       "content": "Docker migration work should check compose service startup and schema migration order. This memory is not the current continuation handoff.",
       "trustLevel": 85,
-      "metadata": { "taxonomy": "incident_lesson" },
+      "metadata": {
+        "taxonomy": "incident_lesson"
+      },
       "labels": [
-        { "type": "technology", "value": "docker", "weight": 1 },
-        { "type": "workflow_stage", "value": "migration", "weight": 1 }
+        {
+          "type": "technology",
+          "value": "docker",
+          "weight": 1
+        },
+        {
+          "type": "workflow_stage",
+          "value": "migration",
+          "weight": 1
+        }
       ],
       "references": [
-        { "type": "file", "uri": "docker-compose.yml" }
+        {
+          "type": "file",
+          "uri": "docker-compose.yml"
+        }
       ]
     },
     {
@@ -147,13 +273,26 @@
       "content": "Update schema_migrations lock handling in src/storage/migrations.ts. The current implementation owns migration lock behavior and should guide new migration changes.",
       "trustLevel": 84,
       "freshnessAt": "2026-05-18T00:00:00.000Z",
-      "metadata": { "taxonomy": "code_reference" },
+      "metadata": {
+        "taxonomy": "code_reference"
+      },
       "labels": [
-        { "type": "file", "value": "src/storage/migrations.ts", "weight": 1 },
-        { "type": "technology", "value": "postgres", "weight": 0.8 }
+        {
+          "type": "file",
+          "value": "src/storage/migrations.ts",
+          "weight": 1
+        },
+        {
+          "type": "technology",
+          "value": "postgres",
+          "weight": 0.8
+        }
       ],
       "references": [
-        { "type": "file", "uri": "src/storage/migrations.ts" }
+        {
+          "type": "file",
+          "uri": "src/storage/migrations.ts"
+        }
       ]
     },
     {
@@ -166,12 +305,152 @@
       "content": "Schema migration startup work should use the old global migration lock before checking schema_migrations. This stale memory is semantically similar but no longer the right implementation evidence.",
       "trustLevel": 95,
       "freshnessAt": "2024-01-01T00:00:00.000Z",
-      "metadata": { "taxonomy": "incident_lesson" },
+      "metadata": {
+        "taxonomy": "incident_lesson"
+      },
       "labels": [
-        { "type": "technology", "value": "postgres", "weight": 1 }
+        {
+          "type": "technology",
+          "value": "postgres",
+          "weight": 1
+        }
       ],
       "references": [
-        { "type": "file", "uri": "docs/migrations/legacy-lock.md" }
+        {
+          "type": "file",
+          "uri": "docs/migrations/legacy-lock.md"
+        }
+      ]
+    },
+    {
+      "evalId": "current-deploy-runbook",
+      "sourceType": "wiki",
+      "sourceUri": "docs/deployment/runbook.md",
+      "itemType": "workflow",
+      "title": "Current deployment runbook",
+      "summary": "Use rolling deployment with health checks for all newsletter services.",
+      "content": "Deploy newsletter services using rolling deployment with health check gates. The current workflow requires passing all health checks before proceeding to the next instance. Use the runbook in docs/deployment/runbook.md.",
+      "trustLevel": 90,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "labels": [
+        {
+          "type": "file",
+          "value": "docs/deployment/runbook.md",
+          "weight": 1
+        },
+        {
+          "type": "workflow_stage",
+          "value": "deployment",
+          "weight": 1
+        },
+        {
+          "type": "technology",
+          "value": "docker",
+          "weight": 0.6
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "docs/deployment/runbook.md"
+        }
+      ]
+    },
+    {
+      "evalId": "legacy-deploy-runbook",
+      "sourceType": "wiki",
+      "sourceUri": "docs/deployment/legacy-runbook.md",
+      "itemType": "workflow",
+      "title": "Legacy deployment runbook",
+      "summary": "Old blue-green deployment workflow for newsletter services.",
+      "content": "Deploy newsletter services using blue-green deployment. Switch traffic after the new environment passes smoke tests. This runbook is superseded by the rolling deployment workflow. See docs/deployment/legacy-runbook.md.",
+      "trustLevel": 80,
+      "freshnessAt": "2024-01-01T00:00:00.000Z",
+      "labels": [
+        {
+          "type": "file",
+          "value": "docs/deployment/legacy-runbook.md",
+          "weight": 1
+        },
+        {
+          "type": "workflow_stage",
+          "value": "deployment",
+          "weight": 1
+        },
+        {
+          "type": "technology",
+          "value": "docker",
+          "weight": 0.6
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "docs/deployment/legacy-runbook.md"
+        }
+      ]
+    },
+    {
+      "evalId": "current-rate-limit-policy",
+      "sourceType": "wiki",
+      "sourceUri": "docs/api/rate-limit.md",
+      "itemType": "wiki",
+      "title": "Current API rate limit policy",
+      "summary": "API rate limits use token bucket at 1000 requests per hour per client.",
+      "content": "The current rate limit policy applies a token bucket algorithm at 1000 requests per hour per API client. Rate limit state lives in Redis. See docs/api/rate-limit.md.",
+      "trustLevel": 88,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "labels": [
+        {
+          "type": "file",
+          "value": "docs/api/rate-limit.md",
+          "weight": 1
+        },
+        {
+          "type": "business_area",
+          "value": "api",
+          "weight": 1
+        },
+        {
+          "type": "technology",
+          "value": "redis",
+          "weight": 0.7
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "docs/api/rate-limit.md"
+        }
+      ]
+    },
+    {
+      "evalId": "legacy-rate-limit-policy",
+      "sourceType": "wiki",
+      "sourceUri": "docs/api/legacy-rate-limit.md",
+      "itemType": "wiki",
+      "title": "Legacy API rate limit policy",
+      "summary": "Old API rate limits used fixed window at 100 requests per minute.",
+      "content": "The old rate limit policy applied a fixed window of 100 requests per minute. This approach is now deprecated. Use the token bucket policy instead. See the legacy docs in docs/api/legacy-rate-limit.md.",
+      "trustLevel": 35,
+      "freshnessAt": "2023-01-01T00:00:00.000Z",
+      "labels": [
+        {
+          "type": "file",
+          "value": "docs/api/legacy-rate-limit.md",
+          "weight": 1
+        },
+        {
+          "type": "business_area",
+          "value": "api",
+          "weight": 1
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "docs/api/legacy-rate-limit.md"
+        }
       ]
     }
   ],
@@ -183,7 +462,9 @@
     },
     {
       "feedbackType": "stale",
-      "knowledgeIds": ["legacy-auth-flow"],
+      "knowledgeIds": [
+        "legacy-auth-flow"
+      ],
       "reason": "Legacy auth notes should not outrank current token rotation guidance."
     }
   ],
@@ -191,73 +472,133 @@
     {
       "id": "symbol-paywall-modal",
       "prompt": "Update the React PaywallSelectionModal in src/components/paywall-selection-modal.tsx for the newsletter paywall flow.",
-      "expectedKnowledgeIds": ["paywall-modal"],
-      "expectedSelectedKnowledgeIds": ["paywall-modal"],
-      "unexpectedKnowledgeIds": ["current-auth-flow", "legacy-auth-flow"],
+      "expectedKnowledgeIds": [
+        "paywall-modal"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "paywall-modal"
+      ],
+      "unexpectedKnowledgeIds": [
+        "current-auth-flow",
+        "legacy-auth-flow"
+      ],
       "minConfidence": 0.78,
       "expectedContextFitStatus": "ready",
       "minContextFitScore": 0.72,
       "expectedClassification": {
-        "files": ["src/components/paywall-selection-modal.tsx"],
-        "symbols": ["PaywallSelectionModal"],
-        "technologies": ["react"],
-        "businessAreas": ["newsletter", "paywall"],
+        "files": [
+          "src/components/paywall-selection-modal.tsx"
+        ],
+        "symbols": [
+          "PaywallSelectionModal"
+        ],
+        "technologies": [
+          "react"
+        ],
+        "businessAreas": [
+          "newsletter",
+          "paywall"
+        ],
         "taskType": "implementation"
       }
     },
     {
       "id": "prior-error-recovery",
       "prompt": "Fix TS-999 in src/components/paywall-selection-modal.tsx around PaywallSelectionModal because selected product ids reset after save.",
-      "expectedKnowledgeIds": ["paywall-ts999-fix"],
-      "expectedSelectedKnowledgeIds": ["paywall-ts999-fix"],
-      "unexpectedKnowledgeIds": ["current-auth-flow"],
+      "expectedKnowledgeIds": [
+        "paywall-ts999-fix"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "paywall-ts999-fix"
+      ],
+      "unexpectedKnowledgeIds": [
+        "current-auth-flow"
+      ],
       "minConfidence": 0.82,
       "expectedContextFitStatus": "ready",
       "minContextFitScore": 0.72,
       "expectedClassification": {
-        "files": ["src/components/paywall-selection-modal.tsx"],
-        "symbols": ["PaywallSelectionModal"],
-        "errors": ["TS-999"],
-        "businessAreas": ["paywall"],
+        "files": [
+          "src/components/paywall-selection-modal.tsx"
+        ],
+        "symbols": [
+          "PaywallSelectionModal"
+        ],
+        "errors": [
+          "TS-999"
+        ],
+        "businessAreas": [
+          "paywall"
+        ],
         "taskType": "debugging"
       }
     },
     {
       "id": "selected-feedback-paywall",
       "prompt": "Which prior PaywallSelectionModal fix should guide TS-999 selected product id work?",
-      "expectedKnowledgeIds": ["paywall-ts999-fix"],
-      "expectedSelectedKnowledgeIds": ["paywall-ts999-fix"],
-      "unexpectedKnowledgeIds": ["current-auth-flow", "legacy-auth-flow"],
+      "expectedKnowledgeIds": [
+        "paywall-ts999-fix"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "paywall-ts999-fix"
+      ],
+      "unexpectedKnowledgeIds": [
+        "current-auth-flow",
+        "legacy-auth-flow"
+      ],
       "minConfidence": 0.76,
       "expectedContextFitStatus": "ready",
       "minContextFitScore": 0.72,
       "expectedClassification": {
-        "symbols": ["PaywallSelectionModal"],
-        "errors": ["TS-999"],
-        "businessAreas": ["paywall"],
+        "symbols": [
+          "PaywallSelectionModal"
+        ],
+        "errors": [
+          "TS-999"
+        ],
+        "businessAreas": [
+          "paywall"
+        ],
         "taskType": "debugging"
       }
     },
     {
       "id": "stale-auth-rejection",
       "prompt": "Explain the current auth flow and token refresh behavior.",
-      "expectedKnowledgeIds": ["current-auth-flow"],
-      "expectedSelectedKnowledgeIds": ["current-auth-flow"],
-      "unexpectedKnowledgeIds": ["legacy-auth-flow"],
-      "rejectedKnowledgeIds": ["legacy-auth-flow"],
+      "expectedKnowledgeIds": [
+        "current-auth-flow"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "current-auth-flow"
+      ],
+      "unexpectedKnowledgeIds": [
+        "legacy-auth-flow"
+      ],
+      "rejectedKnowledgeIds": [
+        "legacy-auth-flow"
+      ],
       "minConfidence": 0.68,
       "expectedContextFitStatus": "insufficient",
       "minContextFitScore": 0.4,
       "expectedClassification": {
-        "businessAreas": ["auth"]
+        "businessAreas": [
+          "auth"
+        ]
       }
     },
     {
       "id": "reflection-workflow",
       "prompt": "How should reflection memories be approved before becoming searchable?",
-      "expectedKnowledgeIds": ["reflection-review-memory"],
-      "expectedSelectedKnowledgeIds": ["reflection-review-memory"],
-      "unexpectedKnowledgeIds": ["paywall-modal", "legacy-auth-flow"],
+      "expectedKnowledgeIds": [
+        "reflection-review-memory"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "reflection-review-memory"
+      ],
+      "unexpectedKnowledgeIds": [
+        "paywall-modal",
+        "legacy-auth-flow"
+      ],
       "minConfidence": 0.7,
       "expectedContextFitStatus": "needs_confirmation",
       "minContextFitScore": 0.45
@@ -266,30 +607,113 @@
       "id": "continuation-handoff",
       "prompt": "Continue the current Phase 8 context hardening work from the roadmap.",
       "project": "newsletter-app",
-      "expectedKnowledgeIds": ["phase-handoff-context"],
-      "expectedSelectedKnowledgeIds": ["phase-handoff-context"],
-      "unexpectedKnowledgeIds": ["docker-migration-memory", "legacy-auth-flow"],
+      "expectedKnowledgeIds": [
+        "phase-handoff-context"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "phase-handoff-context"
+      ],
+      "unexpectedKnowledgeIds": [
+        "docker-migration-memory",
+        "legacy-auth-flow"
+      ],
       "minConfidence": 0.76,
       "expectedContextFitStatus": "ready",
       "minContextFitScore": 0.72,
       "expectedClassification": {
-        "files": ["handoff.md", "docs/AGENT_CONTEXT_ROADMAP.md"],
+        "files": [
+          "handoff.md",
+          "docs/AGENT_CONTEXT_ROADMAP.md"
+        ],
         "taskType": "implementation"
       }
     },
     {
       "id": "stale-semantic-memory",
       "prompt": "Update src/storage/migrations.ts schema_migrations lock handling.",
-      "expectedKnowledgeIds": ["current-migration-lock"],
-      "expectedSelectedKnowledgeIds": ["current-migration-lock"],
-      "unexpectedKnowledgeIds": ["legacy-migration-lock"],
+      "expectedKnowledgeIds": [
+        "current-migration-lock"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "current-migration-lock"
+      ],
+      "unexpectedKnowledgeIds": [
+        "legacy-migration-lock"
+      ],
       "minConfidence": 0.74,
       "expectedContextFitStatus": "ready",
       "minContextFitScore": 0.72,
       "expectedClassification": {
-        "files": ["src/storage/migrations.ts"],
+        "files": [
+          "src/storage/migrations.ts"
+        ],
         "taskType": "implementation"
       }
+    },
+    {
+      "id": "superseded-workflow-demoted",
+      "prompt": "How should we deploy newsletter services?",
+      "files": [
+        "docs/deployment/runbook.md"
+      ],
+      "taskType": "implementation",
+      "expectedKnowledgeIds": [
+        "current-deploy-runbook"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "current-deploy-runbook"
+      ],
+      "unexpectedKnowledgeIds": [
+        "legacy-deploy-runbook"
+      ],
+      "minConfidence": 0.74,
+      "expectedContextFitStatus": "ready",
+      "expectedClassification": {
+        "files": [
+          "docs/deployment/runbook.md"
+        ],
+        "taskType": "implementation"
+      }
+    },
+    {
+      "id": "conflicting-memories-freshness",
+      "prompt": "What is the current API rate limit policy?",
+      "files": [
+        "docs/api/rate-limit.md"
+      ],
+      "taskType": "planning",
+      "expectedKnowledgeIds": [
+        "current-rate-limit-policy"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "current-rate-limit-policy"
+      ],
+      "unexpectedKnowledgeIds": [
+        "legacy-rate-limit-policy"
+      ],
+      "minConfidence": 0.74,
+      "expectedContextFitStatus": "ready",
+      "expectedClassification": {
+        "files": [
+          "docs/api/rate-limit.md"
+        ]
+      }
+    }
+  ],
+  "relations": [
+    {
+      "fromEvalId": "current-deploy-runbook",
+      "relationType": "supersedes",
+      "targetKind": "knowledge",
+      "toEvalId": "legacy-deploy-runbook",
+      "confidence": 0.9
+    },
+    {
+      "fromEvalId": "current-rate-limit-policy",
+      "relationType": "supersedes",
+      "targetKind": "knowledge",
+      "toEvalId": "legacy-rate-limit-policy",
+      "confidence": 0.9
     }
   ]
 }

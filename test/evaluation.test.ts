@@ -68,7 +68,7 @@ function createEvaluator(): RetrievalEvaluator {
   const models = new HashModelProvider(1536);
   const ingestion = new IngestionService(store, models);
   const retrieval = new RetrievalService(store, cache, models, config);
-  return new RetrievalEvaluator(ingestion, retrieval);
+  return new RetrievalEvaluator(ingestion, retrieval, retrieval, store);
 }
 
 function failedCases(report: Awaited<ReturnType<RetrievalEvaluator['run']>>): string {

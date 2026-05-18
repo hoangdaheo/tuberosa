@@ -285,6 +285,301 @@ test('operations API reviews, updates, imports, and lists audit records', async 
   }
 });
 
+test('learning proposal approval actions execute concrete mutations and record results', async () => {
+  const services = createTestServices();
+  const project = 'proposal-approval';
+
+  try {
+    const olderKnowledge = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal/older',
+      itemType: 'memory',
+      title: 'Old cached approach',
+      summary: 'An older workflow approach.',
+      content: 'Use the old approach for cache invalidation.',
+      trustLevel: 70,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [],
+    }, []);
+
+    const newerKnowledge = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal/newer',
+      itemType: 'memory',
+      title: 'New cache approach',
+      summary: 'Updated workflow approach that supersedes the old one.',
+      content: 'Use the new approach for cache invalidation.',
+      trustLevel: 90,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [],
+    }, []);
+
+    // supersedes proposal with both candidate and affected — creates relation + marks needs_review
+    const supersedesProposal = await services.store.createLearningProposal({
+      project,
+      proposalType: 'supersedes',
+      affectedKnowledgeId: olderKnowledge.id,
+      candidateKnowledgeId: newerKnowledge.id,
+      reason: 'Newer knowledge supersedes the old cached approach.',
+      evidence: [`knowledge:${olderKnowledge.id}`, `knowledge:${newerKnowledge.id}`],
+      metadata: { source: 'test' },
+    });
+
+    equal(supersedesProposal.status, 'open');
+
+    // Approve the proposal — should create relation and mark affected as needs_review
+    const approvedProposal = await patch(
+      services,
+      `/operations/learning-proposals/${supersedesProposal.id}`,
+      { status: 'approved' },
+    ) as Record<string, unknown>;
+
+    equal(approvedProposal.status, 'approved');
+    const action = (approvedProposal.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    ok(action);
+    equal(action.action, 'supersedes_relation_created');
+    ok(action.relationId);
+    equal(action.markedNeedsReview, olderKnowledge.id);
+
+    // Verify supersedes relation was created
+    const relations = await services.store.listKnowledgeRelations({
+      fromKnowledgeId: newerKnowledge.id,
+      relationType: 'supersedes',
+      limit: 10,
+    });
+    ok(relations.some((r) => r.targetKnowledgeId === olderKnowledge.id));
+
+    // Verify affected knowledge is now needs_review
+    const affected = await services.store.getKnowledge(olderKnowledge.id);
+    equal(affected?.status, 'needs_review');
+
+    // Approving again must NOT re-run the action (idempotent via metadata guard)
+    const reapproved = await patch(
+      services,
+      `/operations/learning-proposals/${supersedesProposal.id}`,
+      { status: 'approved', metadata: { reviewer: 'ops' } },
+    ) as Record<string, unknown>;
+    // approvalAction metadata from first run must still be present and not changed
+    const reapprovedAction = (reapproved.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    equal(reapprovedAction.action, 'supersedes_relation_created');
+
+    // auto_memory_cleanup proposal — marks knowledge as needs_review
+    const cleanupKnowledge = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal/auto-memory',
+      itemType: 'memory',
+      title: 'Auto-approved memory',
+      summary: 'Memory auto-approved by session.',
+      content: 'Some session context.',
+      trustLevel: 60,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [],
+      metadata: { source: 'agent_session_finish', learningMode: 'auto' },
+    }, []);
+
+    const cleanupProposal = await services.store.createLearningProposal({
+      project,
+      proposalType: 'auto_memory_cleanup',
+      affectedKnowledgeId: cleanupKnowledge.id,
+      reason: 'Auto-approved memory received stale feedback.',
+      evidence: [`knowledge:${cleanupKnowledge.id}`],
+      metadata: { source: 'test' },
+    });
+
+    const approvedCleanup = await patch(
+      services,
+      `/operations/learning-proposals/${cleanupProposal.id}`,
+      { status: 'approved' },
+    ) as Record<string, unknown>;
+
+    equal(approvedCleanup.status, 'approved');
+    const cleanupAction = (approvedCleanup.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    equal(cleanupAction.action, 'knowledge_marked_needs_review');
+    equal(cleanupAction.knowledgeId, cleanupKnowledge.id);
+
+    const cleanupKnowledgeAfter = await services.store.getKnowledge(cleanupKnowledge.id);
+    equal(cleanupKnowledgeAfter?.status, 'needs_review');
+
+    // supersedes proposal without candidateKnowledgeId — falls back to mark_needs_review
+    const noopProposal = await services.store.createLearningProposal({
+      project,
+      proposalType: 'supersedes',
+      affectedKnowledgeId: olderKnowledge.id,
+      reason: 'Stale context without known replacement.',
+      evidence: [],
+      metadata: { source: 'test' },
+    });
+
+    const approvedNoop = await patch(
+      services,
+      `/operations/learning-proposals/${noopProposal.id}`,
+      { status: 'approved' },
+    ) as Record<string, unknown>;
+
+    const noopAction = (approvedNoop.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    equal(noopAction.action, 'knowledge_marked_needs_review');
+
+  } finally {
+    await services.close();
+  }
+});
+
+test('review queue feedback creates proposals and gaps without immediately mutating knowledge', async () => {
+  const services = createTestServices();
+  const project = 'review-queue-guard';
+
+  try {
+    const staleKnowledge = await post(services, '/knowledge', {
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://review-queue/stale',
+      itemType: 'wiki',
+      title: 'Stale auth note',
+      summary: 'Old auth approach using session cookies.',
+      content: 'Use session cookies for auth in the newsletter app. This approach is outdated and should not surface.',
+      trustLevel: 70,
+      labels: [{ type: 'business_area', value: 'auth', weight: 1 }],
+    }) as Record<string, unknown>;
+
+    const rejectedKnowledge = await post(services, '/knowledge', {
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://review-queue/rejected',
+      itemType: 'wiki',
+      title: 'Irrelevant auth note',
+      summary: 'Auth note that was rejected as irrelevant.',
+      content: 'This auth pattern is irrelevant to the newsletter app workflow and should not surface in retrieval.',
+      trustLevel: 65,
+      labels: [{ type: 'business_area', value: 'auth', weight: 1 }],
+    }) as Record<string, unknown>;
+
+    // Simulate auto-approved memory from a completed session
+    const autoMemory = await post(services, '/knowledge', {
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://review-queue/auto-memory',
+      itemType: 'memory',
+      title: 'Auto-approved session memory',
+      summary: 'Session lesson auto-approved after a completed newsletter auth task.',
+      content: 'When finishing newsletter auth tasks, record the session outcome and let Tuberosa auto-approve the lesson when all gates pass.',
+      trustLevel: 80,
+      labels: [
+        { type: 'business_area', value: 'auth', weight: 1 },
+        { type: 'task_type', value: 'implementation', weight: 0.9 },
+      ],
+      metadata: { source: 'agent_session_finish', learningMode: 'auto' },
+    }) as Record<string, unknown>;
+
+    const search = await post(services, '/context/search', {
+      project,
+      prompt: 'How does newsletter app auth work?',
+      bypassCache: true,
+    }) as Record<string, unknown>;
+
+    // stale feedback — creates a supersedes proposal, does NOT mark knowledge needs_review
+    await post(services, '/context/feedback', {
+      contextPackId: search.id,
+      project,
+      feedbackType: 'stale',
+      rejectedKnowledgeIds: [staleKnowledge.id],
+      reason: 'Session cookie auth is stale; current flow uses bearer tokens.',
+    });
+
+    const staleKnowledgeAfter = await services.store.getKnowledge(String(staleKnowledge.id));
+    equal(staleKnowledgeAfter?.status, 'approved', 'stale feedback must not immediately set needs_review');
+
+    const staleProposals = await services.store.listLearningProposals({
+      project,
+      status: 'open',
+      affectedKnowledgeId: String(staleKnowledge.id),
+      limit: 10,
+    });
+    ok(staleProposals.length >= 1, 'stale feedback must create a learning proposal');
+    ok(staleProposals.some((p) => p.proposalType === 'supersedes'), 'stale feedback must create a supersedes proposal');
+
+    // rejected feedback — creates a proposal, does NOT mark knowledge needs_review
+    await post(services, '/context/feedback', {
+      contextPackId: search.id,
+      project,
+      feedbackType: 'rejected',
+      rejectedKnowledgeIds: [rejectedKnowledge.id],
+      reason: 'This auth pattern is not relevant to the newsletter app.',
+    });
+
+    const rejectedKnowledgeAfter = await services.store.getKnowledge(String(rejectedKnowledge.id));
+    equal(rejectedKnowledgeAfter?.status, 'approved', 'rejected feedback must not immediately set needs_review');
+
+    const rejectedProposals = await services.store.listLearningProposals({
+      project,
+      status: 'open',
+      affectedKnowledgeId: String(rejectedKnowledge.id),
+      limit: 10,
+    });
+    ok(rejectedProposals.length >= 1, 'rejected feedback must create a learning proposal');
+
+    // missing_context feedback — creates a knowledge gap, not a learning proposal
+    await post(services, '/context/feedback', {
+      contextPackId: search.id,
+      project,
+      feedbackType: 'missing_context',
+      reason: 'Need bearer token rotation documentation.',
+      metadata: { missingSignals: ['file:docs/auth/bearer-tokens.md'] },
+    });
+
+    const gaps = await services.store.listKnowledgeGaps({ project, status: 'open', limit: 10 });
+    ok(gaps.length >= 1, 'missing_context feedback must create a knowledge gap');
+    ok(gaps.some((g) => g.contextPackId === String(search.id)), 'gap must reference the context pack');
+
+    const missingContextProposals = await services.store.listLearningProposals({
+      project,
+      status: 'open',
+      affectedKnowledgeId: undefined,
+      limit: 10,
+    });
+    ok(
+      !missingContextProposals.some((p) => p.sourceFeedbackId && !p.affectedKnowledgeId && p.contextPackId === String(search.id) && p.proposalType !== 'supersedes' && p.proposalType !== 'auto_memory_cleanup'),
+      'missing_context feedback must not create extraneous learning proposals',
+    );
+
+    // stale feedback on auto-approved memory — creates auto_memory_cleanup proposal, does NOT demote memory
+    await post(services, '/context/feedback', {
+      contextPackId: search.id,
+      project,
+      feedbackType: 'stale',
+      rejectedKnowledgeIds: [autoMemory.id],
+      reason: 'This session lesson is no longer accurate.',
+    });
+
+    const autoMemoryAfter = await services.store.getKnowledge(String(autoMemory.id));
+    equal(autoMemoryAfter?.status, 'approved', 'stale feedback on auto-memory must not immediately set needs_review');
+
+    const autoCleanupProposals = await services.store.listLearningProposals({
+      project,
+      status: 'open',
+      affectedKnowledgeId: String(autoMemory.id),
+      limit: 10,
+    });
+    ok(
+      autoCleanupProposals.some((p) => p.proposalType === 'auto_memory_cleanup'),
+      'stale feedback on auto-approved memory must create an auto_memory_cleanup proposal',
+    );
+
+    // Approving a proposal runs the mutation: knowledge transitions to needs_review
+    const proposalToApprove = staleProposals.find((p) => p.proposalType === 'supersedes');
+    ok(proposalToApprove);
+    await patch(services, `/operations/learning-proposals/${proposalToApprove.id}`, { status: 'approved' });
+
+    const staleKnowledgeFinal = await services.store.getKnowledge(String(staleKnowledge.id));
+    equal(staleKnowledgeFinal?.status, 'needs_review', 'approving the proposal must mark knowledge as needs_review');
+
+  } finally {
+    await services.close();
+  }
+});
+
 test('operations API records, lists, reads, and updates physical error logs', async () => {
   const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-backups-'));
   const errorLogDir = await mkdtemp(join(tmpdir(), 'tuberosa-error-logs-'));

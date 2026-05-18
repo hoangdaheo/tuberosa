@@ -5,6 +5,8 @@ import type {
   ContextSearchInput,
   FeedbackInput,
   KnowledgeInput,
+  KnowledgeRelation,
+  KnowledgeRelationInput,
   RankedCandidate,
   StoredKnowledge,
   TaskType,
@@ -20,6 +22,19 @@ export interface ContextSearcher {
 
 export interface FeedbackRecorder {
   recordFeedback(input: FeedbackInput): Promise<unknown>;
+}
+
+export interface KnowledgeRelationCreator {
+  createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation>;
+}
+
+export interface RetrievalEvalRelation {
+  fromEvalId: string;
+  relationType: string;
+  targetKind: 'knowledge';
+  toEvalId: string;
+  confidence?: number;
+  inferred?: boolean;
 }
 
 export type RetrievalEvalKnowledge = Omit<KnowledgeInput, 'project'> & {
@@ -69,6 +84,7 @@ export interface RetrievalEvalFixture {
   project: string;
   knowledge: RetrievalEvalKnowledge[];
   feedbackEvents?: RetrievalEvalFeedbackEvent[];
+  relations?: RetrievalEvalRelation[];
   cases: RetrievalEvalCase[];
 }
 
@@ -150,12 +166,14 @@ export class RetrievalEvaluator {
     private readonly ingestor: KnowledgeIngestor,
     private readonly searcher: ContextSearcher,
     private readonly feedbackRecorder: FeedbackRecorder | undefined = isFeedbackRecorder(searcher) ? searcher : undefined,
+    private readonly relationCreator: KnowledgeRelationCreator | undefined = undefined,
   ) {}
 
   async run(fixture: RetrievalEvalFixture, options: RetrievalEvalOptions = {}): Promise<RetrievalEvalReport> {
     const topK = options.topK ?? DEFAULT_TOP_K;
     const index = await this.seedKnowledge(fixture);
     await this.seedFeedback(fixture, index);
+    await this.seedRelations(fixture, index);
     const cases = [];
 
     for (const testCase of fixture.cases) {
@@ -223,6 +241,34 @@ export class RetrievalEvaluator {
         reason: event.reason,
         rejectedKnowledgeIds,
         metadata: event.metadata,
+      });
+    }
+  }
+
+  private async seedRelations(fixture: RetrievalEvalFixture, index: SeededKnowledgeIndex): Promise<void> {
+    if (!fixture.relations?.length) {
+      return;
+    }
+
+    if (!this.relationCreator) {
+      throw new Error('Retrieval eval fixture defines relations but no relation creator is configured.');
+    }
+
+    for (const rel of fixture.relations) {
+      const fromId = index.byEvalId.get(rel.fromEvalId);
+      const toId = index.byEvalId.get(rel.toEvalId);
+      if (!fromId || !toId) {
+        throw new Error(`Unknown eval relation evalIds: ${rel.fromEvalId} → ${rel.toEvalId}`);
+      }
+
+      await this.relationCreator.createKnowledgeRelation({
+        project: fixture.project,
+        fromKnowledgeId: fromId,
+        relationType: rel.relationType as KnowledgeRelationInput['relationType'],
+        targetKind: rel.targetKind,
+        targetKnowledgeId: toId,
+        confidence: rel.confidence ?? 0.8,
+        inferred: rel.inferred ?? false,
       });
     }
   }

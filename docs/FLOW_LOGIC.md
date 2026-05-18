@@ -303,7 +303,12 @@ Flow:
    - every other feedback type becomes rejected.
 3. `missing_context` creates an open `knowledge_gaps` record with prompt, classified intent, missing signals, context pack, feedback id, and agent session provenance when available.
 4. `rejected`, `irrelevant`, and `stale` create open `learning_proposals` records for review. These records propose cleanup, relation/label/reference review, or supersession, but they do not directly mutate approved knowledge or graph relations.
-5. `rejected`, `irrelevant`, and `stale` trigger retry.
+5. When a `learning_proposal` is approved via `PATCH /operations/learning-proposals/:id` with `status: "approved"`, an approval action executes once:
+   - `supersedes` with both `candidateKnowledgeId` and `affectedKnowledgeId` → creates a `supersedes` knowledge relation from candidate to affected, then marks `affectedKnowledgeId` as `needs_review`.
+   - `supersedes` with only `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
+   - `auto_memory_cleanup`, `missing_label`, `missing_reference`, or `missing_relation` with `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
+   - The action result is stored in `proposal.metadata.approvalAction`. Subsequent PATCH calls with `status: "approved"` skip the action because `approvalAction` is already present.
+6. `rejected`, `irrelevant`, and `stale` trigger retry.
 6. Retry input uses the original prompt and project.
 7. Retry rejected ids include:
    - all knowledge ids in the rejected pack

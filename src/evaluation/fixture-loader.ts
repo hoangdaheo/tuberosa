@@ -5,6 +5,7 @@ import type {
   RetrievalEvalFeedbackEvent,
   RetrievalEvalFixture,
   RetrievalEvalKnowledge,
+  RetrievalEvalRelation,
 } from './retrieval-evaluator.js';
 
 export async function loadRetrievalEvalFixture(filePath: string): Promise<RetrievalEvalFixture> {
@@ -24,6 +25,11 @@ export function parseRetrievalEvalFixture(value: unknown, source = 'retrieval ev
     : expectArray(fixture.feedbackEvents, `${source}.feedbackEvents`).map((item, index) => (
       parseFeedbackEvent(item, `${source}.feedbackEvents[${index}]`)
     ));
+  const relations = fixture.relations === undefined
+    ? undefined
+    : expectArray(fixture.relations, `${source}.relations`).map((item, index) => (
+      parseRelation(item, `${source}.relations[${index}]`)
+    ));
   const cases = expectArray(fixture.cases, `${source}.cases`).map((item, index) => (
     parseCase(item, `${source}.cases[${index}]`)
   ));
@@ -31,7 +37,7 @@ export function parseRetrievalEvalFixture(value: unknown, source = 'retrieval ev
   ensureUnique(knowledge.map((item) => item.evalId), `${source}.knowledge[].evalId`);
   ensureUnique(cases.map((item) => item.id), `${source}.cases[].id`);
 
-  return { name, project, knowledge, feedbackEvents, cases };
+  return { name, project, knowledge, feedbackEvents, relations, cases };
 }
 
 function parseKnowledge(value: unknown, path: string): RetrievalEvalKnowledge {
@@ -97,6 +103,18 @@ function parseFeedbackEvent(value: unknown, path: string): RetrievalEvalFeedback
     knowledgeIds: optionalStringArray(item.knowledgeIds, `${path}.knowledgeIds`),
     reason: optionalString(item.reason, `${path}.reason`),
     metadata: item.metadata as RetrievalEvalFeedbackEvent['metadata'],
+  };
+}
+
+function parseRelation(value: unknown, path: string): RetrievalEvalRelation {
+  const item = expectRecord(value, path);
+  return {
+    fromEvalId: expectString(item.fromEvalId, `${path}.fromEvalId`),
+    relationType: expectString(item.relationType, `${path}.relationType`),
+    targetKind: expectString(item.targetKind, `${path}.targetKind`) as 'knowledge',
+    toEvalId: expectString(item.toEvalId, `${path}.toEvalId`),
+    confidence: optionalNumber(item.confidence, `${path}.confidence`),
+    inferred: item.inferred === undefined ? undefined : Boolean(item.inferred),
   };
 }
 

@@ -450,7 +450,10 @@ Planned work:
   - vague continuation prompts
   - Started: stale semantically similar memory fixture now verifies current anchored migration-lock code context beats a stale migration-lock memory.
   - conflicting memories
-  - superseded workflows
+  - Started: superseded workflows eval fixture verifies that a `supersedes` relation demotes the legacy workflow when the current one is in the context.
+  - Started: conflicting-freshness eval fixture verifies that a stale low-trust policy is demoted below the current one when both share the same topic.
+  - Started: `isGraphEvidence` threshold bypass is now suppressed for graph candidates that carry a `supersedes` suppression reason, so a superseded item reachable via graph traversal is still filtered by the anchored score threshold.
+  - Started: eval fixture `relations` support added to `RetrievalEvaluator` via a new `KnowledgeRelationCreator` interface and `seedRelations` seeding step.
   - missing-context retry behavior
   - graph-expanded retrieval
 

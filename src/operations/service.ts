@@ -10,6 +10,7 @@ import type {
   KnowledgeConflictPatchInput,
   KnowledgeGapPatchInput,
   KnowledgePatchInput,
+  LearningProposal,
   LearningProposalPatchInput,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
@@ -139,10 +140,63 @@ export class OperationsService {
 
   async updateLearningProposal(id: string, patch: LearningProposalPatchInput) {
     const proposal = await this.store.updateLearningProposal(id, patch);
-    if (proposal) {
-      this.requestPhysicalMirror('learning-proposal-updated');
+    if (!proposal) {
+      return undefined;
     }
+
+    if (patch.status === 'approved' && !proposal.metadata?.approvalAction) {
+      const actionResult = await this.runProposalApprovalAction(proposal);
+      const withAction = await this.store.updateLearningProposal(proposal.id, {
+        metadata: { approvalAction: actionResult },
+      });
+      this.requestPhysicalMirror('learning-proposal-approved');
+      return withAction ?? proposal;
+    }
+
+    this.requestPhysicalMirror('learning-proposal-updated');
     return proposal;
+  }
+
+  private async runProposalApprovalAction(proposal: LearningProposal): Promise<Record<string, unknown>> {
+    const result: Record<string, unknown> = {
+      executedAt: new Date().toISOString(),
+      proposalType: proposal.proposalType,
+    };
+
+    try {
+      if (
+        proposal.proposalType === 'supersedes' &&
+        proposal.candidateKnowledgeId &&
+        proposal.affectedKnowledgeId
+      ) {
+        const relation = await this.store.createKnowledgeRelation({
+          project: proposal.project,
+          fromKnowledgeId: proposal.candidateKnowledgeId,
+          relationType: 'supersedes',
+          targetKind: 'knowledge',
+          targetKnowledgeId: proposal.affectedKnowledgeId,
+          confidence: 0.8,
+          inferred: false,
+          metadata: { source: 'learning_proposal', proposalId: proposal.id },
+        });
+        result.action = 'supersedes_relation_created';
+        result.relationId = relation.id;
+        await this.store.updateKnowledge(proposal.affectedKnowledgeId, { status: 'needs_review' });
+        result.markedNeedsReview = proposal.affectedKnowledgeId;
+      } else if (proposal.affectedKnowledgeId) {
+        await this.store.updateKnowledge(proposal.affectedKnowledgeId, { status: 'needs_review' });
+        result.action = 'knowledge_marked_needs_review';
+        result.knowledgeId = proposal.affectedKnowledgeId;
+      } else {
+        result.action = 'no_op';
+        result.reason = 'missing_target_knowledge_id';
+      }
+    } catch (err) {
+      result.action = 'error';
+      result.error = err instanceof Error ? err.message : String(err);
+    }
+
+    return result;
   }
 
   listLabels(options: { project?: string; limit: number }) {

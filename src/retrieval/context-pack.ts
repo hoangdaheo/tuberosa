@@ -72,7 +72,9 @@ function filterAcceptedCandidates(input: AssembleContextPackInput): RankedCandid
 }
 
 function isGraphEvidence(candidate: RankedCandidate): boolean {
-  return candidate.source === 'graph' && candidate.rawScore >= GRAPH_EVIDENCE_MIN_RAW_SCORE;
+  return candidate.source === 'graph'
+    && candidate.rawScore >= GRAPH_EVIDENCE_MIN_RAW_SCORE
+    && !candidate.matchReasons.some((reason) => reason.startsWith('suppression:superseded:'));
 }
 
 function hasAnchors(classified: ClassifiedQuery): boolean {

@@ -592,7 +592,15 @@ curl 'http://localhost:3027/operations/learning-proposals?project=newsletter-app
 curl 'http://localhost:3027/operations/knowledge-gaps?project=newsletter-app&status=open'
 ```
 
-Reviewers can mark either queue item `open`, `approved`, `dismissed`, or `needs_changes` with `PATCH /operations/learning-proposals/:id` or `PATCH /operations/knowledge-gaps/:id`. Approval currently records the review decision only; it does not automatically create labels, relations, supersession edges, or knowledge.
+Reviewers can mark either queue item `open`, `approved`, `dismissed`, or `needs_changes` with `PATCH /operations/learning-proposals/:id` or `PATCH /operations/knowledge-gaps/:id`.
+
+Approving a learning proposal executes a concrete action based on `proposalType`:
+
+- `supersedes` with both `candidateKnowledgeId` and `affectedKnowledgeId` → creates a `supersedes` knowledge relation from candidate to affected and marks the affected knowledge as `needs_review`.
+- `supersedes` without `candidateKnowledgeId` → marks the affected knowledge as `needs_review` only (user creates the relation manually).
+- `auto_memory_cleanup`, `missing_label`, `missing_reference`, or `missing_relation` → marks the affected knowledge as `needs_review`.
+
+The action runs exactly once. The result is stored in `proposal.metadata.approvalAction` and subsequent approvals are skipped. Approving a knowledge gap records the review decision only; it does not automatically create knowledge or labels.
 
 ### Record Error Logs
 
