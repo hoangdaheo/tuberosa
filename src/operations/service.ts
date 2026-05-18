@@ -139,7 +139,7 @@ export class OperationsService {
   }
 
   async updateLearningProposal(id: string, patch: LearningProposalPatchInput) {
-    const proposal = await this.store.updateLearningProposal(id, patch);
+    const proposal = await this.store.updateLearningProposal(id, sanitizeLearningProposalPatch(patch));
     if (!proposal) {
       return undefined;
     }
@@ -163,40 +163,57 @@ export class OperationsService {
       proposalType: proposal.proposalType,
     };
 
-    try {
-      if (
-        proposal.proposalType === 'supersedes' &&
-        proposal.candidateKnowledgeId &&
-        proposal.affectedKnowledgeId
-      ) {
-        const relation = await this.store.createKnowledgeRelation({
-          project: proposal.project,
-          fromKnowledgeId: proposal.candidateKnowledgeId,
-          relationType: 'supersedes',
-          targetKind: 'knowledge',
-          targetKnowledgeId: proposal.affectedKnowledgeId,
-          confidence: 0.8,
-          inferred: false,
-          metadata: { source: 'learning_proposal', proposalId: proposal.id },
-        });
-        result.action = 'supersedes_relation_created';
-        result.relationId = relation.id;
-        await this.store.updateKnowledge(proposal.affectedKnowledgeId, { status: 'needs_review' });
-        result.markedNeedsReview = proposal.affectedKnowledgeId;
-      } else if (proposal.affectedKnowledgeId) {
-        await this.store.updateKnowledge(proposal.affectedKnowledgeId, { status: 'needs_review' });
-        result.action = 'knowledge_marked_needs_review';
-        result.knowledgeId = proposal.affectedKnowledgeId;
-      } else {
-        result.action = 'no_op';
-        result.reason = 'missing_target_knowledge_id';
-      }
-    } catch (err) {
-      result.action = 'error';
-      result.error = err instanceof Error ? err.message : String(err);
+    if (
+      proposal.proposalType === 'supersedes' &&
+      proposal.candidateKnowledgeId &&
+      proposal.affectedKnowledgeId
+    ) {
+      const relation = await this.ensureSupersedesRelation(proposal);
+      result.action = 'supersedes_relation_created';
+      result.relationId = relation.id;
+      await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
+      result.markedNeedsReview = proposal.affectedKnowledgeId;
+    } else if (proposal.affectedKnowledgeId) {
+      await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
+      result.action = 'knowledge_marked_needs_review';
+      result.knowledgeId = proposal.affectedKnowledgeId;
+    } else {
+      result.action = 'no_op';
+      result.reason = 'missing_target_knowledge_id';
     }
 
     return result;
+  }
+
+  private async ensureSupersedesRelation(proposal: LearningProposal) {
+    const existing = await this.store.listKnowledgeRelations({
+      project: proposal.project,
+      fromKnowledgeId: proposal.candidateKnowledgeId,
+      relationType: 'supersedes',
+      limit: 100,
+    });
+    const relation = existing.find((item) => item.targetKnowledgeId === proposal.affectedKnowledgeId);
+    if (relation) {
+      return relation;
+    }
+
+    return this.store.createKnowledgeRelation({
+      project: proposal.project,
+      fromKnowledgeId: proposal.candidateKnowledgeId as string,
+      relationType: 'supersedes',
+      targetKind: 'knowledge',
+      targetKnowledgeId: proposal.affectedKnowledgeId,
+      confidence: 0.8,
+      inferred: false,
+      metadata: { source: 'learning_proposal', proposalId: proposal.id },
+    });
+  }
+
+  private async markKnowledgeNeedsReview(knowledgeId: string): Promise<void> {
+    const updated = await this.store.updateKnowledge(knowledgeId, { status: 'needs_review' });
+    if (!updated) {
+      throw new Error(`Cannot approve learning proposal: affected knowledge not found (${knowledgeId}).`);
+    }
   }
 
   listLabels(options: { project?: string; limit: number }) {
@@ -318,6 +335,18 @@ export class OperationsService {
   close() {
     return this.backups.close();
   }
+}
+
+function sanitizeLearningProposalPatch(patch: LearningProposalPatchInput): LearningProposalPatchInput {
+  if (patch.status !== 'approved' || !patch.metadata || !Object.hasOwn(patch.metadata, 'approvalAction')) {
+    return patch;
+  }
+
+  const { approvalAction: _approvalAction, ...metadata } = patch.metadata;
+  return {
+    ...patch,
+    metadata,
+  };
 }
 
 function detectConflicts(knowledge: StoredKnowledge[]): KnowledgeConflictInput[] {

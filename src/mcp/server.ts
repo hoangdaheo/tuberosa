@@ -28,6 +28,10 @@ interface JsonRpcRequest {
   params?: Record<string, unknown>;
 }
 
+const AGENT_SESSION_OUTCOME_VALUES = ['completed', 'failed', 'blocked', 'cancelled'] as const;
+const TRIGGER_TYPE_VALUES = ['complex_task_success', 'error_recovery', 'user_correction', 'non_trivial_workflow', 'manual'] as const;
+const KNOWLEDGE_ITEM_TYPE_VALUES = ['spec', 'workflow', 'memory', 'bugfix', 'code_ref', 'rule', 'wiki', 'conversation'] as const;
+
 export async function handleMcpRequest(services: AppServices, request: JsonRpcRequest): Promise<unknown> {
   try {
     switch (request.method) {
@@ -669,12 +673,26 @@ function tools() {
         required: ['sessionId', 'outcome'],
         properties: {
           sessionId: { type: 'string' },
-          outcome: { type: 'string' },
+          outcome: { type: 'string', enum: [...AGENT_SESSION_OUTCOME_VALUES] },
           summary: { type: 'string' },
           contextBypassReason: { type: 'string' },
           learningMode: { type: 'string', enum: ['auto', 'draft_only', 'off'] },
           metadata: { type: 'object' },
-          reflectionDraft: { type: 'object' },
+          reflectionDraft: {
+            type: 'object',
+            required: ['title', 'summary', 'content', 'triggerType'],
+            properties: {
+              project: { type: 'string' },
+              title: { type: 'string' },
+              summary: { type: 'string' },
+              content: { type: 'string' },
+              itemType: { type: 'string', enum: [...KNOWLEDGE_ITEM_TYPE_VALUES] },
+              triggerType: { type: 'string', enum: [...TRIGGER_TYPE_VALUES] },
+              labels: { type: 'array', items: { type: 'object' } },
+              references: { type: 'array', items: { type: 'object' } },
+              metadata: { type: 'object' },
+            },
+          },
         },
       },
     },
@@ -690,8 +708,8 @@ function tools() {
           title: { type: 'string' },
           summary: { type: 'string' },
           content: { type: 'string' },
-          itemType: { type: 'string' },
-          triggerType: { type: 'string' },
+          itemType: { type: 'string', enum: [...KNOWLEDGE_ITEM_TYPE_VALUES] },
+          triggerType: { type: 'string', enum: [...TRIGGER_TYPE_VALUES] },
           labels: { type: 'array', items: { type: 'object' } },
           references: { type: 'array', items: { type: 'object' } },
           metadata: { type: 'object' },

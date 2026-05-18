@@ -299,6 +299,33 @@ test('MCP finish session accepts automatic learning mode', async () => {
   equal(result.structuredContent?.learningDecision?.status, 'drafted');
 });
 
+test('MCP finish session schema exposes outcome and reflection draft enums', async () => {
+  const toolsList = await handleMcpRequest(fakeServices(), { method: 'tools/list' }) as {
+    tools: Array<{
+      name: string;
+      inputSchema?: {
+        properties?: Record<string, {
+          enum?: string[];
+          required?: string[];
+          properties?: Record<string, { enum?: string[] }>;
+        }>;
+      };
+    }>;
+  };
+
+  const finishTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_finish_session');
+  ok(finishTool);
+  deepEqual(finishTool.inputSchema?.properties?.outcome?.enum, ['completed', 'failed', 'blocked', 'cancelled']);
+  deepEqual(
+    finishTool.inputSchema?.properties?.reflectionDraft?.required,
+    ['title', 'summary', 'content', 'triggerType'],
+  );
+  deepEqual(
+    finishTool.inputSchema?.properties?.reflectionDraft?.properties?.triggerType?.enum,
+    ['complex_task_success', 'error_recovery', 'user_correction', 'non_trivial_workflow', 'manual'],
+  );
+});
+
 test('MCP reflection review tools list, inspect, and record decisions', async () => {
   const draft = sampleDraft();
   const services = fakeServices({

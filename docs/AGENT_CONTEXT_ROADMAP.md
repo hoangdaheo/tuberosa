@@ -467,6 +467,54 @@ Acceptance:
 - Eval fixtures cover the known failure mode where an unrelated Docker migration memory beat backup or roadmap context.
 - Hash-mode tests remain deterministic; provider-mode behavior is covered with mocked responses.
 
+## Phase 10: Agent Context Usefulness Hardening
+
+Status: Planned.
+
+Goal: make Tuberosa's returned context more useful to agents at task start by improving first-pass orientation, not by returning more context.
+
+Problem this phase addresses:
+
+- Context packs can be technically relevant but still contain adjacent noise that distracts from the current task.
+- Previously selected workflow memories can outrank direct task evidence when the agent really needs current handoff, roadmap, files, symbols, and verification guidance.
+- Agents need concise explanations of why each item was included, what evidence is still missing, and what local files or symbols to inspect next.
+- Feedback can say a pack was selected or rejected, but it does not yet capture quality signals such as "useful but noisy" or "missing verification commands."
+
+Planned work:
+
+- Add a context-pack usefulness layer that categorizes returned items:
+  - `directTaskEvidence`: exact file, symbol, error, handoff, roadmap, or active-task matches.
+  - `priorLessons`: selected memories directly tied to the task.
+  - `workflowGuidance`: general project workflow rules.
+  - `adjacentContext`: lower-priority related memories.
+- Rank direct task evidence above general workflow memories when both are available.
+- Cap normal startup packs to the most useful 3-6 prior lessons unless debug mode or a larger deep-context request is used.
+- Add compact item explanations using existing retrieval signals:
+  - why the item was included
+  - evidence strength
+  - freshness or stale risk
+  - graph or feedback contribution
+  - missing evidence, when applicable
+- Group missing signals into actionable buckets:
+  - files to inspect
+  - symbols to inspect
+  - docs or handoff gaps
+  - unclear project or task intent
+- Record optional context-quality feedback through existing feedback or session-decision metadata:
+  - useful direct evidence
+  - too much adjacent noise
+  - missing current handoff
+  - missing verification commands
+  - missing file or symbol references
+
+Acceptance:
+
+- A new agent starting a Tuberosa task receives current handoff or roadmap context and the most relevant prior lessons without unrelated workflow memory dominating the pack.
+- Each returned item explains why it was included in terms an agent can act on.
+- Missing signals tell the agent what to inspect locally or ask the user next.
+- Existing retrieval, feedback, session compliance, and deep-context behavior remain backward compatible.
+- Agent feedback about useful but noisy context can be recorded and later used to improve ranking.
+
 ## Public API And Type Changes
 
 - Add optional `contextFit` metadata to context pack responses.
@@ -478,6 +526,7 @@ Acceptance:
 - Add context compliance metadata and finish-session bypass reason support in Phase 8.
 - Add one-call layered context return controls in Phase 8.5.
 - Add knowledge-gap and conflict-review records in Phase 9.
+- Add optional context-usefulness fields in Phase 10, such as `evidenceCategory`, `usefulnessReason`, `evidenceStrength`, and `actionableMissingSignals`.
 - Keep existing endpoints and MCP tools backward compatible.
 
 ## Test Plan
@@ -503,6 +552,7 @@ Additional checks:
 - Phase 8: agent-context compliance eval for selected decisions, missing-context handling, bypasses, direct-search-only non-compliance, and finish warnings.
 - Phase 8.5: one-call layered context tests for ready, needs-confirmation, insufficient, and backward-compatible two-step behavior.
 - Phase 9: hard retrieval eval fixtures for vague continuation, stale semantic matches, supersession, conflict review, missing-context learning, and fallback policy.
+- Phase 10: context-usefulness tests for item categorization, direct-evidence ranking over adjacent memories, explanation fields, actionable missing signals, and context-quality feedback metadata.
 
 ## Assumptions
 

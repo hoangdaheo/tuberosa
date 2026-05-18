@@ -329,11 +329,11 @@ test('learning proposal approval actions execute concrete mutations and record r
 
     equal(supersedesProposal.status, 'open');
 
-    // Approve the proposal — should create relation and mark affected as needs_review
+    // Client-supplied approvalAction is ignored; the server owns the idempotency marker.
     const approvedProposal = await patch(
       services,
       `/operations/learning-proposals/${supersedesProposal.id}`,
-      { status: 'approved' },
+      { status: 'approved', metadata: { approvalAction: { action: 'client_bypass_attempt' } } },
     ) as Record<string, unknown>;
 
     equal(approvedProposal.status, 'approved');
@@ -350,6 +350,7 @@ test('learning proposal approval actions execute concrete mutations and record r
       limit: 10,
     });
     ok(relations.some((r) => r.targetKnowledgeId === olderKnowledge.id));
+    equal(relations.filter((r) => r.targetKnowledgeId === olderKnowledge.id).length, 1);
 
     // Verify affected knowledge is now needs_review
     const affected = await services.store.getKnowledge(olderKnowledge.id);
@@ -422,6 +423,91 @@ test('learning proposal approval actions execute concrete mutations and record r
     const noopAction = (approvedNoop.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
     equal(noopAction.action, 'knowledge_marked_needs_review');
 
+  } finally {
+    await services.close();
+  }
+});
+
+test('learning proposal approval failures stay retryable', async () => {
+  const store = new FailingKnowledgeUpdateStore();
+  const services = createTestServices(
+    '.tuberosa/test-backups',
+    '.tuberosa/test-error-logs',
+    undefined,
+    store,
+  );
+  const project = 'proposal-retry';
+
+  try {
+    const olderKnowledge = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal-retry/older',
+      itemType: 'memory',
+      title: 'Old retry approach',
+      summary: 'An older workflow approach.',
+      content: 'Use the old retry approach.',
+      trustLevel: 70,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [],
+    }, []);
+
+    const newerKnowledge = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal-retry/newer',
+      itemType: 'memory',
+      title: 'New retry approach',
+      summary: 'Updated workflow approach.',
+      content: 'Use the new retry approach.',
+      trustLevel: 90,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [],
+    }, []);
+
+    const proposal = await services.store.createLearningProposal({
+      project,
+      proposalType: 'supersedes',
+      affectedKnowledgeId: olderKnowledge.id,
+      candidateKnowledgeId: newerKnowledge.id,
+      reason: 'Newer knowledge supersedes old retry approach.',
+      evidence: [],
+      metadata: { source: 'test' },
+    });
+
+    store.failNextKnowledgeUpdate = true;
+    const failed = await dispatchHttp(services, {
+      method: 'PATCH',
+      url: `/operations/learning-proposals/${proposal.id}`,
+      body: { status: 'approved' },
+    });
+    equal(failed.status, 500);
+
+    const afterFailure = (await services.store.listLearningProposals({
+      project,
+      status: 'approved',
+      limit: 10,
+    })).find((item) => item.id === proposal.id);
+    ok(afterFailure);
+    equal(afterFailure.metadata.approvalAction, undefined);
+
+    const retry = await patch(
+      services,
+      `/operations/learning-proposals/${proposal.id}`,
+      { status: 'approved' },
+    ) as Record<string, unknown>;
+    const retryAction = (retry.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    equal(retryAction.action, 'supersedes_relation_created');
+
+    const relations = await services.store.listKnowledgeRelations({
+      fromKnowledgeId: newerKnowledge.id,
+      relationType: 'supersedes',
+      limit: 10,
+    });
+    equal(relations.filter((r) => r.targetKnowledgeId === olderKnowledge.id).length, 1);
+
+    const affected = await services.store.getKnowledge(olderKnowledge.id);
+    equal(affected?.status, 'needs_review');
   } finally {
     await services.close();
   }
@@ -1017,8 +1103,8 @@ function createTestServices(
   backupDir = '.tuberosa/test-backups',
   errorLogDir = '.tuberosa/test-error-logs',
   physicalMirrorDir?: string,
+  store = new MemoryKnowledgeStore(),
 ): AppServices {
-  const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
   const ingestion = new IngestionService(store, models);
@@ -1054,6 +1140,22 @@ function createTestServices(
       await Promise.allSettled([operations.close(), cache.close(), store.close()]);
     },
   };
+}
+
+class FailingKnowledgeUpdateStore extends MemoryKnowledgeStore {
+  failNextKnowledgeUpdate = false;
+
+  override async updateKnowledge(
+    id: Parameters<MemoryKnowledgeStore['updateKnowledge']>[0],
+    patch: Parameters<MemoryKnowledgeStore['updateKnowledge']>[1],
+  ) {
+    if (this.failNextKnowledgeUpdate) {
+      this.failNextKnowledgeUpdate = false;
+      throw new Error('Simulated knowledge update failure.');
+    }
+
+    return super.updateKnowledge(id, patch);
+  }
 }
 
 class CountingExportStore extends MemoryKnowledgeStore {

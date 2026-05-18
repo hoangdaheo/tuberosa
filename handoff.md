@@ -1,6 +1,6 @@
 # Tuberosa Handoff
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 ## Goal We Are Working Toward
 
@@ -25,6 +25,22 @@ Implemented in previous sessions (see previous handoff for full history):
 - Storage/backup support for review tables (`knowledge_gaps`, `learning_proposals`).
 
 Implemented in this session:
+
+- **Learning proposal approval hardening.**
+  - `OperationsService.updateLearningProposal()` now strips client-supplied `metadata.approvalAction` on approval, so callers cannot fake the server-owned idempotency marker and bypass the concrete approval mutation.
+  - Approval action failures now propagate instead of being saved as `{ action: "error" }` in `approvalAction`; this keeps failed approvals retryable.
+  - `supersedes` approval now reuses an existing candidate→affected `supersedes` relation when retrying, preventing duplicate relation edges after partial failures.
+  - Knowledge status updates now throw a clear error if the affected knowledge id no longer exists.
+  - `test/operations.test.ts` covers client metadata bypass attempts and retry after a simulated approval failure.
+
+- **MCP finish-session schema hardening.**
+  - The previous session log showed two failed `tuberosa_finish_session` calls caused by malformed arguments: a reflection draft without `triggerType`, then a free-form `outcome` string instead of the required enum.
+  - Runtime validation was correct, but the MCP `tools/list` schema was too loose (`outcome` was just `string`, and nested `reflectionDraft` was unconstrained).
+  - `src/mcp/server.ts` now advertises enum values for `tuberosa_finish_session.outcome`, `reflectionDraft.triggerType`, and `reflectionDraft.itemType`; nested reflection drafts also declare required `title`, `summary`, `content`, and `triggerType`.
+  - `tuberosa_reflect` now advertises the same `triggerType` and `itemType` enums.
+  - `test/api-boundary.test.ts` verifies the finish-session tool schema exposes those constraints.
+
+- **Previous Phase 9 retrieval fixture work remains in place.**
 
 - **Eval fixture relations support.**
   - New `RetrievalEvalRelation` type and `KnowledgeRelationCreator` interface in `retrieval-evaluator.ts`.
@@ -55,8 +71,16 @@ Implemented in this session:
   - Adds `parseRelation()` and parses `relations` array in `parseRetrievalEvalFixture`.
 - `src/retrieval/context-pack.ts`
   - `isGraphEvidence` now excludes candidates with `suppression:superseded:*` match reason.
+- `src/operations/service.ts`
+  - Hardened learning-proposal approval idempotency, retry behavior, and supersedes relation reuse.
+- `src/mcp/server.ts`
+  - Tightened finish-session and reflection tool schemas so agents see valid outcome/trigger/item enums before calling.
 - `eval/retrieval-fixtures.json`
   - 4 new knowledge items, 2 supersedes relations, 2 new eval cases.
+- `test/operations.test.ts`
+  - Added regression coverage for approvalAction spoofing and retryable approval failures.
+- `test/api-boundary.test.ts`
+  - Added MCP schema regression coverage for finish-session outcome and reflection draft enums.
 - `scripts/eval-retrieval.ts`
   - Passes `store` as 4th arg to `RetrievalEvaluator`.
 - `test/evaluation.test.ts`
@@ -78,6 +102,8 @@ Latest checks passed:
 
 ```bash
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run build
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/api-boundary.test.ts
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/operations.test.ts
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run test:integration
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:retrieval
@@ -88,7 +114,8 @@ git diff --check
 Notes:
 
 - `eval:retrieval` passes all 9 cases (7 original + 2 new) with 100% on all metrics.
-- `pnpm test` passes all 70 tests.
+- `pnpm test` passes all test files.
+- `eval:agent-context` may need to run outside the sandbox because `tsx` can hit `listen EPERM` on its IPC pipe under `/tmp`; rerun with escalation if that happens.
 
 ## Improve Plan And Next Steps
 
@@ -97,9 +124,10 @@ Continue Phase 9 from `docs/AGENT_CONTEXT_ROADMAP.md`.
 Recommended next steps:
 
 1. **Expand proposal approval actions.**
-   - Approved `supersedes` proposal → create actual `supersedes` relation.
-   - Approved `missing_label`/`missing_reference` proposal → apply the label/reference to the affected knowledge.
-   - Default behavior remains review-only; approval actions are explicit user-initiated mutations.
+   - Approved `supersedes` proposal already creates or reuses the actual `supersedes` relation and marks affected knowledge `needs_review`.
+   - Approved `auto_memory_cleanup` already marks affected knowledge `needs_review`.
+   - Remaining: decide a reviewed metadata shape for `missing_label`/`missing_reference` proposals, then apply labels/references to the affected knowledge when that structured suggestion is present.
+   - Keep `metadata.approvalAction` server-owned; do not let clients supply or overwrite it.
 
 2. **Complete auto-memory cleanup actions.**
    - `auto_memory_cleanup` proposal approval → mark affected knowledge as `needs_review`, `archived`, or superseded.
