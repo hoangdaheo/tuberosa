@@ -404,6 +404,88 @@ test('learning proposal approval actions execute concrete mutations and record r
     const cleanupKnowledgeAfter = await services.store.getKnowledge(cleanupKnowledge.id);
     equal(cleanupKnowledgeAfter?.status, 'needs_review');
 
+    const enrichmentKnowledge = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://proposal/enrichment',
+      itemType: 'memory',
+      title: 'Cache enrichment note',
+      summary: 'Cache note missing labels and references.',
+      content: 'Cache invalidation context should include the runbook label and file reference.',
+      trustLevel: 75,
+      labels: [{ type: 'project', value: project, weight: 1 }],
+      references: [{ type: 'file', uri: 'docs/original-cache.md' }],
+    }, []);
+
+    const missingLabelProposal = await services.store.createLearningProposal({
+      project,
+      proposalType: 'missing_label',
+      affectedKnowledgeId: enrichmentKnowledge.id,
+      reason: 'Reviewer confirmed the cache runbook label is missing.',
+      evidence: [`knowledge:${enrichmentKnowledge.id}`],
+      metadata: { source: 'test' },
+    });
+
+    const approvedLabelProposal = await patch(
+      services,
+      `/operations/learning-proposals/${missingLabelProposal.id}`,
+      {
+        status: 'approved',
+        metadata: {
+          suggestedLabels: [
+            { type: 'file', value: 'docs/cache-runbook.md', weight: 0.9 },
+            { type: 'project', value: project, weight: 0.5 },
+          ],
+        },
+      },
+    ) as Record<string, unknown>;
+
+    const labelAction = (approvedLabelProposal.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    equal(labelAction.action, 'labels_applied');
+    equal(labelAction.knowledgeId, enrichmentKnowledge.id);
+
+    const labeledKnowledge = await services.store.getKnowledge(enrichmentKnowledge.id);
+    equal(labeledKnowledge?.status, 'approved');
+    ok(labeledKnowledge?.labels.some((label) => label.type === 'file' && label.value === 'docs/cache-runbook.md'));
+    equal(labeledKnowledge?.labels.filter((label) => label.type === 'project' && label.value === project).length, 1);
+
+    const missingReferenceProposal = await services.store.createLearningProposal({
+      project,
+      proposalType: 'missing_reference',
+      affectedKnowledgeId: enrichmentKnowledge.id,
+      reason: 'Reviewer confirmed the cache runbook reference is missing.',
+      evidence: [`knowledge:${enrichmentKnowledge.id}`],
+      metadata: { source: 'test' },
+    });
+
+    const approvedReferenceProposal = await patch(
+      services,
+      `/operations/learning-proposals/${missingReferenceProposal.id}`,
+      {
+        status: 'approved',
+        metadata: {
+          suggestedReferences: [
+            { type: 'file', uri: 'docs/cache-runbook.md', lineStart: 3, lineEnd: 12 },
+            { type: 'file', uri: 'docs/original-cache.md' },
+          ],
+        },
+      },
+    ) as Record<string, unknown>;
+
+    const referenceAction = (approvedReferenceProposal.metadata as Record<string, unknown>).approvalAction as Record<string, unknown>;
+    equal(referenceAction.action, 'references_applied');
+    equal(referenceAction.knowledgeId, enrichmentKnowledge.id);
+
+    const referencedKnowledge = await services.store.getKnowledge(enrichmentKnowledge.id);
+    equal(referencedKnowledge?.status, 'approved');
+    ok(referencedKnowledge?.references.some((reference) => (
+      reference.type === 'file' &&
+      reference.uri === 'docs/cache-runbook.md' &&
+      reference.lineStart === 3 &&
+      reference.lineEnd === 12
+    )));
+    equal(referencedKnowledge?.references.filter((reference) => reference.type === 'file' && reference.uri === 'docs/original-cache.md').length, 1);
+
     // supersedes proposal without candidateKnowledgeId — falls back to mark_needs_review
     const noopProposal = await services.store.createLearningProposal({
       project,

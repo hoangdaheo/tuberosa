@@ -431,6 +431,9 @@ Planned work:
   - Started: rejected/irrelevant/stale feedback now creates open `learning_proposals` review records instead of mutating labels, relations, or rankings directly.
   - Started: stale feedback proposes `supersedes` review actions, while rejected/irrelevant feedback proposes relation/label/reference review.
   - Started: negative feedback against auto-approved session memory creates an `auto_memory_cleanup` proposal for operational review.
+  - Started: approved `missing_label` proposals can merge reviewed `metadata.suggestedLabels` into affected knowledge labels.
+  - Started: approved `missing_reference` proposals can merge reviewed `metadata.suggestedReferences` into affected knowledge references.
+  - Started: label/reference proposal approval falls back to marking affected knowledge `needs_review` when no structured suggestion is present, and keeps `metadata.approvalAction` server-owned.
   - missing-context feedback can create reviewable "knowledge gap" records
   - Started: missing-context feedback now creates open `knowledge_gaps` records with project, prompt, classified intent, missing signals, context pack, feedback, and session provenance when available.
 - Add retrieval fallback policy:
@@ -457,6 +460,12 @@ Planned work:
   - missing-context retry behavior
   - graph-expanded retrieval
 
+Next remaining implementation priorities:
+
+- Add missing-context and graph-expanded retrieval eval fixtures.
+- Add provider-backed reranking prompts that prefer evidence coverage over generic similarity.
+- Enrich context-pack explanations for exact matches, graph relations, feedback, freshness, stale risk, and supersession.
+
 Acceptance:
 
 - Vague continuation prompts retrieve recent session, handoff, and related workflow context when available.
@@ -479,6 +488,9 @@ Problem this phase addresses:
 - Previously selected workflow memories can outrank direct task evidence when the agent really needs current handoff, roadmap, files, symbols, and verification guidance.
 - Agents need concise explanations of why each item was included, what evidence is still missing, and what local files or symbols to inspect next.
 - Feedback can say a pack was selected or rejected, but it does not yet capture quality signals such as "useful but noisy" or "missing verification commands."
+- Current output can include noisy inferred symbols from documentation or filenames, such as all-caps doc basenames or generic words like "Implemented" and "Added".
+- Current output can misclassify ordinary roadmap words such as "next" as technologies.
+- Continuation output does not yet provide a compact "recommended next code path" that tells the agent which local files, tests, or review queues to inspect first.
 
 Planned work:
 
@@ -489,6 +501,15 @@ Planned work:
   - `adjacentContext`: lower-priority related memories.
 - Rank direct task evidence above general workflow memories when both are available.
 - Cap normal startup packs to the most useful 3-6 prior lessons unless debug mode or a larger deep-context request is used.
+- Add signal hygiene before presenting context:
+  - suppress generic documentation words as symbols unless backed by code references
+  - treat file basenames and all-caps document identifiers as file evidence, not symbol or error evidence, when they came from paths
+  - avoid classifying sequencing words such as "next" as technologies without stronger evidence
+- Add a compact orientation block for continuation/startup output:
+  - recommended files to inspect first
+  - likely implementation surface
+  - likely verification commands
+  - known doc or handoff gaps to ignore or clarify
 - Add compact item explanations using existing retrieval signals:
   - why the item was included
   - evidence strength
@@ -510,6 +531,8 @@ Planned work:
 Acceptance:
 
 - A new agent starting a Tuberosa task receives current handoff or roadmap context and the most relevant prior lessons without unrelated workflow memory dominating the pack.
+- The output does not present generic roadmap/documentation words as important symbols or technologies unless there is concrete code evidence.
+- Continuation output includes a concise next-step orientation that points the agent to the most likely local files and verification checks.
 - Each returned item explains why it was included in terms an agent can act on.
 - Missing signals tell the agent what to inspect locally or ask the user next.
 - Existing retrieval, feedback, session compliance, and deep-context behavior remain backward compatible.

@@ -10,6 +10,7 @@ import type {
   KnowledgeConflictPatchInput,
   KnowledgeGapPatchInput,
   KnowledgePatchInput,
+  LabelInput,
   LearningProposal,
   LearningProposalPatchInput,
   KnowledgeRelationInput,
@@ -20,11 +21,13 @@ import type {
   ListKnowledgeRelationsOptions,
   ListKnowledgeOptions,
   ListRecordsOptions,
+  ReferenceInput,
   ReflectionDraftPatchInput,
   RestoreBackupInput,
 } from '../types.js';
 import type { StoredKnowledge } from '../types.js';
 import { normalizeLabel } from '../util/text.js';
+import { validateKnowledgePatchInput } from '../validation.js';
 import { BackupService, type BackupServiceOptions } from './backup-service.js';
 
 export interface ImportFilesInput {
@@ -173,6 +176,30 @@ export class OperationsService {
       result.relationId = relation.id;
       await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
       result.markedNeedsReview = proposal.affectedKnowledgeId;
+    } else if (proposal.proposalType === 'missing_label' && proposal.affectedKnowledgeId) {
+      const suggestedLabels = readSuggestedLabels(proposal);
+      if (suggestedLabels.length > 0) {
+        await this.applySuggestedLabels(proposal.affectedKnowledgeId, suggestedLabels);
+        result.action = 'labels_applied';
+        result.knowledgeId = proposal.affectedKnowledgeId;
+        result.appliedLabels = suggestedLabels;
+      } else {
+        await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
+        result.action = 'knowledge_marked_needs_review';
+        result.knowledgeId = proposal.affectedKnowledgeId;
+      }
+    } else if (proposal.proposalType === 'missing_reference' && proposal.affectedKnowledgeId) {
+      const suggestedReferences = readSuggestedReferences(proposal);
+      if (suggestedReferences.length > 0) {
+        await this.applySuggestedReferences(proposal.affectedKnowledgeId, suggestedReferences);
+        result.action = 'references_applied';
+        result.knowledgeId = proposal.affectedKnowledgeId;
+        result.appliedReferences = suggestedReferences;
+      } else {
+        await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
+        result.action = 'knowledge_marked_needs_review';
+        result.knowledgeId = proposal.affectedKnowledgeId;
+      }
     } else if (proposal.affectedKnowledgeId) {
       await this.markKnowledgeNeedsReview(proposal.affectedKnowledgeId);
       result.action = 'knowledge_marked_needs_review';
@@ -209,11 +236,38 @@ export class OperationsService {
     });
   }
 
+  private async applySuggestedLabels(knowledgeId: string, suggestedLabels: LabelInput[]): Promise<void> {
+    const knowledge = await this.getAffectedKnowledge(knowledgeId);
+    const labels = mergeLabels([...knowledge.labels, ...suggestedLabels]);
+    const updated = await this.store.updateKnowledge(knowledgeId, { labels });
+    if (!updated) {
+      throw new Error(`Cannot approve learning proposal: affected knowledge not found (${knowledgeId}).`);
+    }
+  }
+
+  private async applySuggestedReferences(knowledgeId: string, suggestedReferences: ReferenceInput[]): Promise<void> {
+    const knowledge = await this.getAffectedKnowledge(knowledgeId);
+    const references = mergeReferences([...knowledge.references, ...suggestedReferences]);
+    const updated = await this.store.updateKnowledge(knowledgeId, { references });
+    if (!updated) {
+      throw new Error(`Cannot approve learning proposal: affected knowledge not found (${knowledgeId}).`);
+    }
+  }
+
   private async markKnowledgeNeedsReview(knowledgeId: string): Promise<void> {
     const updated = await this.store.updateKnowledge(knowledgeId, { status: 'needs_review' });
     if (!updated) {
       throw new Error(`Cannot approve learning proposal: affected knowledge not found (${knowledgeId}).`);
     }
+  }
+
+  private async getAffectedKnowledge(knowledgeId: string): Promise<StoredKnowledge> {
+    const knowledge = await this.store.getKnowledge(knowledgeId);
+    if (!knowledge) {
+      throw new Error(`Cannot approve learning proposal: affected knowledge not found (${knowledgeId}).`);
+    }
+
+    return knowledge;
   }
 
   listLabels(options: { project?: string; limit: number }) {
@@ -347,6 +401,73 @@ function sanitizeLearningProposalPatch(patch: LearningProposalPatchInput): Learn
     ...patch,
     metadata,
   };
+}
+
+function readSuggestedLabels(proposal: LearningProposal): LabelInput[] {
+  const value = proposal.metadata.suggestedLabels;
+  if (value === undefined) {
+    return [];
+  }
+
+  return validateKnowledgePatchInput({ labels: value }).labels ?? [];
+}
+
+function readSuggestedReferences(proposal: LearningProposal): ReferenceInput[] {
+  const value = proposal.metadata.suggestedReferences;
+  if (value === undefined) {
+    return [];
+  }
+
+  return validateKnowledgePatchInput({ references: value }).references ?? [];
+}
+
+function mergeLabels(labels: LabelInput[]): LabelInput[] {
+  const byKey = new Map<string, LabelInput>();
+  for (const label of labels) {
+    const normalized = normalizeLabel(label.value);
+    const key = `${label.type}:${normalized}`;
+    const value = label.value.trim();
+    const existing = byKey.get(key);
+    if (!existing) {
+      const next = label.weight === undefined
+        ? { type: label.type, value }
+        : { type: label.type, value, weight: label.weight };
+      byKey.set(key, next);
+      continue;
+    }
+
+    byKey.set(key, {
+      type: existing.type,
+      value: existing.value,
+      weight: Math.max(existing.weight ?? 1, label.weight ?? 1),
+    });
+  }
+
+  return [...byKey.values()];
+}
+
+function mergeReferences(references: ReferenceInput[]): ReferenceInput[] {
+  const byKey = new Map<string, ReferenceInput>();
+  for (const reference of references) {
+    const normalized: ReferenceInput = {
+      ...reference,
+      uri: reference.uri.trim(),
+    };
+    const key = referenceKey(normalized);
+    byKey.set(key, byKey.get(key) ?? normalized);
+  }
+
+  return [...byKey.values()];
+}
+
+function referenceKey(reference: ReferenceInput): string {
+  return JSON.stringify([
+    reference.type,
+    reference.uri,
+    reference.lineStart ?? null,
+    reference.lineEnd ?? null,
+    reference.commitSha ?? null,
+  ]);
 }
 
 function detectConflicts(knowledge: StoredKnowledge[]): KnowledgeConflictInput[] {

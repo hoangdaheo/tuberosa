@@ -26,6 +26,16 @@ Implemented in previous sessions (see previous handoff for full history):
 
 Implemented in this session:
 
+- **Reviewed missing label/reference proposal actions.**
+  - `OperationsService.updateLearningProposal()` now supports a reviewed metadata shape for label/reference proposal approval:
+    - `metadata.suggestedLabels` for `missing_label` proposals.
+    - `metadata.suggestedReferences` for `missing_reference` proposals.
+  - Approving `missing_label` merges reviewed labels into the affected knowledge without duplicating existing labels with the same normalized type/value.
+  - Approving `missing_reference` merges reviewed references into the affected knowledge without duplicating existing type/URI/line/commit matches.
+  - If a label/reference proposal has no structured suggestion, approval preserves the previous fallback behavior and marks affected knowledge `needs_review`.
+  - Malformed structured suggestions fail validation and keep approval retryable because `metadata.approvalAction` is still only written after the concrete action succeeds.
+  - `test/operations.test.ts` covers label/reference application and dedupe behavior.
+
 - **Learning proposal approval hardening.**
   - `OperationsService.updateLearningProposal()` now strips client-supplied `metadata.approvalAction` on approval, so callers cannot fake the server-owned idempotency marker and bypass the concrete approval mutation.
   - Approval action failures now propagate instead of being saved as `{ action: "error" }` in `approvalAction`; this keeps failed approvals retryable.
@@ -73,12 +83,13 @@ Implemented in this session:
   - `isGraphEvidence` now excludes candidates with `suppression:superseded:*` match reason.
 - `src/operations/service.ts`
   - Hardened learning-proposal approval idempotency, retry behavior, and supersedes relation reuse.
+  - Applies reviewed `metadata.suggestedLabels` and `metadata.suggestedReferences` for `missing_label`/`missing_reference` approvals.
 - `src/mcp/server.ts`
   - Tightened finish-session and reflection tool schemas so agents see valid outcome/trigger/item enums before calling.
 - `eval/retrieval-fixtures.json`
   - 4 new knowledge items, 2 supersedes relations, 2 new eval cases.
 - `test/operations.test.ts`
-  - Added regression coverage for approvalAction spoofing and retryable approval failures.
+  - Added regression coverage for approvalAction spoofing, retryable approval failures, and reviewed label/reference application.
 - `test/api-boundary.test.ts`
   - Added MCP schema regression coverage for finish-session outcome and reflection draft enums.
 - `scripts/eval-retrieval.ts`
@@ -87,6 +98,11 @@ Implemented in this session:
   - Passes `store` as 4th arg to `RetrievalEvaluator`.
 - `docs/AGENT_CONTEXT_ROADMAP.md`
   - Marks Phase 9 supersession/conflict eval work as started.
+  - Marks reviewed missing-label/reference approval actions as started and lists the next remaining priorities.
+- `docs/FLOW_LOGIC.md`
+  - Documents concrete `missing_label` and `missing_reference` approval behavior.
+- `docs/SETUP_AND_USAGE.md`
+  - Documents `metadata.suggestedLabels` and `metadata.suggestedReferences`.
 - `handoff.md`
   - Updated to reflect current state.
 
@@ -98,17 +114,22 @@ Implemented in this session:
 
 ## Verification Already Run
 
-Latest checks passed:
+Latest checks for this continuation passed:
 
 ```bash
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run build
-PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/api-boundary.test.ts
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/operations.test.ts
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
+git diff --check
+```
+
+Previous session checks also passed before this continuation:
+
+```bash
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/api-boundary.test.ts
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run test:integration
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:retrieval
 PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:agent-context
-git diff --check
 ```
 
 Notes:
@@ -126,7 +147,8 @@ Recommended next steps:
 1. **Expand proposal approval actions.**
    - Approved `supersedes` proposal already creates or reuses the actual `supersedes` relation and marks affected knowledge `needs_review`.
    - Approved `auto_memory_cleanup` already marks affected knowledge `needs_review`.
-   - Remaining: decide a reviewed metadata shape for `missing_label`/`missing_reference` proposals, then apply labels/references to the affected knowledge when that structured suggestion is present.
+   - Done: approved `missing_label` proposals merge reviewed `metadata.suggestedLabels` into affected knowledge.
+   - Done: approved `missing_reference` proposals merge reviewed `metadata.suggestedReferences` into affected knowledge.
    - Keep `metadata.approvalAction` server-owned; do not let clients supply or overwrite it.
 
 2. **Complete auto-memory cleanup actions.**

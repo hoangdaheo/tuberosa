@@ -306,7 +306,10 @@ Flow:
 5. When a `learning_proposal` is approved via `PATCH /operations/learning-proposals/:id` with `status: "approved"`, an approval action executes once:
    - `supersedes` with both `candidateKnowledgeId` and `affectedKnowledgeId` → creates a `supersedes` knowledge relation from candidate to affected, then marks `affectedKnowledgeId` as `needs_review`.
    - `supersedes` with only `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
-   - `auto_memory_cleanup`, `missing_label`, `missing_reference`, or `missing_relation` with `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
+   - `missing_label` with `affectedKnowledgeId` and reviewed `metadata.suggestedLabels` → merges those labels into the affected knowledge.
+   - `missing_reference` with `affectedKnowledgeId` and reviewed `metadata.suggestedReferences` → merges those references into the affected knowledge.
+   - `missing_label` or `missing_reference` without structured suggestions → marks `affectedKnowledgeId` as `needs_review`.
+   - `auto_memory_cleanup` or `missing_relation` with `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
    - The action result is stored in `proposal.metadata.approvalAction`. Subsequent PATCH calls with `status: "approved"` skip the action because `approvalAction` is already present.
 6. `rejected`, `irrelevant`, and `stale` trigger retry.
 6. Retry input uses the original prompt and project.

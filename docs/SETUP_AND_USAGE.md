@@ -598,7 +598,19 @@ Approving a learning proposal executes a concrete action based on `proposalType`
 
 - `supersedes` with both `candidateKnowledgeId` and `affectedKnowledgeId` → creates a `supersedes` knowledge relation from candidate to affected and marks the affected knowledge as `needs_review`.
 - `supersedes` without `candidateKnowledgeId` → marks the affected knowledge as `needs_review` only (user creates the relation manually).
-- `auto_memory_cleanup`, `missing_label`, `missing_reference`, or `missing_relation` → marks the affected knowledge as `needs_review`.
+- `missing_label` with reviewed `metadata.suggestedLabels` → merges those labels into the affected knowledge.
+- `missing_reference` with reviewed `metadata.suggestedReferences` → merges those references into the affected knowledge.
+- `missing_label` or `missing_reference` without structured suggestions → marks the affected knowledge as `needs_review`.
+- `auto_memory_cleanup` or `missing_relation` → marks the affected knowledge as `needs_review`.
+
+Reviewed label/reference proposal metadata uses the same label and reference shapes as knowledge writes:
+
+```json
+{
+  "suggestedLabels": [{ "type": "file", "value": "docs/runbook.md", "weight": 0.9 }],
+  "suggestedReferences": [{ "type": "file", "uri": "docs/runbook.md", "lineStart": 3 }]
+}
+```
 
 The action runs exactly once. The result is stored in `proposal.metadata.approvalAction` and subsequent approvals are skipped. Approving a knowledge gap records the review decision only; it does not automatically create knowledge or labels.
 
