@@ -2,6 +2,7 @@ import type { Cache } from '../cache.js';
 import type { AppConfig } from '../config.js';
 import type { ModelProvider } from '../model/provider.js';
 import type {
+  AgentContextDecision,
   ClassifiedQuery,
   ContextFit,
   ContextPack,
@@ -18,7 +19,7 @@ import type {
   SearchOptions,
 } from '../types.js';
 import { sha256, stableJson } from '../util/hash.js';
-import { uniqueStrings } from '../util/text.js';
+import { normalizeLabel, uniqueStrings } from '../util/text.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { assembleContextPack, normalizeDeepContextBudget } from './context-pack.js';
@@ -30,6 +31,10 @@ import { fuseCandidates } from './fusion.js';
 const DEFAULT_TOKEN_BUDGET = 4000;
 const SEARCH_LIMIT = 18;
 const RERANK_LIMIT = 24;
+const CONTINUATION_SESSION_LIMIT = 6;
+const CONTINUATION_FILE_LIMIT = 8;
+const CONTINUATION_SYMBOL_LIMIT = 8;
+const CONTINUATION_ERROR_LIMIT = 6;
 const RETRY_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>(['rejected', 'irrelevant', 'stale']);
 
 type NormalizedContextSearchInput = ContextSearchInput & {
@@ -51,7 +56,9 @@ export class RetrievalService {
   ) {}
 
   async searchContext(input: ContextSearchInput): Promise<ContextPack> {
-    const normalized = normalizeSearchInput(redactSearchInput(input, this.safety), this.config);
+    const normalized = await this.addContinuationProvenance(
+      normalizeSearchInput(redactSearchInput(input, this.safety), this.config),
+    );
     const totalStartedAt = Date.now();
     const classificationStartedAt = Date.now();
     const classified = classifyQuery(normalized);
@@ -349,6 +356,51 @@ export class RetrievalService {
       debug,
     );
   }
+
+  private async addContinuationProvenance(input: NormalizedContextSearchInput): Promise<NormalizedContextSearchInput> {
+    if (!isContinuationPrompt(input.prompt)) {
+      return input;
+    }
+
+    const project = input.project ?? projectFromInput(input);
+    const sessions = await this.store.listAgentSessions({ project, limit: CONTINUATION_SESSION_LIMIT });
+    const recentSignals = emptyContinuationSignals();
+
+    for (const session of sessions) {
+      const decisions = await this.store.listAgentContextDecisions({ sessionId: session.id, limit: 20 });
+      const selectedDecisions = decisions.filter((decision) => decision.decision === 'selected');
+      if (selectedDecisions.length === 0) {
+        continue;
+      }
+
+      mergeSignals(recentSignals, extractPromptSignals(`${session.prompt}\n${session.summary ?? ''}`));
+      for (const decision of selectedDecisions) {
+        mergeSignals(recentSignals, extractDecisionSignals(decision));
+      }
+
+      for (const packId of selectedContextPackIds(selectedDecisions)) {
+        const pack = await this.store.getContextPack(packId);
+        if (pack) {
+          mergeSignals(recentSignals, extractContextPackSignals(pack));
+        }
+      }
+    }
+
+    const enriched = {
+      files: mergeExplicitAndInferred(input.files, recentSignals.files, CONTINUATION_FILE_LIMIT),
+      symbols: mergeExplicitAndInferred(input.symbols, recentSignals.symbols, CONTINUATION_SYMBOL_LIMIT),
+      errors: mergeExplicitAndInferred(input.errors, recentSignals.errors, CONTINUATION_ERROR_LIMIT),
+    };
+    if (
+      sameSignals(input.files, enriched.files)
+      && sameSignals(input.symbols, enriched.symbols)
+      && sameSignals(input.errors, enriched.errors)
+    ) {
+      return input;
+    }
+
+    return { ...input, ...enriched };
+  }
 }
 
 async function saveCompactContextPack(
@@ -369,6 +421,131 @@ function redactSearchInput(input: ContextSearchInput, safety: KnowledgeSafetySer
     errors: input.errors?.map((error) => safety.redactSecrets(error)),
   };
 }
+
+function selectedContextPackIds(decisions: AgentContextDecision[]): string[] {
+  return uniqueStrings([
+    ...decisions.flatMap((decision) => [decision.contextPackId, decision.retryContextPackId]),
+  ].filter((value): value is string => Boolean(value)));
+}
+
+interface ContinuationSignals {
+  files: string[];
+  symbols: string[];
+  errors: string[];
+}
+
+function emptyContinuationSignals(): ContinuationSignals {
+  return { files: [], symbols: [], errors: [] };
+}
+
+function mergeSignals(target: ContinuationSignals, source: ContinuationSignals): void {
+  target.files.push(...source.files);
+  target.symbols.push(...source.symbols);
+  target.errors.push(...source.errors);
+}
+
+function extractContextPackSignals(pack: ContextPack): ContinuationSignals {
+  return {
+    files: uniqueStrings([
+      ...pack.classified.files,
+      ...pack.sections.flatMap((section) => section.items.flatMap((item) => [
+        ...item.labels.filter((label) => label.type === 'file').map((label) => label.value),
+        ...item.references.filter((reference) => reference.type === 'file').map((reference) => reference.uri),
+      ])),
+    ].filter(isLikelyProjectFile)),
+    symbols: uniqueStrings([
+      ...pack.classified.symbols,
+      ...pack.sections.flatMap((section) => section.items.flatMap((item) => (
+        item.labels.filter((label) => label.type === 'symbol').map((label) => label.value)
+      ))),
+    ].filter(isUsefulContinuationSymbol)),
+    errors: uniqueStrings([
+      ...pack.classified.errors,
+      ...pack.sections.flatMap((section) => section.items.flatMap((item) => (
+        item.labels.filter((label) => label.type === 'error').map((label) => label.value)
+      ))),
+    ].filter(isUsefulContinuationError)),
+  };
+}
+
+function extractPromptSignals(prompt: string): ContinuationSignals {
+  return {
+    files: prompt.match(/(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+|[\w.-]+\.[jt]sx?|[\w.-]+\.py|[\w.-]+\.go|[\w.-]+\.rs|[\w.-]+\.md/g)?.filter(isLikelyProjectFile) ?? [],
+    symbols: uniqueStrings([
+      ...(prompt.match(/\b[A-Z][A-Za-z0-9_]*(?:Service|Controller|Repository|Provider|Handler|Store|Model|Schema|Config|Client)\b/g) ?? []),
+      ...(prompt.match(/\b[A-Z][A-Za-z0-9_]{2,}\b/g) ?? []),
+    ].filter(isUsefulContinuationSymbol)),
+    errors: uniqueStrings([
+      ...(prompt.match(/\b[A-Z][A-Z0-9_]*(?:Error|Exception|Failure)\b/g) ?? []),
+      ...(prompt.match(/\b[A-Z]{2,}[-_][A-Z0-9_-]+\b/g) ?? []),
+      ...(prompt.match(/\b(?:TS|ERR|E)[-_]?\d{3,6}\b/g) ?? []),
+    ].filter(isUsefulContinuationError)),
+  };
+}
+
+function extractDecisionSignals(decision: AgentContextDecision): ContinuationSignals {
+  return {
+    files: metadataStringArray(decision.metadata.files).filter(isLikelyProjectFile),
+    symbols: metadataStringArray(decision.metadata.symbols).filter(isUsefulContinuationSymbol),
+    errors: metadataStringArray(decision.metadata.errors).filter(isUsefulContinuationError),
+  };
+}
+
+function metadataStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function isLikelyProjectFile(value: string): boolean {
+  return /^[\w./-]+\.[a-zA-Z0-9]+$/.test(value) && !value.includes('://');
+}
+
+function isUsefulContinuationSymbol(value: string): boolean {
+  return /^[A-Za-z_$][\w$.:#-]{2,}$/.test(value) && !CONTINUATION_SYMBOL_STOP_WORDS.has(value);
+}
+
+function isUsefulContinuationError(value: string): boolean {
+  return /^[A-Za-z0-9_-]{3,}$/.test(value);
+}
+
+function mergeExplicitAndInferred(
+  explicit: string[] | undefined,
+  inferred: string[],
+  inferredLimit: number,
+): string[] | undefined {
+  const explicitValues = explicit ?? [];
+  const availableInferred = Math.max(0, inferredLimit - explicitValues.length);
+  const merged = uniqueStrings([
+    ...explicitValues,
+    ...uniqueStrings(inferred).slice(0, availableInferred),
+  ]);
+  return merged.length ? merged : undefined;
+}
+
+function sameSignals(left: string[] | undefined, right: string[] | undefined): boolean {
+  return (left ?? []).join('\0') === (right ?? []).join('\0');
+}
+
+function projectFromInput(input: ContextSearchInput): string | undefined {
+  const hint = input.repoHint ?? input.cwd;
+  return hint ? normalizeLabel(hint.split('/').filter(Boolean).at(-1) ?? hint) : undefined;
+}
+
+function isContinuationPrompt(prompt: string): boolean {
+  const lower = prompt.toLowerCase();
+  return /\b(continue|resume|handoff|handover)\b|\bpick up\b|\bwhere we left off\b|\bcurrent work\b/.test(lower);
+}
+
+const CONTINUATION_SYMBOL_STOP_WORDS = new Set([
+  'Continue',
+  'Continuation',
+  'Current',
+  'Phase',
+  'Roadmap',
+  'The',
+  'For',
+  'Keep',
+  'Strip',
+]);
 
 function normalizeSearchInput(input: ContextSearchInput, config: AppConfig): NormalizedContextSearchInput {
   return {

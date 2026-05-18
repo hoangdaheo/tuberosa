@@ -41,10 +41,11 @@ const BUSINESS_HINTS = [
 export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
   const prompt = input.prompt;
   const lower = prompt.toLowerCase();
+  const identifierText = stripFilePaths(prompt);
   const files = uniqueStrings([...(input.files ?? []), ...extractFiles(prompt), ...extractContinuationFiles(lower)]);
-  const symbols = uniqueStrings([...(input.symbols ?? []), ...extractSymbols(prompt)]);
-  const errors = uniqueStrings([...(input.errors ?? []), ...extractErrors(prompt)]);
-  const technologies = uniqueStrings(TECHNOLOGY_TERMS.filter((term) => lower.includes(term)));
+  const symbols = uniqueStrings([...(input.symbols ?? []), ...extractSymbols(identifierText)]);
+  const errors = uniqueStrings([...(input.errors ?? []), ...extractErrors(identifierText)]);
+  const technologies = uniqueStrings(TECHNOLOGY_TERMS.filter((term) => matchesTechnology(lower, term)));
   const businessAreas = uniqueStrings(BUSINESS_HINTS.filter((term) => lower.includes(term)));
   const taskType = input.taskType && input.taskType !== 'unknown' ? input.taskType : inferTaskType(lower);
   const project = input.project ?? inferProject(input);
@@ -167,6 +168,10 @@ function extractFiles(prompt: string): string[] {
   return prompt.match(/(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+|[\w.-]+\.[jt]sx?|[\w.-]+\.py|[\w.-]+\.go|[\w.-]+\.rs|[\w.-]+\.md/g) ?? [];
 }
 
+function stripFilePaths(prompt: string): string {
+  return prompt.replace(/(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+|[\w.-]+\.[jt]sx?|[\w.-]+\.py|[\w.-]+\.go|[\w.-]+\.rs|[\w.-]+\.md/g, ' ');
+}
+
 function extractContinuationFiles(lower: string): string[] {
   if (!isContinuationIntent(lower)) {
     return [];
@@ -183,6 +188,18 @@ function extractSymbols(prompt: string): string[] {
   const pascalCase = (prompt.match(/\b[A-Z][A-Za-z0-9_]{2,}\b/g) ?? []).filter((value) => !SYMBOL_STOP_WORDS.has(value));
   const functions = [...prompt.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((match) => match[1]);
   return uniqueStrings([...codeSpans, ...camelCase, ...pascalCase, ...functions]);
+}
+
+function matchesTechnology(lower: string, term: string): boolean {
+  if (term === 'go') {
+    return /\b(golang|go\s+(?:api|app|code|module|package|project|repo|runtime|server|service)|[\w./-]+\.go)\b/.test(lower);
+  }
+
+  return new RegExp(`\\b${escapeRegExp(term)}\\b`).test(lower);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function extractErrors(prompt: string): string[] {
@@ -245,11 +262,18 @@ const SYMBOL_STOP_WORDS = new Set([
   'Delete',
   'Remove',
   'Review',
+  'Use',
+  'Pull',
   'Continue',
+  'Continuation',
   'Resume',
   'Current',
   'Phase',
   'Roadmap',
+  'The',
+  'For',
+  'Keep',
+  'Strip',
   'How',
   'What',
   'When',

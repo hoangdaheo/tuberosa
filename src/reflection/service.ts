@@ -4,6 +4,7 @@ import { ValidationError } from '../errors.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import type {
+  LabelInput,
   KnowledgeTaxonomy,
   ReferenceInput,
   ReflectionDraft,
@@ -28,13 +29,13 @@ export class ReflectionService {
       itemType: input.itemType ?? 'memory',
       references,
       metadata: reflectionDraftMetadata(input, references),
-      labels: [
+      labels: normalizeSuggestedLabels([
         ...labelsFromClassification(classifyQuery({
           prompt: `${input.title}\n${input.summary}\n${input.content}`,
           project: input.project,
         })),
         ...(input.labels ?? []),
-      ],
+      ], input, references),
     } satisfies ReflectionDraftInput;
     const normalized = this.safety.sanitizeReflectionDraft(raw);
 
@@ -99,6 +100,88 @@ export class ReflectionService {
     });
   }
 }
+
+function normalizeSuggestedLabels(
+  labels: LabelInput[],
+  input: ReflectionDraftInput,
+  references: ReferenceInput[],
+): LabelInput[] {
+  const seen = new Set<string>();
+  const normalized: LabelInput[] = [];
+
+  for (const label of labels) {
+    if (isNoisySuggestedLabel(label, input, references)) {
+      continue;
+    }
+
+    const key = `${label.type}:${label.value.trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalized.push(label);
+  }
+
+  return normalized;
+}
+
+function isNoisySuggestedLabel(
+  label: LabelInput,
+  input: ReflectionDraftInput,
+  references: ReferenceInput[],
+): boolean {
+  const value = label.value.trim().toLowerCase();
+  if (!value) {
+    return true;
+  }
+
+  if (label.type === 'symbol') {
+    return REFLECTION_SYMBOL_STOP_LABELS.has(value);
+  }
+
+  if (label.type === 'technology') {
+    return isAmbiguousTechnologyLabel(value, input, references);
+  }
+
+  return false;
+}
+
+function isAmbiguousTechnologyLabel(
+  value: string,
+  input: ReflectionDraftInput,
+  references: ReferenceInput[],
+): boolean {
+  const text = `${input.title}\n${input.summary}\n${input.content}`.toLowerCase();
+
+  if (value === 'go') {
+    return !(
+      /\b(golang|go\s+(?:api|app|code|module|package|project|repo|runtime|server|service))\b/.test(text)
+      || references.some((reference) => reference.uri.toLowerCase().endsWith('.go'))
+    );
+  }
+
+  if (value === 'rest') {
+    return !/\b(restful|rest\s+(?:api|client|endpoint|route|server|service)|http\s+rest)\b/.test(text);
+  }
+
+  return REFLECTION_AMBIGUOUS_TECH_LABELS.has(value);
+}
+
+const REFLECTION_SYMBOL_STOP_LABELS = new Set([
+  'continuation',
+  'for',
+  'keep',
+  'pull',
+  'strip',
+  'the',
+  'use',
+]);
+
+const REFLECTION_AMBIGUOUS_TECH_LABELS = new Set([
+  'go',
+  'rest',
+]);
 
 function reflectionDraftMetadata(
   input: ReflectionDraftInput,

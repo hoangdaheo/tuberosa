@@ -183,6 +183,8 @@ Acceptance:
 
 ## Phase 7: Knowledge Organization Graph
 
+Status: Core done on 2026-05-18; optional polish remains.
+
 Goal: organize knowledge in a way that agents can navigate by task relevance, provenance, and relationships instead of relying only on flat search results or folder paths.
 
 Design principle:
@@ -230,7 +232,8 @@ Planned work:
   - optional two-hop expansion only when debug or explicit mode is enabled
 - Done: add graph-aware context-fit signals showing which files, symbols, errors, sessions, and incident lessons are connected.
 - Done: add debug trace fields explaining why related knowledge entered a context pack, including relation id, type, direction reason, source knowledge, and target.
-- Add export commands and HTTP endpoints for project maps and graph JSONL.
+- Done: add HTTP endpoints for project maps, graph JSONL, and readable summaries.
+- Optional polish: add CLI commands for organization exports.
 - Done: add stale relation cleanup when document atoms are re-ingested, when an atomized file is re-ingested as a single document, and when knowledge is archived or blocked.
 - Add a pending reflection review workflow for agents and users:
   - MCP tools to list pending reflection drafts, inspect a draft, and record review decisions.
@@ -253,6 +256,8 @@ Acceptance:
 - Existing search, backup, restore, and reflection flows continue to work when no relations exist.
 
 ## Phase 8: Agent Context Compliance And Evaluation
+
+Status: Done on 2026-05-18.
 
 Goal: make Tuberosa context retrieval an auditable agent workflow instead of an optional best-effort habit.
 
@@ -381,6 +386,8 @@ Acceptance:
 
 ## Phase 9: Retrieval Quality Hardening
 
+Status: In progress as of 2026-05-18.
+
 Goal: make Tuberosa reliable for vague, continuation-style, and high-risk agent tasks where flat semantic search can return plausible but wrong context.
 
 Problems this phase addresses:
@@ -402,6 +409,12 @@ Planned work:
   - uncertainty reasons
 - Add continuation-aware retrieval using agent sessions, latest context decisions, recent reflection drafts, and handoff-style knowledge.
   - Started: vague continuation prompts now anchor to `handoff.md`, and roadmap/phase continuation prompts also anchor to `docs/AGENT_CONTEXT_ROADMAP.md`.
+  - Started: file paths are stripped before symbol/error extraction, so roadmap file anchors do not create fake signals such as `AGENT_CONTEXT_ROADMAP`.
+  - Started: vague continuation prompts can use bounded file, symbol, and error hints from recent sessions that recorded a `selected` context decision.
+  - Started: continuation hints preserve explicit user-provided signals first and only add bounded inferred signals after them.
+  - Started: continuation hints use explicitly selected pack ids only, so a rejected initial pack does not leak signals when a retry pack was selected.
+- Started: reflection draft suggested labels are normalized before approval paths can turn them into durable memory, including generic continuation-word filtering and ambiguous `go`/`rest` technology cleanup that preserves explicit Go/REST evidence.
+- Next implementation priority: add deterministic structured retrieval intent before more ranking changes, then use that intent to drive stale-memory suppression, conflict/supersession review, and missing-context knowledge-gap records.
 - Add stale-memory suppression that combines freshness, feedback, supersession relations, and context-fit mismatch before final ranking.
 - Add explicit conflict and supersession handling:
   - `supersedes` relation support in ranking

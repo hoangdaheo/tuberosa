@@ -73,6 +73,143 @@ test('classifier anchors continuation prompts to handoff context', () => {
   ok(classified.files.includes('handoff.md'));
   ok(classified.files.includes('docs/AGENT_CONTEXT_ROADMAP.md'));
   ok(classified.exactTerms.includes('handoff.md'));
+  equal(classified.symbols.includes('AGENT_CONTEXT_ROADMAP'), false);
+  equal(classified.errors.includes('AGENT_CONTEXT_ROADMAP'), false);
+});
+
+test('continuation retrieval uses files from recent selected session context', async () => {
+  const { ingestion, retrieval, store } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://mirror-continuation',
+    itemType: 'workflow',
+    title: 'Physical mirror continuation files',
+    summary: 'The active mirror hardening work touches config and operations tests.',
+    content: 'Continue physical mirror debounce work by checking src/config.ts and test/operations.test.ts together.',
+    trustLevel: 90,
+    labels: [
+      { type: 'file', value: 'src/config.ts', weight: 1 },
+      { type: 'file', value: 'test/operations.test.ts', weight: 1 },
+    ],
+    references: [
+      { type: 'file', uri: 'src/config.ts' },
+      { type: 'file', uri: 'test/operations.test.ts' },
+    ],
+  });
+
+  const selectedPack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Update physical mirror debounce in src/config.ts and test/operations.test.ts',
+    files: ['src/config.ts', 'test/operations.test.ts'],
+    bypassCache: true,
+  });
+  const session = await store.createAgentSession({
+    project: 'agent-memory',
+    prompt: 'Work on physical mirror debounce in src/config.ts and test/operations.test.ts',
+    initialContextPackId: selectedPack.id,
+  });
+  await store.recordAgentContextDecision({
+    sessionId: session.id,
+    contextPackId: selectedPack.id,
+    feedbackType: 'selected',
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'continue the work',
+    bypassCache: true,
+  });
+
+  ok(pack.classified.files.includes('src/config.ts'));
+  ok(pack.classified.files.includes('test/operations.test.ts'));
+  equal(pack.sections[0].items[0].title, 'Physical mirror continuation files');
+  ok(pack.sections[0].items[0].matchReasons.includes('file:src/config.ts'));
+});
+
+test('continuation retrieval uses non-file signals from recent selected session context', async () => {
+  const { ingestion, retrieval, store } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://agent-session-continuation',
+    itemType: 'workflow',
+    title: 'Agent session continuation error workflow',
+    summary: 'The active session hardening work tracks AgentSessionService and ERR-777.',
+    content: 'Continue context compliance work by checking AgentSessionService behavior for ERR-777 retry decisions.',
+    trustLevel: 90,
+    labels: [
+      { type: 'symbol', value: 'AgentSessionService', weight: 1 },
+      { type: 'error', value: 'ERR-777', weight: 1 },
+    ],
+  });
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'manual',
+    sourceUri: 'manual://ignored-continuation',
+    itemType: 'workflow',
+    title: 'Ignored stale continuation workflow',
+    summary: 'WrongService and ERR-999 should not leak from an unselected session.',
+    content: 'Continue unrelated work on WrongService and ERR-999.',
+    trustLevel: 90,
+    labels: [
+      { type: 'symbol', value: 'WrongService', weight: 1 },
+      { type: 'error', value: 'ERR-999', weight: 1 },
+    ],
+  });
+
+  const selectedPack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Fix AgentSessionService ERR-777 retry decisions',
+    symbols: ['AgentSessionService'],
+    errors: ['ERR-777'],
+    bypassCache: true,
+  });
+  const ignoredPack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Inspect WrongService ERR-999',
+    symbols: ['WrongService'],
+    errors: ['ERR-999'],
+    bypassCache: true,
+  });
+  const selectedSession = await store.createAgentSession({
+    project: 'agent-memory',
+    prompt: 'Work on AgentSessionService retry decisions',
+    initialContextPackId: ignoredPack.id,
+  });
+  await store.recordAgentContextDecision({
+    sessionId: selectedSession.id,
+    contextPackId: selectedPack.id,
+    feedbackType: 'selected',
+    metadata: { symbols: ['AgentSessionService'], errors: ['ERR-777'] },
+  });
+
+  const ignoredSession = await store.createAgentSession({
+    project: 'agent-memory',
+    prompt: 'Work on WrongService ERR-999',
+    initialContextPackId: ignoredPack.id,
+  });
+  await store.recordAgentContextDecision({
+    sessionId: ignoredSession.id,
+    contextPackId: ignoredPack.id,
+    feedbackType: 'rejected',
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'continue the work',
+    bypassCache: true,
+  });
+
+  ok(pack.classified.symbols.includes('AgentSessionService'));
+  ok(pack.classified.errors.includes('ERR-777'));
+  equal(pack.classified.symbols.includes('WrongService'), false);
+  equal(pack.classified.errors.includes('ERR-999'), false);
+  equal(pack.sections[0].items[0].title, 'Agent session continuation error workflow');
+  ok(pack.sections[0].items[0].matchReasons.includes('symbol:AgentSessionService'));
+  ok(pack.sections[0].items[0].matchReasons.includes('error:ERR-777'));
 });
 
 test('retrieval returns context pack with matched references', async () => {
@@ -1038,6 +1175,44 @@ test('reflection drafts are reviewable and approval creates searchable memory', 
   equal((pack.sections[0].items[0].metadata?.provenance as Record<string, unknown>).agentSessionId, 'session-1');
   equal((pack.sections[0].items[0].metadata?.review as Record<string, unknown>).decision, 'approve');
   equal(pack.sections[0].items[0].references.some((reference) => reference.uri === 'docs/reflection.md'), true);
+});
+
+test('reflection draft labels drop generic title words and ambiguous technology hits', async () => {
+  const { reflection } = createTestServices();
+
+  const draft = await reflection.createDraft({
+    project: 'agent-memory',
+    title: 'Continuation strip labels',
+    summary: 'The continuation label cleanup should keep roadmap labels focused.',
+    content: 'Use selected context packs and Pull session metadata, but strip file paths before symbol extraction, keep the rest of the work scoped, and go back to docs/AGENT_CONTEXT_ROADMAP.md only as a file reference.',
+    triggerType: 'non_trivial_workflow',
+    references: [{ type: 'file', uri: 'docs/AGENT_CONTEXT_ROADMAP.md' }],
+  });
+  const labels = draft.suggestedLabels.map((label) => `${label.type}:${label.value.toLowerCase()}`);
+
+  equal(labels.includes('symbol:continuation'), false);
+  equal(labels.includes('symbol:strip'), false);
+  equal(labels.includes('symbol:the'), false);
+  equal(labels.includes('symbol:keep'), false);
+  equal(labels.includes('symbol:use'), false);
+  equal(labels.includes('symbol:pull'), false);
+  equal(labels.includes('technology:go'), false);
+  equal(labels.includes('technology:rest'), false);
+  ok(labels.includes('file:docs/AGENT_CONTEXT_ROADMAP.md'.toLowerCase()));
+
+  const goDraft = await reflection.createDraft({
+    project: 'agent-memory',
+    title: 'Go service retry workflow',
+    summary: 'The Go service uses a REST API retry workflow.',
+    content: 'Keep Go package notes when the lesson references cmd/server/main.go and REST API endpoints.',
+    triggerType: 'non_trivial_workflow',
+    references: [{ type: 'file', uri: 'cmd/server/main.go' }],
+  });
+  const goLabels = goDraft.suggestedLabels.map((label) => `${label.type}:${label.value.toLowerCase()}`);
+
+  ok(goLabels.includes('technology:go'));
+  ok(goLabels.includes('technology:rest'));
+  ok(goLabels.includes('file:cmd/server/main.go'));
 });
 
 function createTestServices() {
