@@ -60,6 +60,10 @@ test('classifier extracts concrete repo context from prompt', () => {
   ok(classified.errors.includes('TS-999'));
   ok(classified.technologies.includes('react'));
   ok(classified.businessAreas.includes('paywall'));
+  equal(classified.intent.taskGoal, 'debug or fix reported failure');
+  equal(classified.intent.workflowStage, 'investigation');
+  ok(classified.intent.requiredEvidenceTypes.includes('bugfix'));
+  ok(classified.intent.requiredEvidenceTypes.includes('code_reference'));
 });
 
 test('classifier anchors continuation prompts to handoff context', () => {
@@ -75,6 +79,14 @@ test('classifier anchors continuation prompts to handoff context', () => {
   ok(classified.exactTerms.includes('handoff.md'));
   equal(classified.symbols.includes('AGENT_CONTEXT_ROADMAP'), false);
   equal(classified.errors.includes('AGENT_CONTEXT_ROADMAP'), false);
+  equal(classified.intent.taskGoal, 'continue current work');
+  equal(classified.intent.workflowStage, 'continuation');
+  ok(classified.intent.impliedFiles.includes('handoff.md'));
+  ok(classified.intent.impliedFiles.includes('docs/AGENT_CONTEXT_ROADMAP.md'));
+  deepEqual(classified.intent.recentSessionReferences, ['selected_context_decisions']);
+  ok(classified.intent.requiredEvidenceTypes.includes('handoff'));
+  ok(classified.intent.requiredEvidenceTypes.includes('session_history'));
+  ok(classified.intent.uncertaintyReasons.includes('continuation prompt relies on handoff or recent selected-session context'));
 });
 
 test('continuation retrieval uses files from recent selected session context', async () => {
@@ -941,6 +953,16 @@ test('context fit penalizes stale and rejected candidates', () => {
     businessAreas: ['auth'],
     exactTerms: ['src/auth.ts', 'AuthService', 'TS-999', 'auth'],
     lexicalQuery: 'src/auth.ts AuthService TS-999 auth',
+    intent: {
+      taskGoal: 'debug or fix reported failure',
+      workflowStage: 'investigation',
+      impliedFiles: ['src/auth.ts'],
+      impliedSymbols: ['AuthService'],
+      impliedDomains: ['auth'],
+      recentSessionReferences: [],
+      requiredEvidenceTypes: ['bugfix', 'code_reference', 'incident_lesson'],
+      uncertaintyReasons: [],
+    },
   };
 
   const fresh = rankedCandidate({
@@ -1103,6 +1125,100 @@ test('feedback history adjusts later retrieval ranking', async () => {
   ok(selectedCandidate?.matchReasons.includes('feedback:selected:1'));
   ok(staleCandidate?.matchReasons.includes('feedback:stale:1'));
   ok(staleCandidate?.fitMissingSignals?.includes('prior feedback:stale'));
+});
+
+test('intent suppression demotes stale semantic memories behind fresh anchored evidence', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  const stale = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'memory',
+    sourceUri: 'memory://legacy-schema-migration',
+    itemType: 'memory',
+    title: 'Legacy schema migration lock handling',
+    summary: 'Old schema migration lock workflow.',
+    content: 'Schema migration startup work should use the old global migration lock before checking schema_migrations.',
+    trustLevel: 95,
+    freshnessAt: '2024-01-01T00:00:00.000Z',
+    metadata: { taxonomy: 'incident_lesson' },
+    labels: [{ type: 'technology', value: 'postgres', weight: 1 }],
+  });
+  const fresh = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'file',
+    sourceUri: 'src/storage/migrations.ts',
+    itemType: 'code_ref',
+    title: 'Current schema migration lock handling',
+    summary: 'Current migration locking is implemented in src/storage/migrations.ts.',
+    content: 'Update schema_migrations lock handling in src/storage/migrations.ts. The current code path owns migration lock behavior.',
+    trustLevel: 80,
+    freshnessAt: '2026-05-18T00:00:00.000Z',
+    labels: [
+      { type: 'file', value: 'src/storage/migrations.ts', weight: 1 },
+      { type: 'technology', value: 'postgres', weight: 0.8 },
+    ],
+    references: [{ type: 'file', uri: 'src/storage/migrations.ts' }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Update src/storage/migrations.ts schema_migrations lock handling',
+    bypassCache: true,
+    debug: true,
+  });
+  const ranked = pack.sections.flatMap((section) => section.items);
+  const staleCandidate = pack.debug?.stages
+    .find((stage) => stage.name === 'rerank')
+    ?.candidates.find((candidate) => candidate.knowledgeId === stale.id);
+
+  equal(ranked[0].knowledgeId, fresh.id);
+  ok(staleCandidate?.matchReasons.includes('suppression:freshness:stale'));
+});
+
+test('intent suppression demotes superseded workflows', async () => {
+  const { ingestion, retrieval, store } = createTestServices();
+
+  const legacy = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'workflow',
+    sourceUri: 'workflow://legacy-context-startup',
+    itemType: 'workflow',
+    title: 'Legacy context startup workflow',
+    summary: 'Old context startup workflow.',
+    content: 'Context startup should call direct search and then fetch packs manually.',
+    trustLevel: 95,
+    labels: [{ type: 'business_area', value: 'context', weight: 1 }],
+  });
+  const current = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'workflow',
+    sourceUri: 'workflow://current-context-startup',
+    itemType: 'workflow',
+    title: 'Current context startup workflow',
+    summary: 'Current context startup workflow.',
+    content: 'Context startup should use tuberosa_start_session with includeDeepContext when ready.',
+    trustLevel: 85,
+    labels: [{ type: 'business_area', value: 'context', weight: 1 }],
+  });
+  await store.createKnowledgeRelation({
+    project: 'agent-memory',
+    fromKnowledgeId: current.id,
+    relationType: 'supersedes',
+    targetKind: 'knowledge',
+    targetKnowledgeId: legacy.id,
+    confidence: 0.95,
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'What context startup workflow should agents use?',
+    bypassCache: true,
+  });
+  const ranked = pack.sections.flatMap((section) => section.items);
+  const legacyCandidate = ranked.find((candidate) => candidate.knowledgeId === legacy.id);
+
+  equal(ranked[0].knowledgeId, current.id);
+  ok(legacyCandidate?.matchReasons.includes(`suppression:superseded:${current.id}`));
 });
 
 test('reflection drafts are reviewable and approval creates searchable memory', async () => {

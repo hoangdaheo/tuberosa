@@ -1,4 +1,12 @@
-import type { ClassifiedQuery, ContextSearchInput, LabelInput, TaskType } from '../types.js';
+import type {
+  ClassifiedQuery,
+  ContextSearchInput,
+  LabelInput,
+  RetrievalEvidenceType,
+  RetrievalIntent,
+  RetrievalWorkflowStage,
+  TaskType,
+} from '../types.js';
 import { normalizeLabel, uniqueStrings } from '../util/text.js';
 
 const TECHNOLOGY_TERMS = [
@@ -41,6 +49,7 @@ const BUSINESS_HINTS = [
 export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
   const prompt = input.prompt;
   const lower = prompt.toLowerCase();
+  const hasContinuationIntent = isContinuationIntent(lower);
   const identifierText = stripFilePaths(prompt);
   const files = uniqueStrings([...(input.files ?? []), ...extractFiles(prompt), ...extractContinuationFiles(lower)]);
   const symbols = uniqueStrings([...(input.symbols ?? []), ...extractSymbols(identifierText)]);
@@ -79,6 +88,18 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
     businessAreas,
     exactTerms,
     lexicalQuery: buildLexicalQuery(prompt, exactTerms),
+    intent: buildRetrievalIntent({
+      prompt,
+      lower,
+      taskType,
+      project,
+      files,
+      symbols,
+      errors,
+      technologies,
+      businessAreas,
+      hasContinuationIntent,
+    }),
   };
 }
 
@@ -162,6 +183,170 @@ function inferProject(input: ContextSearchInput): string | undefined {
   }
 
   return undefined;
+}
+
+function buildRetrievalIntent(input: {
+  prompt: string;
+  lower: string;
+  taskType: TaskType;
+  project: string | undefined;
+  files: string[];
+  symbols: string[];
+  errors: string[];
+  technologies: string[];
+  businessAreas: string[];
+  hasContinuationIntent: boolean;
+}): RetrievalIntent {
+  const impliedDomains = uniqueStrings([...input.businessAreas, ...input.technologies]);
+
+  return {
+    taskGoal: inferTaskGoal(input.prompt, input.taskType, input.hasContinuationIntent),
+    workflowStage: inferWorkflowStage(input.taskType, input.hasContinuationIntent),
+    impliedFiles: input.files,
+    impliedSymbols: input.symbols,
+    impliedDomains,
+    recentSessionReferences: input.hasContinuationIntent ? ['selected_context_decisions'] : [],
+    requiredEvidenceTypes: inferRequiredEvidenceTypes(input),
+    uncertaintyReasons: inferUncertaintyReasons(input),
+  };
+}
+
+function inferTaskGoal(prompt: string, taskType: TaskType, hasContinuationIntent: boolean): string {
+  if (hasContinuationIntent) {
+    return 'continue current work';
+  }
+
+  switch (taskType) {
+    case 'debugging':
+      return 'debug or fix reported failure';
+    case 'implementation':
+      return 'implement requested change';
+    case 'refactor':
+      return 'refactor existing code';
+    case 'review':
+      return 'review changes or risk';
+    case 'planning':
+      return 'plan or design the work';
+    case 'exploration':
+      return 'understand existing code or workflow';
+    case 'testing':
+      return 'verify behavior with tests';
+    case 'unknown':
+      return compactPromptGoal(prompt);
+  }
+}
+
+function compactPromptGoal(prompt: string): string {
+  return prompt.replace(/\s+/g, ' ').trim().slice(0, 160) || 'understand user request';
+}
+
+function inferWorkflowStage(taskType: TaskType, hasContinuationIntent: boolean): RetrievalWorkflowStage {
+  if (hasContinuationIntent) {
+    return 'continuation';
+  }
+
+  switch (taskType) {
+    case 'debugging':
+      return 'investigation';
+    case 'implementation':
+    case 'refactor':
+      return 'implementation';
+    case 'review':
+      return 'review';
+    case 'planning':
+      return 'planning';
+    case 'exploration':
+      return 'exploration';
+    case 'testing':
+      return 'verification';
+    case 'unknown':
+      return 'unknown';
+  }
+}
+
+function inferRequiredEvidenceTypes(input: {
+  lower: string;
+  taskType: TaskType;
+  files: string[];
+  symbols: string[];
+  errors: string[];
+  hasContinuationIntent: boolean;
+}): RetrievalEvidenceType[] {
+  const evidence: RetrievalEvidenceType[] = [];
+
+  if (input.hasContinuationIntent) {
+    evidence.push('handoff', 'session_history', 'workflow');
+  }
+
+  switch (input.taskType) {
+    case 'debugging':
+      evidence.push('bugfix', 'code_reference', 'incident_lesson');
+      break;
+    case 'implementation':
+      evidence.push('spec', 'workflow', 'code_reference');
+      break;
+    case 'refactor':
+      evidence.push('code_reference', 'workflow');
+      break;
+    case 'review':
+      evidence.push('code_reference', 'spec');
+      break;
+    case 'planning':
+      evidence.push('spec', 'workflow', 'docs');
+      break;
+    case 'exploration':
+      evidence.push('code_reference', 'docs');
+      break;
+    case 'testing':
+      evidence.push('tests', 'code_reference');
+      break;
+    case 'unknown':
+      evidence.push('docs');
+      break;
+  }
+
+  if (input.files.length || input.symbols.length) {
+    evidence.push('code_reference');
+  }
+
+  if (input.errors.length) {
+    evidence.push('bugfix', 'incident_lesson');
+  }
+
+  if (/\b(reflection|memory|lesson|learned)\b/.test(input.lower)) {
+    evidence.push('reflection_memory');
+  }
+
+  return uniqueStrings(evidence) as RetrievalEvidenceType[];
+}
+
+function inferUncertaintyReasons(input: {
+  project: string | undefined;
+  taskType: TaskType;
+  files: string[];
+  symbols: string[];
+  errors: string[];
+  hasContinuationIntent: boolean;
+}): string[] {
+  const reasons: string[] = [];
+
+  if (!input.project) {
+    reasons.push('project is unclear');
+  }
+
+  if (input.taskType === 'unknown') {
+    reasons.push('task type is unclear');
+  }
+
+  if (!input.files.length && !input.symbols.length && !input.errors.length) {
+    reasons.push('no concrete file, symbol, or error signal was supplied');
+  }
+
+  if (input.hasContinuationIntent) {
+    reasons.push('continuation prompt relies on handoff or recent selected-session context');
+  }
+
+  return reasons;
 }
 
 function extractFiles(prompt: string): string[] {

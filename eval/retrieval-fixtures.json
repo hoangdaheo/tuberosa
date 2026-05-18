@@ -136,6 +136,43 @@
       "references": [
         { "type": "file", "uri": "docker-compose.yml" }
       ]
+    },
+    {
+      "evalId": "current-migration-lock",
+      "sourceType": "file",
+      "sourceUri": "src/storage/migrations.ts",
+      "itemType": "code_ref",
+      "title": "Current schema migration lock handling",
+      "summary": "Current schema migration lock behavior lives in src/storage/migrations.ts.",
+      "content": "Update schema_migrations lock handling in src/storage/migrations.ts. The current implementation owns migration lock behavior and should guide new migration changes.",
+      "trustLevel": 84,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "metadata": { "taxonomy": "code_reference" },
+      "labels": [
+        { "type": "file", "value": "src/storage/migrations.ts", "weight": 1 },
+        { "type": "technology", "value": "postgres", "weight": 0.8 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/storage/migrations.ts" }
+      ]
+    },
+    {
+      "evalId": "legacy-migration-lock",
+      "sourceType": "memory",
+      "sourceUri": "memory://legacy-schema-migration",
+      "itemType": "memory",
+      "title": "Legacy schema migration lock handling",
+      "summary": "Outdated migration lock memory.",
+      "content": "Schema migration startup work should use the old global migration lock before checking schema_migrations. This stale memory is semantically similar but no longer the right implementation evidence.",
+      "trustLevel": 95,
+      "freshnessAt": "2024-01-01T00:00:00.000Z",
+      "metadata": { "taxonomy": "incident_lesson" },
+      "labels": [
+        { "type": "technology", "value": "postgres", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/migrations/legacy-lock.md" }
+      ]
     }
   ],
   "feedbackEvents": [
@@ -237,6 +274,20 @@
       "minContextFitScore": 0.72,
       "expectedClassification": {
         "files": ["handoff.md", "docs/AGENT_CONTEXT_ROADMAP.md"],
+        "taskType": "implementation"
+      }
+    },
+    {
+      "id": "stale-semantic-memory",
+      "prompt": "Update src/storage/migrations.ts schema_migrations lock handling.",
+      "expectedKnowledgeIds": ["current-migration-lock"],
+      "expectedSelectedKnowledgeIds": ["current-migration-lock"],
+      "unexpectedKnowledgeIds": ["legacy-migration-lock"],
+      "minConfidence": 0.74,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.72,
+      "expectedClassification": {
+        "files": ["src/storage/migrations.ts"],
         "taskType": "implementation"
       }
     }

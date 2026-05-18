@@ -25,6 +25,28 @@ export type TaskType =
   | 'testing'
   | 'unknown';
 
+export type RetrievalWorkflowStage =
+  | 'continuation'
+  | 'planning'
+  | 'implementation'
+  | 'investigation'
+  | 'review'
+  | 'verification'
+  | 'exploration'
+  | 'unknown';
+
+export type RetrievalEvidenceType =
+  | 'spec'
+  | 'workflow'
+  | 'code_reference'
+  | 'bugfix'
+  | 'incident_lesson'
+  | 'reflection_memory'
+  | 'session_history'
+  | 'handoff'
+  | 'docs'
+  | 'tests';
+
 export type LabelType =
   | 'project'
   | 'repo'
@@ -223,6 +245,18 @@ export interface ClassifiedQuery {
   businessAreas: string[];
   exactTerms: string[];
   lexicalQuery: string;
+  intent: RetrievalIntent;
+}
+
+export interface RetrievalIntent {
+  taskGoal: string;
+  workflowStage: RetrievalWorkflowStage;
+  impliedFiles: string[];
+  impliedSymbols: string[];
+  impliedDomains: string[];
+  recentSessionReferences: string[];
+  requiredEvidenceTypes: RetrievalEvidenceType[];
+  uncertaintyReasons: string[];
 }
 
 export interface QueryRewriteInput {

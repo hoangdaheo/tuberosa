@@ -13,8 +13,10 @@ import type {
   FeedbackInput,
   KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
+  KnowledgeRelation,
   KnowledgeSearchResult,
   QueryRewriteResult,
+  RetrievalEvidenceType,
   RankedCandidate,
   SearchOptions,
 } from '../types.js';
@@ -266,21 +268,42 @@ export class RetrievalService {
       decisions: rerankResult.decisions,
     });
     const reranked = this.safety.sanitizeSearchCandidates(rerankResult.candidates);
-    const feedbackAdjusted = await this.applyFeedbackSummaries(reranked, project ?? classified.project);
-    debug?.recordStage('rerank', feedbackAdjusted);
-    return feedbackAdjusted;
+    const adjusted = await this.applyRankingAdjustments(reranked, classified, project ?? classified.project);
+    debug?.recordStage('rerank', adjusted);
+    return adjusted;
   }
 
-  private async applyFeedbackSummaries(candidates: RankedCandidate[], project?: string): Promise<RankedCandidate[]> {
+  private async applyRankingAdjustments(
+    candidates: RankedCandidate[],
+    classified: ClassifiedQuery,
+    project?: string,
+  ): Promise<RankedCandidate[]> {
     const summaries = await this.store.getFeedbackSummaries(
       [...new Set(candidates.map((candidate) => candidate.knowledgeId))],
       { project },
     );
+    const supersededBy = await this.supersededByRelations(candidates, project);
 
     return candidates
       .map((candidate) => applyFeedbackSummary(candidate, summaries.get(candidate.knowledgeId)))
+      .map((candidate) => applyIntentSuppression(candidate, classified, supersededBy.get(candidate.knowledgeId) ?? []))
       .sort((left, right) => right.finalScore - left.finalScore || left.rank - right.rank)
       .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+  }
+
+  private async supersededByRelations(candidates: RankedCandidate[], project?: string): Promise<Map<string, KnowledgeRelation[]>> {
+    const knowledgeIds = uniqueStrings(candidates.map((candidate) => candidate.knowledgeId));
+    const entries = await Promise.all(knowledgeIds.map(async (knowledgeId) => {
+      const relations = await this.store.listKnowledgeRelations({
+        project,
+        targetKnowledgeId: knowledgeId,
+        relationType: 'supersedes',
+        limit: 8,
+      });
+      return [knowledgeId, relations.filter((relation) => relation.fromKnowledgeId !== knowledgeId && relation.confidence >= 0.5)] as const;
+    }));
+
+    return new Map(entries.filter(([, relations]) => relations.length > 0));
   }
 
   private buildContextPack(input: {
@@ -801,6 +824,173 @@ function applyFeedbackSummary(
       feedback: feedbackMetadata,
     },
   };
+}
+
+function applyIntentSuppression(
+  candidate: RankedCandidate,
+  classified: ClassifiedQuery,
+  supersededBy: KnowledgeRelation[],
+): RankedCandidate {
+  const adjustment = intentSuppressionAdjustment(candidate, classified, supersededBy);
+  if (adjustment.score === 0) {
+    return candidate;
+  }
+
+  return {
+    ...candidate,
+    finalScore: clampScore(candidate.finalScore + adjustment.score),
+    matchReasons: [
+      ...candidate.matchReasons,
+      ...adjustment.reasons,
+    ],
+    metadata: {
+      ...(candidate.metadata ?? {}),
+      retrievalSuppression: {
+        scoreAdjustment: roundFeedbackAdjustment(adjustment.score),
+        reasons: adjustment.reasons,
+        supersededBy: supersededBy.map((relation) => relation.fromKnowledgeId),
+      },
+    },
+  };
+}
+
+function intentSuppressionAdjustment(
+  candidate: RankedCandidate,
+  classified: ClassifiedQuery,
+  supersededBy: KnowledgeRelation[],
+): { score: number; reasons: string[] } {
+  const reasons: string[] = [];
+  let score = 0;
+  const hasHardEvidence = hasHardSignalEvidence(candidate, classified);
+
+  if (supersededBy.length > 0) {
+    const strongest = Math.max(...supersededBy.map((relation) => relation.confidence));
+    score -= Math.min(0.28, 0.18 + strongest * 0.08);
+    reasons.push(`suppression:superseded:${supersededBy[0].fromKnowledgeId}`);
+  }
+
+  if (isStaleCandidate(candidate) && !hasHardEvidence) {
+    score -= 0.14;
+    reasons.push('suppression:freshness:stale');
+  }
+
+  const feedback = feedbackStatusFromCandidate(candidate);
+  if ((feedback === 'stale' || feedback === 'rejected' || feedback === 'irrelevant') && !hasHardEvidence) {
+    score -= feedback === 'stale' ? 0.1 : 0.08;
+    reasons.push(`suppression:prior feedback:${feedback}`);
+  }
+
+  if (!hasHardEvidence && !requiredEvidenceMatches(candidate, classified.intent.requiredEvidenceTypes)) {
+    score -= 0.1;
+    reasons.push('suppression:evidence_mismatch');
+  }
+
+  return { score: roundFeedbackAdjustment(score), reasons };
+}
+
+function hasHardSignalEvidence(candidate: RankedCandidate, classified: ClassifiedQuery): boolean {
+  return [
+    ...classified.files,
+    ...classified.symbols,
+    ...classified.errors,
+  ].some((signal) => candidateText(candidate).includes(signal.toLowerCase()));
+}
+
+function isStaleCandidate(candidate: RankedCandidate): boolean {
+  const metadataStale = candidate.metadata?.stale === true || feedbackStatusFromCandidate(candidate) === 'stale';
+  if (metadataStale) {
+    return true;
+  }
+
+  const freshnessAt = candidate.freshnessAt ?? metadataString(candidate.metadata, 'freshnessAt');
+  if (!freshnessAt) {
+    return false;
+  }
+
+  const timestamp = Date.parse(freshnessAt);
+  if (Number.isNaN(timestamp)) {
+    return false;
+  }
+
+  return Date.now() - timestamp > 365 * 86_400_000;
+}
+
+function requiredEvidenceMatches(candidate: RankedCandidate, evidenceTypes: RetrievalEvidenceType[]): boolean {
+  if (evidenceTypes.length === 0) {
+    return true;
+  }
+
+  return evidenceTypes.some((type) => candidateSupportsEvidence(candidate, type));
+}
+
+function candidateSupportsEvidence(candidate: RankedCandidate, evidenceType: RetrievalEvidenceType): boolean {
+  switch (evidenceType) {
+    case 'spec':
+      return candidate.itemType === 'spec' || hasMetadataTaxonomy(candidate, 'domain_rule');
+    case 'workflow':
+      return candidate.itemType === 'workflow' || candidate.itemType === 'rule' || hasMetadataTaxonomy(candidate, 'workflow');
+    case 'code_reference':
+      return candidate.itemType === 'code_ref'
+        || candidate.references.some((reference) => reference.type === 'file')
+        || candidate.labels.some((label) => label.type === 'file' || label.type === 'symbol');
+    case 'bugfix':
+      return candidate.itemType === 'bugfix'
+        || candidate.labels.some((label) => label.type === 'error' || (label.type === 'task_type' && label.value === 'debugging'));
+    case 'incident_lesson':
+      return hasMetadataTaxonomy(candidate, 'incident_lesson')
+        || metadataString(candidate.metadata, 'triggerType') === 'error_recovery'
+        || candidate.references.some((reference) => reference.uri.startsWith('tuberosa://error-logs/'));
+    case 'reflection_memory':
+      return candidate.itemType === 'memory' || Boolean(metadataString(candidate.metadata, 'triggerType'));
+    case 'session_history':
+      return Boolean(metadataString(candidate.metadata, 'agentSessionId'))
+        || candidate.references.some((reference) => reference.type === 'conversation');
+    case 'handoff':
+      return candidate.references.some((reference) => reference.uri === 'handoff.md')
+        || candidate.labels.some((label) => label.type === 'file' && label.value === 'handoff.md');
+    case 'docs':
+      return candidate.itemType === 'wiki'
+        || candidate.references.some((reference) => reference.type === 'file' && reference.uri.endsWith('.md'));
+    case 'tests':
+      return candidate.references.some((reference) => /(^|\/|-)test(s)?[/.]|\.test\./.test(reference.uri))
+        || candidate.labels.some((label) => label.type === 'file' && /(^|\/|-)test(s)?[/.]|\.test\./.test(label.value));
+  }
+}
+
+function hasMetadataTaxonomy(candidate: RankedCandidate, taxonomy: string): boolean {
+  return metadataString(candidate.metadata, 'taxonomy') === taxonomy;
+}
+
+function candidateText(candidate: RankedCandidate): string {
+  return [
+    candidate.title,
+    candidate.summary,
+    candidate.content,
+    candidate.contextualContent,
+    candidate.labels.map((label) => `${label.type}:${label.value}`).join(' '),
+    candidate.references.map((reference) => reference.uri).join(' '),
+    JSON.stringify(candidate.metadata ?? {}),
+  ].join(' ').toLowerCase();
+}
+
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function feedbackStatusFromCandidate(candidate: RankedCandidate): string | undefined {
+  const direct = metadataString(candidate.metadata, 'feedbackStatus') ?? metadataString(candidate.metadata, 'priorFeedback');
+  if (direct) {
+    return direct;
+  }
+
+  const feedback = candidate.metadata?.feedback;
+  if (!feedback || typeof feedback !== 'object') {
+    return undefined;
+  }
+
+  const status = (feedback as Record<string, unknown>).status;
+  return typeof status === 'string' ? status : undefined;
 }
 
 function feedbackScoreAdjustment(summary: KnowledgeFeedbackSummary): number {

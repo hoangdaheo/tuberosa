@@ -810,6 +810,16 @@ function samplePack(overrides: Partial<ContextPack> = {}): ContextPack {
       businessAreas: ['auth'],
       exactTerms: ['auth'],
       lexicalQuery: 'auth guidance',
+      intent: {
+        taskGoal: 'understand existing code or workflow',
+        workflowStage: 'exploration',
+        impliedFiles: [],
+        impliedSymbols: [],
+        impliedDomains: ['auth'],
+        recentSessionReferences: [],
+        requiredEvidenceTypes: ['code_reference', 'docs'],
+        uncertaintyReasons: ['no concrete file, symbol, or error signal was supplied'],
+      },
     },
     contextFit: {
       fitStatus: 'ready',

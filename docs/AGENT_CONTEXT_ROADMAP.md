@@ -407,6 +407,7 @@ Planned work:
   - implied files, symbols, domains, and recent session references
   - required evidence types, such as spec, bugfix, workflow, or code reference
   - uncertainty reasons
+- Started: deterministic classification now emits `classified.intent` with task goal, workflow stage, implied files/symbols/domains, recent selected-session references for continuation prompts, required evidence types, and uncertainty reasons.
 - Add continuation-aware retrieval using agent sessions, latest context decisions, recent reflection drafts, and handoff-style knowledge.
   - Started: vague continuation prompts now anchor to `handoff.md`, and roadmap/phase continuation prompts also anchor to `docs/AGENT_CONTEXT_ROADMAP.md`.
   - Started: file paths are stripped before symbol/error extraction, so roadmap file anchors do not create fake signals such as `AGENT_CONTEXT_ROADMAP`.
@@ -414,10 +415,12 @@ Planned work:
   - Started: continuation hints preserve explicit user-provided signals first and only add bounded inferred signals after them.
   - Started: continuation hints use explicitly selected pack ids only, so a rejected initial pack does not leak signals when a retry pack was selected.
 - Started: reflection draft suggested labels are normalized before approval paths can turn them into durable memory, including generic continuation-word filtering and ambiguous `go`/`rest` technology cleanup that preserves explicit Go/REST evidence.
-- Next implementation priority: add deterministic structured retrieval intent before more ranking changes, then use that intent to drive stale-memory suppression, conflict/supersession review, and missing-context knowledge-gap records.
+- Next implementation priority: use deterministic structured retrieval intent to drive stale-memory suppression, conflict/supersession review, and missing-context knowledge-gap records.
 - Add stale-memory suppression that combines freshness, feedback, supersession relations, and context-fit mismatch before final ranking.
+  - Started: ranking now applies deterministic intent-aware suppression after rerank and feedback adjustment. It demotes stale weak-evidence candidates, prior stale/rejected/irrelevant feedback, evidence-type mismatches, and knowledge targeted by `supersedes` relations before context-fit assembly.
 - Add explicit conflict and supersession handling:
   - `supersedes` relation support in ranking
+  - Started: candidates superseded by a `supersedes` relation are demoted and annotated with a suppression match reason.
   - conflict detection for knowledge with overlapping labels/references but contradictory summaries or freshness
   - review queue for unresolved conflicts
 - Add provider-backed reranking prompts that prefer evidence coverage over generic semantic similarity.
@@ -439,7 +442,7 @@ Planned work:
   - whether any returned item may be stale, weakly related, or superseded
 - Expand retrieval evaluation fixtures with hard cases:
   - vague continuation prompts
-  - stale semantically similar memories
+  - Started: stale semantically similar memory fixture now verifies current anchored migration-lock code context beats a stale migration-lock memory.
   - conflicting memories
   - superseded workflows
   - missing-context retry behavior
