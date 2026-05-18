@@ -245,6 +245,60 @@ test('MCP agent session startup can return working deep context in one call', as
   equal(result.structuredContent?.context?.deepContext?.sections?.[0]?.items?.[0]?.content, 'Full Auth guidance.');
 });
 
+test('MCP finish session accepts automatic learning mode', async () => {
+  const draft = { ...sampleDraft(), status: 'approved' as const };
+  const result = await handleMcpRequest(fakeServices({
+    agentSessions: {
+      finishSession: async (input: { learningMode?: string }) => {
+        equal(input.learningMode, 'draft_only');
+        return {
+          session: {
+            id: 'session-1',
+            project: 'agent-memory',
+            prompt: 'Find auth guidance',
+            status: 'finished',
+            initialContextPackId: 'pack-1',
+            outcome: 'completed',
+            reflectionDraftIds: ['draft-1'],
+            metadata: {},
+            createdAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          },
+          reflectionDraft: draft,
+          learningCandidate: draft,
+          learningDecision: {
+            mode: 'draft_only',
+            status: 'drafted',
+            reasons: ['learningMode is draft_only'],
+            draftId: 'draft-1',
+          },
+          compliance: {
+            status: 'compliant',
+            checkedAt: new Date().toISOString(),
+            instruction: 'Context was selected before the session finished.',
+            decisionIds: ['decision-1'],
+            contextPackId: 'pack-1',
+          },
+        };
+      },
+    },
+  }), {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_finish_session',
+      arguments: {
+        sessionId: 'session-1',
+        outcome: 'completed',
+        summary: 'Finished auth guidance work.',
+        learningMode: 'draft_only',
+      },
+    },
+  }) as { structuredContent?: { learningDecision?: { mode?: string; status?: string } } };
+
+  equal(result.structuredContent?.learningDecision?.mode, 'draft_only');
+  equal(result.structuredContent?.learningDecision?.status, 'drafted');
+});
+
 test('MCP reflection review tools list, inspect, and record decisions', async () => {
   const draft = sampleDraft();
   const services = fakeServices({

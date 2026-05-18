@@ -394,13 +394,17 @@ Decision flow:
 Finish flow:
 
 1. Caller records outcome: completed, failed, blocked, or cancelled.
-2. Caller may include a reflection draft payload.
-3. Service creates a pending reflection draft and links its id to the session.
-4. Store marks the session finished with summary, metadata, timestamps, and reflection draft ids.
+2. Caller may include a reflection draft payload, or let `learningMode` default to `auto`.
+3. If an explicit draft is supplied, service creates that draft and skips automatic learning extraction.
+4. If automatic learning is enabled, service builds a learning candidate from the session prompt, selected context pack, context decisions, finish summary, inferred labels, references, and provenance.
+5. Auto-learning approves the candidate only when the session is completed, context-compliant, backed by ready selected context, free of negative or missing-context decisions, grounded by non-conversation references, useful enough to store, non-duplicate, and safety-clean.
+6. Candidates that do not pass the gates are kept reviewable, normally as `needs_changes`; unsafe or invalid candidates are rejected from the finish result without failing the session finish.
+7. Store marks the session finished with summary, context compliance, learning decision metadata, timestamps, and reflection draft ids.
 
 Design rule:
 
 - Session orchestration should depend on retrieval, reflection, and `KnowledgeStore`; retrieval ranking and reflection approval remain independent services.
+- Automatic learning should never store raw conversation as trusted memory. It must preserve provenance, labels, references, and cleanup reasons so agents can review or archive weak memory later.
 
 ## 12. Reflection Flow
 
@@ -625,7 +629,7 @@ Tool flow:
 4. `tuberosa_get_context_pack` returns full pack.
 5. `tuberosa_start_session` creates a session and returns a shortlist plus policy.
 6. `tuberosa_record_context_decision` records feedback and a session audit decision.
-7. `tuberosa_finish_session` records outcome and optionally creates a pending reflection draft.
+7. `tuberosa_finish_session` records outcome and creates automatic session learning unless disabled or replaced by an explicit draft.
 8. `tuberosa_reflect` creates a pending draft.
 9. `tuberosa_feedback_context` records feedback and may return a retry pack.
 10. Error-log tools record, list, read, and update physical incidents for later debugging.

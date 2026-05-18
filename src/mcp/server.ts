@@ -443,9 +443,10 @@ function getPrompt(params: Record<string, unknown>) {
           content: {
             type: 'text',
             text: [
-              'Before starting the task, call tuberosa_start_session with the user prompt, current project, cwd, files, symbols, errors, contextMode layered, and includeDeepContext true when known.',
+              'Before starting the task, call tuberosa_start_session with the user prompt as-is, then enrich it yourself with current project, cwd, files, symbols, errors, contextMode layered, and includeDeepContext true when known.',
               'Use returned deep context when deepContextReturned is true; otherwise inspect the shortlist and fetch the full pack only after confirming it is appropriate.',
               'Record selected, rejected, stale, irrelevant, or missing_context with tuberosa_record_context_decision before finishing the session.',
+              'Finish with tuberosa_finish_session. Unless the user opts out, let automatic session learning extract the durable lesson; weak candidates stay reviewable and strong candidates can be approved automatically.',
               'If the context is rejected, record the decision and retry once. If it still misses, continue with fresh context only after recording missing_context or an explicit bypass reason.',
               args.prompt ? `User prompt: ${args.prompt}` : undefined,
             ].filter(Boolean).join('\n'),
@@ -662,7 +663,7 @@ function tools() {
     {
       name: 'tuberosa_finish_session',
       title: 'Finish Tuberosa Agent Session',
-      description: 'Finish an agent session and optionally create a reviewable reflection draft.',
+      description: 'Finish an agent session and create automatic learning unless disabled or replaced by an explicit reflection draft.',
       inputSchema: {
         type: 'object',
         required: ['sessionId', 'outcome'],
@@ -671,6 +672,7 @@ function tools() {
           outcome: { type: 'string' },
           summary: { type: 'string' },
           contextBypassReason: { type: 'string' },
+          learningMode: { type: 'string', enum: ['auto', 'draft_only', 'off'] },
           metadata: { type: 'object' },
           reflectionDraft: { type: 'object' },
         },

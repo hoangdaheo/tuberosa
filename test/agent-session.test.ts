@@ -119,6 +119,120 @@ test('agent sessions start with context, record decisions, retry rejected contex
   equal(finished.session.reflectionDraftIds[0], finished.reflectionDraft?.id);
 });
 
+test('agent session finish auto-approves grounded learning when quality gates pass', async () => {
+  const { agentSessions, ingestion, store } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'auto-learning',
+    sourceType: 'file',
+    sourceUri: 'src/widget.ts',
+    itemType: 'code_ref',
+    title: 'WidgetService persistence code reference',
+    summary: 'Current WidgetService persistence implementation.',
+    content: 'WidgetService writes persistence changes in src/widget.ts and should keep verification close to the service.',
+    trustLevel: 90,
+    labels: [
+      { type: 'file', value: 'src/widget.ts', weight: 1 },
+      { type: 'symbol', value: 'WidgetService', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/widget.ts' }],
+  });
+
+  const started = await agentSessions.startSession({
+    project: 'auto-learning',
+    cwd: '/repo',
+    prompt: 'Update src/widget.ts for WidgetService persistence',
+    files: ['src/widget.ts'],
+    symbols: ['WidgetService'],
+    taskType: 'implementation',
+  });
+
+  await agentSessions.recordContextDecision({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    feedbackType: 'selected',
+    reason: 'The code reference matches the implementation task.',
+  });
+
+  const finished = await agentSessions.finishSession({
+    sessionId: started.session.id,
+    outcome: 'completed',
+    summary: 'WidgetService persistence work should stay scoped to src/widget.ts and use the service reference as the verification anchor.',
+  });
+
+  equal(finished.learningDecision?.status, 'auto_approved');
+  equal(finished.autoApprovedMemory?.status, 'approved');
+  equal(finished.reflectionDraft?.status, 'approved');
+  equal(finished.session.reflectionDraftIds[0], finished.autoApprovedMemory?.id);
+
+  const autoMemories = await store.listKnowledge({ project: 'auto-learning', review: 'auto_memory', limit: 10 });
+  const riskyAutoMemories = await store.listKnowledge({ project: 'auto-learning', review: 'risky_auto_memory', limit: 10 });
+  equal(autoMemories.length, 1);
+  equal(riskyAutoMemories.length, 0);
+});
+
+test('agent session auto-learning keeps negative-feedback lessons reviewable', async () => {
+  const { agentSessions, ingestion } = createTestServices();
+
+  const stale = await ingestion.ingestKnowledge({
+    project: 'review-learning',
+    sourceType: 'file',
+    sourceUri: 'docs/cache-old.md',
+    itemType: 'workflow',
+    title: 'Old CacheService workflow',
+    summary: 'Legacy CacheService workflow.',
+    content: 'CacheService should use the old cache path.',
+    trustLevel: 70,
+    labels: [
+      { type: 'file', value: 'src/cache.ts', weight: 1 },
+      { type: 'symbol', value: 'CacheService', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'docs/cache-old.md' }],
+  });
+  await ingestion.ingestKnowledge({
+    project: 'review-learning',
+    sourceType: 'file',
+    sourceUri: 'docs/cache-new.md',
+    itemType: 'code_ref',
+    title: 'Current CacheService workflow',
+    summary: 'Current CacheService workflow.',
+    content: 'CacheService should use the current cache path in src/cache.ts.',
+    trustLevel: 90,
+    labels: [
+      { type: 'file', value: 'src/cache.ts', weight: 1 },
+      { type: 'symbol', value: 'CacheService', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/cache.ts' }],
+  });
+
+  const started = await agentSessions.startSession({
+    project: 'review-learning',
+    cwd: '/repo',
+    prompt: 'Update src/cache.ts for CacheService',
+    files: ['src/cache.ts'],
+    symbols: ['CacheService'],
+    taskType: 'implementation',
+  });
+
+  await agentSessions.recordContextDecision({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    feedbackType: 'rejected',
+    reason: 'The first pack included legacy cache guidance.',
+    rejectedKnowledgeIds: [stale.id],
+  });
+
+  const finished = await agentSessions.finishSession({
+    sessionId: started.session.id,
+    outcome: 'completed',
+    summary: 'CacheService work should avoid the legacy cache workflow and keep the current src/cache.ts reference for future agents.',
+  });
+
+  equal(finished.learningDecision?.status, 'drafted');
+  equal(finished.reflectionDraft?.status, 'needs_changes');
+  ok(finished.learningDecision?.reasons.some((reason) => reason.includes('negative')));
+});
+
 function createTestServices() {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();

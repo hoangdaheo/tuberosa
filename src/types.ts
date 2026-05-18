@@ -224,7 +224,9 @@ export type KnowledgeReviewFilter =
   | 'stale'
   | 'rejected'
   | 'irrelevant'
-  | 'orphaned';
+  | 'orphaned'
+  | 'auto_memory'
+  | 'risky_auto_memory';
 
 export interface ListKnowledgeOptions {
   project?: string;
@@ -520,6 +522,21 @@ export type AgentSessionOutcome = 'completed' | 'failed' | 'blocked' | 'cancelle
 
 export type AgentContextDecisionType = FeedbackInput['feedbackType'];
 
+export type AgentLearningMode = 'auto' | 'draft_only' | 'off';
+
+export type AgentLearningDecisionStatus =
+  | 'skipped'
+  | 'drafted'
+  | 'auto_approved'
+  | 'rejected';
+
+export interface AgentSessionLearningDecision {
+  mode: AgentLearningMode;
+  status: AgentLearningDecisionStatus;
+  reasons: string[];
+  draftId?: string;
+}
+
 export interface AgentSession {
   id: string;
   project?: string;
@@ -737,6 +754,7 @@ export interface FinishAgentSessionInput {
   outcome: AgentSessionOutcome;
   summary?: string;
   contextBypassReason?: string;
+  learningMode?: AgentLearningMode;
   metadata?: Record<string, unknown>;
   reflectionDraft?: ReflectionDraftInput;
 }
@@ -979,6 +997,9 @@ export interface AgentSessionDecisionResult {
 export interface AgentSessionFinishResult {
   session: AgentSession;
   reflectionDraft?: ReflectionDraft;
+  learningCandidate?: ReflectionDraft;
+  autoApprovedMemory?: ReflectionDraft;
+  learningDecision?: AgentSessionLearningDecision;
   compliance: AgentContextCompliance;
 }
 

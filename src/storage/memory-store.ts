@@ -1017,9 +1017,22 @@ function knowledgeMatchesReview(
   const unsafe = safety?.status === 'suspicious' || safety?.status === 'blocked' || Number(safety?.redactionCount ?? 0) > 0;
   const lowTrust = item.trustLevel < 50;
   const orphaned = item.references.length === 0 && item.labels.length === 0;
+  const autoMemory = item.metadata.source === 'agent_session_finish' || item.metadata.learningMode === 'auto';
+  const weakAutoMemory = autoMemory && (
+    !item.references.some((reference) => reference.type !== 'conversation')
+    || !item.labels.some((label) => ['task_type', 'file', 'symbol', 'error'].includes(label.type))
+  );
 
   if (review === 'questionable') {
     return unsafe || lowTrust || stale || rejected || irrelevant || item.status !== 'approved';
+  }
+
+  if (review === 'auto_memory') {
+    return autoMemory;
+  }
+
+  if (review === 'risky_auto_memory') {
+    return autoMemory && (unsafe || lowTrust || stale || rejected || irrelevant || item.status !== 'approved' || weakAutoMemory);
   }
 
   if (review === 'unsafe') {

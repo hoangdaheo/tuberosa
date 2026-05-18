@@ -430,9 +430,10 @@ Review filters expose operational queues:
 curl 'http://localhost:3027/knowledge?project=newsletter-app&review=questionable'
 curl 'http://localhost:3027/knowledge?project=newsletter-app&review=unsafe'
 curl 'http://localhost:3027/knowledge?project=newsletter-app&review=stale'
+curl 'http://localhost:3027/knowledge?project=newsletter-app&review=risky_auto_memory'
 ```
 
-Supported `review` values are `questionable`, `unsafe`, `low_trust`, `stale`, `rejected`, `irrelevant`, and `orphaned`.
+Supported `review` values are `questionable`, `unsafe`, `low_trust`, `stale`, `rejected`, `irrelevant`, `orphaned`, `auto_memory`, and `risky_auto_memory`. Use `auto_memory` to audit memories approved from agent-session learning, and `risky_auto_memory` to find auto memories with weak references, weak labels, negative feedback, unsafe metadata, low trust, or non-approved status.
 
 ### Inspect Or Update Knowledge
 
@@ -671,7 +672,7 @@ Automatic capture records unexpected Tuberosa HTTP and MCP failures when `TUBERO
 
 ### Start An Agent Session
 
-Use sessions when an agent should leave an audit trail for context selection and task outcome:
+Use sessions when an agent should leave an audit trail for context selection, task outcome, and automatic learning. Users can phrase the task normally; the agent should enrich the request with project, cwd, files, symbols, errors, and task type when those signals are available.
 
 ```bash
 curl -X POST http://localhost:3027/agent-sessions \
@@ -716,12 +717,28 @@ curl 'http://localhost:3027/agent-sessions/<session-id>/context-decisions'
 
 ### Finish An Agent Session
 
+By default, session finish uses `learningMode: "auto"`. Tuberosa creates a learning candidate from the session prompt, selected context, decisions, summary, labels, references, and provenance. It auto-approves the memory only when strict safety, duplicate, evidence, usefulness, and context-compliance gates pass. Weak candidates are left reviewable instead of becoming trusted memory.
+
+```bash
+curl -X POST http://localhost:3027/agent-sessions/<session-id>/finish \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "outcome": "completed",
+    "summary": "Updated the paywall selection flow while preserving selected products."
+  }'
+```
+
+Use `learningMode: "draft_only"` when an agent should draft but never auto-approve, or `learningMode: "off"` when the session should not create learning.
+
+You can still provide an explicit reflection draft. In that case Tuberosa uses the supplied draft and skips automatic extraction:
+
 ```bash
 curl -X POST http://localhost:3027/agent-sessions/<session-id>/finish \
   -H 'Content-Type: application/json' \
   -d '{
     "outcome": "completed",
     "summary": "Updated the paywall selection flow.",
+    "learningMode": "off",
     "reflectionDraft": {
       "title": "Keep paywall selection stable",
       "summary": "Paywall session work should preserve selected products.",
@@ -737,7 +754,7 @@ curl -X POST http://localhost:3027/agent-sessions/<session-id>/finish \
   }'
 ```
 
-The reflection draft remains pending until it is approved.
+The finish response includes `learningDecision`, and may include `learningCandidate` or `autoApprovedMemory`. Explicit and weak auto-created drafts remain reviewable until approved.
 
 ### Create A Reflection Draft
 
@@ -957,15 +974,15 @@ Prompts:
 Recommended agent flow:
 
 1. Prefer `tuberosa_start_session` before implementation or debugging.
-2. Include prompt, project, cwd, files, symbols, errors, task type, `contextMode: "layered"`, and `includeDeepContext: true` when known.
+2. Pass the user's normal prompt as-is, then add inferred project, cwd, files, symbols, errors, task type, `contextMode: "layered"`, and `includeDeepContext: true` when known.
 3. If `deepContextReturned` is true, use the returned expanded context before working; otherwise inspect the shortlist and fetch the full pack only after confirming it is appropriate.
 4. Follow the returned policy: proceed, confirm, or clarify.
 5. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.
 6. If a retry pack is returned, review its context fit before using it.
-7. Finish with `tuberosa_finish_session` and include a reflection draft when the task produced a durable lesson. If context was intentionally skipped, include `contextBypassReason`.
+7. Finish with `tuberosa_finish_session`; by default automatic learning extracts the durable lesson from the session summary and only auto-approves when strict gates pass. If context was intentionally skipped, include `contextBypassReason`.
 8. When an error should be fixed later, call `tuberosa_record_error_log` with sanitized message, stack, command, files, symbols, errors, and references.
 9. Use direct tools (`tuberosa_search_context`, `tuberosa_feedback_context`, `tuberosa_reflect`, and `tuberosa_record_error_log`) for manual or one-off workflows.
-10. Approve reflection drafts before they become searchable memory, then link fixed incidents with `tuberosa_update_error_log`.
+10. Review `learningCandidate` drafts that were marked `needs_changes`, clean up bad memories with knowledge review operations, and link fixed incidents with `tuberosa_update_error_log`.
 
 Use `debug: true` in `tuberosa_search_context` only when diagnosing retrieval quality.
 

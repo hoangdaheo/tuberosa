@@ -1912,6 +1912,24 @@ function knowledgeReviewSql(
   const stale = feedbackExistsSql('stale');
   const rejected = feedbackExistsSql('rejected');
   const irrelevant = feedbackExistsSql('irrelevant');
+  const autoMemory = "(ki.metadata->>'source' = 'agent_session_finish' OR ki.metadata->>'learningMode' = 'auto')";
+  const noGroundedReference = `
+    NOT EXISTS (
+      SELECT 1
+      FROM knowledge_references kr
+      WHERE kr.knowledge_id = ki.id
+        AND kr.ref_type <> 'conversation'
+    )
+  `;
+  const noConcreteLabel = `
+    NOT EXISTS (
+      SELECT 1
+      FROM knowledge_labels kl
+      JOIN labels l ON l.id = kl.label_id
+      WHERE kl.knowledge_id = ki.id
+        AND l.label_type IN ('task_type', 'file', 'symbol', 'error')
+    )
+  `;
   const orphaned = `
     (
       NOT EXISTS (SELECT 1 FROM knowledge_references kr WHERE kr.knowledge_id = ki.id)
@@ -1921,6 +1939,14 @@ function knowledgeReviewSql(
 
   if (review === 'questionable') {
     return `(${unsafe} OR ${lowTrust} OR ${stale} OR ${rejected} OR ${irrelevant} OR ki.status <> 'approved')`;
+  }
+
+  if (review === 'auto_memory') {
+    return autoMemory;
+  }
+
+  if (review === 'risky_auto_memory') {
+    return `(${autoMemory} AND (${unsafe} OR ${lowTrust} OR ${stale} OR ${rejected} OR ${irrelevant} OR ki.status <> 'approved' OR ${noGroundedReference} OR ${noConcreteLabel}))`;
   }
 
   if (review === 'unsafe') {

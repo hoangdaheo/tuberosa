@@ -1,6 +1,7 @@
 import type { IngestFileInput, IngestionMode } from './ingest/service.js';
 import type {
   AgentSessionOutcome,
+  AgentLearningMode,
   BackupRetentionInput,
   CollectErrorLogsOptions,
   CreateBackupInput,
@@ -121,6 +122,7 @@ const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly Inges
 const CONTEXT_MODES = ['compact', 'layered'] as const;
 const FEEDBACK_TYPES = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'] as const;
 const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
+const AGENT_LEARNING_MODES = ['auto', 'draft_only', 'off'] as const satisfies readonly AgentLearningMode[];
 const KNOWLEDGE_STATUSES = ['approved', 'needs_review', 'archived', 'blocked'] as const satisfies readonly KnowledgeStatus[];
 const KNOWLEDGE_REVIEW_FILTERS = [
   'questionable',
@@ -130,6 +132,8 @@ const KNOWLEDGE_REVIEW_FILTERS = [
   'rejected',
   'irrelevant',
   'orphaned',
+  'auto_memory',
+  'risky_auto_memory',
 ] as const satisfies readonly KnowledgeReviewFilter[];
 const KNOWLEDGE_CONFLICT_STATUSES = ['open', 'resolved', 'dismissed'] as const satisfies readonly KnowledgeConflictStatus[];
 const REFLECTION_DRAFT_STATUSES = [
@@ -336,6 +340,7 @@ export function validateFinishAgentSessionInput(value: unknown, sessionId?: stri
     outcome: readRequiredEnum(record, 'outcome', AGENT_SESSION_OUTCOMES, 'finish agent session input'),
     summary: readOptionalString(record, 'summary', 'finish agent session input'),
     contextBypassReason: readOptionalString(record, 'contextBypassReason', 'finish agent session input'),
+    learningMode: readOptionalEnum(record, 'learningMode', AGENT_LEARNING_MODES, 'finish agent session input'),
     metadata: readOptionalObject(record, 'metadata', 'finish agent session input'),
     reflectionDraft,
   };
