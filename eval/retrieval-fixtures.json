@@ -549,6 +549,52 @@
         }
       ]
     }
+    ,
+    {
+      "evalId": "sender-queue-code-ref",
+      "sourceType": "file",
+      "sourceUri": "src/email/sender-queue.ts",
+      "itemType": "code_ref",
+      "title": "sender-queue.ts",
+      "summary": "Email sender queue implementation.",
+      "content": "Handles queuing and dispatching of outbound email jobs. Retries on transient failures.",
+      "trustLevel": 65,
+      "labels": [
+        {
+          "type": "file",
+          "value": "src/email/sender-queue.ts",
+          "weight": 1
+        },
+        {
+          "type": "symbol",
+          "value": "SenderQueue",
+          "weight": 1
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "src/email/sender-queue.ts"
+        }
+      ]
+    },
+    {
+      "evalId": "noisy-ops-workflow",
+      "sourceType": "memory",
+      "sourceUri": "memory://ops-checklist",
+      "itemType": "workflow",
+      "title": "Ops pre-deploy checklist",
+      "summary": "Run ops checklist before every deploy.",
+      "content": "Verify database migrations, check Redis connections, confirm backup retention policies before deploying.",
+      "trustLevel": 95,
+      "labels": [
+        {
+          "type": "business_area",
+          "value": "operations",
+          "weight": 1
+        }
+      ]
+    }
   ],
   "feedbackEvents": [
     {
@@ -853,6 +899,51 @@
           "MediaUploadHandler"
         ],
         "taskType": "implementation"
+      }
+    },
+    {
+      "id": "code-ref-file-label-surfaces",
+      "prompt": "Fix the SenderQueue retry logic in src/email/sender-queue.ts.",
+      "expectedKnowledgeIds": [
+        "sender-queue-code-ref"
+      ],
+      "unexpectedKnowledgeIds": [
+        "noisy-ops-workflow",
+        "legacy-auth-flow"
+      ],
+      "minConfidence": 0.70,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.60,
+      "expectedClassification": {
+        "files": [
+          "src/email/sender-queue.ts"
+        ],
+        "symbols": [
+          "SenderQueue"
+        ],
+        "taskType": "debugging"
+      }
+    },
+    {
+      "id": "precise-label-beats-broad-noise",
+      "prompt": "Refactor src/email/sender-queue.ts SenderQueue for better retry backoff.",
+      "expectedKnowledgeIds": [
+        "sender-queue-code-ref"
+      ],
+      "unexpectedKnowledgeIds": [
+        "noisy-ops-workflow"
+      ],
+      "minConfidence": 0.72,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.60,
+      "expectedClassification": {
+        "files": [
+          "src/email/sender-queue.ts"
+        ],
+        "symbols": [
+          "SenderQueue"
+        ],
+        "taskType": "refactor"
       }
     }
   ],
