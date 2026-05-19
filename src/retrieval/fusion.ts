@@ -77,20 +77,39 @@ function matchReasons(candidate: SearchCandidate, classified: ClassifiedQuery): 
   const reasons = [`${candidate.source} match`];
   const text = `${candidate.title} ${candidate.summary} ${candidate.contextualContent} ${candidate.references.map((reference) => reference.uri).join(' ')}`.toLowerCase();
 
+  const labelsByType = new Map<string, string[]>();
+  for (const label of candidate.labels) {
+    const key = String(label.type ?? '');
+    const val = String(label.value ?? '').toLowerCase();
+    const existing = labelsByType.get(key);
+    if (existing) {
+      existing.push(val);
+    } else {
+      labelsByType.set(key, [val]);
+    }
+  }
+
   for (const file of classified.files) {
-    if (text.includes(file.toLowerCase())) {
+    const fileLower = file.toLowerCase();
+    const fileLabels = labelsByType.get('file') ?? [];
+    const labelMatch = fileLabels.some((lv) => lv === fileLower || lv.endsWith(`/${fileLower}`) || lv.endsWith(fileLower));
+    if (text.includes(fileLower) || labelMatch) {
       reasons.push(`file:${file}`);
     }
   }
 
   for (const symbol of classified.symbols) {
-    if (text.includes(symbol.toLowerCase())) {
+    const symbolLower = symbol.toLowerCase();
+    const symbolLabels = labelsByType.get('symbol') ?? [];
+    if (text.includes(symbolLower) || symbolLabels.includes(symbolLower)) {
       reasons.push(`symbol:${symbol}`);
     }
   }
 
   for (const error of classified.errors) {
-    if (text.includes(error.toLowerCase())) {
+    const errorLower = error.toLowerCase();
+    const errorLabels = labelsByType.get('error') ?? [];
+    if (text.includes(errorLower) || errorLabels.includes(errorLower)) {
       reasons.push(`error:${error}`);
     }
   }

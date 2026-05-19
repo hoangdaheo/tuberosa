@@ -355,6 +355,21 @@ function evidenceStrength(
   return 'weak';
 }
 
+function extractMatchedSignals(candidate: RankedCandidate): string {
+  const files = candidate.matchReasons
+    .filter((r) => r.startsWith('file:') || r.startsWith('matched file:'))
+    .map((r) => r.replace(/^(?:matched )?file:/, ''))
+    .slice(0, 2)
+    .map((f) => `file:${f}`);
+  const symbols = candidate.matchReasons
+    .filter((r) => r.startsWith('symbol:') || r.startsWith('matched symbol:'))
+    .map((r) => r.replace(/^(?:matched )?symbol:/, ''))
+    .slice(0, 2)
+    .map((s) => `symbol:${s}`);
+  const parts = [...files, ...symbols];
+  return parts.length > 0 ? ` Matched on: ${parts.join(', ')}.` : '';
+}
+
 function usefulnessReason(
   candidate: RankedCandidate,
   category: ContextEvidenceCategory,
@@ -374,24 +389,14 @@ function usefulnessReason(
   }
 
   if (category === 'priorLessons') {
-    return `Prior lesson or selected memory tied to similar work; use after direct task evidence.${suffix}`;
+    return `Prior lesson or selected memory tied to similar work; use after direct task evidence.${extractMatchedSignals(candidate)}${suffix}`;
   }
 
   if (category === 'workflowGuidance') {
-    const matchedFiles = candidate.matchReasons
-      .filter((r) => r.startsWith('file:') || r.startsWith('matched file:'))
-      .map((r) => r.replace(/^(?:matched )?file:/, ''))
-      .slice(0, 2);
-    const matchedSymbols = candidate.matchReasons
-      .filter((r) => r.startsWith('symbol:') || r.startsWith('matched symbol:'))
-      .map((r) => r.replace(/^(?:matched )?symbol:/, ''))
-      .slice(0, 2);
-    const matched = [...matchedFiles.map((f) => `file:${f}`), ...matchedSymbols.map((s) => `symbol:${s}`)];
-    const matchSuffix = matched.length > 0 ? ` Matched on: ${matched.join(', ')}.` : '';
-    return `Workflow guidance for ${candidate.itemType} context; use to preserve project conventions.${matchSuffix}${suffix}`;
+    return `Workflow guidance for ${candidate.itemType} context; use to preserve project conventions.${extractMatchedSignals(candidate)}${suffix}`;
   }
 
-  return `Adjacent related context; inspect only if direct evidence is not enough.${suffix}`;
+  return `Adjacent related context; inspect only if direct evidence is not enough.${extractMatchedSignals(candidate)}${suffix}`;
 }
 
 function graphRelationReason(candidate: RankedCandidate): string | undefined {

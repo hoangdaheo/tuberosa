@@ -804,23 +804,42 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async searchMetadata(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {
-    const terms = [
+    // Precise labels (file/symbol/error) indicate a direct match; broad labels (domain/technology/business_area)
+    // may fire across unrelated tasks. Score them separately so precise matches rank above broad ones.
+    const preciseTerms = [
       ...classified.files,
       ...classified.symbols,
       ...classified.errors,
+    ].map(normalizeLabel).filter(Boolean);
+
+    const broadTerms = [
       ...classified.technologies,
       ...classified.businessAreas,
       ...classified.exactTerms,
     ].map(normalizeLabel).filter(Boolean);
-    const likes = terms.map((term) => `%${term.toLowerCase()}%`);
 
-    if (terms.length === 0) {
+    const allTerms = [...new Set([...preciseTerms, ...broadTerms])];
+
+    if (allTerms.length === 0) {
       return [];
     }
 
+    const likes = allTerms.map((term) => `%${term.toLowerCase()}%`);
+
     const result = await this.pool.query(
       `
-        ${candidateSelect('metadata', '0.92')}
+        ${candidateSelect('metadata', `
+          CASE
+            WHEN EXISTS (
+              SELECT 1 FROM knowledge_labels kl2
+              JOIN labels l2 ON l2.id = kl2.label_id
+              WHERE kl2.knowledge_id = ki.id
+                AND l2.label_type IN ('file', 'symbol', 'error')
+                AND l2.normalized_value = ANY($2::text[])
+            ) THEN 0.94
+            ELSE 0.82
+          END
+        `)}
         WHERE ki.status = 'approved'
           AND ($3::text IS NULL OR p.name = $3)
           AND NOT (ki.id = ANY($4::uuid[]))
@@ -837,13 +856,13 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
               SELECT 1
               FROM knowledge_labels kl
               JOIN labels l ON l.id = kl.label_id
-              WHERE kl.knowledge_id = ki.id AND l.normalized_value = ANY($2::text[])
+              WHERE kl.knowledge_id = ki.id AND l.normalized_value = ANY($6::text[])
             )
           )
-        ORDER BY ki.trust_level DESC, ki.updated_at DESC
+        ORDER BY raw_score DESC, ki.trust_level DESC, ki.updated_at DESC
         LIMIT $5
       `,
-      [likes, terms, options.project ?? null, options.rejectedKnowledgeIds ?? [], options.limit],
+      [likes, preciseTerms, options.project ?? null, options.rejectedKnowledgeIds ?? [], options.limit, allTerms],
     );
 
     return result.rows.map((row, index) => mapCandidateRow(row, index));
