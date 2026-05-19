@@ -695,7 +695,7 @@
         "legacy-auth-flow"
       ],
       "minConfidence": 0.68,
-      "expectedContextFitStatus": "insufficient",
+      "expectedContextFitStatus": "needs_confirmation",
       "minContextFitScore": 0.4,
       "expectedClassification": {
         "businessAreas": [

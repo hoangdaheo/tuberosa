@@ -378,7 +378,17 @@ function usefulnessReason(
   }
 
   if (category === 'workflowGuidance') {
-    return `Workflow guidance for ${candidate.itemType} context; use to preserve project conventions.${suffix}`;
+    const matchedFiles = candidate.matchReasons
+      .filter((r) => r.startsWith('file:') || r.startsWith('matched file:'))
+      .map((r) => r.replace(/^(?:matched )?file:/, ''))
+      .slice(0, 2);
+    const matchedSymbols = candidate.matchReasons
+      .filter((r) => r.startsWith('symbol:') || r.startsWith('matched symbol:'))
+      .map((r) => r.replace(/^(?:matched )?symbol:/, ''))
+      .slice(0, 2);
+    const matched = [...matchedFiles.map((f) => `file:${f}`), ...matchedSymbols.map((s) => `symbol:${s}`)];
+    const matchSuffix = matched.length > 0 ? ` Matched on: ${matched.join(', ')}.` : '';
+    return `Workflow guidance for ${candidate.itemType} context; use to preserve project conventions.${matchSuffix}${suffix}`;
   }
 
   return `Adjacent related context; inspect only if direct evidence is not enough.${suffix}`;

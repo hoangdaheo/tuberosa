@@ -13,6 +13,7 @@
     "worker": "tsx src/worker.ts",
     "migrate": "tsx scripts/migrate.ts",
     "import:docs": "tsx scripts/import-docs.ts",
+    "seed:self": "tsx scripts/seed-tuberosa-src.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "error-logs": "tsx scripts/error-logs.ts",

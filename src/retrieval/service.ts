@@ -1511,14 +1511,12 @@ function feedbackStatusFromCandidate(candidate: RankedCandidate): string | undef
 }
 
 function feedbackScoreAdjustment(summary: KnowledgeFeedbackSummary): number {
-  const selectedBoost = Math.min(
-    0.1,
-    summary.selectedCount * 0.04 + summary.selectedNoisyCount * 0.02,
-  );
+  const selectedBoost = Math.min(0.1, summary.selectedCount * 0.04);
+  const noisyPenalty = Math.min(0.08, summary.selectedNoisyCount * 0.03);
   const stalePenalty = Math.min(0.24, summary.staleCount * 0.2);
   const rejectionPenalty = Math.min(0.18, (summary.rejectedCount + summary.irrelevantCount) * 0.09);
 
-  return roundFeedbackAdjustment(selectedBoost - stalePenalty - rejectionPenalty);
+  return roundFeedbackAdjustment(selectedBoost - noisyPenalty - stalePenalty - rejectionPenalty);
 }
 
 function feedbackStatus(summary: KnowledgeFeedbackSummary): string {

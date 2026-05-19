@@ -300,7 +300,7 @@ function taskAlignedItemTypes(taskType: TaskType): Array<RankedCandidate['itemTy
     case 'planning':
       return ['spec', 'wiki', 'workflow'];
     case 'exploration':
-      return ['wiki', 'code_ref', 'memory'];
+      return ['wiki', 'code_ref', 'memory', 'workflow'];
     case 'testing':
       return ['workflow', 'rule', 'bugfix', 'code_ref'];
     case 'unknown':

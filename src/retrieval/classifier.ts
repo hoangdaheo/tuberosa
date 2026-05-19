@@ -69,6 +69,7 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
     ...businessAreas,
     ...objectHints,
     ...extractQuotedTerms(prompt),
+    ...extractCompoundTerms(prompt),
   ]);
 
   const confidenceSignals = [
@@ -523,6 +524,7 @@ const SYMBOL_STOP_WORDS = new Set([
   'Review',
   'Use',
   'Pull',
+  'Push',
   'Continue',
   'Continuation',
   'Resume',
@@ -590,8 +592,62 @@ const SYMBOL_STOP_WORDS = new Set([
   'Docker',
   'Postgres',
   'Redis',
+  // Imperative verbs and common question starters that appear PascalCase at sentence start
+  'Walk',
+  'Run',
+  'Show',
+  'Tell',
+  'Make',
+  'Check',
+  'Verify',
+  'Inspect',
+  'Find',
+  'Move',
+  'Debug',
+  'Build',
+  'Test',
+  'Parse',
+  'Load',
+  'Save',
+  'Send',
+  'Receive',
+  'Handle',
+  'Process',
+  'Fetch',
+  'Store',
+  'Start',
+  'Stop',
+  'Complete',
+  'Finish',
+  'Begin',
+  'Retry',
+  'Get',
+  'Set',
+  'Explain',
+  'Describe',
+  'List',
+  'Trace',
+  'Follow',
+  'Print',
+  'Log',
+  'Track',
+  'Monitor',
+  'Compare',
+  'Let',
+  'Can',
+  'Could',
+  'Would',
+  'Should',
+  'Will',
 ]);
 
 function isLikelyDocumentIdentifier(value: string): boolean {
   return /^[A-Z][A-Z0-9_]+$/.test(value) && value.includes('_') && !/\d/.test(value);
+}
+
+function extractCompoundTerms(prompt: string): string[] {
+  const lower = prompt.toLowerCase();
+  const hyphenated = lower.match(/\b[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b/g) ?? [];
+  const underscored = lower.match(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g) ?? [];
+  return [...hyphenated, ...underscored].filter((term) => term.length >= 5);
 }
