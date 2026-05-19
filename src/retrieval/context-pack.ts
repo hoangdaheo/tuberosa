@@ -14,6 +14,7 @@ import type {
   TaskBriefMode,
 } from '../types.js';
 import { clamp, truncate, uniqueStrings } from '../util/text.js';
+import { hasDomainMismatch } from './classifier.js';
 
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
 const GENERAL_MIN_FINAL_SCORE = 0.35;
@@ -199,7 +200,7 @@ function evidenceCategory(
   classified: ClassifiedQuery,
   directSignals: string[],
 ): ContextEvidenceCategory {
-  if (directSignals.length > 0) {
+  if (directSignals.length > 0 && !hasDomainMismatch(candidate, classified)) {
     return 'directTaskEvidence';
   }
 
@@ -385,7 +386,7 @@ function usefulnessReason(
   const suffix = details.length > 0 ? ` ${details.join(' ')}` : '';
 
   if (category === 'directTaskEvidence') {
-    return `Direct task evidence from ${directSignals.slice(0, 3).join(', ')}.${suffix}`;
+    return `Direct task evidence from ${directSignals.slice(0, 3).join(', ')}.${extractMatchedSignals(candidate)}${suffix}`;
   }
 
   if (category === 'priorLessons') {

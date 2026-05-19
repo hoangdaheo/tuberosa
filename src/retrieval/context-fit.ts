@@ -1,5 +1,6 @@
 import type { ClassifiedQuery, ContextFit, RankedCandidate, TaskType } from '../types.js';
 import { clamp, normalizeLabel } from '../util/text.js';
+import { hasDomainMismatch } from './classifier.js';
 
 const TOP_CANDIDATE_LIMIT = 6;
 const READY_THRESHOLD = 0.72;
@@ -101,6 +102,7 @@ export class ContextFitEvaluator {
     score += safetyAdjustment(candidate.metadata, reasons, missingSignals);
     score += graphAdjustment(candidate, reasons);
     score += feedbackAdjustment(candidate, rejectedIds, reasons, missingSignals);
+    score += domainAdjustment(candidate, input.classified, reasons, missingSignals);
 
     const fitScore = roundScore(clamp(score, 0, 1));
     const fitted = {
@@ -306,6 +308,27 @@ function taskAlignedItemTypes(taskType: TaskType): Array<RankedCandidate['itemTy
     case 'unknown':
       return [];
   }
+}
+
+function domainAdjustment(
+  candidate: RankedCandidate,
+  classified: ClassifiedQuery,
+  reasons: string[],
+  missingSignals: string[],
+): number {
+  if (!classified.domain) {
+    return 0;
+  }
+  const domainLabels = candidate.labels.filter((label) => label.type === 'domain');
+  if (domainLabels.length === 0) {
+    return 0;
+  }
+  if (hasDomainMismatch(candidate, classified)) {
+    missingSignals.push(`off-domain:${classified.domain}`);
+    return -0.18;
+  }
+  reasons.push(`domain:${classified.domain}`);
+  return 0.08;
 }
 
 function trustAdjustment(candidate: RankedCandidate, reasons: string[], missingSignals: string[]): number {

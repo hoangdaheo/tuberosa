@@ -2,12 +2,16 @@ import type { IngestFileInput, IngestionMode } from './ingest/service.js';
 import type {
   AgentSessionOutcome,
   AgentLearningMode,
+  AgentLearningSignal,
+  AgentLearningSignalKind,
   AppendAgentSessionNoteInput,
   BackupRetentionInput,
   CollectErrorLogsOptions,
+  CaptureAgentLearningSignalInput,
   CreateBackupInput,
   CreateErrorLogReflectionDraftInput,
   FinishAgentSessionInput,
+  ContextNoiseTolerance,
   ContextSearchInput,
   ContextQualityReportInput,
   FeedbackInput,
@@ -213,6 +217,17 @@ const ERROR_LOG_SEVERITIES = [
   'emergency',
 ] as const satisfies readonly ErrorLogSeverity[];
 const ERROR_LOG_STATUSES = ['open', 'triaged', 'fixed', 'wont_fix', 'archived'] as const satisfies readonly ErrorLogStatus[];
+export const CONTEXT_NOISE_TOLERANCES = ['balanced', 'strict'] as const satisfies readonly ContextNoiseTolerance[];
+export const AGENT_LEARNING_SIGNAL_KINDS = [
+  'tip',
+  'decision',
+  'mistake',
+  'verification',
+  'file_change',
+  'user_preference',
+  'follow_up',
+] as const satisfies readonly AgentLearningSignalKind[];
+const AGENT_LEARNING_SIGNAL_SOURCES = ['user', 'agent', 'tool', 'system', 'reviewer'] as const;
 
 export function validateKnowledgeInput(value: unknown): KnowledgeInput {
   const record = expectObject(value, 'knowledge input');
@@ -338,6 +353,7 @@ export function validateContextSearchInput(value: unknown): ContextSearchInput {
     errors: readOptionalStringArray(record, 'errors', 'context search input'),
     tokenBudget: readOptionalPositiveNumber(record, 'tokenBudget', 'context search input'),
     contextMode: readOptionalEnum(record, 'contextMode', CONTEXT_MODES, 'context search input'),
+    noiseTolerance: readOptionalEnum(record, 'noiseTolerance', CONTEXT_NOISE_TOLERANCES, 'context search input'),
     deepContextBudget: readOptionalPositiveNumber(record, 'deepContextBudget', 'context search input'),
     includeDeepContext: readOptionalBoolean(record, 'includeDeepContext', 'context search input'),
     rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'context search input'),
@@ -413,10 +429,29 @@ export function validateFinishAgentSessionInput(value: unknown, sessionId?: stri
     sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'finish agent session input'),
     outcome: readRequiredEnum(record, 'outcome', AGENT_SESSION_OUTCOMES, 'finish agent session input'),
     summary: readOptionalString(record, 'summary', 'finish agent session input'),
+    agentOutputSummary: readOptionalString(record, 'agentOutputSummary', 'finish agent session input'),
+    changedFiles: readOptionalStringArray(record, 'changedFiles', 'finish agent session input'),
+    verificationCommands: readOptionalStringArray(record, 'verificationCommands', 'finish agent session input'),
+    learningSignals: readOptionalLearningSignals(record.learningSignals, 'finish agent session input.learningSignals'),
     contextBypassReason: readOptionalString(record, 'contextBypassReason', 'finish agent session input'),
     learningMode: readOptionalEnum(record, 'learningMode', AGENT_LEARNING_MODES, 'finish agent session input'),
     metadata: readOptionalObject(record, 'metadata', 'finish agent session input'),
     reflectionDraft,
+  };
+}
+
+export function validateCaptureAgentLearningSignalInput(
+  value: unknown,
+  sessionId?: string,
+): CaptureAgentLearningSignalInput {
+  const record = expectObject(value, 'agent learning signal input');
+  const signal = readLearningSignal(record, 'agent learning signal input');
+
+  return {
+    ...signal,
+    sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'agent learning signal input'),
+    author: readOptionalString(record, 'author', 'agent learning signal input'),
+    contextPackId: readOptionalString(record, 'contextPackId', 'agent learning signal input'),
   };
 }
 
@@ -744,6 +779,32 @@ function validateIngestFileInput(value: unknown, defaultProject: string, path: s
   };
 }
 
+function readOptionalLearningSignals(value: unknown, path: string): AgentLearningSignal[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw validationIssue(path, 'must be an array.');
+  }
+
+  return value.map((signal, index) => readLearningSignal(expectObject(signal, `${path}[${index}]`), `${path}[${index}]`));
+}
+
+function readLearningSignal(record: Record<string, unknown>, path: string): AgentLearningSignal {
+  return {
+    kind: readRequiredEnum(record, 'kind', AGENT_LEARNING_SIGNAL_KINDS, path),
+    text: readRequiredString(record, 'text', path),
+    source: readOptionalEnum(record, 'source', AGENT_LEARNING_SIGNAL_SOURCES, path),
+    files: readOptionalStringArray(record, 'files', path),
+    symbols: readOptionalStringArray(record, 'symbols', path),
+    errors: readOptionalStringArray(record, 'errors', path),
+    references: readOptionalReferences(record.references, `${path}.references`),
+    confidence: readOptionalSignalConfidence(record, 'confidence', path),
+    metadata: readOptionalObject(record, 'metadata', path),
+  };
+}
+
 function readOptionalLabels(value: unknown, path: string): LabelInput[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -919,6 +980,15 @@ function readOptionalPositiveNumber(record: Record<string, unknown>, key: string
 }
 
 function readOptionalRelationConfidence(record: Record<string, unknown>, key: string, path: string): number | undefined {
+  const value = readOptionalNumber(record, key, path);
+  if (value !== undefined && (value < 0 || value > 1)) {
+    throw validationIssue(`${path}.${key}`, 'must be between 0 and 1.');
+  }
+
+  return value;
+}
+
+function readOptionalSignalConfidence(record: Record<string, unknown>, key: string, path: string): number | undefined {
   const value = readOptionalNumber(record, key, path);
   if (value !== undefined && (value < 0 || value > 1)) {
     throw validationIssue(`${path}.${key}`, 'must be between 0 and 1.');

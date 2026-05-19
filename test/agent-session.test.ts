@@ -171,6 +171,134 @@ test('agent session finish auto-approves grounded learning when quality gates pa
   equal(riskyAutoMemories.length, 0);
 });
 
+test('agent session finish learns from captured learning signals and agent output summary', async () => {
+  const { agentSessions, ingestion, retrieval, store } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'signal-learning',
+    sourceType: 'file',
+    sourceUri: 'src/prompt-guide.ts',
+    itemType: 'code_ref',
+    title: 'PromptGuide plain prompt wrapper',
+    summary: 'PromptGuide routes plain prompts through guided sessions.',
+    content: 'PromptGuide keeps plain prompt UX simple while preserving context decisions and verification anchors in src/prompt-guide.ts.',
+    trustLevel: 90,
+    labels: [
+      { type: 'file', value: 'src/prompt-guide.ts', weight: 1 },
+      { type: 'symbol', value: 'PromptGuide', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/prompt-guide.ts' }],
+  });
+
+  const started = await agentSessions.startSession({
+    project: 'signal-learning',
+    cwd: '/repo',
+    prompt: 'Update src/prompt-guide.ts for PromptGuide plain prompt sessions',
+    files: ['src/prompt-guide.ts'],
+    symbols: ['PromptGuide'],
+    taskType: 'implementation',
+  });
+
+  await agentSessions.recordContextDecision({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    feedbackType: 'selected',
+    reason: 'The code reference matches the guided prompt wrapper.',
+  });
+
+  const captured = await agentSessions.captureLearningSignal({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    kind: 'tip',
+    source: 'agent',
+    text: 'Plain prompt users need captured tips tied to concrete files so future agents can retrieve the useful part without storing raw transcripts.',
+    files: ['src/prompt-guide.ts'],
+    symbols: ['PromptGuide'],
+    references: [{ type: 'file', uri: 'src/prompt-guide.ts' }],
+    confidence: 0.92,
+  });
+
+  equal(captured.signal.kind, 'tip');
+
+  const finished = await agentSessions.finishSession({
+    sessionId: started.session.id,
+    outcome: 'completed',
+    agentOutputSummary: 'PromptGuide plain prompt sessions should capture durable tips with file and symbol evidence instead of storing raw transcripts.',
+    changedFiles: ['src/prompt-guide.ts'],
+    verificationCommands: ['pnpm test'],
+  });
+
+  equal(finished.learningDecision?.status, 'auto_approved');
+  ok(finished.autoApprovedMemory?.content.includes('Learning signals:'));
+  ok(finished.autoApprovedMemory?.content.includes('captured tips tied to concrete files'));
+
+  const memories = await store.listKnowledge({ project: 'signal-learning', review: 'auto_memory', limit: 10 });
+  equal(memories.length, 1);
+  ok(memories[0]?.labels.some((label) => label.type === 'file' && label.value === 'src/prompt-guide.ts'));
+
+  const pack = await retrieval.searchContext({
+    project: 'signal-learning',
+    prompt: 'What tip should PromptGuide follow for src/prompt-guide.ts captured tips?',
+    files: ['src/prompt-guide.ts'],
+    symbols: ['PromptGuide'],
+    noiseTolerance: 'strict',
+  });
+  const retrieved = pack.sections.flatMap((section) => section.items);
+  ok(retrieved.some((item) => item.summary.includes('capture durable tips')));
+  ok(retrieved.filter((item) => item.evidenceCategory === 'adjacentContext').length <= 1);
+});
+
+test('low-confidence learning signals stay reviewable instead of auto-approving', async () => {
+  const { agentSessions, ingestion } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'signal-learning',
+    sourceType: 'file',
+    sourceUri: 'src/low-confidence.ts',
+    itemType: 'code_ref',
+    title: 'LowConfidenceService implementation reference',
+    summary: 'Current LowConfidenceService implementation.',
+    content: 'LowConfidenceService changes are anchored to src/low-confidence.ts.',
+    trustLevel: 90,
+    labels: [
+      { type: 'file', value: 'src/low-confidence.ts', weight: 1 },
+      { type: 'symbol', value: 'LowConfidenceService', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/low-confidence.ts' }],
+  });
+
+  const started = await agentSessions.startSession({
+    project: 'signal-learning',
+    prompt: 'Update src/low-confidence.ts for LowConfidenceService',
+    files: ['src/low-confidence.ts'],
+    symbols: ['LowConfidenceService'],
+    taskType: 'implementation',
+  });
+
+  await agentSessions.recordContextDecision({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    feedbackType: 'selected',
+  });
+
+  const finished = await agentSessions.finishSession({
+    sessionId: started.session.id,
+    outcome: 'completed',
+    summary: 'LowConfidenceService learning should remain reviewable when its captured signal is low confidence.',
+    learningSignals: [{
+      kind: 'tip',
+      text: 'Maybe LowConfidenceService should use this path, but the agent was unsure.',
+      files: ['src/low-confidence.ts'],
+      symbols: ['LowConfidenceService'],
+      confidence: 0.4,
+    }],
+  });
+
+  equal(finished.learningDecision?.status, 'drafted');
+  equal(finished.reflectionDraft?.status, 'needs_changes');
+  ok(finished.learningDecision?.reasons.some((reason) => reason.includes('low-confidence')));
+});
+
 test('agent session auto-learning keeps negative-feedback lessons reviewable', async () => {
   const { agentSessions, ingestion } = createTestServices();
 
@@ -301,6 +429,52 @@ test('selected_but_noisy context decisions satisfy session compliance', async ()
 
   equal(finished.compliance.status, 'compliant');
   equal((finished.session.metadata.contextCompliance as { status?: string } | undefined)?.status, 'compliant');
+});
+
+test('selected_but_noisy context decisions prevent session learning auto-approval', async () => {
+  const { agentSessions, ingestion } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'noisy-learning',
+    sourceType: 'file',
+    sourceUri: 'src/noisy.ts',
+    itemType: 'code_ref',
+    title: 'NoisyService implementation reference',
+    summary: 'Current NoisyService implementation.',
+    content: 'NoisyService changes should stay anchored to src/noisy.ts and avoid broad adjacent memories.',
+    trustLevel: 90,
+    labels: [
+      { type: 'file', value: 'src/noisy.ts', weight: 1 },
+      { type: 'symbol', value: 'NoisyService', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/noisy.ts' }],
+  });
+
+  const started = await agentSessions.startSession({
+    project: 'noisy-learning',
+    prompt: 'Update src/noisy.ts for NoisyService',
+    files: ['src/noisy.ts'],
+    symbols: ['NoisyService'],
+    taskType: 'implementation',
+  });
+
+  await agentSessions.recordContextDecision({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    feedbackType: 'selected_but_noisy',
+    reason: 'Direct reference was useful but adjacent context was too noisy.',
+  });
+
+  const finished = await agentSessions.finishSession({
+    sessionId: started.session.id,
+    outcome: 'completed',
+    summary: 'NoisyService work should use src/noisy.ts as the anchor but should not auto-approve when the selected context was noisy.',
+  });
+
+  equal(finished.compliance.status, 'compliant');
+  equal(finished.learningDecision?.status, 'drafted');
+  equal(finished.reflectionDraft?.status, 'needs_changes');
+  ok(finished.learningDecision?.reasons.some((reason) => reason.includes('noisy context')));
 });
 
 test('missing context-quality decisions satisfy missing-context compliance', async () => {

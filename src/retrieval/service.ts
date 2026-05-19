@@ -41,7 +41,7 @@ import {
   UNCAPPED_USEFULNESS_CAPS,
   type UsefulnessCaps,
 } from './context-pack.js';
-import { classifyQuery } from './classifier.js';
+import { classifyQuery, hasDomainMismatch } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
@@ -72,6 +72,7 @@ const PROPOSAL_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>([
 type NormalizedContextSearchInput = ContextSearchInput & {
   tokenBudget: number;
   contextMode: 'compact' | 'layered';
+  noiseTolerance: 'balanced' | 'strict';
   deepContextBudget: number;
   rejectedKnowledgeIds: string[];
   debug: boolean;
@@ -144,6 +145,12 @@ export class RetrievalService {
       candidates: rankedCandidates,
       rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
     });
+    const contextFit = applyNoiseTolerance(
+      fitEvaluation.contextFit,
+      rewriteResult.classified,
+      fitEvaluation.candidates,
+      normalized.noiseTolerance,
+    );
     debug?.recordTiming('fit', fitStartedAt);
     debug?.recordStage('fit', fitEvaluation.candidates);
     const reviewTargetResolution = shouldResolveReviewTargets
@@ -155,7 +162,7 @@ export class RetrievalService {
       project,
       classified: rewriteResult.classified,
       candidates: fitEvaluation.candidates,
-      contextFit: fitEvaluation.contextFit,
+      contextFit,
       input: normalized,
       reviewTargets: reviewTargetResolution.reviewTargets,
       omittedReviewTargetCount: reviewTargetResolution.omittedReviewTargetCount,
@@ -990,6 +997,13 @@ function usefulnessCapsForRequest(input: NormalizedContextSearchInput): Usefulne
     return UNCAPPED_USEFULNESS_CAPS;
   }
 
+  if (input.noiseTolerance === 'strict') {
+    return {
+      priorLessons: 3,
+      adjacentContext: 1,
+    };
+  }
+
   if (input.deepContextBudget > DEFAULT_DEEP_CONTEXT_BUDGET) {
     const expansion = Math.min(2, input.deepContextBudget / DEFAULT_DEEP_CONTEXT_BUDGET);
     return {
@@ -1006,6 +1020,7 @@ function normalizeSearchInput(input: ContextSearchInput, config: AppConfig): Nor
     ...input,
     tokenBudget: input.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
     contextMode: input.contextMode ?? config.contextMode ?? 'layered',
+    noiseTolerance: input.noiseTolerance ?? 'balanced',
     deepContextBudget: normalizeDeepContextBudget(input.deepContextBudget ?? config.deepContextBudget),
     rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
     debug: input.debug ?? false,
@@ -1151,6 +1166,7 @@ function fingerprintSearch(
     errors: input.errors ?? [],
     tokenBudget: input.tokenBudget,
     contextMode: input.contextMode,
+    noiseTolerance: input.noiseTolerance,
     deepContextBudget: input.deepContextBudget,
     rejectedKnowledgeIds: input.rejectedKnowledgeIds,
     lexicalQuery: classified.lexicalQuery,
@@ -1158,6 +1174,36 @@ function fingerprintSearch(
     queryRewriteModel: rewrite?.model,
     rerankModel: config.openAiRerankModel,
   }));
+}
+
+function applyNoiseTolerance(
+  contextFit: ContextFit,
+  classified: ClassifiedQuery,
+  candidates: RankedCandidate[],
+  noiseTolerance: NormalizedContextSearchInput['noiseTolerance'],
+): ContextFit {
+  if (noiseTolerance !== 'strict' || contextFit.fitStatus !== 'ready') {
+    return contextFit;
+  }
+
+  const hasDirectEvidence = candidates.slice(0, 3).some((candidate) => hasHardSignalEvidence(candidate, classified));
+  if (hasDirectEvidence) {
+    return contextFit;
+  }
+
+  return {
+    ...contextFit,
+    fitStatus: 'needs_confirmation',
+    fitScore: Math.min(contextFit.fitScore, 0.71),
+    fitReasons: uniqueStrings([
+      ...contextFit.fitReasons,
+      'strict noise tolerance downgraded weak semantic match',
+    ]),
+    missingSignals: uniqueStrings([
+      ...contextFit.missingSignals,
+      'strict noise tolerance requires direct file, symbol, or error evidence before proceeding',
+    ]),
+  };
 }
 
 function applyQueryRewrite(
@@ -1393,6 +1439,21 @@ function intentSuppressionAdjustment(
   if (!hasHardEvidence && !requiredEvidenceMatches(candidate, classified.intent.requiredEvidenceTypes)) {
     score -= 0.1;
     reasons.push('suppression:evidence_mismatch');
+  }
+
+  if (classified.domain) {
+    const domainLabels = candidate.labels.filter((label) => label.type === 'domain');
+    if (domainLabels.length > 0) {
+      const target = classified.domain.toLowerCase();
+      const matches = domainLabels.some((label) => label.value.toLowerCase() === target);
+      if (matches) {
+        score += 0.15;
+        reasons.push(`boost:domain_match:${classified.domain}`);
+      } else {
+        score -= 0.3;
+        reasons.push(`suppression:domain_mismatch:${classified.domain}`);
+      }
+    }
   }
 
   return { score: roundFeedbackAdjustment(score), reasons };

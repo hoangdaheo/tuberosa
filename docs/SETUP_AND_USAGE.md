@@ -755,6 +755,7 @@ curl -X POST http://localhost:3027/agent-sessions \
     "cwd": "/work/newsletter-app",
     "prompt": "Update PaywallSelectionModal for the newsletter paywall flow",
     "symbols": ["PaywallSelectionModal"],
+    "noiseTolerance": "strict",
     "agentName": "Codex",
     "agentTool": "mcp"
   }'
@@ -779,6 +780,24 @@ curl -X POST http://localhost:3027/agent-sessions/<session-id>/context-decision 
 ```
 
 Use `rejected`, `irrelevant`, or `stale` to trigger the existing retry behavior with rejected knowledge excluded.
+
+### Capture A Learning Signal
+
+Use learning signals for the durable tips, decisions, mistakes, verification commands, file changes, user preferences, or follow-ups an agent discovers during work. Signals stay attached to the session first; they only become trusted searchable memory through the normal finish-session learning gates.
+
+```bash
+curl -X POST http://localhost:3027/agent-sessions/<session-id>/learning-signals \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "kind": "tip",
+    "source": "agent",
+    "text": "Preserve selected product ids across render and submit paths.",
+    "files": ["src/components/paywall-selection-modal.tsx"],
+    "symbols": ["PaywallSelectionModal"],
+    "references": [{ "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }],
+    "confidence": 0.9
+  }'
+```
 
 List sessions and context decisions:
 

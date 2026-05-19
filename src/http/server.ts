@@ -5,6 +5,7 @@ import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppEr
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
   validateAppendAgentSessionNoteInput,
+  validateCaptureAgentLearningSignalInput,
   validateContextSearchInput,
   validateBackupRetentionInput,
   validateCollectErrorLogsInput,
@@ -221,6 +222,19 @@ function createRoutes(): HttpRoute[] {
         );
         const result = await services.agentSessions.recordContextDecision(body);
         services.operations.requestPhysicalMirror('agent-context-decision-recorded');
+        return result;
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/agent-sessions\/([^/]+)\/learning-signals$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateCaptureAgentLearningSignalInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+          params.id,
+        );
+        const result = await services.agentSessions.captureLearningSignal(body);
+        services.operations.requestPhysicalMirror('agent-learning-signal-captured');
         return result;
       },
     },

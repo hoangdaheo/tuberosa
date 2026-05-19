@@ -1,0 +1,342 @@
+{
+  "name": "retrieval knowledge completeness",
+  "project": "tuberosa",
+  "knowledge": [
+    {
+      "evalId": "retrieval-fusion-code",
+      "sourceType": "file",
+      "sourceUri": "src/retrieval/fusion.ts",
+      "itemType": "code_ref",
+      "title": "Retrieval candidate fusion",
+      "summary": "Fusion ranks lexical, vector, metadata, memory, reference, and graph candidates.",
+      "content": "The retrieval fusion layer combines candidate fusion, reranking, exact file matches, exact symbol matches, exact error matches, labels, and matchReasons. fuseCandidates should preserve direct evidence for source files before adjacent memories.",
+      "trustLevel": 88,
+      "metadata": {
+        "taxonomy": "code_reference"
+      },
+      "labels": [
+        {
+          "type": "domain",
+          "value": "retrieval",
+          "weight": 1
+        },
+        {
+          "type": "file",
+          "value": "src/retrieval/fusion.ts",
+          "weight": 1
+        },
+        {
+          "type": "symbol",
+          "value": "fuseCandidates",
+          "weight": 1
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "src/retrieval/fusion.ts"
+        }
+      ]
+    },
+    {
+      "evalId": "context-pack-code",
+      "sourceType": "file",
+      "sourceUri": "src/retrieval/context-pack.ts",
+      "itemType": "code_ref",
+      "title": "Context pack assembly",
+      "summary": "Context pack assembly separates directTaskEvidence, priorLessons, workflowGuidance, and adjacentContext.",
+      "content": "assembleContextPack builds orientation, task brief action items, directTaskEvidence placement, adjacent context, usefulnessReason explanations, and actionable missing signals for agent startup packs.",
+      "trustLevel": 90,
+      "metadata": {
+        "taxonomy": "code_reference"
+      },
+      "labels": [
+        {
+          "type": "domain",
+          "value": "retrieval",
+          "weight": 1
+        },
+        {
+          "type": "file",
+          "value": "src/retrieval/context-pack.ts",
+          "weight": 1
+        },
+        {
+          "type": "symbol",
+          "value": "assembleContextPack",
+          "weight": 1
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "src/retrieval/context-pack.ts"
+        }
+      ]
+    },
+    {
+      "evalId": "completeness-benchmark-workflow",
+      "sourceType": "manual",
+      "sourceUri": "manual://knowledge-completeness-benchmark",
+      "itemType": "workflow",
+      "title": "Knowledge completeness benchmark workflow",
+      "summary": "Completeness eval reports required fact coverage, source coverage, noise rate, and a knowledge completeness percentage.",
+      "content": "The benchmark should run eval:knowledge-completeness in fixture mode for CI and live mode against POST /context/search when an API base is available. scripts/benchmark.ts should print the knowledge completeness percentage, fixture mode result, live mode result, source coverage, and noise rate.",
+      "trustLevel": 86,
+      "metadata": {
+        "taxonomy": "workflow"
+      },
+      "labels": [
+        {
+          "type": "file",
+          "value": "scripts/benchmark.ts",
+          "weight": 1
+        },
+        {
+          "type": "file",
+          "value": "scripts/eval-knowledge-completeness.ts",
+          "weight": 1
+        },
+        {
+          "type": "task_type",
+          "value": "implementation",
+          "weight": 0.9
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "scripts/benchmark.ts"
+        },
+        {
+          "type": "file",
+          "uri": "scripts/eval-knowledge-completeness.ts"
+        }
+      ]
+    },
+    {
+      "evalId": "storage-backup-noise",
+      "sourceType": "memory",
+      "sourceUri": "memory://own-backup-schedulers",
+      "itemType": "workflow",
+      "title": "Own backup schedulers",
+      "summary": "Storage operations memory for backup scheduler ownership.",
+      "content": "Own backup schedulers in src/operations/backup-service.ts and verify backup retention policies. This storage workflow is noisy for retrieval fusion and reranking implementation tasks.",
+      "trustLevel": 95,
+      "labels": [
+        {
+          "type": "domain",
+          "value": "storage",
+          "weight": 1
+        },
+        {
+          "type": "file",
+          "value": "src/operations/backup-service.ts",
+          "weight": 1
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "src/operations/backup-service.ts"
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "retrieval-completeness-fixture",
+      "modes": [
+        "fixture"
+      ],
+      "prompt": "Implement retrieval fusion/reranking completeness benchmark in src/retrieval/fusion.ts, src/retrieval/context-pack.ts, and scripts/benchmark.ts.",
+      "taskType": "implementation",
+      "files": [
+        "src/retrieval/fusion.ts",
+        "src/retrieval/context-pack.ts",
+        "scripts/benchmark.ts"
+      ],
+      "requiredFacts": [
+        {
+          "id": "fusion-direct-evidence",
+          "description": "Fusion evidence covers candidate fusion, reranking, and exact source signals.",
+          "weight": 2,
+          "terms": [
+            "candidate fusion",
+            "reranking",
+            "direct evidence",
+            "exact file",
+            "exact symbol"
+          ],
+          "sourceRefs": [
+            "src/retrieval/fusion.ts"
+          ]
+        },
+        {
+          "id": "context-pack-orientation",
+          "description": "Context packs include orientation, task brief, direct evidence placement, and usefulness reasons.",
+          "weight": 2,
+          "terms": [
+            "orientation",
+            "task brief",
+            "directTaskEvidence",
+            "usefulnessReason"
+          ],
+          "sourceRefs": [
+            "src/retrieval/context-pack.ts"
+          ]
+        },
+        {
+          "id": "benchmark-fixture-live-split",
+          "description": "Benchmark reporting includes fixture and live completeness percentages.",
+          "weight": 1.5,
+          "terms": [
+            "knowledge completeness",
+            "percentage",
+            "fixture mode",
+            "live mode"
+          ],
+          "sourceRefs": [
+            "scripts/benchmark.ts"
+          ]
+        }
+      ],
+      "requiredSources": [
+        {
+          "type": "file",
+          "value": "src/retrieval/fusion.ts"
+        },
+        {
+          "type": "file",
+          "value": "src/retrieval/context-pack.ts"
+        },
+        {
+          "type": "file",
+          "value": "scripts/benchmark.ts"
+        },
+        {
+          "type": "symbol",
+          "value": "fuseCandidates"
+        },
+        {
+          "type": "symbol",
+          "value": "assembleContextPack"
+        },
+        {
+          "type": "label",
+          "labelType": "domain",
+          "value": "retrieval"
+        }
+      ],
+      "forbiddenItems": [
+        {
+          "type": "title",
+          "value": "Own backup schedulers"
+        },
+        {
+          "type": "label",
+          "labelType": "domain",
+          "value": "storage"
+        },
+        {
+          "type": "ref",
+          "value": "src/operations/backup-service.ts"
+        }
+      ],
+      "minCompleteness": 1,
+      "minSourceCoverage": 1,
+      "maxNoiseRate": 0,
+      "minKnowledgeGainScore": 95
+    },
+    {
+      "id": "retrieval-completeness-live",
+      "modes": [
+        "live"
+      ],
+      "prompt": "Implement retrieval fusion/reranking work in src/retrieval/fusion.ts and src/retrieval/context-pack.ts.",
+      "project": "tuberosa",
+      "taskType": "implementation",
+      "files": [
+        "src/retrieval/fusion.ts",
+        "src/retrieval/context-pack.ts"
+      ],
+      "requiredFacts": [
+        {
+          "id": "live-fusion-source",
+          "description": "Live retrieval should surface fusion/reranking source evidence.",
+          "weight": 2,
+          "terms": [
+            "fuseCandidates",
+            "matchReasons"
+          ],
+          "sourceRefs": [
+            "src/retrieval/fusion.ts"
+          ]
+        },
+        {
+          "id": "live-context-pack-source",
+          "description": "Live retrieval should surface context pack assembly evidence.",
+          "weight": 2,
+          "terms": [
+            "assembleContextPack",
+            "directTaskEvidence"
+          ],
+          "sourceRefs": [
+            "src/retrieval/context-pack.ts"
+          ]
+        }
+      ],
+      "requiredSources": [
+        {
+          "type": "file",
+          "value": "src/retrieval/fusion.ts"
+        },
+        {
+          "type": "file",
+          "value": "src/retrieval/context-pack.ts"
+        },
+        {
+          "type": "symbol",
+          "value": "fuseCandidates"
+        },
+        {
+          "type": "symbol",
+          "value": "assembleContextPack"
+        },
+        {
+          "type": "label",
+          "labelType": "domain",
+          "value": "retrieval"
+        }
+      ],
+      "forbiddenItems": [
+        {
+          "type": "title",
+          "value": "Own backup schedulers"
+        },
+        {
+          "type": "title",
+          "value": "Debounce physical mirror"
+        },
+        {
+          "type": "title",
+          "value": "Run migrations"
+        },
+        {
+          "type": "label",
+          "labelType": "domain",
+          "value": "storage"
+        },
+        {
+          "type": "label",
+          "labelType": "domain",
+          "value": "operations"
+        }
+      ],
+      "minCompleteness": 0.75,
+      "minSourceCoverage": 0.75,
+      "maxNoiseRate": 0.2,
+      "minKnowledgeGainScore": 80
+    }
+  ]
+}

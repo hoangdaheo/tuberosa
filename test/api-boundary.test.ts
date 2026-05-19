@@ -312,6 +312,9 @@ test('MCP agent session startup can return working deep context in one call', as
       finishSession: async () => {
         throw new Error('Unexpected session finish call.');
       },
+      captureLearningSignal: async () => {
+        throw new Error('Unexpected learning signal call.');
+      },
     },
   });
 
@@ -417,17 +420,30 @@ test('MCP agent workflow schemas expose task and feedback enums', async () => {
   const startTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_start_session');
   const feedbackTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_feedback_context');
   const decisionTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_record_context_decision');
+  const signalTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_capture_learning_signal');
 
   ok(searchTool);
   ok(startTool);
   ok(feedbackTool);
   ok(decisionTool);
+  ok(signalTool);
   deepEqual(searchTool.inputSchema?.properties?.taskType?.enum, taskTypes);
   deepEqual(startTool.inputSchema?.properties?.taskType?.enum, taskTypes);
   deepEqual(searchTool.inputSchema?.properties?.contextMode?.enum, ['compact', 'layered']);
   deepEqual(startTool.inputSchema?.properties?.contextMode?.enum, ['compact', 'layered']);
+  deepEqual(searchTool.inputSchema?.properties?.noiseTolerance?.enum, ['balanced', 'strict']);
+  deepEqual(startTool.inputSchema?.properties?.noiseTolerance?.enum, ['balanced', 'strict']);
   deepEqual(feedbackTool.inputSchema?.properties?.feedbackType?.enum, feedbackTypes);
   deepEqual(decisionTool.inputSchema?.properties?.feedbackType?.enum, feedbackTypes);
+  deepEqual(signalTool.inputSchema?.properties?.kind?.enum, [
+    'tip',
+    'decision',
+    'mistake',
+    'verification',
+    'file_change',
+    'user_preference',
+    'follow_up',
+  ]);
 });
 
 test('MCP context-quality feedback tool exposes schema and report shape', async () => {
@@ -505,6 +521,56 @@ test('MCP finish session schema exposes outcome and reflection draft enums', asy
     finishTool.inputSchema?.properties?.reflectionDraft?.properties?.triggerType?.enum,
     ['complex_task_success', 'error_recovery', 'user_correction', 'non_trivial_workflow', 'manual'],
   );
+  ok(finishTool.inputSchema?.properties?.agentOutputSummary);
+  ok(finishTool.inputSchema?.properties?.learningSignals);
+});
+
+test('MCP captures structured learning signals for agent sessions', async () => {
+  const result = await handleMcpRequest(fakeServices({
+    agentSessions: {
+      captureLearningSignal: async (input: { sessionId?: string; kind?: string; text?: string; files?: string[] }) => {
+        equal(input.sessionId, 'session-1');
+        equal(input.kind, 'tip');
+        equal(input.files?.[0], 'src/auth.ts');
+        return {
+          session: {
+            id: 'session-1',
+            project: 'agent-memory',
+            prompt: 'Find auth guidance',
+            status: 'active',
+            initialContextPackId: 'pack-1',
+            reflectionDraftIds: [],
+            metadata: {},
+            createdAt: new Date().toISOString(),
+          },
+          note: {
+            at: new Date().toISOString(),
+            note: `[learning:tip] ${input.text}`,
+            metadata: { learningSignal: input },
+          },
+          signal: {
+            kind: input.kind,
+            text: input.text,
+            files: input.files,
+          },
+        };
+      },
+    },
+  }), {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_capture_learning_signal',
+      arguments: {
+        sessionId: 'session-1',
+        kind: 'tip',
+        text: 'Capture durable tips with file evidence rather than raw transcript output.',
+        files: ['src/auth.ts'],
+      },
+    },
+  }) as { structuredContent?: { signal?: { kind?: string; text?: string }; instruction?: string } };
+
+  equal(result.structuredContent?.signal?.kind, 'tip');
+  ok(result.structuredContent?.instruction?.includes('not trusted memory'));
 });
 
 test('MCP reflection review tools list, inspect, and record decisions', async () => {

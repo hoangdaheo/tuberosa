@@ -111,6 +111,18 @@ test('classifier suppresses roadmap meta words and sequencing technology noise',
   ok(classified.files.includes('docs/FLOW_LOGIC.md'));
 });
 
+test('classifier does not extract refactor action words as symbols', () => {
+  const classified = classifyQuery({
+    prompt: 'Refactor reranker fusion weights in src/retrieval/fusion.ts.',
+    cwd: '/home/nash/tuberosa',
+  });
+
+  equal(classified.taskType, 'refactor');
+  equal(classified.symbols.includes('Refactor'), false);
+  equal(classified.symbols.includes('Rename'), false);
+  ok(classified.files.includes('src/retrieval/fusion.ts'));
+});
+
 test('classifier extracts review object ids and suppresses admin handoff words', () => {
   const draftId = '11111111-1111-4111-8111-111111111111';
   const classified = classifyQuery({

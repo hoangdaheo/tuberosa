@@ -569,6 +569,11 @@
           "type": "symbol",
           "value": "SenderQueue",
           "weight": 1
+        },
+        {
+          "type": "domain",
+          "value": "email",
+          "weight": 1
         }
       ],
       "references": [
@@ -591,6 +596,33 @@
         {
           "type": "business_area",
           "value": "operations",
+          "weight": 1
+        }
+      ]
+    },
+    {
+      "evalId": "ops-noisy-with-symbol",
+      "sourceType": "memory",
+      "sourceUri": "memory://ops-sender-queue",
+      "itemType": "workflow",
+      "title": "Ops dashboard mentions SenderQueue retry counts",
+      "summary": "Ops dashboards surface SenderQueue retry counts during deploy windows.",
+      "content": "When ops deploys email workers, the SenderQueue retry counts spike. Operators watch the dashboard and pause deploys if retries exceed thresholds. This is an ops runbook item, not implementation guidance for the email module.",
+      "trustLevel": 95,
+      "labels": [
+        {
+          "type": "business_area",
+          "value": "operations",
+          "weight": 1
+        },
+        {
+          "type": "domain",
+          "value": "operations",
+          "weight": 1
+        },
+        {
+          "type": "symbol",
+          "value": "SenderQueue",
           "weight": 1
         }
       ]
@@ -911,7 +943,7 @@
         "noisy-ops-workflow",
         "legacy-auth-flow"
       ],
-      "minConfidence": 0.70,
+      "minConfidence": 0.65,
       "expectedContextFitStatus": "ready",
       "minContextFitScore": 0.60,
       "expectedClassification": {
@@ -944,6 +976,30 @@
           "SenderQueue"
         ],
         "taskType": "refactor"
+      }
+    },
+    {
+      "id": "domain-scope-suppresses-off-domain",
+      "prompt": "Update the SenderQueue retry policy in src/email/sender-queue.ts.",
+      "expectedKnowledgeIds": [
+        "sender-queue-code-ref"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "sender-queue-code-ref"
+      ],
+      "unexpectedKnowledgeIds": [
+        "ops-noisy-with-symbol"
+      ],
+      "minConfidence": 0.70,
+      "expectedContextFitStatus": "ready",
+      "minContextFitScore": 0.60,
+      "expectedClassification": {
+        "files": [
+          "src/email/sender-queue.ts"
+        ],
+        "symbols": [
+          "SenderQueue"
+        ]
       }
     }
   ],

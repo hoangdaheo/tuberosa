@@ -12,8 +12,11 @@ import type {
   AgentContextCompliance,
   AgentSession,
   AgentContextDecision,
+  AgentLearningSignal,
   AppendAgentSessionNoteInput,
   AppendAgentSessionNoteResult,
+  CaptureAgentLearningSignalInput,
+  CaptureAgentLearningSignalResult,
   ContextPack,
   ContextFitStatus,
   FeedbackEvent,
@@ -149,6 +152,21 @@ export class AgentSessionService {
     return { session: updated ?? session, note, feedback };
   }
 
+  async captureLearningSignal(input: CaptureAgentLearningSignalInput): Promise<CaptureAgentLearningSignalResult> {
+    const signal = normalizeLearningSignal(input);
+    const result = await this.appendSessionNote({
+      sessionId: input.sessionId,
+      note: learningSignalNote(signal),
+      author: input.author ?? signal.source,
+      contextPackId: input.contextPackId,
+      metadata: {
+        learningSignal: signal,
+      },
+    });
+
+    return { ...result, signal };
+  }
+
   private async recordSessionNoteFeedback(
     input: AppendAgentSessionNoteInput,
     session: AgentSession,
@@ -208,7 +226,8 @@ export class AgentSessionService {
       };
     }
 
-    const summary = input.summary?.trim();
+    const learningSignals = sessionLearningSignals(input, session);
+    const summary = durableLearningSummary(input, learningSignals);
     if (!summary || summary.length < 24) {
       return {
         decision: {
@@ -220,7 +239,7 @@ export class AgentSessionService {
     }
 
     const selectedPack = await this.selectedContextPack(session, decisions);
-    const draftInput = buildLearningDraftInput(input, session, decisions, selectedPack);
+    const draftInput = buildLearningDraftInput(input, session, decisions, selectedPack, learningSignals, summary);
 
     try {
       const draft = await this.reflection.createDraft(draftInput);
@@ -330,33 +349,42 @@ function buildLearningDraftInput(
   session: AgentSession,
   decisions: AgentContextDecision[],
   selectedPack: ContextPack | undefined,
+  learningSignals: AgentLearningSignal[],
+  summary: string,
 ): ReflectionDraftInput {
   const classified = selectedPack?.classified;
-  const references = learningReferences(session, selectedPack);
-  const labels = learningLabels(session, selectedPack);
+  const references = learningReferences(session, selectedPack, input, learningSignals);
+  const labels = learningLabels(session, selectedPack, input, learningSignals);
   const contextTitles = selectedPack?.sections
     .flatMap((section) => section.items.map((item) => item.title))
     .slice(0, 4) ?? [];
   const negativeDecisions = decisions
     .filter((decision) => !isSelectedDecision(decision.decision))
     .map((decision) => `${decision.decision}${decision.reason ? `: ${decision.reason}` : ''}`);
+  const learningSignalLines = learningSignals.map(formatLearningSignal);
+  const changedFiles = uniqueStrings(input.changedFiles ?? []);
+  const verificationCommands = uniqueStrings(input.verificationCommands ?? []);
 
   return {
     project: session.project ?? selectedPack?.project,
     title: `Learn from session: ${truncate(session.prompt, 72)}`,
-    summary: input.summary ?? session.prompt,
+    summary,
     content: [
       `User task: ${session.prompt}`,
       `Outcome: ${input.outcome}`,
-      `Durable lesson: ${input.summary}`,
+      `Durable lesson: ${summary}`,
+      input.agentOutputSummary?.trim() ? `Agent output summary: ${input.agentOutputSummary.trim()}` : undefined,
+      changedFiles.length ? `Changed files: ${changedFiles.join(', ')}` : undefined,
+      verificationCommands.length ? `Verification commands: ${verificationCommands.join('; ')}` : undefined,
       contextTitles.length ? `Context used: ${contextTitles.join('; ')}` : undefined,
       negativeDecisions.length ? `Context corrections: ${negativeDecisions.join('; ')}` : undefined,
+      learningSignalLines.length ? `Learning signals:\n${learningSignalLines.join('\n')}` : undefined,
     ].filter(Boolean).join('\n'),
-    itemType: itemTypeForTask(classified?.taskType),
+    itemType: itemTypeForTask(classified?.taskType, learningSignals),
     triggerType: triggerTypeForOutcome(input, decisions),
     labels,
     references,
-    metadata: {
+    metadata: compactRecord({
       taxonomy: taxonomyForTask(classified?.taskType),
       agentSessionId: session.id,
       contextPackId: selectedPack?.id ?? session.initialContextPackId,
@@ -364,7 +392,12 @@ function buildLearningDraftInput(
       source: 'agent_session_finish',
       contextFit: selectedPack?.contextFit,
       classifiedIntent: classified?.intent,
-    },
+      agentOutputSummary: input.agentOutputSummary?.trim(),
+      changedFiles,
+      verificationCommands,
+      learningSignals,
+      learningSignalCount: learningSignals.length,
+    }),
   };
 }
 
@@ -401,6 +434,14 @@ function learningGate(input: {
     reasons.push('session has negative or missing-context decisions');
   }
 
+  if (input.decisions.some((decision) => decision.decision === 'selected_but_noisy' || decision.decision === 'too_much_adjacent_context')) {
+    reasons.push('session has noisy context feedback');
+  }
+
+  if (hasLowConfidenceLearningSignals(input.draft.metadata)) {
+    reasons.push('learning candidate includes low-confidence signals');
+  }
+
   if (input.draft.duplicateCandidates.length > 0) {
     reasons.push('similar approved memory already exists');
   }
@@ -427,7 +468,12 @@ function learningGate(input: {
   };
 }
 
-function learningReferences(session: AgentSession, selectedPack: ContextPack | undefined): ReferenceInput[] {
+function learningReferences(
+  session: AgentSession,
+  selectedPack: ContextPack | undefined,
+  input: FinishAgentSessionInput,
+  learningSignals: AgentLearningSignal[],
+): ReferenceInput[] {
   const references: ReferenceInput[] = [
     { type: 'conversation', uri: `tuberosa://agent-sessions/${session.id}` },
   ];
@@ -437,10 +483,21 @@ function learningReferences(session: AgentSession, selectedPack: ContextPack | u
     references.push(...selectedPack.sections.flatMap((section) => section.items.flatMap((item) => item.references)));
   }
 
+  references.push(...(input.changedFiles ?? []).map((uri) => ({ type: 'file' as const, uri })));
+  references.push(...learningSignals.flatMap((signal) => [
+    ...(signal.files ?? []).map((uri) => ({ type: 'file' as const, uri })),
+    ...(signal.references ?? []),
+  ]));
+
   return uniqueReferences(references).slice(0, 12);
 }
 
-function learningLabels(session: AgentSession, selectedPack: ContextPack | undefined): LabelInput[] {
+function learningLabels(
+  session: AgentSession,
+  selectedPack: ContextPack | undefined,
+  input: FinishAgentSessionInput,
+  learningSignals: AgentLearningSignal[],
+): LabelInput[] {
   const classified = selectedPack?.classified;
   const labels: LabelInput[] = [];
 
@@ -458,6 +515,8 @@ function learningLabels(session: AgentSession, selectedPack: ContextPack | undef
     ...(classified?.errors ?? []).slice(0, 4).map((value) => ({ type: 'error' as const, value, weight: 0.95 })),
     ...(classified?.technologies ?? []).slice(0, 4).map((value) => ({ type: 'technology' as const, value, weight: 0.75 })),
     ...(classified?.businessAreas ?? []).slice(0, 4).map((value) => ({ type: 'business_area' as const, value, weight: 0.8 })),
+    ...(input.changedFiles ?? []).slice(0, 8).map((value) => ({ type: 'file' as const, value, weight: 0.9 })),
+    ...learningSignals.flatMap(signalLabels),
   );
 
   return uniqueLabels(labels);
@@ -475,7 +534,22 @@ function triggerTypeForOutcome(input: FinishAgentSessionInput, decisions: AgentC
   return 'complex_task_success';
 }
 
-function itemTypeForTask(taskType: ContextPack['classified']['taskType'] | undefined): ReflectionDraftInput['itemType'] {
+function itemTypeForTask(
+  taskType: ContextPack['classified']['taskType'] | undefined,
+  learningSignals: AgentLearningSignal[] = [],
+): ReflectionDraftInput['itemType'] {
+  if (learningSignals.some((signal) => signal.kind === 'mistake' || (signal.errors?.length ?? 0) > 0)) {
+    return 'bugfix';
+  }
+
+  if (learningSignals.some((signal) => signal.kind === 'user_preference')) {
+    return 'rule';
+  }
+
+  if (learningSignals.some((signal) => signal.kind === 'verification' || signal.kind === 'file_change')) {
+    return 'workflow';
+  }
+
   if (taskType === 'debugging') {
     return 'bugfix';
   }
@@ -597,4 +671,134 @@ function isMissingContextDecision(decision: string): boolean {
     || decision === 'missing_orientation'
     || decision === 'missing_current_handoff'
     || decision === 'missing_verification_commands';
+}
+
+function durableLearningSummary(input: FinishAgentSessionInput, learningSignals: AgentLearningSignal[]): string | undefined {
+  const explicit = input.summary?.trim() || input.agentOutputSummary?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const signalSummary = learningSignals
+    .map((signal) => signal.text.trim())
+    .filter(Boolean)
+    .join(' ');
+
+  return signalSummary ? truncate(signalSummary, 500) : undefined;
+}
+
+function sessionLearningSignals(input: FinishAgentSessionInput, session: AgentSession): AgentLearningSignal[] {
+  return uniqueLearningSignals([
+    ...(input.learningSignals ?? []).map(normalizeLearningSignal),
+    ...learningSignalsFromNotes(session.metadata),
+  ]);
+}
+
+function learningSignalsFromNotes(metadata: Record<string, unknown>): AgentLearningSignal[] {
+  if (!Array.isArray(metadata.notes)) {
+    return [];
+  }
+
+  return metadata.notes
+    .map((note) => note && typeof note === 'object'
+      ? (note as { metadata?: Record<string, unknown> }).metadata?.learningSignal
+      : undefined)
+    .filter(isLearningSignalRecord)
+    .map(normalizeLearningSignal);
+}
+
+function hasLowConfidenceLearningSignals(metadata: Record<string, unknown> | undefined): boolean {
+  const signals = metadata?.learningSignals;
+  if (!Array.isArray(signals)) {
+    return false;
+  }
+
+  return signals
+    .filter(isLearningSignalRecord)
+    .some((signal) => signal.confidence !== undefined && signal.confidence < 0.6);
+}
+
+function normalizeLearningSignal(input: AgentLearningSignal): AgentLearningSignal {
+  const files = uniqueStrings(input.files ?? []);
+  const symbols = uniqueStrings(input.symbols ?? []);
+  const errors = uniqueStrings(input.errors ?? []);
+  const signal: AgentLearningSignal = {
+    kind: input.kind,
+    text: input.text.trim(),
+    createdAt: input.createdAt ?? new Date().toISOString(),
+  };
+
+  if (input.source) {
+    signal.source = input.source;
+  }
+  if (files.length) {
+    signal.files = files;
+  }
+  if (symbols.length) {
+    signal.symbols = symbols;
+  }
+  if (errors.length) {
+    signal.errors = errors;
+  }
+  if (input.references?.length) {
+    signal.references = input.references;
+  }
+  if (input.confidence !== undefined) {
+    signal.confidence = input.confidence;
+  }
+  if (input.metadata) {
+    signal.metadata = input.metadata;
+  }
+
+  return signal;
+}
+
+function uniqueLearningSignals(signals: AgentLearningSignal[]): AgentLearningSignal[] {
+  const seen = new Set<string>();
+  const unique: AgentLearningSignal[] = [];
+  for (const signal of signals) {
+    const key = `${signal.kind}:${signal.text}`.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(signal);
+  }
+  return unique;
+}
+
+function isLearningSignalRecord(value: unknown): value is AgentLearningSignal {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Partial<AgentLearningSignal>;
+  return typeof record.kind === 'string' && typeof record.text === 'string' && record.text.trim().length > 0;
+}
+
+function learningSignalNote(signal: AgentLearningSignal): string {
+  return `[learning:${signal.kind}] ${signal.text}`;
+}
+
+function formatLearningSignal(signal: AgentLearningSignal): string {
+  const evidence = [
+    signal.files?.length ? `files=${signal.files.join(',')}` : undefined,
+    signal.symbols?.length ? `symbols=${signal.symbols.join(',')}` : undefined,
+    signal.errors?.length ? `errors=${signal.errors.join(',')}` : undefined,
+  ].filter(Boolean).join(' ');
+  return `- ${signal.kind}: ${signal.text}${evidence ? ` (${evidence})` : ''}`;
+}
+
+function signalLabels(signal: AgentLearningSignal): LabelInput[] {
+  return [
+    ...(signal.files ?? []).slice(0, 8).map((value) => ({ type: 'file' as const, value, weight: 0.9 })),
+    ...(signal.symbols ?? []).slice(0, 8).map((value) => ({ type: 'symbol' as const, value, weight: 0.85 })),
+    ...(signal.errors ?? []).slice(0, 4).map((value) => ({ type: 'error' as const, value, weight: 0.95 })),
+  ];
+}
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => (
+    value !== undefined
+    && (!Array.isArray(value) || value.length > 0)
+  )));
 }

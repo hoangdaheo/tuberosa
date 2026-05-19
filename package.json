@@ -14,6 +14,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "import:docs": "tsx scripts/import-docs.ts",
     "seed:self": "tsx scripts/seed-tuberosa-src.ts",
+    "backfill:domains": "tsx scripts/backfill-domains.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "error-logs": "tsx scripts/error-logs.ts",
@@ -21,6 +22,7 @@
     "organization": "tsx scripts/organization.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "eval:retrieval": "tsx scripts/eval-retrieval.ts",
+    "eval:knowledge-completeness": "tsx scripts/eval-knowledge-completeness.ts",
     "eval:agent-context": "tsx scripts/eval-agent-context.ts",
     "test:integration": "node --test --import tsx test/integration.test.ts",
     "test": "node --test --import tsx test/*.test.ts"

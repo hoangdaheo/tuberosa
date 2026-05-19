@@ -61,6 +61,7 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
   const businessAreas = uniqueStrings(BUSINESS_HINTS.filter((term) => lower.includes(term)));
   const taskType = input.taskType && input.taskType !== 'unknown' ? input.taskType : inferTaskType(lower);
   const project = input.project ?? inferProject(input);
+  const domain = inferDomain(files);
   const exactTerms = uniqueStrings([
     ...files,
     ...symbols,
@@ -92,6 +93,7 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
     technologies,
     businessAreas,
     exactTerms,
+    domain,
     lexicalQuery: buildLexicalQuery(prompt, exactTerms),
     intent: buildRetrievalIntent({
       prompt,
@@ -400,6 +402,31 @@ function extractFiles(prompt: string): string[] {
   return prompt.match(/(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+|[\w.-]+\.[jt]sx?|[\w.-]+\.py|[\w.-]+\.go|[\w.-]+\.rs|[\w.-]+\.md/g) ?? [];
 }
 
+function inferDomain(files: string[]): string | undefined {
+  for (const path of files) {
+    const match = path.match(/^src\/([a-z][\w-]+)\//i);
+    if (match) {
+      return match[1].toLowerCase();
+    }
+  }
+  return undefined;
+}
+
+export function hasDomainMismatch(
+  candidate: { labels: LabelInput[] },
+  classified: ClassifiedQuery,
+): boolean {
+  if (!classified.domain) {
+    return false;
+  }
+  const domainLabels = candidate.labels.filter((label) => label.type === 'domain');
+  if (domainLabels.length === 0) {
+    return false;
+  }
+  const target = classified.domain.toLowerCase();
+  return !domainLabels.some((label) => label.value.toLowerCase() === target);
+}
+
 function stripFilePaths(prompt: string): string {
   return prompt.replace(/(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+|[\w.-]+\.[jt]sx?|[\w.-]+\.py|[\w.-]+\.go|[\w.-]+\.rs|[\w.-]+\.md/g, ' ');
 }
@@ -521,7 +548,13 @@ const SYMBOL_STOP_WORDS = new Set([
   'Update',
   'Delete',
   'Remove',
+  'Change',
+  'Modify',
   'Review',
+  'Refactor',
+  'Rename',
+  'Extract',
+  'Restructure',
   'Use',
   'Pull',
   'Push',

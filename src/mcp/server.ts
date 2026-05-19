@@ -3,8 +3,10 @@ import { NotFoundError, toAppError, ValidationError, type AppError } from '../er
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   AGENT_LEARNING_MODES,
+  AGENT_LEARNING_SIGNAL_KINDS,
   AGENT_SESSION_OUTCOMES,
   CONTEXT_MODES,
+  CONTEXT_NOISE_TOLERANCES,
   CONTEXT_QUALITY_FEEDBACK_TYPES,
   FEEDBACK_TYPES,
   KNOWLEDGE_ITEM_TYPES,
@@ -13,6 +15,7 @@ import {
   TRIGGER_TYPES,
   expectRecord,
   validateAppendAgentSessionNoteInput,
+  validateCaptureAgentLearningSignalInput,
   validateCollectErrorLogsInput,
   validateContextQualityReportInput,
   validateContextPackIdArguments,
@@ -306,6 +309,15 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       return toolJson(result);
     }
 
+    case 'tuberosa_capture_learning_signal': {
+      const result = await services.agentSessions.captureLearningSignal(validateCaptureAgentLearningSignalInput(args));
+      services.operations.requestPhysicalMirror('agent-learning-signal-captured');
+      return toolJson({
+        ...result,
+        instruction: 'Learning signal captured as session evidence. It can feed finish-session learning but is not trusted memory by itself.',
+      });
+    }
+
     case 'tuberosa_append_session_note': {
       const result = await services.agentSessions.appendSessionNote(validateAppendAgentSessionNoteInput(args));
       services.operations.requestPhysicalMirror('agent-session-note-appended');
@@ -378,6 +390,24 @@ function shouldReturnDeepContext(pack: ContextPack, includeDeepContext: boolean 
   }
 
   return pack.contextFit?.fitStatus !== 'insufficient';
+}
+
+function learningSignalSchema() {
+  return {
+    type: 'object',
+    required: ['kind', 'text'],
+    properties: {
+      kind: { type: 'string', enum: [...AGENT_LEARNING_SIGNAL_KINDS] },
+      text: { type: 'string' },
+      source: { type: 'string', enum: ['user', 'agent', 'tool', 'system', 'reviewer'] },
+      files: { type: 'array', items: { type: 'string' } },
+      symbols: { type: 'array', items: { type: 'string' } },
+      errors: { type: 'array', items: { type: 'string' } },
+      references: { type: 'array', items: { type: 'object' } },
+      confidence: { type: 'number' },
+      metadata: { type: 'object' },
+    },
+  };
 }
 
 function searchInstruction(fitStatus: ContextFitStatus | undefined, deepContextReturned = false): string {
@@ -480,9 +510,10 @@ function getPrompt(params: Record<string, unknown>) {
           content: {
             type: 'text',
             text: [
-              'Before starting the task, call tuberosa_start_session with the user prompt as-is, then enrich it yourself with current project, cwd, files, symbols, errors, contextMode layered, and includeDeepContext true when known.',
+              'Before starting the task, call tuberosa_start_session with the user prompt as-is, then enrich it yourself with current project, cwd, files, symbols, errors, contextMode layered, noiseTolerance strict, and includeDeepContext true when known.',
               'Use returned deep context when deepContextReturned is true; otherwise inspect the shortlist and fetch the full pack only after confirming it is appropriate.',
               'Record selected, rejected, stale, irrelevant, or missing_context with tuberosa_record_context_decision before finishing the session.',
+              'During or after the work, call tuberosa_capture_learning_signal for durable tips, decisions, mistakes, verification commands, file changes, user preferences, or follow-ups that should inform future agents.',
               'Finish with tuberosa_finish_session. Unless the user opts out, let automatic session learning extract the durable lesson; weak candidates stay reviewable and strong candidates can be approved automatically.',
               'If the context is rejected, record the decision and retry once. If it still misses, continue with fresh context only after recording missing_context or an explicit bypass reason.',
               args.prompt ? `User prompt: ${args.prompt}` : undefined,
@@ -635,6 +666,7 @@ function tools() {
           errors: { type: 'array', items: { type: 'string' } },
           tokenBudget: { type: 'number' },
           contextMode: { type: 'string', enum: [...CONTEXT_MODES] },
+          noiseTolerance: { type: 'string', enum: [...CONTEXT_NOISE_TOLERANCES] },
           deepContextBudget: { type: 'number' },
           includeDeepContext: { type: 'boolean' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
@@ -677,6 +709,7 @@ function tools() {
           errors: { type: 'array', items: { type: 'string' } },
           tokenBudget: { type: 'number' },
           contextMode: { type: 'string', enum: [...CONTEXT_MODES] },
+          noiseTolerance: { type: 'string', enum: [...CONTEXT_NOISE_TOLERANCES] },
           deepContextBudget: { type: 'number' },
           includeDeepContext: { type: 'boolean' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
@@ -716,6 +749,13 @@ function tools() {
           sessionId: { type: 'string' },
           outcome: { type: 'string', enum: [...AGENT_SESSION_OUTCOMES] },
           summary: { type: 'string' },
+          agentOutputSummary: { type: 'string' },
+          changedFiles: { type: 'array', items: { type: 'string' } },
+          verificationCommands: { type: 'array', items: { type: 'string' } },
+          learningSignals: {
+            type: 'array',
+            items: learningSignalSchema(),
+          },
           contextBypassReason: { type: 'string' },
           learningMode: { type: 'string', enum: [...AGENT_LEARNING_MODES] },
           metadata: { type: 'object' },
@@ -734,6 +774,29 @@ function tools() {
               metadata: { type: 'object' },
             },
           },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_capture_learning_signal',
+      title: 'Capture Tuberosa Learning Signal',
+      description: 'Capture a structured tip, decision, mistake, verification, file change, preference, or follow-up for an active agent session.',
+      inputSchema: {
+        type: 'object',
+        required: ['sessionId', 'kind', 'text'],
+        properties: {
+          sessionId: { type: 'string' },
+          kind: { type: 'string', enum: [...AGENT_LEARNING_SIGNAL_KINDS] },
+          text: { type: 'string' },
+          source: { type: 'string', enum: ['user', 'agent', 'tool', 'system', 'reviewer'] },
+          files: { type: 'array', items: { type: 'string' } },
+          symbols: { type: 'array', items: { type: 'string' } },
+          errors: { type: 'array', items: { type: 'string' } },
+          references: { type: 'array', items: { type: 'object' } },
+          confidence: { type: 'number' },
+          author: { type: 'string' },
+          contextPackId: { type: 'string' },
+          metadata: { type: 'object' },
         },
       },
     },

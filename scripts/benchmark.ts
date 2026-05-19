@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { KnowledgeCompletenessReport } from '../src/evaluation/knowledge-completeness-evaluator.js';
 import type { RetrievalEvalReport } from '../src/evaluation/retrieval-evaluator.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
@@ -42,6 +43,23 @@ interface LiveProbeBlock {
   passRate: number;
 }
 
+interface KnowledgeCompletenessSummary {
+  mode: 'fixture' | 'live';
+  skipped: boolean;
+  skipReason?: string;
+  totalCases: number;
+  passRate: number;
+  averageCompleteness: number;
+  averageSourceCoverage: number;
+  averageNoiseRate: number;
+  averageKnowledgeGainScore: number;
+}
+
+interface KnowledgeCompletenessBlock {
+  fixture: KnowledgeCompletenessSummary;
+  live: KnowledgeCompletenessSummary;
+}
+
 interface BenchmarkRun {
   timestamp: string;
   commit: string;
@@ -49,6 +67,7 @@ interface BenchmarkRun {
   commitMessage: string;
   tests: TestResult;
   retrieval: RetrievalMetrics;
+  knowledgeCompleteness: KnowledgeCompletenessBlock;
   agentContextPass: boolean;
   liveProbes: LiveProbeBlock | null;
   compositeScore: number;
@@ -115,6 +134,37 @@ function runAgentContextEval(): boolean {
   return result.status === 0;
 }
 
+function runKnowledgeCompletenessEval(mode: 'fixture' | 'live'): KnowledgeCompletenessSummary {
+  const result = spawnSync(TSX, [
+    'scripts/eval-knowledge-completeness.ts',
+    '--mode',
+    mode,
+    '--api-base',
+    HTTP_BASE,
+    '--json',
+  ], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: mode === 'live' ? 30_000 : 60_000,
+  });
+  const report = JSON.parse(result.stdout.trim()) as KnowledgeCompletenessReport;
+  return summarizeKnowledgeCompleteness(report);
+}
+
+function summarizeKnowledgeCompleteness(report: KnowledgeCompletenessReport): KnowledgeCompletenessSummary {
+  return {
+    mode: report.mode,
+    skipped: report.skipped ?? false,
+    skipReason: report.skipReason,
+    totalCases: report.totalCases,
+    passRate: report.metrics.passRate ?? 0,
+    averageCompleteness: report.metrics.averageCompleteness ?? 0,
+    averageSourceCoverage: report.metrics.averageSourceCoverage ?? 0,
+    averageNoiseRate: report.metrics.averageNoiseRate ?? 0,
+    averageKnowledgeGainScore: report.metrics.averageKnowledgeGainScore ?? 0,
+  };
+}
+
 // ─── live probes ──────────────────────────────────────────────────────────
 
 async function searchContext(prompt: string, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
@@ -146,16 +196,21 @@ async function probeCodeRefSurfacing(): Promise<LiveProbe> {
 }
 
 async function probeStopWordsFixed(): Promise<LiveProbe> {
-  const pack = await searchContext('Walk me through the agent session lifecycle');
-  const symbols = ((pack.classified as Record<string, unknown>)?.symbols as string[]) ?? [];
-  const falseSymbol = symbols.find((s) => s.toLowerCase() === 'walk');
-  const pass = !falseSymbol;
+  const walkPack = await searchContext('Walk me through the agent session lifecycle');
+  const refactorPack = await searchContext('Refactor reranker fusion weights', { taskType: 'refactor' });
+  const walkSymbols = ((walkPack.classified as Record<string, unknown>)?.symbols as string[]) ?? [];
+  const refactorSymbols = ((refactorPack.classified as Record<string, unknown>)?.symbols as string[]) ?? [];
+  const falseSymbols = [
+    ...walkSymbols.filter((s) => s.toLowerCase() === 'walk'),
+    ...refactorSymbols.filter((s) => s.toLowerCase() === 'refactor'),
+  ];
+  const pass = falseSymbols.length === 0;
   return {
     name: 'stop words fix',
     pass,
     detail: pass
-      ? `symbols=[${symbols.join(', ')}] — no false "Walk"`
-      : `"Walk" still in symbols: [${symbols.join(', ')}]`,
+      ? `walkSymbols=[${walkSymbols.join(', ')}], refactorSymbols=[${refactorSymbols.join(', ')}]`
+      : `false symbols=[${falseSymbols.join(', ')}]`,
   };
 }
 
@@ -172,6 +227,32 @@ async function probeCompoundTermsFixed(): Promise<LiveProbe> {
   };
 }
 
+async function probeOffDomainNoiseSuppressed(): Promise<LiveProbe> {
+  const pack = await searchContext('Refactor SenderQueue retry policy in src/email/sender-queue.ts.');
+  const sections = (pack.sections as Array<{ name: string; items: Array<{ title: string; labels?: Array<{ type: string; value: string }> }> }>) ?? [];
+  const scopedSections = sections.filter((section) => section.name === 'essential' || section.name === 'supporting');
+  const noisyItems = scopedSections.flatMap((section) => (
+    (section.items ?? [])
+      .filter((item) => {
+        const title = item.title.toLowerCase();
+        const labels = item.labels ?? [];
+        return title.includes('own backup schedulers')
+          || title.includes('debounce physical mirror')
+          || title.includes('run migrations')
+          || labels.some((label) => label.type === 'domain' && ['operations', 'storage'].includes(label.value.toLowerCase()));
+      })
+      .map((item) => `${section.name}:${item.title}`)
+  ));
+  const pass = noisyItems.length === 0;
+  return {
+    name: 'off-domain noise suppressed',
+    pass,
+    detail: pass
+      ? 'no operations/storage noise in essential/supporting'
+      : `noise=[${noisyItems.join(', ')}]`,
+  };
+}
+
 async function runLiveProbes(): Promise<LiveProbeBlock | null> {
   try {
     await fetch(`${HTTP_BASE}/health`, { signal: AbortSignal.timeout(2_000) });
@@ -179,7 +260,7 @@ async function runLiveProbes(): Promise<LiveProbeBlock | null> {
     return null;
   }
 
-  const probes = [probeCodeRefSurfacing, probeStopWordsFixed, probeCompoundTermsFixed];
+  const probes = [probeCodeRefSurfacing, probeStopWordsFixed, probeCompoundTermsFixed, probeOffDomainNoiseSuppressed];
   const results: LiveProbe[] = [];
   for (const probe of probes) {
     try {
@@ -211,6 +292,7 @@ const RETRIEVAL_WEIGHTS = {
 
 function computeCompositeScore(
   r: RetrievalMetrics,
+  knowledgeCompleteness: KnowledgeCompletenessBlock,
   tests: TestResult,
   agentContextPass: boolean,
   liveProbes: LiveProbeBlock | null,
@@ -226,13 +308,29 @@ function computeCompositeScore(
 
   const testRate = tests.total > 0 ? tests.pass / tests.total : 0;
   const systemScore = testRate * 0.60 + (agentContextPass ? 1 : 0) * 0.40;
+  const completenessScore = knowledgeCompletenessCompositeScore(knowledgeCompleteness);
 
   if (liveProbes?.available) {
-    return Math.round((retrievalScore * 0.55 + systemScore * 0.30 + liveProbes.passRate * 0.15) * 100);
+    return Math.round((
+      retrievalScore * 0.50
+      + systemScore * 0.25
+      + liveProbes.passRate * 0.10
+      + completenessScore * 0.15
+    ) * 100);
   }
 
   // Normalize without live probe slice
-  return Math.round((retrievalScore * 0.65 + systemScore * 0.35) * 100);
+  return Math.round((retrievalScore * 0.55 + systemScore * 0.30 + completenessScore * 0.15) * 100);
+}
+
+function knowledgeCompletenessCompositeScore(block: KnowledgeCompletenessBlock): number {
+  const scores = [block.fixture, block.live]
+    .filter((summary) => !summary.skipped)
+    .map((summary) => summary.averageKnowledgeGainScore / 100);
+  if (scores.length === 0) {
+    return 0;
+  }
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length;
 }
 
 // ─── persistence ──────────────────────────────────────────────────────────
@@ -287,6 +385,8 @@ function printReport(run: BenchmarkRun, previous: BenchmarkRun | null): void {
   console.log(`  ${testStatus} Tests         ${run.tests.pass}/${run.tests.total} pass`);
   const evalStatus = run.retrieval.hitRate === 1 ? '✓' : '✗';
   console.log(`  ${evalStatus} Retrieval     ${run.retrieval.totalCases} cases — hit@5 ${pct(run.retrieval.hitRate)}`);
+  const completenessStatus = run.knowledgeCompleteness.fixture.passRate === 1 ? '✓' : '✗';
+  console.log(`  ${completenessStatus} Completeness  fixture ${knowledgeCompletenessLine(run.knowledgeCompleteness.fixture)}`);
   const agentStatus = run.agentContextPass ? '✓' : '✗';
   console.log(`  ${agentStatus} Agent Context ${run.agentContextPass ? 'pass' : 'FAIL'}`);
 
@@ -309,6 +409,11 @@ function printReport(run: BenchmarkRun, previous: BenchmarkRun | null): void {
   console.log(`    context fit score       ${pct(run.retrieval.contextFitScoreRate)}`);
   console.log(`    selected coverage       ${pct(run.retrieval.selectedCoverageRate)}`);
 
+  console.log('');
+  console.log('  Knowledge Completeness');
+  console.log(`    fixture                 ${knowledgeCompletenessLine(run.knowledgeCompleteness.fixture)}`);
+  console.log(`    live                    ${knowledgeCompletenessLine(run.knowledgeCompleteness.live)}`);
+
   if (run.liveProbes?.available) {
     console.log('');
     console.log('  Live Probe Results');
@@ -324,6 +429,20 @@ function printReport(run: BenchmarkRun, previous: BenchmarkRun | null): void {
   console.log(`${bar}\n`);
 }
 
+function knowledgeCompletenessLine(summary: KnowledgeCompletenessSummary): string {
+  if (summary.skipped) {
+    return `skipped (${summary.skipReason ?? 'not available'})`;
+  }
+
+  return [
+    `${summary.totalCases} cases`,
+    `score ${summary.averageKnowledgeGainScore.toFixed(1)}`,
+    `complete ${pct(summary.averageCompleteness)}`,
+    `sources ${pct(summary.averageSourceCoverage)}`,
+    `noise ${pct(summary.averageNoiseRate)}`,
+  ].join(' — ');
+}
+
 // ─── main ─────────────────────────────────────────────────────────────────
 
 const git = gitInfo();
@@ -335,6 +454,20 @@ process.stdout.write(` ${tests.pass}/${tests.total}\n`);
 process.stdout.write('Running retrieval eval...');
 const retrieval = runRetrievalEval();
 process.stdout.write(` ${retrieval.totalCases} cases, hit@5 ${pct(retrieval.hitRate)}\n`);
+
+process.stdout.write('Running knowledge completeness eval...');
+const knowledgeCompleteness: KnowledgeCompletenessBlock = {
+  fixture: runKnowledgeCompletenessEval('fixture'),
+  live: runKnowledgeCompletenessEval('live'),
+};
+process.stdout.write(
+  ` fixture score ${knowledgeCompleteness.fixture.averageKnowledgeGainScore.toFixed(1)}, `
+  + (
+    knowledgeCompleteness.live.skipped
+      ? 'live skipped\n'
+      : `live score ${knowledgeCompleteness.live.averageKnowledgeGainScore.toFixed(1)}\n`
+  ),
+);
 
 process.stdout.write('Running agent-context eval...');
 const agentContextPass = runAgentContextEval();
@@ -348,7 +481,7 @@ process.stdout.write(
     : ' server not reachable\n',
 );
 
-const compositeScore = computeCompositeScore(retrieval, tests, agentContextPass, liveProbes);
+const compositeScore = computeCompositeScore(retrieval, knowledgeCompleteness, tests, agentContextPass, liveProbes);
 const previous = loadLastRun();
 
 const run: BenchmarkRun = {
@@ -358,6 +491,7 @@ const run: BenchmarkRun = {
   commitMessage: git.message,
   tests,
   retrieval,
+  knowledgeCompleteness,
   agentContextPass,
   liveProbes,
   compositeScore,

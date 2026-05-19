@@ -25,6 +25,8 @@ export type TaskType =
   | 'testing'
   | 'unknown';
 
+export type ContextNoiseTolerance = 'balanced' | 'strict';
+
 export type RetrievalWorkflowStage =
   | 'continuation'
   | 'planning'
@@ -353,6 +355,7 @@ export interface ContextSearchInput {
   errors?: string[];
   tokenBudget?: number;
   contextMode?: ContextMode;
+  noiseTolerance?: ContextNoiseTolerance;
   deepContextBudget?: number;
   includeDeepContext?: boolean;
   rejectedKnowledgeIds?: string[];
@@ -372,6 +375,7 @@ export interface ClassifiedQuery {
   technologies: string[];
   businessAreas: string[];
   exactTerms: string[];
+  domain?: string;
   lexicalQuery: string;
   intent: RetrievalIntent;
 }
@@ -795,6 +799,41 @@ export type AgentContextDecisionType = FeedbackInput['feedbackType'];
 
 export type AgentLearningMode = 'auto' | 'draft_only' | 'off';
 
+export type AgentLearningSignalKind =
+  | 'tip'
+  | 'decision'
+  | 'mistake'
+  | 'verification'
+  | 'file_change'
+  | 'user_preference'
+  | 'follow_up';
+
+export type AgentLearningSignalSource =
+  | 'user'
+  | 'agent'
+  | 'tool'
+  | 'system'
+  | 'reviewer';
+
+export interface AgentLearningSignal {
+  kind: AgentLearningSignalKind;
+  text: string;
+  source?: AgentLearningSignalSource;
+  files?: string[];
+  symbols?: string[];
+  errors?: string[];
+  references?: ReferenceInput[];
+  confidence?: number;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface CaptureAgentLearningSignalInput extends AgentLearningSignal {
+  sessionId: string;
+  author?: string;
+  contextPackId?: string;
+}
+
 export type AgentLearningDecisionStatus =
   | 'skipped'
   | 'drafted'
@@ -833,6 +872,10 @@ export interface AppendAgentSessionNoteResult {
   session: AgentSession;
   note: AgentSessionNote;
   feedback?: FeedbackEvent;
+}
+
+export interface CaptureAgentLearningSignalResult extends AppendAgentSessionNoteResult {
+  signal: AgentLearningSignal;
 }
 
 export interface AgentSession {
@@ -1053,6 +1096,10 @@ export interface FinishAgentSessionInput {
   sessionId: string;
   outcome: AgentSessionOutcome;
   summary?: string;
+  agentOutputSummary?: string;
+  changedFiles?: string[];
+  verificationCommands?: string[];
+  learningSignals?: AgentLearningSignal[];
   contextBypassReason?: string;
   learningMode?: AgentLearningMode;
   metadata?: Record<string, unknown>;
