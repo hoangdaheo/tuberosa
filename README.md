@@ -192,6 +192,7 @@ pnpm run migrate   # Apply SQL migrations
 pnpm run eval:retrieval # Deterministic retrieval quality eval
 pnpm run eval:agent-context # Agent context compliance eval
 pnpm run test:integration # Docker-gated Postgres/Redis tests
+pnpm run context-quality -- --project tuberosa # Context-quality review workbench
 ```
 
 If your shell defaults to an older Node version:

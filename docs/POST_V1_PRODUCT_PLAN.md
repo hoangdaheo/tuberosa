@@ -11,6 +11,7 @@ Why first:
 - It directly improves Tuberosa's core job: mapping the right knowledge to the current agent task.
 - The backend foundation now exists through `GET /operations/context-quality` and `tuberosa_collect_context_quality_feedback`.
 - It uses current review primitives instead of requiring a new memory model.
+- A first local CLI workbench exists through `pnpm run context-quality`; it formats the report with linked packs, sessions, noisy items, gaps, proposals, and existing review endpoints.
 
 Thin vertical slice:
 

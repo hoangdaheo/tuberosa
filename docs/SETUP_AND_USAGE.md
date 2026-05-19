@@ -316,6 +316,7 @@ pnpm run import:docs --project tuberosa docs/FLOW_LOGIC.md
 pnpm run backup
 pnpm run restore --backup <backup-id> --dry-run
 pnpm run error-logs collect --project tuberosa --status open --brief
+pnpm run context-quality -- --project tuberosa --limit 25
 ```
 
 Command purpose:
@@ -334,6 +335,7 @@ Command purpose:
 - `backup`: create a portable JSONL backup in `TUBEROSA_BACKUP_DIR`.
 - `backup --status`, `--list`, `--verify`, `--prune`: inspect, verify, and maintain the backup catalog.
 - `restore`: dry-run or replace-restore from a backup id or path. Restore runs verification and preflight checks first.
+- `context-quality`: print a local review workbench for noisy or missing context feedback.
 - `error-logs`: collect, inspect, create reflection drafts from, and resolve filesystem-backed incident journals.
 
 ## 9. HTTP API Usage
@@ -611,6 +613,12 @@ Review feedback-created learning records:
 curl 'http://localhost:3027/operations/learning-proposals?project=newsletter-app&status=open'
 curl 'http://localhost:3027/operations/knowledge-gaps?project=newsletter-app&status=open'
 curl 'http://localhost:3027/operations/context-quality?project=newsletter-app&feedbackType=selected_but_noisy&limit=25'
+```
+
+Use the local context-quality workbench when you want a review-oriented view with linked packs, sessions, noisy adjacent items, missing signals, and the existing review endpoints to use next:
+
+```bash
+pnpm run context-quality -- --project newsletter-app --feedback-type selected_but_noisy --limit 25 --api-base http://localhost:3027
 ```
 
 Reviewers can mark either queue item `open`, `approved`, `dismissed`, or `needs_changes` with `PATCH /operations/learning-proposals/:id` or `PATCH /operations/knowledge-gaps/:id`.
