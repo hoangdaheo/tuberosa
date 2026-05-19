@@ -128,15 +128,20 @@ async function searchContext(prompt: string, extra: Record<string, unknown> = {}
 }
 
 async function probeCodeRefSurfacing(): Promise<LiveProbe> {
-  const pack = await searchContext('how does BM25 reranking work in the retrieval pipeline');
-  const sections = (pack.sections as Array<{ items: Array<{ itemType: string }> }>) ?? [];
+  // Use an explicit file reference — the realistic agent workflow.
+  // With file label match, code_ref items should surface as directTaskEvidence.
+  const pack = await searchContext('update feedbackScoreAdjustment in service.ts to fix the noisy penalty');
+  const sections = (pack.sections as Array<{ items: Array<{ itemType: string; evidenceCategory?: string }> }>) ?? [];
   const allItems = sections.flatMap((s) => s.items ?? []);
   const codeRefItems = allItems.filter((item) => item.itemType === 'code_ref');
-  const pass = codeRefItems.length > 0;
+  const directItems = codeRefItems.filter((item) => item.evidenceCategory === 'directTaskEvidence');
+  const pass = directItems.length > 0;
   return {
     name: 'code_ref surfacing',
     pass,
-    detail: pass ? `${codeRefItems.length} code_ref item(s) in pack` : 'no code_ref items in any section',
+    detail: pass
+      ? `${directItems.length} code_ref as directTaskEvidence`
+      : `code_ref found: ${codeRefItems.length}, directTaskEvidence: 0`,
   };
 }
 
