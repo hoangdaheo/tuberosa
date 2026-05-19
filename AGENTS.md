@@ -140,21 +140,36 @@ Use `pnpm run eval:retrieval` before and after changes to retrieval classificati
 HTTP endpoints currently include:
 
 - `GET /health`
-- `POST /knowledge`
 - `GET /knowledge`
+- `POST /knowledge`
+- `PATCH /knowledge/:id`
 - `POST /ingest/files`
 - `POST /context/search`
+- `GET /context/packs`
 - `GET /context/packs/:id`
 - `POST /context/feedback`
+- `POST /agent-sessions`
+- `POST /agent-sessions/:id/context-decision`
+- `POST /agent-sessions/:id/finish`
+- `POST /agent-sessions/:id/notes`
 - `POST /reflection-drafts`
+- `PATCH /reflection-drafts/:id`
 - `POST /reflection-drafts/:id/approve`
+- operations endpoints for relations, conflicts, knowledge gaps, learning proposals, context quality, organization exports, imports, cleanup, backups, and error logs
 
 MCP tools currently include:
 
 - `tuberosa_search_context`
 - `tuberosa_get_context_pack`
+- `tuberosa_start_session`
+- `tuberosa_record_context_decision`
+- `tuberosa_finish_session`
+- `tuberosa_append_session_note`
 - `tuberosa_reflect`
+- reflection review tools
 - `tuberosa_feedback_context`
+- `tuberosa_collect_context_quality_feedback`
+- error-log tools for recording, listing, collecting, reading, updating, and resolving incidents
 
 MCP resources and prompts are defined in `src/mcp/server.ts`.
 

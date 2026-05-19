@@ -52,7 +52,7 @@ Important entities:
 - Reference: file, URL, commit, tool, conversation, or external pointer.
 - Context query: stored search prompt, fingerprint, classification, and token budget.
 - Context pack: proposed, selected, or rejected pack of ranked candidates.
-- Feedback event: selected, rejected, irrelevant, stale, or missing-context signal.
+- Feedback event: selected, rejected, irrelevant, stale, missing-context, or context-quality signal.
 - Agent session: audit record for one agent task, initial context, context decisions, outcome, and reflection draft links.
 - Reflection draft: pending, approved, or rejected learning memory.
 - Error log: sanitized physical incident file for MCP, HTTP, CLI, tool, test, database, cache, model-provider, retrieval, ingestion, reflection, or session failures.
@@ -114,7 +114,7 @@ Flow:
    - lexical query
 3. If the configured model provider supports query rewriting, retrieval asks it for a compact lexical rewrite and extra exact terms.
 4. Query rewrite output is sanitized, merged with deterministic classification, and never allowed to replace the original prompt.
-5. It creates a stable fingerprint from prompt, project, repo hint, cwd, task type, files, symbols, errors, token budget, rejected ids, effective lexical query, exact terms, and rewrite model.
+5. It creates a stable fingerprint from prompt, project, repo hint, cwd, task type, files, symbols, errors, token budget, context mode, deep-context budget, rejected ids, effective lexical query, exact terms, rewrite model, and rerank model.
 6. It checks the cache unless `bypassCache` or `debug` is true.
 7. The store creates a `context_queries` row.
 8. Candidate searches run in parallel:
@@ -262,7 +262,7 @@ Pack assembly also adds context-usefulness metadata without changing storage sch
 
 - `evidenceCategory`: `directTaskEvidence`, `priorLessons`, `workflowGuidance`, or `adjacentContext`
 - `evidenceStrength`: `strong`, `moderate`, or `weak`
-- `usefulnessReason`: compact agent-facing explanation for why to use the item
+- `usefulnessReason`: compact agent-facing explanation for why to use the item, including exact evidence, graph paths, feedback contribution, freshness/stale risk, and supersession suppression when present
 - `actionableMissingSignals`: item-level missing signals grouped by files, symbols, errors, docs, intent, and other
 - `orientation`: pack-level startup guidance with inferred task, recommended files, likely surfaces, verification commands, missing-signal buckets, and notes
 
@@ -300,20 +300,27 @@ Entry points:
 Feedback types:
 
 - `selected`
+- `selected_but_noisy`
 - `rejected`
 - `irrelevant`
 - `stale`
 - `missing_context`
+- `too_much_adjacent_context`
+- `missing_orientation`
+- `missing_current_handoff`
+- `missing_verification_commands`
 
 Flow:
 
 1. Store writes a feedback event.
 2. If `contextPackId` is present, the pack status is updated:
-   - `selected` becomes selected.
-   - every other feedback type becomes rejected.
-3. `missing_context` creates an open `knowledge_gaps` record with prompt, classified intent, missing signals, context pack, feedback id, and agent session provenance when available.
-4. `rejected`, `irrelevant`, and `stale` create open `learning_proposals` records for review. These records propose cleanup, relation/label/reference review, or supersession, but they do not directly mutate approved knowledge or graph relations.
-5. When a `learning_proposal` is approved via `PATCH /operations/learning-proposals/:id` with `status: "approved"`, an approval action executes once:
+   - `selected` and `selected_but_noisy` become selected.
+   - `rejected`, `irrelevant`, and `stale` become rejected.
+   - missing-context and adjacent-noise quality feedback leave the pack status unchanged.
+3. `selected_but_noisy` keeps the pack selected, records a smaller positive feedback signal, and does not retry.
+4. `missing_context`, `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands` create open `knowledge_gaps` records with prompt, classified intent, missing signals, context pack, feedback id, feedback type, and agent session provenance when available.
+5. `rejected`, `irrelevant`, `stale`, and `too_much_adjacent_context` create open `learning_proposals` records for review. These records propose cleanup, relation/label/reference review, adjacent-context tightening, or supersession, but they do not directly mutate approved knowledge or graph relations.
+6. When a `learning_proposal` is approved via `PATCH /operations/learning-proposals/:id` with `status: "approved"`, an approval action executes once:
    - `supersedes` with both `candidateKnowledgeId` and `affectedKnowledgeId` → creates a `supersedes` knowledge relation from candidate to affected, then marks `affectedKnowledgeId` as `needs_review`.
    - `supersedes` with only `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
    - `missing_label` with `affectedKnowledgeId` and reviewed `metadata.suggestedLabels` → merges those labels into the affected knowledge.
@@ -324,17 +331,17 @@ Flow:
    - `auto_memory_cleanup` with `metadata.cleanupAction: "supersede"` and `metadata.supersedingKnowledgeId` → creates or reuses a `supersedes` relation from that reviewed knowledge item to `affectedKnowledgeId`, then marks `affectedKnowledgeId` as `needs_review`.
    - `missing_relation` with `affectedKnowledgeId` → marks `affectedKnowledgeId` as `needs_review`.
    - The action result is stored in `proposal.metadata.approvalAction`. Subsequent PATCH calls with `status: "approved"` skip the action because `approvalAction` is already present.
-6. `rejected`, `irrelevant`, and `stale` trigger retry.
-6. Retry input uses the original prompt and project.
-7. Retry rejected ids include:
+7. `rejected`, `irrelevant`, and `stale` trigger retry.
+8. Retry input uses the original prompt and project.
+9. Retry rejected ids include:
    - all knowledge ids in the rejected pack
    - explicit `rejectedKnowledgeIds` from feedback
-8. Retry sets `bypassCache: true`.
-9. Search runs again with rejected knowledge excluded.
+10. Retry sets `bypassCache: true`.
+11. Search runs again with rejected knowledge excluded.
 
 Missing-context feedback is recorded but does not automatically retry because there may be no known ids to exclude.
 
-Feedback history is also used in future searches. `KnowledgeStore.getFeedbackSummaries` returns compact per-knowledge counts for selected, rejected, irrelevant, and stale feedback. Retrieval applies those summaries after rerank and before context-fit evaluation so useful context can rise slightly and stale or rejected context is less likely to win.
+Feedback history is also used in future searches. `KnowledgeStore.getFeedbackSummaries` returns compact per-knowledge counts for selected, selected-but-noisy, rejected, irrelevant, and stale feedback. Retrieval applies those summaries after rerank and before context-fit evaluation so useful context can rise slightly and stale or rejected context is less likely to win.
 
 Missing-context events are kept as review signals. They do not penalize any specific knowledge item because they often mean the right knowledge is absent.
 
@@ -393,9 +400,11 @@ Entry points:
 - HTTP `POST /agent-sessions`
 - HTTP `POST /agent-sessions/:id/context-decision`
 - HTTP `POST /agent-sessions/:id/finish`
+- HTTP `POST /agent-sessions/:id/notes`
 - MCP `tuberosa_start_session`
 - MCP `tuberosa_record_context_decision`
 - MCP `tuberosa_finish_session`
+- MCP `tuberosa_append_session_note`
 
 Start flow:
 
@@ -424,6 +433,12 @@ Finish flow:
 6. Candidates that do not pass the gates are kept reviewable, normally as `needs_changes`; unsafe or invalid candidates are rejected from the finish result without failing the session finish.
 7. Store marks the session finished with summary, context compliance, learning decision metadata, timestamps, and reflection draft ids.
 
+Post-finish note flow:
+
+1. Caller appends a note to an active or finished session.
+2. If `feedbackType` is supplied, the service writes a normal feedback event linked by `metadata.agentSessionId` and `metadata.postFinishNote`.
+3. The session metadata keeps the note so later operations reports can connect human feedback, context quality, and learning follow-up.
+
 Design rule:
 
 - Session orchestration should depend on retrieval, reflection, and `KnowledgeStore`; retrieval ranking and reflection approval remain independent services.
@@ -434,7 +449,14 @@ Design rule:
 Entry points:
 
 - HTTP `POST /reflection-drafts`
+- HTTP `GET /reflection-drafts`
+- HTTP `GET /reflection-drafts/:id`
+- HTTP `PATCH /reflection-drafts/:id`
+- HTTP `POST /reflection-drafts/:id/approve`
 - MCP `tuberosa_reflect`
+- MCP `tuberosa_list_reflection_drafts`
+- MCP `tuberosa_get_reflection_draft`
+- MCP `tuberosa_review_reflection_draft`
 
 Draft creation flow:
 
@@ -455,14 +477,15 @@ Draft creation flow:
 
 Approval flow:
 
-1. HTTP `POST /reflection-drafts/:id/approve` approves the draft.
-2. Approved draft is ingested as a knowledge item.
-3. Default project is `personal` when the draft has no project.
-4. Default item type is `memory`.
-5. Labels include project, trigger type as user preference, and suggested labels.
-6. References include `reflection://draft/<id>` plus caller-provided references.
-7. Metadata preserves taxonomy, trigger type, approved draft id, and provenance.
-8. The memory becomes searchable by normal retrieval.
+1. HTTP `PATCH /reflection-drafts/:id` or MCP review tools can reject a draft, mark it needs_changes, or update reviewed labels/references.
+2. HTTP `POST /reflection-drafts/:id/approve` or MCP `tuberosa_review_reflection_draft` with `decision: "approve"` approves the draft.
+3. Approved draft is ingested as a knowledge item.
+4. Default project is `personal` when the draft has no project.
+5. Default item type is `memory`.
+6. Labels include project, trigger type as user preference, and suggested labels.
+7. References include `reflection://draft/<id>` plus caller-provided references.
+8. Metadata preserves taxonomy, trigger type, approved draft id, and provenance.
+9. The memory becomes searchable by normal retrieval.
 
 Safety rule:
 
@@ -491,6 +514,7 @@ Entry points:
 - HTTP `PATCH /operations/knowledge-gaps/:id`
 - HTTP `GET /operations/learning-proposals`
 - HTTP `PATCH /operations/learning-proposals/:id`
+- HTTP `GET /operations/context-quality`
 - HTTP `POST /operations/import-files`
 - HTTP `POST /operations/cleanup`
 - HTTP error-log operations under `/operations/error-logs`
@@ -504,6 +528,7 @@ Entry points:
 - CLI `pnpm run backup`
 - CLI `pnpm run restore`
 - CLI `pnpm run error-logs`
+- CLI `pnpm run organization`
 
 Review flow:
 
@@ -522,6 +547,15 @@ Review flow:
 6. Conflict detection compares approved knowledge with overlapping file, symbol, error, domain, technology, task, workflow-stage, or reference evidence and records reviewable conflicts when summaries or freshness signals appear contradictory.
 7. Conflict records are review-only. Reviewers can resolve or dismiss them, but Tuberosa does not silently create supersession relations or searchable memories from them.
 8. Audit listings expose context packs, feedback events, sessions, and session decisions so users can inspect why context was returned and how it was used.
+9. Context-quality reports collect `selected_but_noisy`, `too_much_adjacent_context`, `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands` feedback, then link each event to its pack, session, open knowledge gaps, open learning proposals, noisy adjacent items, missing signals, and suggested review actions.
+
+Organization export flow:
+
+1. HTTP organization endpoints and `pnpm run organization` read from the store's project map, knowledge graph JSONL, and readable-summary exporters.
+2. `project-map` emits a compact JSON overview of knowledge, sources, relation counts, and labels.
+3. `knowledge-graph` emits JSONL knowledge and relation records for inspection or external tools.
+4. `readable-summary` emits Markdown for human review.
+5. These exports are read-only inspection artifacts, not backups and not the runtime source of truth.
 
 Cleanup flow:
 
@@ -571,7 +605,13 @@ Fingerprint includes:
 - symbols
 - errors
 - token budget
+- context mode
+- deep-context budget
 - rejected knowledge ids
+- effective lexical query
+- exact terms
+- query rewrite model
+- rerank model
 
 Fingerprint intentionally excludes `debug`.
 
@@ -659,8 +699,11 @@ Tool flow:
 6. `tuberosa_record_context_decision` records feedback and a session audit decision.
 7. `tuberosa_finish_session` records outcome and creates automatic session learning unless disabled or replaced by an explicit draft.
 8. `tuberosa_reflect` creates a pending draft.
-9. `tuberosa_feedback_context` records feedback and may return a retry pack.
-10. Error-log tools record, list, read, and update physical incidents for later debugging.
+9. Reflection review tools list, inspect, and record approve/reject/needs-changes decisions for pending drafts.
+10. `tuberosa_feedback_context` records feedback and may return a retry pack.
+11. `tuberosa_append_session_note` appends post-finish notes and can record context-quality feedback against the session.
+12. `tuberosa_collect_context_quality_feedback` returns a compact operations report for noisy or missing-context feedback.
+13. Error-log tools record, list, read, collect, resolve, and update physical incidents for later debugging.
 
 Resource flow:
 
@@ -673,6 +716,7 @@ Prompt flow:
 
 - `tuberosa_bootstrap_session` tells an agent to search and confirm context before work.
 - `tuberosa_reflect_after_task` tells an agent when and how to draft memory.
+- `tuberosa_review_pending_reflections` tells an agent how to list, inspect, and review draft memories before approval.
 - `tuberosa_capture_error_for_later` tells an agent when and how to save an error incident without turning it directly into knowledge.
 - `tuberosa_review_error_logs` tells an agent how to collect compact incident context, inspect only necessary raw logs, and create reflection drafts for durable lessons.
 - `tuberosa_fix_error_log` tells an agent how to inspect an incident, search context, fix code, run verification, and call `tuberosa_resolve_error_log`.

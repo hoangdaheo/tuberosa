@@ -8,6 +8,7 @@ import {
   validateContextSearchInput,
   validateBackupRetentionInput,
   validateCollectErrorLogsInput,
+  validateContextQualityReportInput,
   validateCleanupOperationsInput,
   validateCreateBackupInput,
   validateCreateErrorLogReflectionDraftInput,
@@ -453,6 +454,13 @@ function createRoutes(): HttpRoute[] {
       }),
     },
     {
+      method: 'GET',
+      match: exactPath('/operations/context-quality'),
+      handle: ({ services, url }) => services.operations.collectContextQualityFeedback(
+        readContextQualityReportOptions(url),
+      ),
+    },
+    {
       method: 'POST',
       match: exactPath('/operations/error-logs'),
       handle: async ({ services, request }) => {
@@ -869,6 +877,14 @@ function readLearningProposalListOptions(url: URL) {
     affectedKnowledgeId: url.searchParams.get('affectedKnowledgeId') ?? undefined,
     limit: readLimit(url),
   };
+}
+
+function readContextQualityReportOptions(url: URL) {
+  return validateContextQualityReportInput({
+    project: url.searchParams.get('project') ?? undefined,
+    feedbackType: url.searchParams.get('feedbackType') ?? undefined,
+    limit: readLimit(url),
+  });
 }
 
 async function maybeCaptureHttpError(

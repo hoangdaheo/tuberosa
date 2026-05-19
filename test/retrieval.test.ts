@@ -195,6 +195,111 @@ test('context pack usefulness prioritizes direct task evidence and returns start
   ok(pack.orientation?.verificationCommands.includes('pnpm run eval:retrieval'));
 });
 
+test('context pack usefulness reasons include evidence details without changing selected ids', () => {
+  const classified: ClassifiedQuery = {
+    project: 'agent-memory',
+    taskType: 'implementation',
+    confidence: 0.8,
+    files: ['src/retrieval/context-pack.ts'],
+    symbols: ['assembleContextPack'],
+    errors: [],
+    technologies: [],
+    businessAreas: ['search'],
+    exactTerms: ['src/retrieval/context-pack.ts', 'assembleContextPack', 'search'],
+    lexicalQuery: 'src/retrieval/context-pack.ts assembleContextPack search',
+    intent: {
+      taskGoal: 'implement requested change',
+      workflowStage: 'implementation',
+      impliedFiles: ['src/retrieval/context-pack.ts'],
+      impliedSymbols: ['assembleContextPack'],
+      impliedDomains: ['search'],
+      recentSessionReferences: [],
+      requiredEvidenceTypes: ['workflow', 'code_reference'],
+      uncertaintyReasons: [],
+    },
+  };
+  const current = rankedCandidate({
+    knowledgeId: 'current',
+    title: 'Current context pack workflow',
+    itemType: 'code_ref',
+    project: 'agent-memory',
+    finalScore: 0.92,
+    labels: [
+      { type: 'file', value: 'src/retrieval/context-pack.ts', weight: 1 },
+      { type: 'symbol', value: 'assembleContextPack', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/retrieval/context-pack.ts' }],
+    matchReasons: ['file:src/retrieval/context-pack.ts', 'symbol:assembleContextPack', 'feedback:selected:2', 'feedback:selected_but_noisy:1'],
+    fitReasons: ['matched file:src/retrieval/context-pack.ts', 'freshness:current'],
+    metadata: {
+      feedback: {
+        selectedCount: 2,
+        selectedNoisyCount: 1,
+        latestFeedbackType: 'selected_but_noisy',
+        scoreAdjustment: 0.1,
+      },
+    },
+    freshnessAt: '2026-05-18T00:00:00.000Z',
+  });
+  const graph = rankedCandidate({
+    knowledgeId: 'graph',
+    title: 'Related graph workflow',
+    itemType: 'workflow',
+    finalScore: 0.86,
+    labels: [{ type: 'business_area', value: 'search', weight: 1 }],
+    references: [],
+    matchReasons: ['graph match'],
+    fitReasons: ['graph connection'],
+    metadata: {
+      graphPaths: [{
+        relationType: 'depends_on',
+        fromKnowledgeId: 'current',
+        targetKnowledgeId: 'graph',
+      }],
+    },
+  });
+  const staleSuperseded = rankedCandidate({
+    knowledgeId: 'stale',
+    title: 'Legacy context workflow',
+    itemType: 'workflow',
+    finalScore: 0.7,
+    labels: [{ type: 'business_area', value: 'search', weight: 1 }],
+    references: [],
+    matchReasons: ['vector match', 'suppression:superseded:current', 'suppression:freshness:stale'],
+    fitMissingSignals: ['freshness:stale'],
+    metadata: {
+      retrievalSuppression: {
+        reasons: ['suppression:superseded:current', 'suppression:freshness:stale'],
+        supersededBy: ['current'],
+      },
+    },
+    freshnessAt: '2024-01-01T00:00:00.000Z',
+  });
+
+  const pack = assembleContextPack({
+    project: 'agent-memory',
+    prompt: 'Update src/retrieval/context-pack.ts assembleContextPack explanations',
+    classified,
+    candidates: [current, graph, staleSuperseded],
+    tokenBudget: 4000,
+    contextFit: {
+      fitStatus: 'ready',
+      fitScore: 0.82,
+      fitReasons: ['covered file:1/1'],
+      missingSignals: [],
+    },
+  });
+  const items = pack.sections.flatMap((section) => section.items);
+
+  deepEqual(items.map((item) => item.knowledgeId), ['current', 'graph', 'stale']);
+  ok(items[0].usefulnessReason?.includes('file:src/retrieval/context-pack.ts'));
+  ok(items[0].usefulnessReason?.includes('selected_but_noisy:1'));
+  ok(items[0].usefulnessReason?.includes('Freshness: current'));
+  ok(items[1].usefulnessReason?.includes('Graph relation path: depends_on'));
+  ok(items[2].usefulnessReason?.includes('Freshness risk: stale'));
+  ok(items[2].usefulnessReason?.includes('Supersession suppression: superseded by current'));
+});
+
 test('context pack caps prior lessons and adjacent context in normal startup packs', () => {
   const classified: ClassifiedQuery = {
     project: 'tuberosa',

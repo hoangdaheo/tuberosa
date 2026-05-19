@@ -16,6 +16,7 @@
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "error-logs": "tsx scripts/error-logs.ts",
+    "organization": "tsx scripts/organization.ts",
     "eval:retrieval": "tsx scripts/eval-retrieval.ts",
     "eval:agent-context": "tsx scripts/eval-agent-context.ts",
     "test:integration": "node --test --import tsx test/integration.test.ts",

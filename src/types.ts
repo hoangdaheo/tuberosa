@@ -656,6 +656,82 @@ export interface KnowledgeFeedbackSummary {
   latestFeedbackAt?: string;
 }
 
+export interface ContextQualityReportInput {
+  project?: string;
+  feedbackType?: FeedbackQualityType;
+  limit: number;
+}
+
+export interface ContextQualityPackSummary {
+  id: string;
+  project?: string;
+  status: ContextPack['status'];
+  prompt: string;
+  confidence: number;
+  fitStatus?: ContextFitStatus;
+  fitScore?: number;
+  missingSignals: string[];
+}
+
+export interface ContextQualitySessionSummary {
+  id: string;
+  status: AgentSessionStatus;
+  outcome?: AgentSessionOutcome;
+  prompt: string;
+  summary?: string;
+}
+
+export interface ContextQualityItemSummary {
+  knowledgeId: string;
+  title: string;
+  evidenceCategory?: ContextEvidenceCategory;
+  evidenceStrength?: ContextEvidenceStrength;
+  score: number;
+  reasons: string[];
+  missingSignals: string[];
+}
+
+export interface ContextQualityKnowledgeGapSummary {
+  id: string;
+  status: LearningReviewStatus;
+  missingSignals: string[];
+  reason?: string;
+}
+
+export interface ContextQualityLearningProposalSummary {
+  id: string;
+  status: LearningReviewStatus;
+  proposalType: LearningProposalType;
+  affectedKnowledgeId?: string;
+  reason: string;
+  evidence: string[];
+}
+
+export interface ContextQualityFeedbackRecord {
+  feedback: FeedbackEvent;
+  contextPack?: ContextQualityPackSummary;
+  session?: ContextQualitySessionSummary;
+  adjacentItems: ContextQualityItemSummary[];
+  missingSignals: string[];
+  openKnowledgeGaps: ContextQualityKnowledgeGapSummary[];
+  openLearningProposals: ContextQualityLearningProposalSummary[];
+  suggestedReviewActions: string[];
+}
+
+export interface ContextQualityReport {
+  generatedAt: string;
+  filters: ContextQualityReportInput;
+  totalMatched: number;
+  records: ContextQualityFeedbackRecord[];
+  rollups: {
+    feedbackTypes: Array<{ value: FeedbackQualityType; count: number }>;
+    projects: Array<{ value: string; count: number }>;
+    suggestedReviewActions: Array<{ value: string; count: number }>;
+    missingSignals: Array<{ value: string; count: number }>;
+    adjacentItems: Array<{ knowledgeId: string; title: string; count: number }>;
+  };
+}
+
 export type AgentSessionStatus = 'active' | 'finished';
 
 export type AgentSessionOutcome = 'completed' | 'failed' | 'blocked' | 'cancelled';

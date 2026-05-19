@@ -26,41 +26,41 @@ Implemented before this handoff:
 
 Latest changes in the working tree:
 
-- `selected_but_noisy` now behaves as selected context for agent session compliance and learning-pack selection.
-- `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands` now satisfy missing-context compliance instead of leaving sessions as `needs_decision`.
-- Regression tests cover both of those session-compliance behaviors.
-- `CLAUDE.md` now lists current MCP tool families instead of saying the MCP server exposes only four tools.
-- `AGENTS.md`, `README.md`, `docs/AGENT_CONTEXT_ROADMAP.md`, `handoff.md`, and `handoff-claude.md` now remove the conservative v1 ceiling and explicitly allow more creative post-v1 Tuberosa product work.
-- A reviewed Tuberosa memory was created and approved: "V1 roadmap is no longer a creative ceiling." It records the user correction that v1 should be baseline context, not a restriction against richer product direction.
+- Added `GET /operations/context-quality` and MCP `tuberosa_collect_context_quality_feedback`.
+- Context-quality reports now link noisy/missing feedback to context packs, sessions, open knowledge gaps, open learning proposals, adjacent item summaries, missing signals, and suggested review actions.
+- Added `pnpm run organization` with `project-map`, `knowledge-graph`, and `readable-summary` commands plus optional `--project`, `--limit`, and `--out`.
+- Enriched `usefulnessReason` so returned items can mention exact evidence, graph paths, feedback contribution, freshness/stale risk, and supersession suppression without changing ranking.
+- Added `docs/POST_V1_PRODUCT_PLAN.md` and `docs/FLOW_INTENT_AUDIT.md`.
+- Updated roadmap/setup/flow docs and repo agent guidance to remove stale Phase 9/10 drift and include the new operations surfaces.
 
 ## Files Actively Edited
 
-- `src/agent-session/service.ts`
-  - Adds selected/missing-context helper semantics so context-quality feedback maps correctly to session compliance and learning behavior.
+- `src/types.ts`
+  - Adds context-quality report contracts.
 
-- `test/agent-session.test.ts`
-  - Adds regression tests for `selected_but_noisy` compliance and missing context-quality compliance.
+- `src/validation.ts`
+  - Adds context-quality report validation and quality-feedback enum constants.
 
-- `docs/AGENT_CONTEXT_ROADMAP.md`
-  - Marks Phase 10 follow-up behavior as done.
-  - Updates assumptions so local-first and v1 remain a baseline, not a ceiling.
+- `src/operations/service.ts`
+  - Builds the context-quality report from existing feedback, packs, sessions, gaps, and proposals.
 
-- `AGENTS.md`
-  - Replaces "Simplicity First" with "Intentional Scope" for Tuberosa product work.
-  - Allows creative, cohesive post-v1 product work when it advances Tuberosa's purpose.
+- `src/http/server.ts`
+  - Adds `GET /operations/context-quality`.
 
-- `README.md`
-  - Removes the hard "not a general chat UI yet" / admin-debug-only framing.
-  - Reframes UI direction as broader product UI exploration with provenance and reviewed-memory constraints.
+- `src/mcp/server.ts`
+  - Adds `tuberosa_collect_context_quality_feedback` and advertises its schema.
 
-- `CLAUDE.md`
-  - Corrects stale MCP tool documentation.
+- `src/retrieval/context-pack.ts`
+  - Enriches `usefulnessReason` from existing evidence metadata without changing ranking.
 
-- `handoff.md`
-  - This file; rebuilt because it was empty in the working tree.
+- `src/operations/organization-cli.ts`, `scripts/organization.ts`, `package.json`
+  - Adds the organization export CLI.
 
-- `handoff-claude.md`
-  - Removes the old "do not create a separate v2 effort" instruction and replaces it with the new post-v1 baseline-not-ceiling direction.
+- `test/operations.test.ts`, `test/api-boundary.test.ts`, `test/retrieval.test.ts`, `test/organization-cli.test.ts`
+  - Cover context-quality reports, MCP schema/shape, richer usefulness explanations, and CLI parsing/dispatch.
+
+- `docs/AGENT_CONTEXT_ROADMAP.md`, `docs/FLOW_LOGIC.md`, `docs/POST_V1_PRODUCT_PLAN.md`, `docs/FLOW_INTENT_AUDIT.md`, `docs/SETUP_AND_USAGE.md`, `README.md`, `AGENTS.md`, `handoff.md`
+  - Reconcile docs with the post-v1 baseline and new ops-first surfaces.
 
 ## Everything Tried That Failed Or Needed Correction
 
@@ -89,6 +89,10 @@ Latest changes in the working tree:
 - GitNexus was attempted during audit, but the configured GitNexus instance did not have the `tuberosa` repo indexed.
   - Outcome: audit continued with staged diffs and local verification.
 
+- During this ops-first implementation, `pnpm run build` initially failed because `OperationsService` used `uniqueStrings` without importing it.
+  - Fix: imported `uniqueStrings` from `src/util/text.ts`.
+  - Verification: build and focused tests passed afterward.
+
 ## Verification Already Run
 
 Latest checks after the Phase 10 compliance follow-up passed:
@@ -112,6 +116,18 @@ git diff --check
 git diff --cached --check
 ```
 
+Latest checks during the ops-first implementation:
+
+```bash
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run build
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/operations.test.ts test/api-boundary.test.ts test/retrieval.test.ts test/organization-cli.test.ts
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:retrieval
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run eval:agent-context
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run test:integration
+git diff --check
+```
+
 Before committing, rerun at least:
 
 ```bash
@@ -127,24 +143,19 @@ Also run `pnpm run eval:retrieval` for any retrieval, ranking, context-pack, cla
 
 Next step I would take:
 
-1. **Stabilize the post-v1 product direction.**
-   - Write a short post-v1 product plan that turns the new "v1 is baseline, not ceiling" policy into 2-3 candidate product bets.
-   - Strong candidates: context-quality review dashboard, guided agent-start workspace, and reflection/knowledge review workbench.
+1. **Build the context-quality review workbench.**
+   - Use `GET /operations/context-quality` as the backend foundation.
+   - Keep actions routed through existing knowledge-gap, learning-proposal, relation, and knowledge review APIs.
 
-2. **Make context-quality feedback actionable.**
-   - Build an operations surface for `selected_but_noisy`, `too_much_adjacent_context`, `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands`.
-   - Show affected context packs, noisy items, missing signals, and suggested label/relation/freshness edits.
-
-3. **Enrich item explanations.**
-   - Extend `usefulnessReason` beyond category-based text to explicitly mention freshness/stale risk, supersession, graph path, feedback contribution, and exact evidence.
-   - Add tests before changing ranking or explanation logic.
-
-4. **Clean up noisy historical memories.**
+2. **Clean up noisy historical memories.**
    - Use the new reviewed policy memory to supersede or mark stale any old memories that still imply "do not create v2" or "stay inside Phase 9/10 only" if they appear in retrieval.
    - Prefer review workflows and `supersedes` relations over direct storage edits.
 
-5. **Restart/reload services before relying on new compliance behavior through MCP.**
-   - The code fix is in the working tree, but the currently running MCP/HTTP process may still be using the previous implementation until restarted.
+3. **Revisit automatic session-memory approval.**
+   - `docs/FLOW_INTENT_AUDIT.md` calls this out as the main policy tension with the original reviewed-memory intent.
+
+4. **Restart/reload services before relying on newly added MCP/HTTP behavior.**
+   - Existing long-running MCP/HTTP processes will not expose the new report tool or endpoint until restarted.
 
 ## Notes For The Next Agent
 

@@ -329,19 +329,160 @@ function usefulnessReason(
   category: ContextEvidenceCategory,
   directSignals: string[],
 ): string {
+  const details = [
+    graphRelationReason(candidate),
+    feedbackContributionReason(candidate),
+    freshnessReason(candidate),
+    suppressionReason(candidate),
+  ].filter((detail): detail is string => Boolean(detail));
+
+  const suffix = details.length > 0 ? ` ${details.join(' ')}` : '';
+
   if (category === 'directTaskEvidence') {
-    return `Direct task evidence from ${directSignals.slice(0, 3).join(', ')}.`;
+    return `Direct task evidence from ${directSignals.slice(0, 3).join(', ')}.${suffix}`;
   }
 
   if (category === 'priorLessons') {
-    return 'Prior lesson or selected memory tied to similar work; use after direct task evidence.';
+    return `Prior lesson or selected memory tied to similar work; use after direct task evidence.${suffix}`;
   }
 
   if (category === 'workflowGuidance') {
-    return `Workflow guidance for ${candidate.itemType} context; use to preserve project conventions.`;
+    return `Workflow guidance for ${candidate.itemType} context; use to preserve project conventions.${suffix}`;
   }
 
-  return 'Adjacent related context; inspect only if direct evidence is not enough.';
+  return `Adjacent related context; inspect only if direct evidence is not enough.${suffix}`;
+}
+
+function graphRelationReason(candidate: RankedCandidate): string | undefined {
+  const paths = metadataRecordArray(candidate.metadata?.graphPaths);
+  const first = paths[0];
+  if (!first) {
+    return undefined;
+  }
+
+  const relationType = metadataString(first, 'relationType') ?? 'related_to';
+  const from = metadataString(first, 'fromKnowledgeId');
+  const target = metadataString(first, 'targetKnowledgeId') ?? metadataString(first, 'targetValue');
+  const pieces = [
+    `Graph relation path: ${relationType}`,
+    from ? `from ${from}` : undefined,
+    target ? `to ${target}` : undefined,
+  ].filter(Boolean);
+
+  return `${pieces.join(' ')}.`;
+}
+
+function feedbackContributionReason(candidate: RankedCandidate): string | undefined {
+  const feedback = metadataRecord(candidate.metadata?.feedback);
+  if (!feedback) {
+    return undefined;
+  }
+
+  const counts = [
+    feedbackCount(feedback, 'selectedCount', 'selected'),
+    feedbackCount(feedback, 'selectedNoisyCount', 'selected_but_noisy'),
+    feedbackCount(feedback, 'rejectedCount', 'rejected'),
+    feedbackCount(feedback, 'irrelevantCount', 'irrelevant'),
+    feedbackCount(feedback, 'staleCount', 'stale'),
+  ].filter((value): value is string => Boolean(value));
+  const latest = metadataString(feedback, 'latestFeedbackType');
+  const adjustment = metadataNumber(feedback, 'scoreAdjustment');
+
+  if (counts.length === 0 && !latest && adjustment === undefined) {
+    return undefined;
+  }
+
+  const parts = [
+    counts.length > 0 ? `Feedback history: ${counts.join(', ')}` : undefined,
+    latest ? `latest ${latest}` : undefined,
+    adjustment !== undefined && adjustment !== 0
+      ? `score ${adjustment > 0 ? '+' : ''}${adjustment.toFixed(3)}`
+      : undefined,
+  ].filter(Boolean);
+
+  return `${parts.join('; ')}.`;
+}
+
+function feedbackCount(record: Record<string, unknown>, key: string, label: string): string | undefined {
+  const count = metadataNumber(record, key);
+  return count && count > 0 ? `${label}:${count}` : undefined;
+}
+
+function freshnessReason(candidate: RankedCandidate): string | undefined {
+  const freshnessAt = candidate.freshnessAt ?? metadataString(candidate.metadata, 'freshnessAt');
+  const date = freshnessAt ? ` (${freshnessAt.slice(0, 10)})` : '';
+  const signals = [
+    ...candidate.matchReasons,
+    ...(candidate.fitReasons ?? []),
+    ...(candidate.fitMissingSignals ?? []),
+  ];
+
+  if (signals.some((signal) => signal === 'freshness:current')) {
+    return `Freshness: current${date}.`;
+  }
+
+  if (signals.some((signal) => signal === 'freshness:stale' || signal === 'suppression:freshness:stale')) {
+    return `Freshness risk: stale${date}.`;
+  }
+
+  if (signals.some((signal) => signal === 'freshness:aging')) {
+    return `Freshness risk: aging${date}.`;
+  }
+
+  return freshnessAt ? `Freshness date${date}.` : undefined;
+}
+
+function suppressionReason(candidate: RankedCandidate): string | undefined {
+  const reasons = [
+    ...candidate.matchReasons,
+    ...metadataStringArray(candidate.metadata?.retrievalSuppression, 'reasons'),
+  ];
+  const superseded = reasons.find((reason) => reason.startsWith('suppression:superseded:'));
+  if (superseded) {
+    return `Supersession suppression: superseded by ${superseded.slice('suppression:superseded:'.length)}.`;
+  }
+
+  const feedbackSuppression = reasons.find((reason) => reason.startsWith('suppression:prior feedback:'));
+  if (feedbackSuppression) {
+    return `Suppression from prior ${feedbackSuppression.slice('suppression:prior feedback:'.length)} feedback.`;
+  }
+
+  if (reasons.includes('suppression:evidence_mismatch')) {
+    return 'Suppression: missing required evidence type for this task.';
+  }
+
+  return undefined;
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function metadataRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.flatMap((item) => {
+    const record = metadataRecord(item);
+    return record ? [record] : [];
+  }) : [];
+}
+
+function metadataString(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function metadataNumber(record: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = record?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function metadataStringArray(container: unknown, key: string): string[] {
+  const record = metadataRecord(container);
+  const value = record?.[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
 }
 
 function evidenceCategoryPriority(category: ContextEvidenceCategory | undefined): number {

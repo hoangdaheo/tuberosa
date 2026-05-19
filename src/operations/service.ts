@@ -5,6 +5,15 @@ import type {
   BackupRetentionInput,
   CreateBackupInput,
   CleanupOperationsInput,
+  ContextPack,
+  ContextQualityFeedbackRecord,
+  ContextQualityItemSummary,
+  ContextQualityLearningProposalSummary,
+  ContextQualityKnowledgeGapSummary,
+  ContextQualityReport,
+  ContextQualityReportInput,
+  FeedbackEvent,
+  FeedbackQualityType,
   KnowledgeConflict,
   KnowledgeConflictInput,
   KnowledgeConflictPatchInput,
@@ -27,7 +36,7 @@ import type {
 } from '../types.js';
 import type { StoredKnowledge } from '../types.js';
 import { ValidationError } from '../errors.js';
-import { normalizeLabel } from '../util/text.js';
+import { normalizeLabel, uniqueStrings } from '../util/text.js';
 import { validateKnowledgePatchInput } from '../validation.js';
 import { BackupService, type BackupServiceOptions } from './backup-service.js';
 
@@ -312,6 +321,117 @@ export class OperationsService {
     return this.store.listFeedbackEvents(options);
   }
 
+  async collectContextQualityFeedback(input: ContextQualityReportInput): Promise<ContextQualityReport> {
+    const lookupLimit = Math.min(500, Math.max(input.limit * 8, input.limit + 50));
+    const feedbackEvents = await this.store.listFeedbackEvents({
+      project: input.project,
+      status: input.feedbackType,
+      limit: lookupLimit,
+    });
+    const filteredFeedback = feedbackEvents
+      .filter((event) => isContextQualityFeedback(event.feedbackType));
+    const qualityFeedback = filteredFeedback.slice(0, input.limit);
+    const records = await Promise.all(
+      qualityFeedback.map((feedback) => this.buildContextQualityRecord(feedback, input.project)),
+    );
+
+    return {
+      generatedAt: new Date().toISOString(),
+      filters: input,
+      totalMatched: filteredFeedback.length,
+      records,
+      rollups: contextQualityRollups(records),
+    };
+  }
+
+  private async buildContextQualityRecord(
+    feedback: FeedbackEvent,
+    project?: string,
+  ): Promise<ContextQualityFeedbackRecord> {
+    const pack = feedback.contextPackId ? await this.store.getContextPack(feedback.contextPackId) : undefined;
+    const sourceSessionId = metadataString(feedback.metadata, 'agentSessionId')
+      ?? metadataString(feedback.metadata, 'sessionId');
+    const [session, openKnowledgeGaps, openLearningProposals] = await Promise.all([
+      sourceSessionId ? this.store.getAgentSession(sourceSessionId) : undefined,
+      this.openKnowledgeGapsForFeedback(feedback, project, sourceSessionId),
+      this.openLearningProposalsForFeedback(feedback, project, sourceSessionId),
+    ]);
+    const adjacentItems = adjacentItemSummaries(pack, feedback);
+
+    return {
+      feedback,
+      contextPack: pack ? packSummary(pack) : undefined,
+      session: session
+        ? {
+          id: session.id,
+          status: session.status,
+          outcome: session.outcome,
+          prompt: session.prompt,
+          summary: session.summary,
+        }
+        : undefined,
+      adjacentItems,
+      missingSignals: missingSignalsForFeedback(feedback, pack, openKnowledgeGaps),
+      openKnowledgeGaps,
+      openLearningProposals,
+      suggestedReviewActions: suggestedReviewActionsFor(feedback.feedbackType, {
+        adjacentItems,
+        openKnowledgeGaps,
+        openLearningProposals,
+      }),
+    };
+  }
+
+  private async openKnowledgeGapsForFeedback(
+    feedback: FeedbackEvent,
+    project?: string,
+    sourceSessionId?: string,
+  ): Promise<ContextQualityKnowledgeGapSummary[]> {
+    const gaps = await this.store.listKnowledgeGaps({
+      project: project ?? feedback.project,
+      status: 'open',
+      sourceSessionId,
+      contextPackId: feedback.contextPackId,
+      limit: 100,
+    });
+
+    return gaps
+      .filter((gap) => gap.sourceFeedbackId === feedback.id || gap.metadata.feedbackType === feedback.feedbackType)
+      .map((gap) => ({
+        id: gap.id,
+        status: gap.status,
+        missingSignals: gap.missingSignals,
+        reason: gap.reason,
+      }))
+      .slice(0, 8);
+  }
+
+  private async openLearningProposalsForFeedback(
+    feedback: FeedbackEvent,
+    project?: string,
+    sourceSessionId?: string,
+  ): Promise<ContextQualityLearningProposalSummary[]> {
+    const proposals = await this.store.listLearningProposals({
+      project: project ?? feedback.project,
+      status: 'open',
+      sourceSessionId,
+      contextPackId: feedback.contextPackId,
+      limit: 100,
+    });
+
+    return proposals
+      .filter((proposal) => proposal.sourceFeedbackId === feedback.id || proposal.metadata.feedbackType === feedback.feedbackType)
+      .map((proposal) => ({
+        id: proposal.id,
+        status: proposal.status,
+        proposalType: proposal.proposalType,
+        affectedKnowledgeId: proposal.affectedKnowledgeId,
+        reason: proposal.reason,
+        evidence: proposal.evidence,
+      }))
+      .slice(0, 8);
+  }
+
   listAgentSessions(options: ListRecordsOptions) {
     return this.store.listAgentSessions(options);
   }
@@ -421,6 +541,197 @@ export class OperationsService {
   }
 }
 
+const CONTEXT_QUALITY_FEEDBACK_TYPES = new Set<FeedbackQualityType>([
+  'selected_but_noisy',
+  'too_much_adjacent_context',
+  'missing_orientation',
+  'missing_current_handoff',
+  'missing_verification_commands',
+]);
+
+function isContextQualityFeedback(value: string): value is FeedbackQualityType {
+  return CONTEXT_QUALITY_FEEDBACK_TYPES.has(value as FeedbackQualityType);
+}
+
+function packSummary(pack: ContextPack): ContextQualityFeedbackRecord['contextPack'] {
+  return {
+    id: pack.id,
+    project: pack.project,
+    status: pack.status,
+    prompt: pack.prompt,
+    confidence: pack.confidence,
+    fitStatus: pack.contextFit?.fitStatus,
+    fitScore: pack.contextFit?.fitScore,
+    missingSignals: pack.contextFit?.missingSignals ?? [],
+  };
+}
+
+function adjacentItemSummaries(
+  pack: ContextPack | undefined,
+  feedback: FeedbackEvent,
+): ContextQualityItemSummary[] {
+  if (!pack) {
+    return [];
+  }
+
+  const rejectedIds = new Set(feedback.rejectedKnowledgeIds ?? []);
+  return pack.sections
+    .flatMap((section) => section.items)
+    .filter((item) => (
+      item.evidenceCategory === 'adjacentContext'
+      || rejectedIds.has(item.knowledgeId)
+      || (feedback.feedbackType === 'too_much_adjacent_context' && item.evidenceStrength === 'weak')
+    ))
+    .map((item) => ({
+      knowledgeId: item.knowledgeId,
+      title: item.title,
+      evidenceCategory: item.evidenceCategory,
+      evidenceStrength: item.evidenceStrength,
+      score: item.finalScore,
+      reasons: item.matchReasons.slice(0, 8),
+      missingSignals: item.fitMissingSignals?.slice(0, 8) ?? [],
+    }))
+    .slice(0, 12);
+}
+
+function missingSignalsForFeedback(
+  feedback: FeedbackEvent,
+  pack: ContextPack | undefined,
+  gaps: ContextQualityKnowledgeGapSummary[],
+): string[] {
+  const signals = [
+    ...qualitySignalForFeedbackType(feedback.feedbackType),
+    ...metadataStringArray(feedback.metadata?.missingSignals),
+    ...(pack?.contextFit?.missingSignals ?? []),
+    ...flattenActionableSignals(pack?.actionableMissingSignals),
+    ...gaps.flatMap((gap) => gap.missingSignals),
+    feedback.reason,
+  ];
+
+  return uniqueStrings(signals.filter((signal): signal is string => Boolean(signal?.trim()))).slice(0, 20);
+}
+
+function flattenActionableSignals(signals: ContextPack['actionableMissingSignals']): string[] {
+  if (!signals) {
+    return [];
+  }
+
+  return [
+    ...signals.files.map((value) => `file:${value}`),
+    ...signals.symbols.map((value) => `symbol:${value}`),
+    ...signals.errors.map((value) => `error:${value}`),
+    ...signals.docs,
+    ...signals.intent,
+    ...signals.other,
+  ];
+}
+
+function qualitySignalForFeedbackType(feedbackType: FeedbackEvent['feedbackType']): string[] {
+  switch (feedbackType) {
+    case 'missing_orientation':
+      return ['orientation'];
+    case 'missing_current_handoff':
+      return ['current handoff'];
+    case 'missing_verification_commands':
+      return ['verification commands'];
+    case 'too_much_adjacent_context':
+      return ['adjacent context noise'];
+    case 'selected_but_noisy':
+      return ['selected but noisy'];
+    default:
+      return [];
+  }
+}
+
+function suggestedReviewActionsFor(
+  feedbackType: FeedbackEvent['feedbackType'],
+  context: {
+    adjacentItems: ContextQualityItemSummary[];
+    openKnowledgeGaps: ContextQualityKnowledgeGapSummary[];
+    openLearningProposals: ContextQualityLearningProposalSummary[];
+  },
+): string[] {
+  const actions: string[] = [];
+
+  switch (feedbackType) {
+    case 'selected_but_noisy':
+      actions.push('Review adjacent items and tighten labels or relations that made useful context noisy.');
+      break;
+    case 'too_much_adjacent_context':
+      actions.push('Review open missing_relation proposals and demote or relabel adjacent context.');
+      break;
+    case 'missing_orientation':
+      actions.push('Add or update startup orientation knowledge with first files, likely surfaces, and task intent.');
+      break;
+    case 'missing_current_handoff':
+      actions.push('Refresh handoff.md knowledge and ensure current handoff references are labeled.');
+      break;
+    case 'missing_verification_commands':
+      actions.push('Add verification command references to the relevant workflow or project docs.');
+      break;
+    default:
+      break;
+  }
+
+  if (context.adjacentItems.length > 0) {
+    actions.push('Inspect noisy adjacent item summaries before changing ranking weights.');
+  }
+  if (context.openKnowledgeGaps.length > 0) {
+    actions.push('Triage linked open knowledge gaps before closing the feedback loop.');
+  }
+  if (context.openLearningProposals.length > 0) {
+    actions.push('Review linked learning proposals instead of mutating knowledge directly.');
+  }
+
+  return uniqueStrings(actions);
+}
+
+function contextQualityRollups(records: ContextQualityFeedbackRecord[]): ContextQualityReport['rollups'] {
+  return {
+    feedbackTypes: countValues(records.map((record) => record.feedback.feedbackType).filter(isContextQualityFeedback)),
+    projects: countValues(records.map((record) => (
+      record.feedback.project
+      ?? record.contextPack?.project
+      ?? 'unknown'
+    ))),
+    suggestedReviewActions: countValues(records.flatMap((record) => record.suggestedReviewActions)),
+    missingSignals: countValues(records.flatMap((record) => record.missingSignals)),
+    adjacentItems: countAdjacentItems(records),
+  };
+}
+
+function countValues<T extends string>(values: T[]): Array<{ value: T; count: number }> {
+  const counts = new Map<T, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value));
+}
+
+function countAdjacentItems(records: ContextQualityFeedbackRecord[]): ContextQualityReport['rollups']['adjacentItems'] {
+  const counts = new Map<string, { knowledgeId: string; title: string; count: number }>();
+  for (const item of records.flatMap((record) => record.adjacentItems)) {
+    const current = counts.get(item.knowledgeId) ?? {
+      knowledgeId: item.knowledgeId,
+      title: item.title,
+      count: 0,
+    };
+    current.count += 1;
+    counts.set(item.knowledgeId, current);
+  }
+
+  return [...counts.values()]
+    .sort((left, right) => right.count - left.count || left.title.localeCompare(right.title))
+    .slice(0, 12);
+}
+
+function metadataStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+}
+
 function sanitizeLearningProposalPatch(patch: LearningProposalPatchInput): LearningProposalPatchInput {
   if (patch.status !== 'approved' || !patch.metadata || !Object.hasOwn(patch.metadata, 'approvalAction')) {
     return patch;
@@ -486,8 +797,8 @@ function readAutoMemoryCleanupAction(proposal: LearningProposal): AutoMemoryClea
   throw learningProposalMetadataIssue('cleanupAction', 'must be one of: needs_review, archive, supersede.');
 }
 
-function metadataString(metadata: Record<string, unknown>, key: string): string | undefined {
-  const value = metadata[key];
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 

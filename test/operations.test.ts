@@ -19,6 +19,7 @@ import { OperationsService } from '../src/operations/service.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
+import type { ContextPack, RankedCandidate, StoredKnowledge } from '../src/types.js';
 
 const config: AppConfig = {
   env: 'test',
@@ -280,6 +281,115 @@ test('operations API reviews, updates, imports, and lists audit records', async 
     });
     equal(deleteRelation.status, 200);
     equal((deleteRelation.body as Record<string, unknown>).deleted, true);
+  } finally {
+    await services.close();
+  }
+});
+
+test('operations context-quality report links feedback to review actions', async () => {
+  const services = createTestServices();
+  const project = 'context-quality-review';
+
+  try {
+    const direct = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://context-quality/direct',
+      itemType: 'workflow',
+      title: 'Current context-quality workflow',
+      summary: 'Direct workflow for context-quality review.',
+      content: 'Review context-quality feedback from the operations report before changing retrieval ranking.',
+      trustLevel: 90,
+      labels: [{ type: 'file', value: 'docs/context-quality.md', weight: 1 }],
+      references: [{ type: 'file', uri: 'docs/context-quality.md' }],
+    }, []);
+    const adjacent = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://context-quality/adjacent',
+      itemType: 'workflow',
+      title: 'Adjacent scheduler workflow',
+      summary: 'Noisy adjacent scheduler context.',
+      content: 'Scheduler backup pruning is adjacent context for context-quality review.',
+      trustLevel: 70,
+      labels: [{ type: 'business_area', value: 'backup', weight: 1 }],
+    }, []);
+    const pack = contextQualityPack(project, direct, adjacent);
+    await services.store.saveContextPack(pack);
+    const session = await services.store.createAgentSession({
+      project,
+      prompt: 'Audit context-quality feedback loops',
+      initialContextPackId: pack.id,
+    });
+
+    await post(services, '/context/feedback', {
+      contextPackId: pack.id,
+      project,
+      feedbackType: 'selected_but_noisy',
+      reason: 'Useful direct workflow, but the scheduler item was noisy.',
+      metadata: {
+        agentSessionId: session.id,
+        missingSignals: ['symbol:ContextQualityWorkbench'],
+      },
+    });
+    await post(services, '/context/feedback', {
+      contextPackId: pack.id,
+      project,
+      feedbackType: 'too_much_adjacent_context',
+      rejectedKnowledgeIds: [adjacent.id],
+      reason: 'Adjacent scheduler context dominated the report workflow.',
+      metadata: { agentSessionId: session.id },
+    });
+    await post(services, '/context/feedback', {
+      contextPackId: pack.id,
+      project,
+      feedbackType: 'missing_orientation',
+      reason: 'The pack did not say which review queue to open first.',
+      metadata: {
+        agentSessionId: session.id,
+        missingSignals: ['file:docs/context-quality-review.md'],
+      },
+    });
+
+    const report = await get(services, `/operations/context-quality?project=${project}&limit=10`) as Record<string, unknown>;
+    const records = report.records as Array<Record<string, unknown>>;
+    equal(report.totalMatched, 3);
+
+    const noisy = records.find((record) => (record.feedback as Record<string, unknown>).feedbackType === 'selected_but_noisy');
+    ok(noisy);
+    equal((noisy.contextPack as Record<string, unknown>).id, pack.id);
+    equal((noisy.session as Record<string, unknown>).id, session.id);
+    ok((noisy.adjacentItems as Array<Record<string, unknown>>).some((item) => item.title === 'Adjacent scheduler workflow'));
+    ok((noisy.missingSignals as string[]).includes('symbol:ContextQualityWorkbench'));
+
+    const adjacentRecord = records.find((record) => (record.feedback as Record<string, unknown>).feedbackType === 'too_much_adjacent_context');
+    ok(adjacentRecord);
+    ok((adjacentRecord.openLearningProposals as Array<Record<string, unknown>>).some((proposal) => (
+      proposal.proposalType === 'missing_relation' &&
+      proposal.affectedKnowledgeId === adjacent.id
+    )));
+    ok((adjacentRecord.suggestedReviewActions as string[]).some((action) => action.includes('missing_relation')));
+
+    const missingOrientation = records.find((record) => (record.feedback as Record<string, unknown>).feedbackType === 'missing_orientation');
+    ok(missingOrientation);
+    ok((missingOrientation.openKnowledgeGaps as Array<Record<string, unknown>>).length >= 1);
+    ok((missingOrientation.missingSignals as string[]).includes('orientation'));
+
+    const rollups = report.rollups as Record<string, Array<Record<string, unknown>>>;
+    ok(rollups.adjacentItems.some((item) => item.knowledgeId === adjacent.id));
+    ok(rollups.feedbackTypes.some((item) => item.value === 'selected_but_noisy' && item.count === 1));
+
+    const filtered = await get(
+      services,
+      `/operations/context-quality?project=${project}&feedbackType=too_much_adjacent_context&limit=5`,
+    ) as Record<string, unknown>;
+    equal(filtered.totalMatched, 1);
+
+    const invalid = await dispatchHttp(services, {
+      method: 'GET',
+      url: `/operations/context-quality?project=${project}&feedbackType=selected`,
+    });
+    equal(invalid.status, 400);
   } finally {
     await services.close();
   }
@@ -1275,6 +1385,109 @@ test('physical mirror close flushes a pending debounced request', async () => {
     await rm(mirrorDir, { recursive: true, force: true });
   }
 });
+
+function contextQualityPack(
+  project: string,
+  direct: StoredKnowledge,
+  adjacent: StoredKnowledge,
+): ContextPack {
+  const now = new Date().toISOString();
+  return {
+    id: 'context-quality-pack',
+    queryId: 'context-quality-query',
+    project,
+    prompt: 'Audit context-quality feedback loops',
+    confidence: 0.84,
+    status: 'proposed',
+    classified: {
+      project,
+      taskType: 'review',
+      confidence: 0.8,
+      files: ['docs/context-quality.md'],
+      symbols: [],
+      errors: [],
+      technologies: [],
+      businessAreas: ['operations'],
+      exactTerms: ['docs/context-quality.md', 'operations'],
+      lexicalQuery: 'docs/context-quality.md operations context quality',
+      intent: {
+        taskGoal: 'review existing implementation',
+        workflowStage: 'review',
+        impliedFiles: ['docs/context-quality.md'],
+        impliedSymbols: [],
+        impliedDomains: ['operations'],
+        recentSessionReferences: [],
+        requiredEvidenceTypes: ['workflow', 'docs'],
+        uncertaintyReasons: [],
+      },
+    },
+    contextFit: {
+      fitStatus: 'ready',
+      fitScore: 0.86,
+      fitReasons: ['covered file:1/1'],
+      missingSignals: ['missing symbol:ContextQualityWorkbench'],
+    },
+    actionableMissingSignals: {
+      files: [],
+      symbols: ['ContextQualityWorkbench'],
+      errors: [],
+      docs: [],
+      intent: [],
+      other: [],
+    },
+    sections: [
+      {
+        name: 'essential',
+        tokenEstimate: 40,
+        items: [
+          contextQualityCandidate(direct, 'directTaskEvidence', 0.9),
+          contextQualityCandidate(adjacent, 'adjacentContext', 0.62),
+        ],
+      },
+      { name: 'supporting', tokenEstimate: 0, items: [] },
+      { name: 'optional', tokenEstimate: 0, items: [] },
+    ],
+    rejectedKnowledgeIds: [],
+    createdAt: now,
+  };
+}
+
+function contextQualityCandidate(
+  item: StoredKnowledge,
+  evidenceCategory: RankedCandidate['evidenceCategory'],
+  finalScore: number,
+): RankedCandidate {
+  return {
+    knowledgeId: item.id,
+    title: item.title,
+    summary: item.summary,
+    content: item.content,
+    contextualContent: item.content,
+    itemType: item.itemType,
+    project: item.project,
+    labels: item.labels,
+    references: item.references,
+    tokenEstimate: 20,
+    trustLevel: item.trustLevel,
+    source: evidenceCategory === 'adjacentContext' ? 'graph' : 'metadata',
+    rawScore: finalScore,
+    rank: evidenceCategory === 'adjacentContext' ? 2 : 1,
+    fusedScore: finalScore,
+    rerankScore: finalScore,
+    finalScore,
+    matchReasons: evidenceCategory === 'adjacentContext'
+      ? ['graph match', 'vector match']
+      : ['file:docs/context-quality.md'],
+    fitScore: evidenceCategory === 'adjacentContext' ? 0.34 : 0.9,
+    fitReasons: evidenceCategory === 'adjacentContext' ? ['graph connection'] : ['matched file:docs/context-quality.md'],
+    fitMissingSignals: evidenceCategory === 'adjacentContext' ? ['missing file:docs/context-quality.md'] : [],
+    evidenceCategory,
+    evidenceStrength: evidenceCategory === 'adjacentContext' ? 'weak' : 'strong',
+    usefulnessReason: evidenceCategory === 'adjacentContext'
+      ? 'Adjacent related context; inspect only if direct evidence is not enough.'
+      : 'Direct task evidence from file:docs/context-quality.md.',
+  };
+}
 
 function createTestServices(
   backupDir = '.tuberosa/test-backups',

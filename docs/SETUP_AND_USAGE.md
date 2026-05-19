@@ -171,8 +171,16 @@ A healthy connection should expose these MCP tools:
 
 - `tuberosa_search_context`
 - `tuberosa_get_context_pack`
+- `tuberosa_start_session`
+- `tuberosa_record_context_decision`
+- `tuberosa_finish_session`
+- `tuberosa_append_session_note`
 - `tuberosa_feedback_context`
+- `tuberosa_collect_context_quality_feedback`
 - `tuberosa_reflect`
+- `tuberosa_list_reflection_drafts`
+- `tuberosa_get_reflection_draft`
+- `tuberosa_review_reflection_draft`
 - `tuberosa_record_error_log`
 - `tuberosa_list_error_logs`
 - `tuberosa_collect_error_logs`
@@ -183,12 +191,12 @@ A healthy connection should expose these MCP tools:
 
 Use this operating rule for agent work:
 
-1. Call `tuberosa_search_context` before implementation or debugging.
-2. If `contextFit.fitStatus` is `ready`, use the shortlist and fetch the full pack with `tuberosa_get_context_pack`.
-3. If it is `needs_confirmation`, confirm the shortlist is relevant before using the full pack.
-4. If it is `insufficient`, ask a clarifying question or continue with fresh context.
-5. If the shortlist is wrong, call `tuberosa_feedback_context` with `rejected`, `stale`, `irrelevant`, or `missing_context`, then retry once.
-6. After a durable correction or workflow lesson, call `tuberosa_reflect`; approve the draft later before it becomes searchable memory.
+1. Prefer `tuberosa_start_session` before implementation or debugging.
+2. Inspect `contextFit`, `orientation`, and `deepContextReturned`.
+3. Record `selected`, `selected_but_noisy`, `rejected`, `stale`, `irrelevant`, or missing-context feedback with `tuberosa_record_context_decision`.
+4. If context is wrong, retry once with the returned retry pack or continue after recording missing context or a bypass reason.
+5. Finish with `tuberosa_finish_session`.
+6. After a durable correction or workflow lesson, call `tuberosa_reflect` or review the session learning draft before it becomes searchable memory.
 
 ### 5.4 Seed knowledge for a useful smoke test
 
@@ -577,14 +585,19 @@ curl -X POST http://localhost:3027/context/feedback \
 Feedback types:
 
 - `selected`
+- `selected_but_noisy`
 - `rejected`
 - `irrelevant`
 - `stale`
 - `missing_context`
+- `too_much_adjacent_context`
+- `missing_orientation`
+- `missing_current_handoff`
+- `missing_verification_commands`
 
-Rejected, irrelevant, and stale feedback trigger one retry with rejected knowledge excluded. They also create open learning proposals for review instead of directly changing labels, graph relations, or approval state.
+Rejected, irrelevant, and stale feedback trigger one retry with rejected knowledge excluded. They also create open learning proposals for review instead of directly changing labels, graph relations, or approval state. `too_much_adjacent_context` creates a proposal without retrying.
 
-Feedback also influences later retrieval. Selected context gets a modest ranking boost, while stale, rejected, and irrelevant context is penalized. `missing_context` creates a reviewable knowledge-gap record but does not penalize a specific knowledge item.
+Feedback also influences later retrieval. Selected context gets a modest ranking boost, `selected_but_noisy` gets a smaller boost, and stale, rejected, and irrelevant context is penalized. Missing-context quality feedback creates reviewable knowledge-gap records but does not penalize a specific knowledge item.
 
 List feedback events for review:
 
@@ -597,6 +610,7 @@ Review feedback-created learning records:
 ```bash
 curl 'http://localhost:3027/operations/learning-proposals?project=newsletter-app&status=open'
 curl 'http://localhost:3027/operations/knowledge-gaps?project=newsletter-app&status=open'
+curl 'http://localhost:3027/operations/context-quality?project=newsletter-app&feedbackType=selected_but_noisy&limit=25'
 ```
 
 Reviewers can mark either queue item `open`, `approved`, `dismissed`, or `needs_changes` with `PATCH /operations/learning-proposals/:id` or `PATCH /operations/knowledge-gaps/:id`.
@@ -865,6 +879,14 @@ Use the CLI for local files:
 pnpm run import:docs --project newsletter-app docs/paywall.md docs/runbook.md
 ```
 
+Organization exports are read-only inspection artifacts:
+
+```bash
+pnpm run organization -- project-map --project newsletter-app
+pnpm run organization -- knowledge-graph --project newsletter-app --out exports/knowledge-graph.jsonl
+pnpm run organization -- readable-summary --project newsletter-app --out exports/summary.md
+```
+
 Cleanup supports dry runs before deleting old proposed context packs, orphaned feedback rows, old unused queries, and unused sources:
 
 ```bash
@@ -986,8 +1008,13 @@ Tools:
 - `tuberosa_start_session`
 - `tuberosa_record_context_decision`
 - `tuberosa_finish_session`
+- `tuberosa_append_session_note`
 - `tuberosa_reflect`
 - `tuberosa_feedback_context`
+- `tuberosa_collect_context_quality_feedback`
+- `tuberosa_list_reflection_drafts`
+- `tuberosa_get_reflection_draft`
+- `tuberosa_review_reflection_draft`
 - `tuberosa_record_error_log`
 - `tuberosa_list_error_logs`
 - `tuberosa_collect_error_logs`

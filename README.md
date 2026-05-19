@@ -445,18 +445,31 @@ Current MCP tools:
 | --- | --- |
 | `tuberosa_search_context` | Classify a task and return a ranked shortlist with confidence, reasons, and references. |
 | `tuberosa_get_context_pack` | Fetch the full pack after a shortlist is accepted. |
+| `tuberosa_start_session` | Start an auditable agent session with initial context and policy. |
+| `tuberosa_record_context_decision` | Record selected, noisy, rejected, stale, irrelevant, or missing context for a session. |
+| `tuberosa_finish_session` | Finish a session and optionally draft or auto-extract reviewed learning. |
+| `tuberosa_append_session_note` | Append post-finish feedback or context-quality notes to a session. |
 | `tuberosa_reflect` | Create a reviewable reflection draft. |
-| `tuberosa_feedback_context` | Record selected/rejected/stale/irrelevant/missing context feedback. |
+| reflection review tools | List, inspect, approve, reject, or mark drafts as needing changes. |
+| `tuberosa_feedback_context` | Record selected/rejected/stale/irrelevant/missing/noisy context feedback. |
+| `tuberosa_collect_context_quality_feedback` | Collect noisy or missing-context feedback with linked review actions. |
+| error-log tools | Record, list, collect, read, update, and resolve filesystem-backed incidents. |
 
 Current MCP resource templates:
 
 - `tuberosa://packs/{id}`
 - `tuberosa://knowledge/{id}`
+- `tuberosa://error-logs/{id}`
+- `tuberosa://error-logs/{id}/markdown`
 
 Current MCP prompts:
 
 - `tuberosa_bootstrap_session`
 - `tuberosa_reflect_after_task`
+- `tuberosa_review_pending_reflections`
+- `tuberosa_capture_error_for_later`
+- `tuberosa_review_error_logs`
+- `tuberosa_fix_error_log`
 
 Recommended agent workflow:
 

@@ -5,6 +5,7 @@ import {
   AGENT_LEARNING_MODES,
   AGENT_SESSION_OUTCOMES,
   CONTEXT_MODES,
+  CONTEXT_QUALITY_FEEDBACK_TYPES,
   FEEDBACK_TYPES,
   KNOWLEDGE_ITEM_TYPES,
   REFLECTION_DRAFT_STATUSES,
@@ -13,6 +14,7 @@ import {
   expectRecord,
   validateAppendAgentSessionNoteInput,
   validateCollectErrorLogsInput,
+  validateContextQualityReportInput,
   validateContextPackIdArguments,
   validateContextSearchInput,
   validateCreateErrorLogReflectionDraftInput,
@@ -191,6 +193,16 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       const result = await services.retrieval.recordFeedback(validateFeedbackInput(args));
       services.operations.requestPhysicalMirror('context-feedback-recorded');
       return toolJson(result);
+    }
+
+    case 'tuberosa_collect_context_quality_feedback': {
+      const report = await services.operations.collectContextQualityFeedback(validateContextQualityReportInput(args));
+      return toolJson({
+        report,
+        instruction: report.records.length > 0
+          ? 'Review linked gaps, proposals, and adjacent item summaries before changing labels, relations, or ranking.'
+          : 'No matching context-quality feedback found.',
+      });
     }
 
     case 'tuberosa_record_error_log': {
@@ -831,6 +843,19 @@ function tools() {
           reason: { type: 'string' },
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_collect_context_quality_feedback',
+      title: 'Collect Context Quality Feedback',
+      description: 'Collect noisy or missing-context feedback with linked packs, sessions, review records, and suggested actions.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          feedbackType: { type: 'string', enum: [...CONTEXT_QUALITY_FEEDBACK_TYPES] },
+          limit: { type: 'number' },
         },
       },
     },

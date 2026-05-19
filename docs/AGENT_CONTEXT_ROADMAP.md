@@ -233,7 +233,7 @@ Planned work:
 - Done: add graph-aware context-fit signals showing which files, symbols, errors, sessions, and incident lessons are connected.
 - Done: add debug trace fields explaining why related knowledge entered a context pack, including relation id, type, direction reason, source knowledge, and target.
 - Done: add HTTP endpoints for project maps, graph JSONL, and readable summaries.
-- Optional polish: add CLI commands for organization exports.
+- Done: add `pnpm run organization` CLI commands for project maps, knowledge graph JSONL, and readable summaries.
 - Done: add stale relation cleanup when document atoms are re-ingested, when an atomized file is re-ingested as a single document, and when knowledge is archived or blocked.
 - Add a pending reflection review workflow for agents and users:
   - MCP tools to list pending reflection drafts, inspect a draft, and record review decisions.
@@ -386,7 +386,7 @@ Acceptance:
 
 ## Phase 9: Retrieval Quality Hardening
 
-Status: In progress as of 2026-05-18.
+Status: Done on 2026-05-19.
 
 Goal: make Tuberosa reliable for vague, continuation-style, and high-risk agent tasks where flat semantic search can return plausible but wrong context.
 
@@ -407,38 +407,38 @@ Planned work:
   - implied files, symbols, domains, and recent session references
   - required evidence types, such as spec, bugfix, workflow, or code reference
   - uncertainty reasons
-- Started: deterministic classification now emits `classified.intent` with task goal, workflow stage, implied files/symbols/domains, recent selected-session references for continuation prompts, required evidence types, and uncertainty reasons.
+- Done: deterministic classification emits `classified.intent` with task goal, workflow stage, implied files/symbols/domains, recent selected-session references for continuation prompts, required evidence types, and uncertainty reasons.
 - Add continuation-aware retrieval using agent sessions, latest context decisions, recent reflection drafts, and handoff-style knowledge.
-  - Started: vague continuation prompts now anchor to `handoff.md`, and roadmap/phase continuation prompts also anchor to `docs/AGENT_CONTEXT_ROADMAP.md`.
-  - Started: file paths are stripped before symbol/error extraction, so roadmap file anchors do not create fake signals such as `AGENT_CONTEXT_ROADMAP`.
-  - Started: vague continuation prompts can use bounded file, symbol, and error hints from recent sessions that recorded a `selected` context decision.
-  - Started: continuation hints preserve explicit user-provided signals first and only add bounded inferred signals after them.
-  - Started: continuation hints use explicitly selected pack ids only, so a rejected initial pack does not leak signals when a retry pack was selected.
-- Started: reflection draft suggested labels are normalized before approval paths can turn them into durable memory, including generic continuation-word filtering and ambiguous `go`/`rest` technology cleanup that preserves explicit Go/REST evidence.
+  - Done: vague continuation prompts anchor to `handoff.md`, and roadmap/phase continuation prompts also anchor to `docs/AGENT_CONTEXT_ROADMAP.md`.
+  - Done: file paths are stripped before symbol/error extraction, so roadmap file anchors do not create fake signals such as `AGENT_CONTEXT_ROADMAP`.
+  - Done: vague continuation prompts can use bounded file, symbol, and error hints from recent sessions that recorded a `selected` context decision.
+  - Done: continuation hints preserve explicit user-provided signals first and only add bounded inferred signals after them.
+  - Done: continuation hints use explicitly selected pack ids only, so a rejected initial pack does not leak signals when a retry pack was selected.
+- Done: reflection draft suggested labels are normalized before approval paths can turn them into durable memory, including generic continuation-word filtering and ambiguous `go`/`rest` technology cleanup that preserves explicit Go/REST evidence.
 - Next implementation priority: use deterministic structured retrieval intent to drive stale-memory suppression, conflict/supersession review, and missing-context knowledge-gap records.
 - Add stale-memory suppression that combines freshness, feedback, supersession relations, and context-fit mismatch before final ranking.
-  - Started: ranking now applies deterministic intent-aware suppression after rerank and feedback adjustment. It demotes stale weak-evidence candidates, prior stale/rejected/irrelevant feedback, evidence-type mismatches, and knowledge targeted by `supersedes` relations before context-fit assembly.
+  - Done: ranking applies deterministic intent-aware suppression after rerank and feedback adjustment. It demotes stale weak-evidence candidates, prior stale/rejected/irrelevant feedback, evidence-type mismatches, and knowledge targeted by `supersedes` relations before context-fit assembly.
 - Add explicit conflict and supersession handling:
   - `supersedes` relation support in ranking
-  - Started: candidates superseded by a `supersedes` relation are demoted and annotated with a suppression match reason.
+  - Done: candidates superseded by a `supersedes` relation are demoted and annotated with a suppression match reason.
   - conflict detection for knowledge with overlapping labels/references but contradictory summaries or freshness
   - review queue for unresolved conflicts
-  - Started: deterministic conflict records now persist in `knowledge_conflicts`, with an operations detector for overlapping file/symbol/error/reference evidence plus opposing summary language or freshness signals.
-  - Started: unresolved conflicts are listable and reviewable through operations endpoints, and reviewers can mark them resolved or dismissed without automatically creating supersession edges.
+  - Done: deterministic conflict records persist in `knowledge_conflicts`, with an operations detector for overlapping file/symbol/error/reference evidence plus opposing summary language or freshness signals.
+  - Done: unresolved conflicts are listable and reviewable through operations endpoints, and reviewers can mark them resolved or dismissed without automatically creating supersession edges.
 - Add provider-backed reranking prompts that prefer evidence coverage over generic semantic similarity.
-  - Started: OpenAI reranking now uses an evidence-first system prompt and structured candidate evidence payload with exact file/symbol/error/domain matches, required evidence types, graph paths, feedback metadata when present, freshness, and stale/suppression risk signals.
+  - Done: OpenAI reranking uses an evidence-first system prompt and structured candidate evidence payload with exact file/symbol/error/domain matches, required evidence types, graph paths, feedback metadata when present, freshness, and stale/suppression risk signals.
 - Add negative feedback learning:
   - rejected or stale context can propose missing labels, missing relations, or supersession edges
-  - Started: rejected/irrelevant/stale feedback now creates open `learning_proposals` review records instead of mutating labels, relations, or rankings directly.
-  - Started: stale feedback proposes `supersedes` review actions, while rejected/irrelevant feedback proposes relation/label/reference review.
-  - Started: negative feedback against auto-approved session memory creates an `auto_memory_cleanup` proposal for operational review.
-  - Started: approved `missing_label` proposals can merge reviewed `metadata.suggestedLabels` into affected knowledge labels.
-  - Started: approved `missing_reference` proposals can merge reviewed `metadata.suggestedReferences` into affected knowledge references.
-  - Started: label/reference proposal approval falls back to marking affected knowledge `needs_review` when no structured suggestion is present, and keeps `metadata.approvalAction` server-owned.
-  - Started: approved `auto_memory_cleanup` proposals can now apply reviewed cleanup actions: mark auto-memory `needs_review`, archive it, or create a reviewed `supersedes` relation before marking it `needs_review`.
+  - Done: rejected/irrelevant/stale feedback creates open `learning_proposals` review records instead of mutating labels, relations, or rankings directly.
+  - Done: stale feedback proposes `supersedes` review actions, while rejected/irrelevant feedback proposes relation/label/reference review.
+  - Done: negative feedback against auto-approved session memory creates an `auto_memory_cleanup` proposal for operational review.
+  - Done: approved `missing_label` proposals can merge reviewed `metadata.suggestedLabels` into affected knowledge labels.
+  - Done: approved `missing_reference` proposals can merge reviewed `metadata.suggestedReferences` into affected knowledge references.
+  - Done: label/reference proposal approval falls back to marking affected knowledge `needs_review` when no structured suggestion is present, and keeps `metadata.approvalAction` server-owned.
+  - Done: approved `auto_memory_cleanup` proposals can apply reviewed cleanup actions: mark auto-memory `needs_review`, archive it, or create a reviewed `supersedes` relation before marking it `needs_review`.
   - missing-context feedback can create reviewable "knowledge gap" records
-  - Started: missing-context feedback now creates open `knowledge_gaps` records with project, prompt, classified intent, missing signals, context pack, feedback, and session provenance when available.
-  - Started: retrieval eval fixtures can now assert that `missing_context` feedback creates a matching open knowledge-gap record.
+  - Done: missing-context feedback creates open `knowledge_gaps` records with project, prompt, classified intent, missing signals, context pack, feedback, and session provenance when available.
+  - Done: retrieval eval fixtures assert that `missing_context` feedback creates a matching open knowledge-gap record.
 - Add retrieval fallback policy:
   - exact anchored search first
   - relation expansion second
@@ -454,18 +454,16 @@ Planned work:
   - whether any returned item may be stale, weakly related, or superseded
 - Expand retrieval evaluation fixtures with hard cases:
   - vague continuation prompts
-  - Started: stale semantically similar memory fixture now verifies current anchored migration-lock code context beats a stale migration-lock memory.
+  - Done: stale semantically similar memory fixture verifies current anchored migration-lock code context beats a stale migration-lock memory.
   - conflicting memories
-  - Started: superseded workflows eval fixture verifies that a `supersedes` relation demotes the legacy workflow when the current one is in the context.
-  - Started: conflicting-freshness eval fixture verifies that a stale low-trust policy is demoted below the current one when both share the same topic.
-  - Started: `isGraphEvidence` threshold bypass is now suppressed for graph candidates that carry a `supersedes` suppression reason, so a superseded item reachable via graph traversal is still filtered by the anchored score threshold.
-  - Started: eval fixture `relations` support added to `RetrievalEvaluator` via a new `KnowledgeRelationCreator` interface and `seedRelations` seeding step.
-  - Started: missing-context eval fixture covers insufficient fit plus the created knowledge-gap record and expected missing signals.
-  - Started: graph-expanded retrieval eval fixture covers a one-hop `depends_on` relation where a file/symbol-matched API entrypoint brings in the related current policy while stale legacy policy stays out.
+  - Done: superseded workflows eval fixture verifies that a `supersedes` relation demotes the legacy workflow when the current one is in the context.
+  - Done: conflicting-freshness eval fixture verifies that a stale low-trust policy is demoted below the current one when both share the same topic.
+  - Done: `isGraphEvidence` threshold bypass is suppressed for graph candidates that carry a `supersedes` suppression reason, so a superseded item reachable via graph traversal is still filtered by the anchored score threshold.
+  - Done: eval fixture `relations` support is available in `RetrievalEvaluator` via a `KnowledgeRelationCreator` interface and `seedRelations` seeding step.
+  - Done: missing-context eval fixture covers insufficient fit plus the created knowledge-gap record and expected missing signals.
+  - Done: graph-expanded retrieval eval fixture covers a one-hop `depends_on` relation where a file/symbol-matched API entrypoint brings in the related current policy while stale legacy policy stays out.
 
-Next remaining implementation priorities:
-
-- Enrich context-pack explanations for exact matches, graph relations, feedback, freshness, stale risk, and supersession.
+- Done: context-pack explanations now mention exact file/symbol/error evidence, graph relation paths, feedback contribution, freshness or stale risk, and supersession suppression when those signals are present.
 
 Acceptance:
 
@@ -514,17 +512,15 @@ Session feedback from Phase 10 continuation on 2026-05-19:
   - Include prior lessons only after direct evidence, and label whether each lesson is a directly relevant prior lesson, general workflow guidance, or adjacent context.
   - If the task is vague, use recent selected sessions and handoff anchors, but clearly mark inferred context and ask for clarification when required evidence is missing.
 - What improved through this task?
-  - Started: context packs now expose item-level `evidenceCategory`, `evidenceStrength`, `usefulnessReason`, and actionable missing-signal buckets.
-  - Started: pack assembly now sorts direct task evidence ahead of prior lessons, workflow guidance, and adjacent context before section budgeting.
-  - Started: context packs now include an `orientation` block with recommended files, likely surfaces, verification commands, missing-signal buckets, and uncertainty notes.
-  - Started: MCP shortlist output exposes the new orientation and usefulness fields.
-  - Started: classifier and continuation-signal hygiene suppress generic roadmap/meta words and avoid treating `next` as Next.js technology without stronger evidence.
-- Things wanted but not fully supported yet:
-  - First-class context-quality feedback types such as `selected_but_noisy`, `too_much_adjacent_context`, `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands`. Today these can only be recorded as metadata on existing feedback/session-decision events.
-  - A review/edit path for reflection draft suggested labels before accepting them. The Phase 10 reflection draft still suggested noisy labels such as generic symbols and `next` technology from explanatory text.
-  - Tunable caps for prior lessons and adjacent context in normal startup packs.
-  - Richer item explanations for freshness, stale risk, supersession, graph path, and feedback contribution. Current `usefulnessReason` is useful but still category-based.
-  - A way to append final human feedback to a finished agent session without creating a new session or relying only on independent feedback events.
+  - Done: context packs expose item-level `evidenceCategory`, `evidenceStrength`, `usefulnessReason`, and actionable missing-signal buckets.
+  - Done: pack assembly sorts direct task evidence ahead of prior lessons, workflow guidance, and adjacent context before section budgeting.
+  - Done: context packs include an `orientation` block with recommended files, likely surfaces, verification commands, missing-signal buckets, and uncertainty notes.
+  - Done: MCP shortlist output exposes the new orientation and usefulness fields.
+  - Done: classifier and continuation-signal hygiene suppress generic roadmap/meta words and avoid treating `next` as Next.js technology without stronger evidence.
+- Remaining post-v1 polish:
+  - Build a review workspace for context-quality feedback instead of relying only on API/MCP reports.
+  - Clean up historical memories that still encode old roadmap ceilings through reviewed stale/supersedes workflows.
+  - Revisit automatic session-memory approval policy against the original reviewed-memory intent.
 
 Planned work:
 
@@ -533,8 +529,8 @@ Planned work:
   - `priorLessons`: selected memories directly tied to the task.
   - `workflowGuidance`: general project workflow rules.
   - `adjacentContext`: lower-priority related memories.
-- Started: returned items now include `evidenceCategory`, `evidenceStrength`, `usefulnessReason`, and item-level `actionableMissingSignals` derived from existing match, fit, feedback, and graph signals.
-- Started: direct task evidence ranks above prior lessons, workflow guidance, and adjacent context during pack assembly.
+- Done: returned items include `evidenceCategory`, `evidenceStrength`, `usefulnessReason`, and item-level `actionableMissingSignals` derived from existing match, fit, feedback, and graph signals.
+- Done: direct task evidence ranks above prior lessons, workflow guidance, and adjacent context during pack assembly.
 - Done: normal startup packs cap `priorLessons` (default 6) and `adjacentContext` (default 4) categories during assembly. Debug retrieval and expanded deep-context budgets relax or uncap the limits, and pack-level confidence is computed from the prioritized list before capping so presentation does not regress confidence.
 - Add new-task orientation behavior:
   - summarize the inferred task and confidence in one compact block
@@ -542,14 +538,14 @@ Planned work:
   - list the most likely implementation or documentation surface
   - list likely verification commands or explain why verification is unclear
   - distinguish direct evidence from adjacent memories
-- Started: context packs now include an `orientation` block with inferred task, workflow stage, task type, recommended files, likely surfaces, likely Tuberosa verification commands, missing-signal buckets, and uncertainty notes.
+- Done: context packs include an `orientation` block with inferred task, workflow stage, task type, recommended files, likely surfaces, likely Tuberosa verification commands, missing-signal buckets, and uncertainty notes.
 - Add signal hygiene before presenting context:
   - suppress generic documentation words as symbols unless backed by code references
   - treat file basenames and all-caps document identifiers as file evidence, not symbol or error evidence, when they came from paths
-  - Started: MCP schemas now advertise canonical `taskType`, `contextMode`, feedback, learning, and reflection status enums from validation constants, and runtime validation normalizes common `taskType` aliases such as `development` to `implementation`.
-  - Started: classifier and continuation-signal filters now suppress generic roadmap/meta symbols such as `Before`, `Added`, `Updated`, `Verified`, `Tuberosa`, `Agent`, and `Context`.
-  - Started: all-caps document identifiers with underscores, such as `AGENT_CONTEXT_ROADMAP` and `FLOW_LOGIC`, are filtered from symbol/error evidence while their `.md` paths remain file evidence.
-  - Started: sequencing word `next` is no longer classified as Next.js technology unless stronger framework evidence is present.
+  - Done: MCP schemas advertise canonical `taskType`, `contextMode`, feedback, learning, and reflection status enums from validation constants, and runtime validation normalizes common `taskType` aliases such as `development` to `implementation`.
+  - Done: classifier and continuation-signal filters suppress generic roadmap/meta symbols such as `Before`, `Added`, `Updated`, `Verified`, `Tuberosa`, `Agent`, and `Context`.
+  - Done: all-caps document identifiers with underscores, such as `AGENT_CONTEXT_ROADMAP` and `FLOW_LOGIC`, are filtered from symbol/error evidence while their `.md` paths remain file evidence.
+  - Done: sequencing word `next` is no longer classified as Next.js technology unless stronger framework evidence is present.
 - Add a compact orientation block for continuation/startup output:
   - recommended files to inspect first
   - likely implementation surface
@@ -561,13 +557,13 @@ Planned work:
   - freshness or stale risk
   - graph or feedback contribution
   - missing evidence, when applicable
-- Started: MCP shortlist output now surfaces the usefulness fields from pack assembly alongside existing match reasons and fit reasons.
+- Done: MCP shortlist output surfaces the usefulness fields from pack assembly alongside existing match reasons and fit reasons.
 - Group missing signals into actionable buckets:
   - files to inspect
   - symbols to inspect
   - docs or handoff gaps
   - unclear project or task intent
-- Started: pack-level and item-level missing signals are grouped into `files`, `symbols`, `errors`, `docs`, `intent`, and `other`.
+- Done: pack-level and item-level missing signals are grouped into `files`, `symbols`, `errors`, `docs`, `intent`, and `other`.
 - Record optional context-quality feedback through existing feedback or session-decision metadata:
   - useful direct evidence
   - too much adjacent noise
@@ -584,6 +580,8 @@ Planned work:
   - `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands` satisfy missing-context session compliance instead of leaving the session as undecided.
 - Done: reflection-draft label/reference review is now supported via `PATCH /reflection-drafts/:id` (and `ReflectionService.updateDraft`). Reviewed labels run through the existing noisy-symbol/ambiguous-technology filter and through secret redaction, and references are persisted alongside the draft before approval.
 - Done: a new `POST /agent-sessions/:id/notes` HTTP endpoint and `tuberosa_append_session_note` MCP tool append post-finish notes to `agent_sessions.metadata.notes`. When a `feedbackType` is supplied, the note is paired with a regular feedback event tagged `metadata.agentSessionId` and `metadata.postFinishNote: true` for downstream learning and audits.
+- Done: context-quality feedback is reviewable through HTTP `GET /operations/context-quality` and MCP `tuberosa_collect_context_quality_feedback`, linking feedback to packs, sessions, adjacent items, open knowledge gaps, open learning proposals, and suggested review actions.
+- Done: `usefulnessReason` now includes exact evidence, graph paths, feedback history, freshness/stale risk, and supersession suppression where present.
 
 Acceptance:
 
@@ -608,6 +606,7 @@ Acceptance:
 - Add one-call layered context return controls in Phase 8.5.
 - Add knowledge-gap and conflict-review records in Phase 9.
 - Add optional context-usefulness fields in Phase 10, such as `evidenceCategory`, `usefulnessReason`, `evidenceStrength`, and `actionableMissingSignals`.
+- Add context-quality operations report fields in the post-v1 baseline, such as linked feedback records, adjacent item summaries, open gaps/proposals, and suggested review actions.
 - Keep existing endpoints and MCP tools backward compatible.
 
 ## Test Plan
@@ -633,7 +632,7 @@ Additional checks:
 - Phase 8: agent-context compliance eval for selected decisions, missing-context handling, bypasses, direct-search-only non-compliance, and finish warnings.
 - Phase 8.5: one-call layered context tests for ready, needs-confirmation, insufficient, and backward-compatible two-step behavior.
 - Phase 9: hard retrieval eval fixtures for vague continuation, stale semantic matches, supersession, conflict review, missing-context learning, and fallback policy.
-- Phase 10: context-usefulness tests for item categorization, direct-evidence ranking over adjacent memories, explanation fields, actionable missing signals, and context-quality feedback metadata.
+- Phase 10: context-usefulness tests for item categorization, direct-evidence ranking over adjacent memories, explanation fields, actionable missing signals, context-quality feedback metadata, and context-quality operations reports.
 
 ## Assumptions
 

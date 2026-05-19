@@ -7,7 +7,7 @@ import type { AppConfig } from '../src/config.js';
 import { appErrorToJsonRpcError, ValidationError } from '../src/errors.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { handleMcpRequest } from '../src/mcp/server.js';
-import type { ContextPack, ReflectionDraft } from '../src/types.js';
+import type { ContextPack, ContextQualityReport, ReflectionDraft } from '../src/types.js';
 
 const config: AppConfig = {
   env: 'test',
@@ -405,6 +405,56 @@ test('MCP agent workflow schemas expose task and feedback enums', async () => {
   deepEqual(startTool.inputSchema?.properties?.contextMode?.enum, ['compact', 'layered']);
   deepEqual(feedbackTool.inputSchema?.properties?.feedbackType?.enum, feedbackTypes);
   deepEqual(decisionTool.inputSchema?.properties?.feedbackType?.enum, feedbackTypes);
+});
+
+test('MCP context-quality feedback tool exposes schema and report shape', async () => {
+  const toolsList = await handleMcpRequest(fakeServices(), { method: 'tools/list' }) as {
+    tools: Array<{
+      name: string;
+      inputSchema?: {
+        properties?: Record<string, { enum?: string[] }>;
+      };
+    }>;
+  };
+  const tool = toolsList.tools.find((item) => item.name === 'tuberosa_collect_context_quality_feedback');
+  ok(tool);
+  deepEqual(tool.inputSchema?.properties?.feedbackType?.enum, [
+    'selected_but_noisy',
+    'too_much_adjacent_context',
+    'missing_orientation',
+    'missing_current_handoff',
+    'missing_verification_commands',
+  ]);
+
+  const result = await handleMcpRequest(fakeServices({
+    operations: {
+      collectContextQualityFeedback: async (input: { project?: string; feedbackType?: string; limit: number }) => {
+        equal(input.project, 'agent-memory');
+        equal(input.feedbackType, 'selected_but_noisy');
+        equal(input.limit, 3);
+        return sampleContextQualityReport();
+      },
+    },
+  }), {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_collect_context_quality_feedback',
+      arguments: {
+        project: 'agent-memory',
+        feedbackType: 'selected_but_noisy',
+        limit: 3,
+      },
+    },
+  }) as {
+    structuredContent?: {
+      report?: ContextQualityReport;
+      instruction?: string;
+    };
+  };
+
+  equal(result.structuredContent?.report?.records[0]?.feedback.feedbackType, 'selected_but_noisy');
+  equal(result.structuredContent?.report?.records[0]?.adjacentItems[0]?.title, 'Adjacent memory');
+  ok(result.structuredContent?.instruction?.includes('Review linked gaps'));
 });
 
 test('MCP finish session schema exposes outcome and reflection draft enums', async () => {
@@ -943,6 +993,60 @@ function sampleDraft(): ReflectionDraft {
     metadata: { taxonomy: 'workflow' },
     duplicateCandidates: [],
     createdAt: new Date().toISOString(),
+  };
+}
+
+function sampleContextQualityReport(): ContextQualityReport {
+  return {
+    generatedAt: new Date().toISOString(),
+    filters: {
+      project: 'agent-memory',
+      feedbackType: 'selected_but_noisy',
+      limit: 3,
+    },
+    totalMatched: 1,
+    records: [{
+      feedback: {
+        id: 'feedback-1',
+        project: 'agent-memory',
+        feedbackType: 'selected_but_noisy',
+        contextPackId: 'pack-1',
+        reason: 'Useful but noisy.',
+        rejectedKnowledgeIds: [],
+        metadata: {},
+        createdAt: new Date().toISOString(),
+      },
+      contextPack: {
+        id: 'pack-1',
+        project: 'agent-memory',
+        status: 'selected',
+        prompt: 'Find auth guidance',
+        confidence: 0.8,
+        fitStatus: 'ready',
+        fitScore: 0.82,
+        missingSignals: [],
+      },
+      adjacentItems: [{
+        knowledgeId: 'knowledge-2',
+        title: 'Adjacent memory',
+        evidenceCategory: 'adjacentContext',
+        evidenceStrength: 'weak',
+        score: 0.4,
+        reasons: ['graph match'],
+        missingSignals: ['missing file:src/auth.ts'],
+      }],
+      missingSignals: ['selected but noisy'],
+      openKnowledgeGaps: [],
+      openLearningProposals: [],
+      suggestedReviewActions: ['Review adjacent items and tighten labels or relations that made useful context noisy.'],
+    }],
+    rollups: {
+      feedbackTypes: [{ value: 'selected_but_noisy', count: 1 }],
+      projects: [{ value: 'agent-memory', count: 1 }],
+      suggestedReviewActions: [{ value: 'Review adjacent items and tighten labels or relations that made useful context noisy.', count: 1 }],
+      missingSignals: [{ value: 'selected but noisy', count: 1 }],
+      adjacentItems: [{ knowledgeId: 'knowledge-2', title: 'Adjacent memory', count: 1 }],
+    },
   };
 }
 

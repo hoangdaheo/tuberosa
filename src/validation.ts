@@ -9,7 +9,9 @@ import type {
   CreateErrorLogReflectionDraftInput,
   FinishAgentSessionInput,
   ContextSearchInput,
+  ContextQualityReportInput,
   FeedbackInput,
+  FeedbackQualityType,
   CleanupOperationsInput,
   ErrorLogCategory,
   ErrorLogInput,
@@ -146,6 +148,13 @@ export const FEEDBACK_TYPES = [
   'missing_current_handoff',
   'missing_verification_commands',
 ] as const;
+export const CONTEXT_QUALITY_FEEDBACK_TYPES = [
+  'selected_but_noisy',
+  'too_much_adjacent_context',
+  'missing_orientation',
+  'missing_current_handoff',
+  'missing_verification_commands',
+] as const satisfies readonly FeedbackQualityType[];
 export const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
 export const AGENT_LEARNING_MODES = ['auto', 'draft_only', 'off'] as const satisfies readonly AgentLearningMode[];
 const KNOWLEDGE_STATUSES = ['approved', 'needs_review', 'archived', 'blocked'] as const satisfies readonly KnowledgeStatus[];
@@ -359,6 +368,22 @@ export function validateFeedbackInput(value: unknown): FeedbackInput {
     reason: readOptionalString(record, 'reason', 'feedback input'),
     rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'feedback input'),
     metadata: readOptionalObject(record, 'metadata', 'feedback input'),
+  };
+}
+
+export function validateContextQualityReportInput(value: unknown): ContextQualityReportInput {
+  const record = expectObject(value, 'context quality report input');
+  const limit = readOptionalPositiveInteger(record, 'limit', 'context quality report input') ?? 25;
+
+  return {
+    project: readOptionalString(record, 'project', 'context quality report input'),
+    feedbackType: readOptionalEnum(
+      record,
+      'feedbackType',
+      CONTEXT_QUALITY_FEEDBACK_TYPES,
+      'context quality report input',
+    ),
+    limit: Math.min(limit, 100),
   };
 }
 
