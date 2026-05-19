@@ -5,6 +5,7 @@ import {
   contextQualityUsage,
   formatContextQualityWorkbench,
   parseContextQualityArgs,
+  runContextQualityReviewAction,
   runContextQualityWorkbench,
 } from '../src/operations/context-quality-cli.js';
 
@@ -17,10 +18,11 @@ async function main(): Promise<void> {
 
   const services = await createAppServices();
   try {
+    const reviewAction = await runContextQualityReviewAction(services.operations, options);
     const report = await runContextQualityWorkbench(services.operations, options);
     const text = options.json
-      ? JSON.stringify(report, null, 2)
-      : formatContextQualityWorkbench(report, { apiBase: options.apiBase });
+      ? JSON.stringify(reviewAction ? { reviewAction, report } : report, null, 2)
+      : formatContextQualityWorkbench(report, { apiBase: options.apiBase, reviewAction });
 
     if (options.out) {
       await mkdir(dirname(options.out), { recursive: true });

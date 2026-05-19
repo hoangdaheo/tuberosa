@@ -3,9 +3,10 @@ import { deepEqual, equal, ok, throws } from 'node:assert/strict';
 import {
   formatContextQualityWorkbench,
   parseContextQualityArgs,
+  runContextQualityReviewAction,
   runContextQualityWorkbench,
 } from '../src/operations/context-quality-cli.js';
-import type { ContextQualityReport } from '../src/types.js';
+import type { ContextQualityReport, LearningProposal } from '../src/types.js';
 
 test('context-quality CLI parser accepts filters and output options', () => {
   deepEqual(parseContextQualityArgs([
@@ -27,16 +28,53 @@ test('context-quality CLI parser accepts filters and output options', () => {
     out: 'exports/context-quality.md',
     json: false,
     help: false,
+    applyReview: false,
   });
 
   deepEqual(parseContextQualityArgs(['--', '--json']), {
     limit: 25,
     json: true,
     help: false,
+    applyReview: false,
   });
 
   throws(() => parseContextQualityArgs(['--feedback-type', 'selected']), /Unknown feedback type/);
   throws(() => parseContextQualityArgs(['--limit', '0']), /positive integer/);
+});
+
+test('context-quality CLI parser requires explicit review action intent', () => {
+  deepEqual(parseContextQualityArgs([
+    '--apply-review',
+    '--review-target',
+    'learning-proposal',
+    '--review-id',
+    'proposal-1',
+    '--review-status',
+    'approved',
+    '--review-metadata-json',
+    '{"reviewer":"ops"}',
+  ]), {
+    limit: 25,
+    json: false,
+    help: false,
+    applyReview: true,
+    reviewTarget: 'learning-proposal',
+    reviewId: 'proposal-1',
+    reviewStatus: 'approved',
+    reviewMetadata: { reviewer: 'ops' },
+  });
+
+  throws(() => parseContextQualityArgs([
+    '--review-target',
+    'knowledge-gap',
+    '--review-id',
+    'gap-1',
+    '--review-status',
+    'dismissed',
+  ]), /--apply-review/);
+  throws(() => parseContextQualityArgs(['--apply-review', '--review-target', 'knowledge']), /Unknown review target/);
+  throws(() => parseContextQualityArgs(['--apply-review', '--review-target', 'knowledge-gap', '--review-id', 'gap-1', '--review-status', 'open']), /Unknown review status/);
+  throws(() => parseContextQualityArgs(['--apply-review', '--review-metadata-json', '[]']), /JSON object/);
 });
 
 test('context-quality workbench dispatches to operations report', async () => {
@@ -56,17 +94,88 @@ test('context-quality workbench dispatches to operations report', async () => {
     limit: 3,
     json: false,
     help: false,
+    applyReview: false,
   });
 
   equal(result, report);
 });
 
+test('context-quality review action updates learning proposal through operations', async () => {
+  const report = sampleContextQualityReport();
+  const updatedProposal: LearningProposal = {
+    id: 'proposal-1',
+    project: 'tuberosa',
+    proposalType: 'missing_relation',
+    sourceFeedbackId: 'feedback-1',
+    sourceSessionId: 'session-1',
+    contextPackId: 'pack-1',
+    affectedKnowledgeId: 'knowledge-adjacent',
+    reason: 'Adjacent item needs a weaker relation.',
+    evidence: ['feedback:too_much_adjacent_context'],
+    status: 'approved',
+    metadata: {
+      reviewer: 'ops',
+      approvalAction: { action: 'knowledge_marked_needs_review' },
+    },
+    createdAt: '2026-05-19T00:01:00.000Z',
+    updatedAt: '2026-05-19T00:02:00.000Z',
+    reviewedAt: '2026-05-19T00:02:00.000Z',
+  };
+
+  const result = await runContextQualityReviewAction({
+    collectContextQualityFeedback: async () => report,
+    updateLearningProposal: async (id, patch) => {
+      equal(id, 'proposal-1');
+      deepEqual(patch, { status: 'approved', metadata: { reviewer: 'ops' } });
+      return updatedProposal;
+    },
+  }, {
+    limit: 25,
+    json: false,
+    help: false,
+    applyReview: true,
+    reviewTarget: 'learning-proposal',
+    reviewId: 'proposal-1',
+    reviewStatus: 'approved',
+    reviewMetadata: { reviewer: 'ops' },
+  });
+
+  equal(result?.target, 'learning-proposal');
+  equal(result?.status, 'approved');
+  equal(result?.updated, updatedProposal);
+});
+
 test('context-quality workbench formats linked review actions', () => {
+  const updatedProposal: LearningProposal = {
+    id: 'proposal-1',
+    project: 'tuberosa',
+    proposalType: 'missing_relation',
+    sourceFeedbackId: 'feedback-1',
+    sourceSessionId: 'session-1',
+    contextPackId: 'pack-1',
+    affectedKnowledgeId: 'knowledge-adjacent',
+    reason: 'Adjacent item needs a weaker relation.',
+    evidence: ['feedback:too_much_adjacent_context'],
+    status: 'approved',
+    metadata: { approvalAction: { action: 'knowledge_marked_needs_review' } },
+    createdAt: '2026-05-19T00:01:00.000Z',
+    updatedAt: '2026-05-19T00:02:00.000Z',
+    reviewedAt: '2026-05-19T00:02:00.000Z',
+  };
   const text = formatContextQualityWorkbench(sampleContextQualityReport(), {
     apiBase: 'http://localhost:3027',
+    reviewAction: {
+      target: 'learning-proposal',
+      id: 'proposal-1',
+      status: 'approved',
+      updated: updatedProposal,
+    },
   });
 
   ok(text.includes('# Context Quality Workbench'));
+  ok(text.includes('## Applied Review Action'));
+  ok(text.includes('http://localhost:3027/operations/learning-proposals/proposal-1'));
+  ok(text.includes('"action":"knowledge_marked_needs_review"'));
   ok(text.includes('http://localhost:3027/operations/context-quality?project=tuberosa&feedbackType=too_much_adjacent_context&limit=10'));
   ok(text.includes('Context pack: pack-1'));
   ok(text.includes('Session: session-1'));

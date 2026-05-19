@@ -575,13 +575,18 @@ function adjacentItemSummaries(
   }
 
   const rejectedIds = new Set(feedback.rejectedKnowledgeIds ?? []);
-  return pack.sections
-    .flatMap((section) => section.items)
+  const items = pack.sections.flatMap((section) => section.items);
+  const explicitNoisyItems = items
     .filter((item) => (
       item.evidenceCategory === 'adjacentContext'
       || rejectedIds.has(item.knowledgeId)
       || (feedback.feedbackType === 'too_much_adjacent_context' && item.evidenceStrength === 'weak')
-    ))
+    ));
+  const reviewItems = explicitNoisyItems.length > 0
+    ? explicitNoisyItems
+    : fallbackReviewItemsForNoisyFeedback(items, feedback);
+
+  return reviewItems
     .map((item) => ({
       knowledgeId: item.knowledgeId,
       title: item.title,
@@ -592,6 +597,23 @@ function adjacentItemSummaries(
       missingSignals: item.fitMissingSignals?.slice(0, 8) ?? [],
     }))
     .slice(0, 12);
+}
+
+function fallbackReviewItemsForNoisyFeedback(
+  items: ContextPack['sections'][number]['items'],
+  feedback: FeedbackEvent,
+): ContextPack['sections'][number]['items'] {
+  if (feedback.feedbackType !== 'selected_but_noisy' && feedback.feedbackType !== 'too_much_adjacent_context') {
+    return [];
+  }
+
+  const reviewCandidates = items.filter((item) => (
+    item.evidenceCategory !== 'directTaskEvidence'
+    || item.evidenceStrength !== 'strong'
+    || (item.fitMissingSignals?.length ?? 0) > 0
+  ));
+
+  return (reviewCandidates.length > 0 ? reviewCandidates : items).slice(0, 6);
 }
 
 function missingSignalsForFeedback(

@@ -3,8 +3,14 @@ import type {
   ContextQualityReport,
   ContextQualityReportInput,
   FeedbackQualityType,
+  KnowledgeGap,
+  LearningProposal,
+  LearningReviewStatus,
 } from '../types.js';
 import { CONTEXT_QUALITY_FEEDBACK_TYPES } from '../validation.js';
+
+export type ContextQualityReviewTarget = 'knowledge-gap' | 'learning-proposal';
+export type ContextQualityReviewStatus = Exclude<LearningReviewStatus, 'open'>;
 
 export interface ContextQualityCliOptions {
   project?: string;
@@ -14,14 +20,29 @@ export interface ContextQualityCliOptions {
   apiBase?: string;
   json: boolean;
   help: boolean;
+  applyReview: boolean;
+  reviewTarget?: ContextQualityReviewTarget;
+  reviewId?: string;
+  reviewStatus?: ContextQualityReviewStatus;
+  reviewMetadata?: Record<string, unknown>;
 }
 
 export interface ContextQualityWorkbenchOperations {
   collectContextQualityFeedback(input: ContextQualityReportInput): Promise<ContextQualityReport>;
+  updateKnowledgeGap?(id: string, patch: { status: ContextQualityReviewStatus; metadata?: Record<string, unknown> }): Promise<KnowledgeGap | undefined>;
+  updateLearningProposal?(id: string, patch: { status: ContextQualityReviewStatus; metadata?: Record<string, unknown> }): Promise<LearningProposal | undefined>;
 }
 
 export interface ContextQualityFormatOptions {
   apiBase?: string;
+  reviewAction?: ContextQualityReviewActionResult;
+}
+
+export interface ContextQualityReviewActionResult {
+  target: ContextQualityReviewTarget;
+  id: string;
+  status: ContextQualityReviewStatus;
+  updated: KnowledgeGap | LearningProposal;
 }
 
 export function parseContextQualityArgs(args: string[]): ContextQualityCliOptions {
@@ -29,6 +50,7 @@ export function parseContextQualityArgs(args: string[]): ContextQualityCliOption
     limit: 25,
     json: false,
     help: false,
+    applyReview: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -78,7 +100,40 @@ export function parseContextQualityArgs(args: string[]): ContextQualityCliOption
       continue;
     }
 
+    if (arg === '--apply-review') {
+      options.applyReview = true;
+      continue;
+    }
+
+    if (arg === '--review-target' || arg === '--review') {
+      options.reviewTarget = readReviewTarget(readOptionValue(args, index, arg));
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--review-id') {
+      options.reviewId = readOptionValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--review-status') {
+      options.reviewStatus = readReviewStatus(readOptionValue(args, index, arg));
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--review-metadata-json') {
+      options.reviewMetadata = readJsonObject(readOptionValue(args, index, arg), arg);
+      index += 1;
+      continue;
+    }
+
     throw new Error(`Unknown option: ${arg}\n\n${contextQualityUsage()}`);
+  }
+
+  if (!options.help) {
+    validateReviewOptions(options);
   }
 
   return options;
@@ -95,6 +150,48 @@ export async function runContextQualityWorkbench(
   });
 }
 
+export async function runContextQualityReviewAction(
+  operations: ContextQualityWorkbenchOperations,
+  options: ContextQualityCliOptions,
+): Promise<ContextQualityReviewActionResult | undefined> {
+  if (!options.reviewTarget) {
+    return undefined;
+  }
+
+  validateReviewOptions(options);
+
+  const id = options.reviewId;
+  const status = options.reviewStatus;
+  if (!id || !status) {
+    throw new Error('Review actions require --review-id and --review-status.');
+  }
+  const patch = options.reviewMetadata ? { status, metadata: options.reviewMetadata } : { status };
+
+  if (options.reviewTarget === 'knowledge-gap') {
+    if (!operations.updateKnowledgeGap) {
+      throw new Error('This operations adapter cannot update knowledge gaps.');
+    }
+
+    const updated = await operations.updateKnowledgeGap(id, patch);
+    if (!updated) {
+      throw new Error(`Knowledge gap not found: ${id}`);
+    }
+
+    return { target: options.reviewTarget, id, status, updated };
+  }
+
+  if (!operations.updateLearningProposal) {
+    throw new Error('This operations adapter cannot update learning proposals.');
+  }
+
+  const updated = await operations.updateLearningProposal(id, patch);
+  if (!updated) {
+    throw new Error(`Learning proposal not found: ${id}`);
+  }
+
+  return { target: options.reviewTarget, id, status, updated };
+}
+
 export function formatContextQualityWorkbench(
   report: ContextQualityReport,
   options: ContextQualityFormatOptions = {},
@@ -107,11 +204,18 @@ export function formatContextQualityWorkbench(
     `Matched: ${report.totalMatched}; showing: ${report.records.length}`,
     `Report: ${contextQualityReportEndpoint(report.filters, options.apiBase)}`,
     '',
-    'Review routes below use existing operations APIs. This workbench does not mutate data.',
+    'Review routes below use existing operations APIs. Mutations require explicit --apply-review action flags.',
     '',
+  ];
+
+  if (options.reviewAction) {
+    lines.push(...formatReviewAction(options.reviewAction, options.apiBase), '');
+  }
+
+  lines.push(
     '## Rollups',
     ...formatRollups(report),
-  ];
+  );
 
   if (report.records.length === 0) {
     lines.push('', 'No context-quality feedback matched these filters.');
@@ -129,12 +233,30 @@ export function formatContextQualityWorkbench(
 export function contextQualityUsage(): string {
   return [
     'Usage: pnpm run context-quality -- [--project <name>] [--feedback-type <type>] [--limit <n>] [--api-base <url>] [--json] [--out <path>]',
+    '       pnpm run context-quality -- --apply-review --review-target <knowledge-gap|learning-proposal> --review-id <id> --review-status <approved|dismissed|needs_changes> [--review-metadata-json <json>]',
     '',
     'Prints a review workbench for context-quality feedback from /operations/context-quality.',
+    'Optional review actions are explicit and route through existing knowledge-gap or learning-proposal review APIs.',
     '',
     'Feedback types:',
     ...CONTEXT_QUALITY_FEEDBACK_TYPES.map((type) => `  - ${type}`),
   ].join('\n');
+}
+
+function formatReviewAction(action: ContextQualityReviewActionResult, apiBase?: string): string[] {
+  const lines = [
+    '## Applied Review Action',
+    `Target: ${action.target} ${action.id}`,
+    `Status: ${action.status}`,
+    `Updated: ${endpoint(reviewEndpointPath(action.target, action.id), apiBase)}`,
+  ];
+
+  const approvalAction = action.updated.metadata.approvalAction;
+  if (approvalAction) {
+    lines.push(`Approval action: ${JSON.stringify(approvalAction)}`);
+  }
+
+  return lines;
 }
 
 function formatRollups(report: ContextQualityReport): string[] {
@@ -291,6 +413,13 @@ function endpoint(path: string, apiBase?: string): string {
   return `${apiBase.replace(/\/+$/, '')}${normalizedPath}`;
 }
 
+function reviewEndpointPath(target: ContextQualityReviewTarget, id: string): string {
+  const base = target === 'knowledge-gap'
+    ? '/operations/knowledge-gaps'
+    : '/operations/learning-proposals';
+  return `${base}/${encodeURIComponent(id)}`;
+}
+
 function formatCountList<T extends { count: number }>(
   values: T[],
   max = 6,
@@ -339,6 +468,65 @@ function readFeedbackType(value: string): FeedbackQualityType {
   }
 
   throw new Error(`Unknown feedback type: ${value}\n\n${contextQualityUsage()}`);
+}
+
+function readReviewTarget(value: string): ContextQualityReviewTarget {
+  if (value === 'knowledge-gap' || value === 'learning-proposal') {
+    return value;
+  }
+
+  throw new Error(`Unknown review target: ${value}\n\n${contextQualityUsage()}`);
+}
+
+function readReviewStatus(value: string): ContextQualityReviewStatus {
+  if (value === 'approved' || value === 'dismissed' || value === 'needs_changes') {
+    return value;
+  }
+
+  throw new Error(`Unknown review status: ${value}\n\n${contextQualityUsage()}`);
+}
+
+function readJsonObject(value: string, option: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    throw new Error(`${option} requires valid JSON.`);
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${option} requires a JSON object.`);
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function validateReviewOptions(options: ContextQualityCliOptions): void {
+  const hasReviewOption = options.applyReview
+    || options.reviewTarget !== undefined
+    || options.reviewId !== undefined
+    || options.reviewStatus !== undefined
+    || options.reviewMetadata !== undefined;
+
+  if (!hasReviewOption) {
+    return;
+  }
+
+  if (!options.applyReview) {
+    throw new Error('Review actions require --apply-review.');
+  }
+
+  if (!options.reviewTarget) {
+    throw new Error('Review actions require --review-target.');
+  }
+
+  if (!options.reviewId) {
+    throw new Error('Review actions require --review-id.');
+  }
+
+  if (!options.reviewStatus) {
+    throw new Error('Review actions require --review-status.');
+  }
 }
 
 function readOptionValue(args: string[], index: number, option: string): string {

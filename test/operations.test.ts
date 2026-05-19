@@ -395,6 +395,63 @@ test('operations context-quality report links feedback to review actions', async
   }
 });
 
+test('operations context-quality report falls back to concrete pack items for noisy feedback', async () => {
+  const services = createTestServices();
+  const project = 'context-quality-fallback';
+
+  try {
+    const direct = await services.store.upsertKnowledge({
+      project,
+      sourceType: 'manual',
+      sourceUri: 'manual://context-quality/fallback',
+      itemType: 'workflow',
+      title: 'Moderate startup workflow',
+      summary: 'Startup workflow that was useful but noisy.',
+      content: 'Use the current handoff and verification commands when continuing Tuberosa work.',
+      trustLevel: 85,
+      labels: [{ type: 'file', value: 'handoff.md', weight: 1 }],
+      references: [{ type: 'file', uri: 'handoff.md' }],
+    }, []);
+    const pack = contextQualityPack(project, direct, direct);
+    const fallbackItem = {
+      ...contextQualityCandidate(direct, 'directTaskEvidence', 0.72),
+      evidenceStrength: 'moderate' as const,
+      fitMissingSignals: ['missing verification commands'],
+    };
+    await services.store.saveContextPack({
+      ...pack,
+      sections: [
+        { name: 'essential', tokenEstimate: 20, items: [fallbackItem] },
+        { name: 'supporting', tokenEstimate: 0, items: [] },
+        { name: 'optional', tokenEstimate: 0, items: [] },
+      ],
+    });
+
+    await post(services, '/context/feedback', {
+      contextPackId: pack.id,
+      project,
+      feedbackType: 'selected_but_noisy',
+      reason: 'The pack was useful but lacked enough review detail.',
+    });
+
+    const report = await get(services, `/operations/context-quality?project=${project}&limit=5`) as Record<string, unknown>;
+    const records = report.records as Array<Record<string, unknown>>;
+    equal(records.length, 1);
+
+    const reviewItems = records[0].adjacentItems as Array<Record<string, unknown>>;
+    equal(reviewItems.length, 1);
+    equal(reviewItems[0].knowledgeId, direct.id);
+    equal(reviewItems[0].evidenceCategory, 'directTaskEvidence');
+    equal(reviewItems[0].evidenceStrength, 'moderate');
+    ok((reviewItems[0].missingSignals as string[]).includes('missing verification commands'));
+
+    const rollups = report.rollups as Record<string, Array<Record<string, unknown>>>;
+    ok(rollups.adjacentItems.some((item) => item.knowledgeId === direct.id));
+  } finally {
+    await services.close();
+  }
+});
+
 test('learning proposal approval actions execute concrete mutations and record results', async () => {
   const services = createTestServices();
   const project = 'proposal-approval';

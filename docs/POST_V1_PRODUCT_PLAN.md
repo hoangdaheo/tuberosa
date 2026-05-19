@@ -12,13 +12,15 @@ Why first:
 - The backend foundation now exists through `GET /operations/context-quality` and `tuberosa_collect_context_quality_feedback`.
 - It uses current review primitives instead of requiring a new memory model.
 - A first local CLI workbench exists through `pnpm run context-quality`; it formats the report with linked packs, sessions, noisy items, gaps, proposals, and existing review endpoints.
+- The CLI can now apply explicit reviewed gap/proposal decisions with `--apply-review`, while keeping mutations routed through the existing operations review paths.
 
 Thin vertical slice:
 
 1. List recent context-quality feedback by project and feedback type.
 2. Show the linked context pack, session, noisy adjacent items, missing signals, open gaps, and open proposals.
 3. Let a reviewer jump to the right action: update labels/references, review a learning proposal, dismiss a gap, or mark stale/superseded knowledge.
-4. Preserve every mutation through existing review APIs.
+4. Apply gap/proposal review decisions from the CLI only when the reviewer supplies explicit action flags.
+5. Preserve every mutation through existing review APIs.
 
 Success criteria:
 

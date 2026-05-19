@@ -621,7 +621,14 @@ Use the local context-quality workbench when you want a review-oriented view wit
 pnpm run context-quality -- --project newsletter-app --feedback-type selected_but_noisy --limit 25 --api-base http://localhost:3027
 ```
 
-Reviewers can mark either queue item `open`, `approved`, `dismissed`, or `needs_changes` with `PATCH /operations/learning-proposals/:id` or `PATCH /operations/knowledge-gaps/:id`.
+Reviewers can mark either queue item `open`, `approved`, `dismissed`, or `needs_changes` with `PATCH /operations/learning-proposals/:id` or `PATCH /operations/knowledge-gaps/:id`. The local workbench can also apply explicit reviewed decisions through those same operations paths:
+
+```bash
+pnpm run context-quality -- --apply-review --review-target learning-proposal --review-id <proposal-id> --review-status approved --review-metadata-json '{"reviewer":"ops"}'
+pnpm run context-quality -- --apply-review --review-target knowledge-gap --review-id <gap-id> --review-status dismissed --review-metadata-json '{"reviewer":"ops","reason":"covered by current docs"}'
+```
+
+The CLI refuses review mutations unless `--apply-review`, `--review-target`, `--review-id`, and `--review-status` are all supplied.
 
 Approving a learning proposal executes a concrete action based on `proposalType`:
 
