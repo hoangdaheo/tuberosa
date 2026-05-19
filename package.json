@@ -19,6 +19,7 @@
     "error-logs": "tsx scripts/error-logs.ts",
     "context-quality": "tsx scripts/context-quality.ts",
     "organization": "tsx scripts/organization.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
     "eval:retrieval": "tsx scripts/eval-retrieval.ts",
     "eval:agent-context": "tsx scripts/eval-agent-context.ts",
     "test:integration": "node --test --import tsx test/integration.test.ts",
