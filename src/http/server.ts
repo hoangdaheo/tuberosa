@@ -4,6 +4,7 @@ import type { AppServices } from '../app.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
+  validateAppendAgentSessionNoteInput,
   validateContextSearchInput,
   validateBackupRetentionInput,
   validateCollectErrorLogsInput,
@@ -232,6 +233,19 @@ function createRoutes(): HttpRoute[] {
         );
         const result = await services.agentSessions.finishSession(body);
         services.operations.requestPhysicalMirror('agent-session-finished');
+        return result;
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/agent-sessions\/([^/]+)\/notes$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateAppendAgentSessionNoteInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+          params.id,
+        );
+        const result = await services.agentSessions.appendSessionNote(body);
+        services.operations.requestPhysicalMirror('agent-session-note-appended');
         return result;
       },
     },
@@ -546,11 +560,12 @@ function createRoutes(): HttpRoute[] {
       match: pathPattern(/^\/reflection-drafts\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
         const body = validateReflectionDraftPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
-        const draft = await services.operations.updateReflectionDraft(params.id, body);
+        const draft = await services.reflection.updateDraft(params.id, body);
         if (!draft) {
           throw new NotFoundError('Reflection draft not found.');
         }
 
+        services.operations.requestPhysicalMirror('reflection-updated');
         return draft;
       },
     },

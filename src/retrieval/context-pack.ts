@@ -18,6 +18,21 @@ export const DEFAULT_DEEP_CONTEXT_BUDGET = 60_000;
 export const MIN_DEEP_CONTEXT_BUDGET = 30_000;
 export const MAX_DEEP_CONTEXT_BUDGET = 100_000;
 
+export interface UsefulnessCaps {
+  priorLessons?: number;
+  adjacentContext?: number;
+}
+
+export const DEFAULT_USEFULNESS_CAPS: Required<UsefulnessCaps> = {
+  priorLessons: 6,
+  adjacentContext: 4,
+};
+
+export const UNCAPPED_USEFULNESS_CAPS: Required<UsefulnessCaps> = {
+  priorLessons: Number.POSITIVE_INFINITY,
+  adjacentContext: Number.POSITIVE_INFINITY,
+};
+
 export interface AssembleContextPackInput {
   queryId?: string;
   project?: string;
@@ -27,6 +42,7 @@ export interface AssembleContextPackInput {
   tokenBudget: number;
   rejectedKnowledgeIds?: string[];
   contextFit?: ContextFit;
+  usefulnessCaps?: UsefulnessCaps;
 }
 
 export function normalizeDeepContextBudget(value: number | undefined): number {
@@ -39,15 +55,16 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
   const supportingBudget = Math.ceil(budget * 0.34);
   const optionalBudget = budget - essentialBudget - supportingBudget;
 
-  const accepted = prioritizeUsefulCandidates(filterAcceptedCandidates(input), input);
+  const prioritized = prioritizeUsefulCandidates(filterAcceptedCandidates(input), input);
+  const accepted = capUsefulnessCategories(prioritized, input.usefulnessCaps);
   const essential = takeWithinBudget(accepted, essentialBudget, 0, 4);
   const supporting = takeWithinBudget(without(accepted, essential), supportingBudget, 0, 6);
   const optional = takeWithinBudget(without(accepted, [...essential, ...supporting]), optionalBudget, 0, 8);
   const selected = [...essential, ...supporting, ...optional];
   const actionableMissingSignals = buildActionableMissingSignals(input.contextFit?.missingSignals ?? []);
 
-  const topScore = accepted[0]?.finalScore ?? 0;
-  const density = Math.min(1, accepted.length / 6);
+  const topScore = prioritized[0]?.finalScore ?? 0;
+  const density = Math.min(1, prioritized.length / 6);
   const fitScore = input.contextFit?.fitScore ?? 0;
   const confidence = clamp(topScore * 0.56 + input.classified.confidence * 0.16 + density * 0.08 + fitScore * 0.2, 0, 0.99);
 
@@ -98,6 +115,48 @@ function hasAnchors(classified: ClassifiedQuery): boolean {
     || classified.businessAreas.length
     || classified.technologies.length,
   );
+}
+
+function capUsefulnessCategories(
+  candidates: RankedCandidate[],
+  overrides: UsefulnessCaps | undefined,
+): RankedCandidate[] {
+  const caps = { ...DEFAULT_USEFULNESS_CAPS, ...overrides };
+  const counts = { priorLessons: 0, adjacentContext: 0 };
+  const capped: RankedCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const limit = capForCategory(candidate.evidenceCategory, caps);
+    if (limit === undefined) {
+      capped.push(candidate);
+      continue;
+    }
+
+    const bucket = candidate.evidenceCategory === 'priorLessons' ? 'priorLessons' : 'adjacentContext';
+    if (counts[bucket] >= limit) {
+      continue;
+    }
+
+    counts[bucket] += 1;
+    capped.push(candidate);
+  }
+
+  return capped;
+}
+
+function capForCategory(
+  category: RankedCandidate['evidenceCategory'],
+  caps: Required<UsefulnessCaps>,
+): number | undefined {
+  if (category === 'priorLessons') {
+    return caps.priorLessons;
+  }
+
+  if (category === 'adjacentContext') {
+    return caps.adjacentContext;
+  }
+
+  return undefined;
 }
 
 function prioritizeUsefulCandidates(candidates: RankedCandidate[], input: AssembleContextPackInput): RankedCandidate[] {

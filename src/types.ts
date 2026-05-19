@@ -587,6 +587,8 @@ export interface ReflectionDraft {
 export interface ReflectionDraftPatchInput {
   status?: ReflectionDraft['status'];
   metadata?: Record<string, unknown>;
+  suggestedLabels?: LabelInput[];
+  references?: ReferenceInput[];
 }
 
 export type ReflectionDraftReviewDecision = 'approve' | 'reject' | 'needs_changes';
@@ -614,10 +616,25 @@ export interface ReflectionDraftReviewInput {
   metadata?: Record<string, unknown>;
 }
 
+export type FeedbackQualityType =
+  | 'selected_but_noisy'
+  | 'too_much_adjacent_context'
+  | 'missing_orientation'
+  | 'missing_current_handoff'
+  | 'missing_verification_commands';
+
+export type FeedbackType =
+  | 'selected'
+  | 'rejected'
+  | 'irrelevant'
+  | 'stale'
+  | 'missing_context'
+  | FeedbackQualityType;
+
 export interface FeedbackInput {
   contextPackId?: string;
   project?: string;
-  feedbackType: 'selected' | 'rejected' | 'irrelevant' | 'stale' | 'missing_context';
+  feedbackType: FeedbackType;
   reason?: string;
   rejectedKnowledgeIds?: string[];
   metadata?: Record<string, unknown>;
@@ -631,6 +648,7 @@ export interface FeedbackEvent extends FeedbackInput {
 export interface KnowledgeFeedbackSummary {
   knowledgeId: string;
   selectedCount: number;
+  selectedNoisyCount: number;
   rejectedCount: number;
   irrelevantCount: number;
   staleCount: number;
@@ -657,6 +675,33 @@ export interface AgentSessionLearningDecision {
   status: AgentLearningDecisionStatus;
   reasons: string[];
   draftId?: string;
+}
+
+export interface AgentSessionNote {
+  at: string;
+  note: string;
+  author?: string;
+  feedbackType?: FeedbackType;
+  feedbackId?: string;
+  contextPackId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AppendAgentSessionNoteInput {
+  sessionId: string;
+  note: string;
+  author?: string;
+  feedbackType?: FeedbackType;
+  contextPackId?: string;
+  reason?: string;
+  rejectedKnowledgeIds?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface AppendAgentSessionNoteResult {
+  session: AgentSession;
+  note: AgentSessionNote;
+  feedback?: FeedbackEvent;
 }
 
 export interface AgentSession {

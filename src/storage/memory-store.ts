@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   AgentContextDecision,
   AgentSession,
+  AgentSessionNote,
   BackupExportData,
   BackupTableData,
   ClassifiedQuery,
@@ -569,8 +570,9 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     this.feedback.push(event);
     if (input.contextPackId) {
       const pack = this.packs.get(input.contextPackId);
-      if (pack) {
-        pack.status = input.feedbackType === 'selected' ? 'selected' : 'rejected';
+      const nextStatus = packStatusForFeedback(input.feedbackType);
+      if (pack && nextStatus) {
+        pack.status = nextStatus;
       }
     }
     return event;
@@ -704,6 +706,31 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return updated;
   }
 
+  async appendAgentSessionNote(input: {
+    sessionId: string;
+    note: AgentSessionNote;
+  }): Promise<AgentSession | undefined> {
+    const session = this.agentSessions.get(input.sessionId);
+    if (!session) {
+      return undefined;
+    }
+
+    const existingNotes = Array.isArray(session.metadata.notes)
+      ? (session.metadata.notes as AgentSessionNote[])
+      : [];
+
+    const updated: AgentSession = {
+      ...session,
+      metadata: {
+        ...session.metadata,
+        notes: [...existingNotes, input.note],
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    this.agentSessions.set(updated.id, updated);
+    return updated;
+  }
+
   async createReflectionDraft(input: ReflectionDraftInput, duplicateCandidates: unknown[]): Promise<ReflectionDraft> {
     const draft: ReflectionDraft = {
       id: randomUUID(),
@@ -745,6 +772,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     const updated: ReflectionDraft = {
       ...draft,
       status: patch.status ?? draft.status,
+      suggestedLabels: patch.suggestedLabels ?? draft.suggestedLabels,
+      references: patch.references ?? draft.references,
       metadata: patch.metadata ? { ...draft.metadata, ...patch.metadata } : draft.metadata,
     };
     this.drafts.set(id, updated);
@@ -1268,11 +1297,36 @@ function feedbackMatchesProject(
 }
 
 function feedbackKnowledgeIds(feedback: FeedbackInput, pack: ContextPack | undefined): string[] {
-  if (feedback.feedbackType !== 'selected' && feedback.rejectedKnowledgeIds?.length) {
+  if (!FEEDBACK_TYPES_THAT_AFFECT_RANKING.has(feedback.feedbackType)) {
+    return [];
+  }
+
+  const positive = feedback.feedbackType === 'selected' || feedback.feedbackType === 'selected_but_noisy';
+  if (!positive && feedback.rejectedKnowledgeIds?.length) {
     return feedback.rejectedKnowledgeIds;
   }
 
   return pack?.sections.flatMap((section) => section.items.map((item) => item.knowledgeId)) ?? [];
+}
+
+const FEEDBACK_TYPES_THAT_AFFECT_RANKING = new Set<FeedbackInput['feedbackType']>([
+  'selected',
+  'selected_but_noisy',
+  'rejected',
+  'irrelevant',
+  'stale',
+]);
+
+function packStatusForFeedback(feedbackType: FeedbackInput['feedbackType']): ContextPack['status'] | undefined {
+  if (feedbackType === 'selected' || feedbackType === 'selected_but_noisy') {
+    return 'selected';
+  }
+
+  if (feedbackType === 'rejected' || feedbackType === 'irrelevant' || feedbackType === 'stale') {
+    return 'rejected';
+  }
+
+  return undefined;
 }
 
 function ensureFeedbackSummary(
@@ -1287,6 +1341,7 @@ function ensureFeedbackSummary(
   const created: KnowledgeFeedbackSummary = {
     knowledgeId,
     selectedCount: 0,
+    selectedNoisyCount: 0,
     rejectedCount: 0,
     irrelevantCount: 0,
     staleCount: 0,
@@ -1301,17 +1356,25 @@ function applyFeedbackToSummary(
   feedbackType: FeedbackInput['feedbackType'],
   timestamp: string,
 ): void {
-  if (feedbackType === 'selected') {
-    summary.selectedCount += 1;
-  } else if (feedbackType === 'rejected') {
-    summary.rejectedCount += 1;
-  } else if (feedbackType === 'irrelevant') {
-    summary.irrelevantCount += 1;
-  } else if (feedbackType === 'stale') {
-    summary.staleCount += 1;
+  switch (feedbackType) {
+    case 'selected':
+      summary.selectedCount += 1;
+      break;
+    case 'selected_but_noisy':
+      summary.selectedNoisyCount += 1;
+      break;
+    case 'rejected':
+      summary.rejectedCount += 1;
+      break;
+    case 'irrelevant':
+      summary.irrelevantCount += 1;
+      break;
+    case 'stale':
+      summary.staleCount += 1;
+      break;
   }
 
-  if (feedbackType !== 'missing_context') {
+  if (FEEDBACK_TYPES_THAT_AFFECT_RANKING.has(feedbackType)) {
     summary.latestFeedbackType = feedbackType;
     summary.latestFeedbackAt = timestamp;
   }

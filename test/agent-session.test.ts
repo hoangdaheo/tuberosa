@@ -233,6 +233,84 @@ test('agent session auto-learning keeps negative-feedback lessons reviewable', a
   ok(finished.learningDecision?.reasons.some((reason) => reason.includes('negative')));
 });
 
+test('reflection draft labels and references can be reviewed before approval', async () => {
+  const { reflection, store } = createTestServices();
+
+  const created = await reflection.createDraft({
+    project: 'agent-memory',
+    title: 'Continue retrieval hardening',
+    summary: 'Tighten context-pack usefulness and signal hygiene.',
+    content: 'Continue retrieval hardening: cap prior lessons, classify usefulness, and apply signal hygiene before presenting context.',
+    triggerType: 'non_trivial_workflow',
+    references: [{ type: 'file', uri: 'src/retrieval/context-pack.ts' }],
+  });
+
+  const cleaned = await reflection.updateDraft(created.id, {
+    suggestedLabels: [
+      { type: 'business_area', value: 'retrieval', weight: 1 },
+      { type: 'symbol', value: 'Continuation', weight: 1 },
+      { type: 'technology', value: 'go', weight: 0.5 },
+    ],
+    references: [
+      { type: 'file', uri: 'src/retrieval/context-pack.ts' },
+      { type: 'file', uri: 'docs/AGENT_CONTEXT_ROADMAP.md' },
+    ],
+  });
+
+  ok(cleaned);
+  ok(!cleaned.suggestedLabels.some((label) => label.type === 'symbol' && label.value === 'Continuation'));
+  ok(!cleaned.suggestedLabels.some((label) => label.type === 'technology' && label.value === 'go'));
+  ok(cleaned.references.some((reference) => reference.uri === 'docs/AGENT_CONTEXT_ROADMAP.md'));
+
+  const stored = await store.getReflectionDraft(created.id);
+  ok(stored?.references.some((reference) => reference.uri === 'docs/AGENT_CONTEXT_ROADMAP.md'));
+});
+
+test('post-finish session note appends notes and optionally records feedback', async () => {
+  const { agentSessions, ingestion, store } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'wiki',
+    sourceUri: 'docs/handoff.md',
+    itemType: 'wiki',
+    title: 'Current handoff anchor',
+    summary: 'Current handoff anchor.',
+    content: 'Continuation handoff anchor for agent sessions and roadmap progress.',
+    trustLevel: 90,
+  });
+
+  const started = await agentSessions.startSession({
+    project: 'agent-memory',
+    prompt: 'Continue retrieval hardening',
+    cwd: '/repo',
+  });
+  await agentSessions.recordContextDecision({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    feedbackType: 'selected',
+  });
+  await agentSessions.finishSession({
+    sessionId: started.session.id,
+    outcome: 'completed',
+    summary: 'Wrapped retrieval hardening continuation tasks.',
+  });
+
+  const appended = await agentSessions.appendSessionNote({
+    sessionId: started.session.id,
+    note: 'Pack was selected but supporting section was noisy with backup memories.',
+    feedbackType: 'selected_but_noisy',
+    contextPackId: started.contextPack.id,
+    author: 'reviewer',
+  });
+
+  equal(appended.note.feedbackType, 'selected_but_noisy');
+  ok(appended.feedback);
+  const stored = await store.getAgentSession(started.session.id);
+  const notes = stored?.metadata.notes as Array<{ note: string }> | undefined;
+  ok(notes?.some((entry) => entry.note.includes('noisy with backup memories')));
+});
+
 function createTestServices() {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();

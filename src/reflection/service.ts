@@ -9,6 +9,7 @@ import type {
   ReferenceInput,
   ReflectionDraft,
   ReflectionDraftInput,
+  ReflectionDraftPatchInput,
   ReflectionDraftReviewInput,
 } from '../types.js';
 
@@ -80,6 +81,54 @@ export class ReflectionService {
     });
 
     return draft;
+  }
+
+  async updateDraft(id: string, patch: ReflectionDraftPatchInput): Promise<ReflectionDraft | undefined> {
+    const hasLabelOrReferenceChange = patch.suggestedLabels !== undefined || patch.references !== undefined;
+    if (!hasLabelOrReferenceChange) {
+      return this.store.updateReflectionDraft(id, patch);
+    }
+
+    const current = await this.store.getReflectionDraft(id);
+    if (!current) {
+      return undefined;
+    }
+
+    const baseInput: ReflectionDraftInput = {
+      project: current.project,
+      title: current.title,
+      summary: current.summary,
+      content: current.content,
+      itemType: current.itemType,
+      triggerType: current.triggerType,
+      metadata: current.metadata,
+    };
+    const nextReferences = patch.references !== undefined
+      ? this.sanitizeReferences(patch.references)
+      : current.references;
+    const nextLabels = patch.suggestedLabels !== undefined
+      ? normalizeSuggestedLabels(this.sanitizeLabels(patch.suggestedLabels), baseInput, nextReferences)
+      : current.suggestedLabels;
+
+    return this.store.updateReflectionDraft(id, {
+      ...patch,
+      suggestedLabels: nextLabels,
+      references: patch.references !== undefined ? nextReferences : undefined,
+    });
+  }
+
+  private sanitizeLabels(labels: LabelInput[]): LabelInput[] {
+    return labels.map((label) => ({
+      ...label,
+      value: this.safety.redactSecrets(label.value).trim(),
+    })).filter((label) => label.value.length > 0);
+  }
+
+  private sanitizeReferences(references: ReferenceInput[]): ReferenceInput[] {
+    return references.map((reference) => ({
+      ...reference,
+      uri: this.safety.redactSecrets(reference.uri).trim(),
+    })).filter((reference) => reference.uri.length > 0);
   }
 
   async reviewDraft(input: ReflectionDraftReviewInput) {

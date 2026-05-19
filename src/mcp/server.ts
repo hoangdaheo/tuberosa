@@ -11,6 +11,7 @@ import {
   TASK_TYPES,
   TRIGGER_TYPES,
   expectRecord,
+  validateAppendAgentSessionNoteInput,
   validateCollectErrorLogsInput,
   validateContextPackIdArguments,
   validateContextSearchInput,
@@ -291,6 +292,15 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       const result = await services.agentSessions.finishSession(validateFinishAgentSessionInput(args));
       services.operations.requestPhysicalMirror('agent-session-finished');
       return toolJson(result);
+    }
+
+    case 'tuberosa_append_session_note': {
+      const result = await services.agentSessions.appendSessionNote(validateAppendAgentSessionNoteInput(args));
+      services.operations.requestPhysicalMirror('agent-session-note-appended');
+      return toolJson({
+        ...result,
+        instruction: 'Note appended. Use this for post-finish corrections, optionally with a context-quality feedbackType.',
+      });
     }
 
     default:
@@ -711,6 +721,25 @@ function tools() {
               metadata: { type: 'object' },
             },
           },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_append_session_note',
+      title: 'Append Tuberosa Agent Session Note',
+      description: 'Append a post-finish note to an agent session. Optional feedbackType records context-quality feedback (selected_but_noisy, too_much_adjacent_context, missing_orientation, missing_current_handoff, missing_verification_commands) tied to the session for ranking and review.',
+      inputSchema: {
+        type: 'object',
+        required: ['sessionId', 'note'],
+        properties: {
+          sessionId: { type: 'string' },
+          note: { type: 'string' },
+          author: { type: 'string' },
+          feedbackType: { type: 'string', enum: [...FEEDBACK_TYPES] },
+          contextPackId: { type: 'string' },
+          reason: { type: 'string' },
+          rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
+          metadata: { type: 'object' },
         },
       },
     },

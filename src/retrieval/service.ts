@@ -26,7 +26,14 @@ import { sha256, stableJson } from '../util/hash.js';
 import { normalizeLabel, uniqueStrings } from '../util/text.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
-import { assembleContextPack, normalizeDeepContextBudget } from './context-pack.js';
+import {
+  assembleContextPack,
+  DEFAULT_DEEP_CONTEXT_BUDGET,
+  DEFAULT_USEFULNESS_CAPS,
+  normalizeDeepContextBudget,
+  UNCAPPED_USEFULNESS_CAPS,
+  type UsefulnessCaps,
+} from './context-pack.js';
 import { classifyQuery } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator } from './context-fit.js';
@@ -40,6 +47,18 @@ const CONTINUATION_FILE_LIMIT = 8;
 const CONTINUATION_SYMBOL_LIMIT = 8;
 const CONTINUATION_ERROR_LIMIT = 6;
 const RETRY_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>(['rejected', 'irrelevant', 'stale']);
+const MISSING_CONTEXT_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>([
+  'missing_context',
+  'missing_orientation',
+  'missing_current_handoff',
+  'missing_verification_commands',
+]);
+const PROPOSAL_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>([
+  'rejected',
+  'irrelevant',
+  'stale',
+  'too_much_adjacent_context',
+]);
 
 type NormalizedContextSearchInput = ContextSearchInput & {
   tokenBudget: number;
@@ -164,13 +183,13 @@ export class RetrievalService {
     const project = input.project ?? pack?.project;
     const sourceSessionId = metadataUuidString(input.metadata, 'agentSessionId');
 
-    if (input.feedbackType === 'missing_context') {
+    if (MISSING_CONTEXT_FEEDBACK_TYPES.has(input.feedbackType)) {
       await this.store.createKnowledgeGap({
         project,
         sourceFeedbackId: feedback.id,
         sourceSessionId,
         contextPackId: input.contextPackId,
-        prompt: pack?.prompt ?? metadataString(input.metadata, 'prompt') ?? input.reason ?? 'Missing context feedback',
+        prompt: pack?.prompt ?? metadataString(input.metadata, 'prompt') ?? input.reason ?? `${input.feedbackType} feedback`,
         classified: pack?.classified,
         missingSignals: feedbackMissingSignals(input, pack),
         reason: input.reason,
@@ -182,7 +201,7 @@ export class RetrievalService {
       return;
     }
 
-    if (!shouldRetry(input.feedbackType)) {
+    if (!PROPOSAL_FEEDBACK_TYPES.has(input.feedbackType)) {
       return;
     }
 
@@ -203,6 +222,10 @@ export class RetrievalService {
           suggestedAction: suggestedActionForFeedback(input.feedbackType),
         },
       });
+
+      if (input.feedbackType === 'too_much_adjacent_context') {
+        continue;
+      }
 
       const knowledge = await this.store.getKnowledge(affectedKnowledgeId);
       if (knowledge?.metadata.source === 'agent_session_finish' || knowledge?.metadata.learningMode === 'auto') {
@@ -391,6 +414,7 @@ export class RetrievalService {
       tokenBudget: input.input.tokenBudget,
       rejectedKnowledgeIds: input.input.rejectedKnowledgeIds,
       contextFit: input.contextFit,
+      usefulnessCaps: usefulnessCapsForRequest(input.input),
     });
   }
 
@@ -662,6 +686,22 @@ function isLikelyDocumentIdentifier(value: string): boolean {
   return /^[A-Z][A-Z0-9_]+$/.test(value) && value.includes('_') && !/\d/.test(value);
 }
 
+function usefulnessCapsForRequest(input: NormalizedContextSearchInput): UsefulnessCaps {
+  if (input.debug) {
+    return UNCAPPED_USEFULNESS_CAPS;
+  }
+
+  if (input.deepContextBudget > DEFAULT_DEEP_CONTEXT_BUDGET) {
+    const expansion = Math.min(2, input.deepContextBudget / DEFAULT_DEEP_CONTEXT_BUDGET);
+    return {
+      priorLessons: Math.ceil(DEFAULT_USEFULNESS_CAPS.priorLessons * expansion),
+      adjacentContext: Math.ceil(DEFAULT_USEFULNESS_CAPS.adjacentContext * expansion),
+    };
+  }
+
+  return DEFAULT_USEFULNESS_CAPS;
+}
+
 function normalizeSearchInput(input: ContextSearchInput, config: AppConfig): NormalizedContextSearchInput {
   return {
     ...input,
@@ -923,12 +963,20 @@ function proposalReason(feedbackType: FeedbackInput['feedbackType'], reason: str
     return 'Stale context should be reviewed for a supersedes relation or archival.';
   }
 
+  if (feedbackType === 'too_much_adjacent_context') {
+    return 'Adjacent context dominated the pack; review labels, relations, or freshness to lower its rank for similar prompts.';
+  }
+
   return 'Rejected or irrelevant context should be reviewed for missing labels, references, or relations.';
 }
 
 function suggestedActionForFeedback(feedbackType: FeedbackInput['feedbackType']): string {
   if (feedbackType === 'stale') {
     return 'review for a supersedes relation, freshness update, or archive';
+  }
+
+  if (feedbackType === 'too_much_adjacent_context') {
+    return 'review adjacent context noise: tighten labels, add relations, or lower freshness/trust for similar prompts';
   }
 
   return 'review labels, references, and graph relations before changing ranking';
@@ -966,6 +1014,7 @@ function applyFeedbackSummary(
   const feedbackMetadata = {
     status,
     selectedCount: summary.selectedCount,
+    selectedNoisyCount: summary.selectedNoisyCount,
     rejectedCount: summary.rejectedCount,
     irrelevantCount: summary.irrelevantCount,
     staleCount: summary.staleCount,
@@ -1163,7 +1212,10 @@ function feedbackStatusFromCandidate(candidate: RankedCandidate): string | undef
 }
 
 function feedbackScoreAdjustment(summary: KnowledgeFeedbackSummary): number {
-  const selectedBoost = Math.min(0.1, summary.selectedCount * 0.04);
+  const selectedBoost = Math.min(
+    0.1,
+    summary.selectedCount * 0.04 + summary.selectedNoisyCount * 0.02,
+  );
   const stalePenalty = Math.min(0.24, summary.staleCount * 0.2);
   const rejectionPenalty = Math.min(0.18, (summary.rejectedCount + summary.irrelevantCount) * 0.09);
 
@@ -1195,6 +1247,9 @@ function feedbackMatchReasons(summary: KnowledgeFeedbackSummary, adjustment: num
 
   if (summary.selectedCount > 0) {
     reasons.push(`feedback:selected:${summary.selectedCount}`);
+  }
+  if (summary.selectedNoisyCount > 0) {
+    reasons.push(`feedback:selected_but_noisy:${summary.selectedNoisyCount}`);
   }
   if (summary.rejectedCount > 0) {
     reasons.push(`feedback:rejected:${summary.rejectedCount}`);

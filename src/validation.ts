@@ -2,6 +2,7 @@ import type { IngestFileInput, IngestionMode } from './ingest/service.js';
 import type {
   AgentSessionOutcome,
   AgentLearningMode,
+  AppendAgentSessionNoteInput,
   BackupRetentionInput,
   CollectErrorLogsOptions,
   CreateBackupInput,
@@ -133,7 +134,18 @@ const KNOWLEDGE_RELATION_TARGET_KINDS = [
 ] as const satisfies readonly KnowledgeRelationTargetKind[];
 const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly IngestionMode[];
 export const CONTEXT_MODES = ['compact', 'layered'] as const;
-export const FEEDBACK_TYPES = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'] as const;
+export const FEEDBACK_TYPES = [
+  'selected',
+  'rejected',
+  'irrelevant',
+  'stale',
+  'missing_context',
+  'selected_but_noisy',
+  'too_much_adjacent_context',
+  'missing_orientation',
+  'missing_current_handoff',
+  'missing_verification_commands',
+] as const;
 export const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
 export const AGENT_LEARNING_MODES = ['auto', 'draft_only', 'off'] as const satisfies readonly AgentLearningMode[];
 const KNOWLEDGE_STATUSES = ['approved', 'needs_review', 'archived', 'blocked'] as const satisfies readonly KnowledgeStatus[];
@@ -405,6 +417,25 @@ export function validateReflectionDraftPatchInput(value: unknown): ReflectionDra
   return {
     status: readOptionalEnum(record, 'status', REFLECTION_DRAFT_STATUSES, 'reflection draft patch input'),
     metadata: readOptionalObject(record, 'metadata', 'reflection draft patch input'),
+    suggestedLabels: readOptionalLabels(record.suggestedLabels, 'reflection draft patch input.suggestedLabels'),
+    references: readOptionalReferences(record.references, 'reflection draft patch input.references'),
+  };
+}
+
+export function validateAppendAgentSessionNoteInput(
+  value: unknown,
+  sessionId?: string,
+): AppendAgentSessionNoteInput {
+  const record = expectObject(value, 'agent session note input');
+  return {
+    sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'agent session note input'),
+    note: readRequiredString(record, 'note', 'agent session note input'),
+    author: readOptionalString(record, 'author', 'agent session note input'),
+    feedbackType: readOptionalEnum(record, 'feedbackType', FEEDBACK_TYPES, 'agent session note input'),
+    contextPackId: readOptionalString(record, 'contextPackId', 'agent session note input'),
+    reason: readOptionalString(record, 'reason', 'agent session note input'),
+    rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'agent session note input'),
+    metadata: readOptionalObject(record, 'metadata', 'agent session note input'),
   };
 }
 

@@ -3,6 +3,7 @@ import { StoreError } from '../errors.js';
 import type {
   AgentContextDecision,
   AgentSession,
+  AgentSessionNote,
   BackupExportData,
   BackupTableData,
   BackupTableName,
@@ -1063,12 +1064,14 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     );
 
     if (input.contextPackId) {
-      const status = input.feedbackType === 'selected' ? 'selected' : 'rejected';
-      const timestampColumn = status === 'selected' ? 'selected_at' : 'rejected_at';
-      await this.pool.query(
-        `UPDATE context_packs SET status = $1, ${timestampColumn} = now() WHERE id = $2`,
-        [status, input.contextPackId],
-      );
+      const status = packStatusForFeedback(input.feedbackType);
+      if (status) {
+        const timestampColumn = status === 'selected' ? 'selected_at' : 'rejected_at';
+        await this.pool.query(
+          `UPDATE context_packs SET status = $1, ${timestampColumn} = now() WHERE id = $2`,
+          [status, input.contextPackId],
+        );
+      }
     }
 
     return {
@@ -1146,9 +1149,9 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
           LEFT JOIN projects pp ON pp.id = cp.project_id
           CROSS JOIN LATERAL jsonb_array_elements(COALESCE(cp.pack->'sections', '[]'::jsonb)) section
           CROSS JOIN LATERAL jsonb_array_elements(COALESCE(section->'items', '[]'::jsonb)) item
-          WHERE fe.feedback_type <> 'missing_context'
+          WHERE fe.feedback_type = ANY('{selected,selected_but_noisy,rejected,irrelevant,stale}'::text[])
             AND (
-              fe.feedback_type = 'selected'
+              fe.feedback_type IN ('selected', 'selected_but_noisy')
               OR cardinality(fe.rejected_knowledge_ids) = 0
             )
             AND ($2::text IS NULL OR fp.name = $2 OR pp.name = $2)
@@ -1161,6 +1164,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         SELECT
           rf.knowledge_id,
           COUNT(*) FILTER (WHERE rf.feedback_type = 'selected')::int AS selected_count,
+          COUNT(*) FILTER (WHERE rf.feedback_type = 'selected_but_noisy')::int AS selected_noisy_count,
           COUNT(*) FILTER (WHERE rf.feedback_type = 'rejected')::int AS rejected_count,
           COUNT(*) FILTER (WHERE rf.feedback_type = 'irrelevant')::int AS irrelevant_count,
           COUNT(*) FILTER (WHERE rf.feedback_type = 'stale')::int AS stale_count,
@@ -1177,6 +1181,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       const summary: KnowledgeFeedbackSummary = {
         knowledgeId: String(row.knowledge_id),
         selectedCount: Number(row.selected_count ?? 0),
+        selectedNoisyCount: Number(row.selected_noisy_count ?? 0),
         rejectedCount: Number(row.rejected_count ?? 0),
         irrelevantCount: Number(row.irrelevant_count ?? 0),
         staleCount: Number(row.stale_count ?? 0),
@@ -1302,6 +1307,32 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rows.map(mapAgentContextDecisionRow);
   }
 
+  async appendAgentSessionNote(input: {
+    sessionId: string;
+    note: AgentSessionNote;
+  }): Promise<AgentSession | undefined> {
+    const result = await this.pool.query(
+      `
+        UPDATE agent_sessions s
+        SET metadata = jsonb_set(
+          COALESCE(s.metadata, '{}'::jsonb),
+          '{notes}',
+          COALESCE(s.metadata->'notes', '[]'::jsonb) || $2::jsonb,
+          true
+        ),
+        updated_at = now()
+        WHERE s.id = $1
+        RETURNING s.id, s.prompt, s.cwd, s.agent_name, s.agent_tool, s.status,
+          s.initial_context_pack_id, s.outcome, s.summary, s.reflection_draft_ids,
+          s.metadata, s.created_at, s.updated_at, s.finished_at,
+          (SELECT p.name FROM projects p WHERE p.id = s.project_id) AS project
+      `,
+      [input.sessionId, JSON.stringify([input.note])],
+    );
+
+    return result.rows[0] ? mapAgentSessionRow(result.rows[0]) : undefined;
+  }
+
   async finishAgentSession(input: FinishAgentSessionInput & {
     reflectionDraftIds?: string[];
   }): Promise<AgentSession | undefined> {
@@ -1402,11 +1433,19 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       return undefined;
     }
 
+    const nextReferences = patch.references ?? current.references;
+    const nextLabels = patch.suggestedLabels ?? current.suggestedLabels;
+    const baseMetadata = patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata;
+    const metadata = patch.references !== undefined
+      ? { ...baseMetadata, references: nextReferences }
+      : baseMetadata;
+
     const result = await this.pool.query(
       `
         UPDATE reflection_drafts d
         SET status = $2,
-          metadata = $3
+          metadata = $3,
+          suggested_labels = $4
         WHERE d.id = $1
         RETURNING d.id, d.title, d.summary, d.content, d.item_type, d.trigger_type,
           d.status, d.suggested_labels, d.duplicate_candidates, d.metadata,
@@ -1416,7 +1455,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       [
         id,
         patch.status ?? current.status,
-        patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+        metadata,
+        JSON.stringify(nextLabels ?? []),
       ],
     );
 
@@ -2294,6 +2334,18 @@ function knowledgeReviewSql(
   }
 
   return orphaned;
+}
+
+function packStatusForFeedback(feedbackType: FeedbackInput['feedbackType']): ContextPack['status'] | undefined {
+  if (feedbackType === 'selected' || feedbackType === 'selected_but_noisy') {
+    return 'selected';
+  }
+
+  if (feedbackType === 'rejected' || feedbackType === 'irrelevant' || feedbackType === 'stale') {
+    return 'rejected';
+  }
+
+  return undefined;
 }
 
 function feedbackExistsSql(type: FeedbackEvent['feedbackType']): string {

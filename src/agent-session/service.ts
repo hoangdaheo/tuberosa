@@ -7,12 +7,16 @@ import type {
   AgentSessionFinishResult,
   AgentSessionPolicy,
   AgentSessionLearningDecision,
+  AgentSessionNote,
   AgentSessionStartResult,
   AgentContextCompliance,
   AgentSession,
   AgentContextDecision,
+  AppendAgentSessionNoteInput,
+  AppendAgentSessionNoteResult,
   ContextPack,
   ContextFitStatus,
+  FeedbackEvent,
   FinishAgentSessionInput,
   LabelInput,
   ReferenceInput,
@@ -127,6 +131,45 @@ export class AgentSessionService {
       learningDecision: learning.decision,
       compliance,
     };
+  }
+
+  async appendSessionNote(input: AppendAgentSessionNoteInput): Promise<AppendAgentSessionNoteResult> {
+    const session = await this.requireSession(input.sessionId);
+    const feedback = await this.recordSessionNoteFeedback(input, session);
+    const note: AgentSessionNote = {
+      at: new Date().toISOString(),
+      note: input.note,
+      author: input.author,
+      feedbackType: input.feedbackType,
+      feedbackId: feedback?.id,
+      contextPackId: input.contextPackId,
+      metadata: input.metadata,
+    };
+    const updated = await this.store.appendAgentSessionNote({ sessionId: session.id, note });
+    return { session: updated ?? session, note, feedback };
+  }
+
+  private async recordSessionNoteFeedback(
+    input: AppendAgentSessionNoteInput,
+    session: AgentSession,
+  ): Promise<FeedbackEvent | undefined> {
+    if (!input.feedbackType) {
+      return undefined;
+    }
+
+    const result = await this.retrieval.recordFeedback({
+      contextPackId: input.contextPackId,
+      project: session.project,
+      feedbackType: input.feedbackType,
+      reason: input.reason ?? input.note,
+      rejectedKnowledgeIds: input.rejectedKnowledgeIds,
+      metadata: {
+        ...(input.metadata ?? {}),
+        agentSessionId: session.id,
+        postFinishNote: true,
+      },
+    });
+    return result.feedback;
   }
 
   private async requireSession(id: string) {

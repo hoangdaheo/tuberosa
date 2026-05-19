@@ -378,7 +378,18 @@ test('MCP agent workflow schemas expose task and feedback enums', async () => {
   };
 
   const taskTypes = ['debugging', 'implementation', 'refactor', 'review', 'planning', 'exploration', 'testing', 'unknown'];
-  const feedbackTypes = ['selected', 'rejected', 'irrelevant', 'stale', 'missing_context'];
+  const feedbackTypes = [
+    'selected',
+    'rejected',
+    'irrelevant',
+    'stale',
+    'missing_context',
+    'selected_but_noisy',
+    'too_much_adjacent_context',
+    'missing_orientation',
+    'missing_current_handoff',
+    'missing_verification_commands',
+  ];
   const searchTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_search_context');
   const startTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_start_session');
   const feedbackTool = toolsList.tools.find((tool) => tool.name === 'tuberosa_feedback_context');

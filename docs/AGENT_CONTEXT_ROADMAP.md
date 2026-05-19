@@ -479,7 +479,7 @@ Acceptance:
 
 ## Phase 10: Agent Context Usefulness Hardening
 
-Status: In progress as of 2026-05-19.
+Status: Done on 2026-05-19.
 
 Goal: make Tuberosa's returned context more useful to agents at task start by improving first-pass orientation, not by returning more context.
 
@@ -502,6 +502,30 @@ Session feedback from 2026-05-19:
 - Agents need a first-class way to report context as "selected but noisy" or "selected but missing orientation" so useful packs can still produce improvement signals without being marked rejected.
 - Agent-facing tool schemas should prevent avoidable startup mistakes. A session-start call with `taskType: "development"` failed because the runtime validator knew the enum but the MCP schema advertised a plain string.
 
+Session feedback from Phase 10 continuation on 2026-05-19:
+
+- Did Tuberosa feed appropriate knowledge?
+  - Mostly yes. It retrieved current handoff/roadmap direction, continuation-retrieval lessons, graph-expansion lessons, and the user correction to query Tuberosa before Tuberosa work.
+  - It still over-selected adjacent prior memories about backups, migrations, schedulers, and old MCP startup issues because those memories had high selected-feedback counts and broad symbols such as `Tuberosa`, `MCP`, `Agent`, and `Context`.
+  - The pack was usable, but the agent had to manually separate direct evidence from prior lessons and adjacent memories. That manual separation should be Tuberosa's job.
+- What should Tuberosa do when an agent approaches a new task?
+  - Start with a compact orientation: inferred task, workflow stage, confidence, recommended files/docs to read first, likely implementation surface, likely verification commands, and unclear or missing signals.
+  - Prioritize direct task evidence first: user-named files, handoff/roadmap docs for continuation, current source/test surfaces, exact symbols, exact errors, and high-confidence graph links.
+  - Include prior lessons only after direct evidence, and label whether each lesson is a directly relevant prior lesson, general workflow guidance, or adjacent context.
+  - If the task is vague, use recent selected sessions and handoff anchors, but clearly mark inferred context and ask for clarification when required evidence is missing.
+- What improved through this task?
+  - Started: context packs now expose item-level `evidenceCategory`, `evidenceStrength`, `usefulnessReason`, and actionable missing-signal buckets.
+  - Started: pack assembly now sorts direct task evidence ahead of prior lessons, workflow guidance, and adjacent context before section budgeting.
+  - Started: context packs now include an `orientation` block with recommended files, likely surfaces, verification commands, missing-signal buckets, and uncertainty notes.
+  - Started: MCP shortlist output exposes the new orientation and usefulness fields.
+  - Started: classifier and continuation-signal hygiene suppress generic roadmap/meta words and avoid treating `next` as Next.js technology without stronger evidence.
+- Things wanted but not fully supported yet:
+  - First-class context-quality feedback types such as `selected_but_noisy`, `too_much_adjacent_context`, `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands`. Today these can only be recorded as metadata on existing feedback/session-decision events.
+  - A review/edit path for reflection draft suggested labels before accepting them. The Phase 10 reflection draft still suggested noisy labels such as generic symbols and `next` technology from explanatory text.
+  - Tunable caps for prior lessons and adjacent context in normal startup packs.
+  - Richer item explanations for freshness, stale risk, supersession, graph path, and feedback contribution. Current `usefulnessReason` is useful but still category-based.
+  - A way to append final human feedback to a finished agent session without creating a new session or relying only on independent feedback events.
+
 Planned work:
 
 - Add a context-pack usefulness layer that categorizes returned items:
@@ -511,7 +535,7 @@ Planned work:
   - `adjacentContext`: lower-priority related memories.
 - Started: returned items now include `evidenceCategory`, `evidenceStrength`, `usefulnessReason`, and item-level `actionableMissingSignals` derived from existing match, fit, feedback, and graph signals.
 - Started: direct task evidence ranks above prior lessons, workflow guidance, and adjacent context during pack assembly.
-- Cap normal startup packs to the most useful 3-6 prior lessons unless debug mode or a larger deep-context request is used.
+- Done: normal startup packs cap `priorLessons` (default 6) and `adjacentContext` (default 4) categories during assembly. Debug retrieval and expanded deep-context budgets relax or uncap the limits, and pack-level confidence is computed from the prioritized list before capping so presentation does not regress confidence.
 - Add new-task orientation behavior:
   - summarize the inferred task and confidence in one compact block
   - list files/docs the agent should load before editing, such as `handoff.md`, `tuberosa-project.md`, and roadmap files when applicable
@@ -552,6 +576,12 @@ Planned work:
   - missing current handoff
   - missing verification commands
   - missing file or symbol references
+- Done: first-class context-quality feedback types are now accepted by HTTP `/context/feedback`, MCP `tuberosa_feedback_context`, agent context decisions, and the new `tuberosa_append_session_note` tool:
+  - `selected_but_noisy` keeps the pack `selected`, contributes a smaller ranking boost via `selectedNoisyCount`, and does not trigger retry.
+  - `too_much_adjacent_context` creates a `missing_relation` learning proposal so reviewers can tighten labels/relations without retrying or boosting ranking.
+  - `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands` create `knowledge_gaps` review records with the specific feedback type captured in `metadata.feedbackType`.
+- Done: reflection-draft label/reference review is now supported via `PATCH /reflection-drafts/:id` (and `ReflectionService.updateDraft`). Reviewed labels run through the existing noisy-symbol/ambiguous-technology filter and through secret redaction, and references are persisted alongside the draft before approval.
+- Done: a new `POST /agent-sessions/:id/notes` HTTP endpoint and `tuberosa_append_session_note` MCP tool append post-finish notes to `agent_sessions.metadata.notes`. When a `feedbackType` is supplied, the note is paired with a regular feedback event tagged `metadata.agentSessionId` and `metadata.postFinishNote: true` for downstream learning and audits.
 
 Acceptance:
 

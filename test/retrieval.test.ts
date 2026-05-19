@@ -195,6 +195,84 @@ test('context pack usefulness prioritizes direct task evidence and returns start
   ok(pack.orientation?.verificationCommands.includes('pnpm run eval:retrieval'));
 });
 
+test('context pack caps prior lessons and adjacent context in normal startup packs', () => {
+  const classified: ClassifiedQuery = {
+    project: 'tuberosa',
+    taskType: 'implementation',
+    confidence: 0.7,
+    files: ['src/retrieval/context-pack.ts'],
+    symbols: ['assembleContextPack'],
+    errors: [],
+    technologies: [],
+    businessAreas: ['search'],
+    exactTerms: ['src/retrieval/context-pack.ts', 'assembleContextPack'],
+    lexicalQuery: 'src/retrieval/context-pack.ts assembleContextPack',
+    intent: {
+      taskGoal: 'implement requested change',
+      workflowStage: 'implementation',
+      impliedFiles: ['src/retrieval/context-pack.ts'],
+      impliedSymbols: ['assembleContextPack'],
+      impliedDomains: ['search'],
+      recentSessionReferences: [],
+      requiredEvidenceTypes: [],
+      uncertaintyReasons: [],
+    },
+  };
+
+  const direct = rankedCandidate({
+    knowledgeId: 'direct',
+    title: 'Direct hit',
+    itemType: 'code_ref',
+    finalScore: 0.7,
+    labels: [
+      { type: 'file', value: 'src/retrieval/context-pack.ts', weight: 1 },
+      { type: 'symbol', value: 'assembleContextPack', weight: 1 },
+    ],
+    references: [{ type: 'file', uri: 'src/retrieval/context-pack.ts' }],
+    matchReasons: ['file:src/retrieval/context-pack.ts', 'symbol:assembleContextPack'],
+    fitScore: 0.9,
+  });
+  const priors = Array.from({ length: 9 }, (_, index) => rankedCandidate({
+    knowledgeId: `prior-${index}`,
+    title: `Prior workflow lesson ${index}`,
+    itemType: 'workflow',
+    finalScore: 0.84 - index * 0.005,
+    matchReasons: ['metadata match', 'feedback:selected:3'],
+    references: [{ type: 'conversation', uri: `reflection://draft/prior-${index}` }],
+    labels: [{ type: 'business_area', value: 'search', weight: 1 }],
+    fitScore: 0.7,
+  }));
+  const adjacents = Array.from({ length: 6 }, (_, index) => rankedCandidate({
+    knowledgeId: `adjacent-${index}`,
+    title: `Adjacent ${index}`,
+    itemType: 'workflow',
+    source: 'graph',
+    finalScore: 0.7 - index * 0.005,
+    matchReasons: ['vector match'],
+    labels: [{ type: 'business_area', value: 'storage', weight: 1 }],
+    fitScore: 0.3,
+  }));
+  const pack = assembleContextPack({
+    project: 'tuberosa',
+    prompt: 'Improve context-pack usefulness',
+    classified,
+    candidates: [direct, ...priors, ...adjacents],
+    tokenBudget: 4000,
+    contextFit: {
+      fitStatus: 'ready',
+      fitScore: 0.8,
+      fitReasons: ['covered file:1/1'],
+      missingSignals: [],
+    },
+  });
+  const items = pack.sections.flatMap((section) => section.items);
+  const priorCount = items.filter((item) => item.evidenceCategory === 'priorLessons').length;
+  const adjacentCount = items.filter((item) => item.evidenceCategory === 'adjacentContext').length;
+
+  ok(priorCount > 0 && priorCount <= 6, `prior lessons should be capped, got ${priorCount}`);
+  ok(adjacentCount <= 4, `adjacent context should be capped, got ${adjacentCount}`);
+});
+
 test('continuation retrieval uses files from recent selected session context', async () => {
   const { ingestion, retrieval, store } = createTestServices();
 
@@ -1174,6 +1252,102 @@ test('selected feedback records pack status without retrying', async () => {
   equal(result.retry, undefined);
   equal(result.feedback.feedbackType, 'selected');
   equal(storedPack?.status, 'selected');
+});
+
+test('selected_but_noisy keeps pack selected and records the noisy signal without retrying', async () => {
+  const { ingestion, retrieval } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'wiki',
+    sourceUri: 'docs/current.md',
+    itemType: 'wiki',
+    title: 'Current auth flow',
+    summary: 'Current auth flow.',
+    content: 'Auth flow uses OAuth bearer tokens and refresh token rotation.',
+    trustLevel: 90,
+    labels: [{ type: 'business_area', value: 'auth', weight: 1 }],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Explain the auth flow',
+  });
+
+  const result = await retrieval.recordFeedback({
+    contextPackId: pack.id,
+    project: 'agent-memory',
+    feedbackType: 'selected_but_noisy',
+    reason: 'Adjacent backup memory dominated the supporting section.',
+  });
+  const storedPack = await retrieval.getContextPack(pack.id);
+
+  equal(result.retry, undefined);
+  equal(result.feedback.feedbackType, 'selected_but_noisy');
+  equal(storedPack?.status, 'selected');
+});
+
+test('missing_orientation feedback creates a knowledge gap without retrying', async () => {
+  const { ingestion, retrieval, store } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'wiki',
+    sourceUri: 'docs/handoff.md',
+    itemType: 'wiki',
+    title: 'Project handoff',
+    summary: 'Handoff anchor.',
+    content: 'Continuation handoff anchor for agent sessions.',
+    trustLevel: 80,
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Continue Phase 9 work',
+  });
+
+  const result = await retrieval.recordFeedback({
+    contextPackId: pack.id,
+    project: 'agent-memory',
+    feedbackType: 'missing_orientation',
+    reason: 'Returned pack did not list which files to read first.',
+  });
+
+  equal(result.retry, undefined);
+  const gaps = await store.listKnowledgeGaps({ project: 'agent-memory', limit: 5 });
+  ok(gaps.some((gap) => gap.metadata.feedbackType === 'missing_orientation'));
+});
+
+test('too_much_adjacent_context creates a learning proposal but does not retry or boost', async () => {
+  const { ingestion, retrieval, store } = createTestServices();
+
+  const noisy = await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'wiki',
+    sourceUri: 'docs/adjacent.md',
+    itemType: 'workflow',
+    title: 'Adjacent backup workflow',
+    summary: 'Backup workflow memory.',
+    content: 'Backup workflow memory about scheduler retention and pruning.',
+    trustLevel: 70,
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Improve retrieval ranking signals',
+  });
+
+  const result = await retrieval.recordFeedback({
+    contextPackId: pack.id,
+    project: 'agent-memory',
+    feedbackType: 'too_much_adjacent_context',
+    rejectedKnowledgeIds: [noisy.id],
+    reason: 'Adjacent backup memory was unrelated to retrieval ranking.',
+  });
+
+  equal(result.retry, undefined);
+  const proposals = await store.listLearningProposals({ project: 'agent-memory', limit: 5 });
+  ok(proposals.some((proposal) => proposal.metadata.feedbackType === 'too_much_adjacent_context'));
 });
 
 test('feedback history adjusts later retrieval ranking', async () => {

@@ -1,6 +1,7 @@
 import type {
   AgentContextDecision,
   AgentSession,
+  AgentSessionNote,
   BackupExportData,
   BackupTableData,
   ClassifiedQuery,
@@ -121,6 +122,10 @@ export interface KnowledgeStore {
   listAgentContextDecisions(options: { sessionId?: string; limit: number }): Promise<AgentContextDecision[]>;
   finishAgentSession(input: FinishAgentSessionInput & {
     reflectionDraftIds?: string[];
+  }): Promise<AgentSession | undefined>;
+  appendAgentSessionNote(input: {
+    sessionId: string;
+    note: AgentSessionNote;
   }): Promise<AgentSession | undefined>;
   listReflectionDrafts(options: ListRecordsOptions): Promise<ReflectionDraft[]>;
   getReflectionDraft(id: string): Promise<ReflectionDraft | undefined>;
