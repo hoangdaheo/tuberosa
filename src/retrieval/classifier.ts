@@ -5,6 +5,7 @@ import type {
   RetrievalEvidenceType,
   RetrievalIntent,
   RetrievalWorkflowStage,
+  TaskBriefMode,
   TaskType,
 } from '../types.js';
 import { normalizeLabel, uniqueStrings } from '../util/text.js';
@@ -51,8 +52,10 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
   const lower = prompt.toLowerCase();
   const hasContinuationIntent = isContinuationIntent(lower);
   const identifierText = stripFilePaths(prompt);
+  const objectHints = uniqueStrings(extractUuidHints(prompt));
   const files = uniqueStrings([...(input.files ?? []), ...extractFiles(prompt), ...extractContinuationFiles(lower)]);
-  const symbols = uniqueStrings([...(input.symbols ?? []), ...extractSymbols(identifierText)]);
+  const symbols = uniqueStrings([...(input.symbols ?? []), ...extractSymbols(identifierText)])
+    .filter((symbol) => !objectHints.includes(symbol));
   const errors = uniqueStrings([...(input.errors ?? []), ...extractErrors(identifierText)]);
   const technologies = uniqueStrings(TECHNOLOGY_TERMS.filter((term) => matchesTechnology(lower, term)));
   const businessAreas = uniqueStrings(BUSINESS_HINTS.filter((term) => lower.includes(term)));
@@ -64,6 +67,7 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
     ...errors,
     ...technologies,
     ...businessAreas,
+    ...objectHints,
     ...extractQuotedTerms(prompt),
   ]);
 
@@ -98,6 +102,7 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
       errors,
       technologies,
       businessAreas,
+      objectHints,
       hasContinuationIntent,
     }),
   };
@@ -195,6 +200,7 @@ function buildRetrievalIntent(input: {
   errors: string[];
   technologies: string[];
   businessAreas: string[];
+  objectHints: string[];
   hasContinuationIntent: boolean;
 }): RetrievalIntent {
   const impliedDomains = uniqueStrings([...input.businessAreas, ...input.technologies]);
@@ -202,9 +208,11 @@ function buildRetrievalIntent(input: {
   return {
     taskGoal: inferTaskGoal(input.prompt, input.taskType, input.hasContinuationIntent),
     workflowStage: inferWorkflowStage(input.taskType, input.hasContinuationIntent),
+    taskBriefMode: inferTaskBriefMode(input.lower, input.taskType, input.hasContinuationIntent),
     impliedFiles: input.files,
     impliedSymbols: input.symbols,
     impliedDomains,
+    objectHints: input.objectHints,
     recentSessionReferences: input.hasContinuationIntent ? ['selected_context_decisions'] : [],
     requiredEvidenceTypes: inferRequiredEvidenceTypes(input),
     uncertaintyReasons: inferUncertaintyReasons(input),
@@ -259,6 +267,44 @@ function inferWorkflowStage(taskType: TaskType, hasContinuationIntent: boolean):
       return 'exploration';
     case 'testing':
       return 'verification';
+    case 'unknown':
+      return 'unknown';
+  }
+}
+
+function inferTaskBriefMode(lower: string, taskType: TaskType, hasContinuationIntent: boolean): TaskBriefMode {
+  if (/\b(context[-_\s]?quality|selected_but_noisy|too_much_adjacent_context|noisy|adjacent feedback|missing orientation|missing current handoff|missing verification)\b/.test(lower)) {
+    return 'context_quality_review';
+  }
+
+  if (/\b(reflection[-_\s]?drafts?|pending reflections?|review reflections?|approve reflection|reject reflection|(?:approve|reject|needs[-_\s]?changes)\b.*\b(?:reflection|draft)|(?:reflection|draft)\b.*\b(?:approve|reject|needs[-_\s]?changes))\b/.test(lower)) {
+    return 'reflection_review';
+  }
+
+  if (/\b(handoff cleanup|handoff clean[-_\s]?up|cleanup handoff|clean up (?:the )?handoff|resolve (?:the )?(?:current )?(?:handoff|section)|current work cleanup|current[-_\s]?work clean[-_\s]?up)\b/.test(lower)) {
+    return 'handoff_cleanup';
+  }
+
+  if (/\b(operations?|ops)\b.*\b(gaps?|proposals?|queues?)\b|\b(knowledge gaps?|learning proposals?|review queues?|ops queues?)\b/.test(lower)) {
+    return 'operations_review';
+  }
+
+  if (hasContinuationIntent) {
+    return 'implementation';
+  }
+
+  switch (taskType) {
+    case 'debugging':
+      return 'debugging';
+    case 'implementation':
+    case 'refactor':
+    case 'testing':
+    case 'exploration':
+      return 'implementation';
+    case 'review':
+      return 'review';
+    case 'planning':
+      return 'planning';
     case 'unknown':
       return 'unknown';
   }
@@ -376,6 +422,11 @@ function extractSymbols(prompt: string): string[] {
   return uniqueStrings([...codeSpans, ...camelCase, ...pascalCase, ...functions]);
 }
 
+function extractUuidHints(prompt: string): string[] {
+  return (prompt.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi) ?? [])
+    .map((value) => value.toLowerCase());
+}
+
 function matchesTechnology(lower: string, term: string): boolean {
   if (term === 'next') {
     return /\b(next\.js|nextjs|next\s+(?:app|application|project|repo|site|route|router|page|api|server|config)|app\/(?:page|layout|route)\.[jt]sx?)\b/.test(lower);
@@ -452,9 +503,17 @@ const STOP_WORDS = new Set([
   'improve',
   'focus',
   'next',
+  'changes',
+  'everything',
+  'tried',
+  'failed',
+  'needed',
+  'correction',
+  'things',
 ]);
 
 const SYMBOL_STOP_WORDS = new Set([
+  'Implement',
   'Fix',
   'Add',
   'Create',
@@ -497,6 +556,35 @@ const SYMBOL_STOP_WORDS = new Set([
   'Why',
   'Who',
   'Which',
+  'Everything',
+  'Tried',
+  'Failed',
+  'Needed',
+  'Correction',
+  'Things',
+  'Status',
+  'Summary',
+  'Notes',
+  'Result',
+  'Results',
+  'Queue',
+  'Queues',
+  'Draft',
+  'Drafts',
+  'Gap',
+  'Gaps',
+  'Proposal',
+  'Proposals',
+  'Operation',
+  'Operations',
+  'Admin',
+  'UUID',
+  'UUIDs',
+  'ID',
+  'IDs',
+  'HTTP',
+  'API',
+  'JSON',
   'React',
   'Node',
   'Docker',

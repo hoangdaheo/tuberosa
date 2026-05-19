@@ -328,6 +328,7 @@ function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?:
     confidence: pack.confidence,
     contextFit: pack.contextFit,
     orientation: pack.orientation,
+    taskBrief: pack.taskBrief,
     actionableMissingSignals: pack.actionableMissingSignals,
     project: pack.project,
     classified: pack.classified,

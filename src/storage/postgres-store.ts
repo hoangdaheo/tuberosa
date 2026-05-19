@@ -576,7 +576,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rows.map(mapKnowledgeGapRow);
   }
 
-  private async getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined> {
+  async getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined> {
     const result = await this.pool.query(
       `
         ${knowledgeGapSelect()}
@@ -685,7 +685,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rows.map(mapLearningProposalRow);
   }
 
-  private async getLearningProposal(id: string): Promise<LearningProposal | undefined> {
+  async getLearningProposal(id: string): Promise<LearningProposal | undefined> {
     const result = await this.pool.query(
       `
         ${learningProposalSelect()}

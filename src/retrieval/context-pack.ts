@@ -6,8 +6,12 @@ import type {
   ContextEvidenceStrength,
   ContextFit,
   ContextPack,
+  ContextPackActionItem,
   ContextPackOrientation,
+  ContextPackTaskBrief,
+  ContextReviewTarget,
   RankedCandidate,
+  TaskBriefMode,
 } from '../types.js';
 import { clamp, truncate, uniqueStrings } from '../util/text.js';
 
@@ -43,6 +47,8 @@ export interface AssembleContextPackInput {
   rejectedKnowledgeIds?: string[];
   contextFit?: ContextFit;
   usefulnessCaps?: UsefulnessCaps;
+  reviewTargets?: ContextReviewTarget[];
+  omittedReviewTargetCount?: number;
 }
 
 export function normalizeDeepContextBudget(value: number | undefined): number {
@@ -67,6 +73,7 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
   const density = Math.min(1, prioritized.length / 6);
   const fitScore = input.contextFit?.fitScore ?? 0;
   const confidence = clamp(topScore * 0.56 + input.classified.confidence * 0.16 + density * 0.08 + fitScore * 0.2, 0, 0.99);
+  const orientation = buildOrientation(input, selected, actionableMissingSignals);
 
   return {
     id: randomUUID(),
@@ -77,7 +84,8 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     status: 'proposed',
     classified: input.classified,
     contextFit: input.contextFit,
-    orientation: buildOrientation(input, selected, actionableMissingSignals),
+    orientation,
+    taskBrief: buildTaskBrief(input, selected, orientation),
     actionableMissingSignals,
     sections: [
       { name: 'essential', items: sanitizeItems(essential), tokenEstimate: sumTokens(essential) },
@@ -163,7 +171,7 @@ function prioritizeUsefulCandidates(candidates: RankedCandidate[], input: Assemb
   return candidates
     .map((candidate) => annotateUsefulness(candidate, input.classified))
     .sort((left, right) => {
-      const categoryDelta = evidenceCategoryPriority(left.evidenceCategory) - evidenceCategoryPriority(right.evidenceCategory);
+      const categoryDelta = evidenceCategoryPriority(left.evidenceCategory, input.classified) - evidenceCategoryPriority(right.evidenceCategory, input.classified);
       if (categoryDelta !== 0) {
         return categoryDelta;
       }
@@ -259,7 +267,30 @@ function directTaskSignals(candidate: RankedCandidate, classified: ClassifiedQue
       .map((reference) => `file:${reference.uri}`)
     : [];
 
-  return uniqueStrings([...explicitReasonSignals, ...labelSignals, ...referenceSignals, ...continuationSignals]).slice(0, 8);
+  const objectHintSignals = (classified.intent.objectHints ?? [])
+    .filter((hint) => candidateText(candidate).includes(hint.toLowerCase()))
+    .map((hint) => `object:${hint}`);
+
+  return uniqueStrings([
+    ...explicitReasonSignals,
+    ...labelSignals,
+    ...referenceSignals,
+    ...continuationSignals,
+    ...objectHintSignals,
+  ]).slice(0, 8);
+}
+
+function candidateText(candidate: RankedCandidate): string {
+  return [
+    candidate.knowledgeId,
+    candidate.title,
+    candidate.summary,
+    candidate.content,
+    candidate.contextualContent,
+    candidate.labels.map((label) => `${label.type}:${label.value}`).join(' '),
+    candidate.references.map((reference) => reference.uri).join(' '),
+    JSON.stringify(candidate.metadata ?? {}),
+  ].join(' ').toLowerCase();
 }
 
 function isContinuationAnchorFile(value: string): boolean {
@@ -485,7 +516,25 @@ function metadataStringArray(container: unknown, key: string): string[] {
     : [];
 }
 
-function evidenceCategoryPriority(category: ContextEvidenceCategory | undefined): number {
+function evidenceCategoryPriority(
+  category: ContextEvidenceCategory | undefined,
+  classified: ClassifiedQuery,
+): number {
+  if (prefersWorkflowBeforePriorLessons(taskBriefModeFor(classified))) {
+    switch (category) {
+      case 'directTaskEvidence':
+        return 0;
+      case 'workflowGuidance':
+        return 1;
+      case 'priorLessons':
+        return 2;
+      case 'adjacentContext':
+        return 3;
+      default:
+        return 4;
+    }
+  }
+
   switch (category) {
     case 'directTaskEvidence':
       return 0;
@@ -518,6 +567,174 @@ function buildOrientation(
     missingSignals,
     notes: orientationNotes(input, selected),
   };
+}
+
+function buildTaskBrief(
+  input: AssembleContextPackInput,
+  selected: RankedCandidate[],
+  orientation: ContextPackOrientation,
+): ContextPackTaskBrief {
+  const mode = taskBriefModeFor(input.classified);
+  const reviewTargets = input.reviewTargets ?? [];
+  const directEvidenceKnowledgeIds = selected
+    .filter((candidate) => candidate.evidenceCategory === 'directTaskEvidence')
+    .map((candidate) => candidate.knowledgeId);
+  const adjacentKnowledgeIds = selected
+    .filter((candidate) => candidate.evidenceCategory === 'adjacentContext')
+    .map((candidate) => candidate.knowledgeId);
+
+  return {
+    mode,
+    goal: taskBriefGoal(input.classified, mode),
+    actionItems: buildActionItems({
+      input,
+      selected,
+      orientation,
+      reviewTargets,
+      mode,
+    }),
+    reviewTargets,
+    directEvidenceKnowledgeIds,
+    adjacentKnowledgeIds,
+    omittedReviewTargetCount: input.omittedReviewTargetCount ?? 0,
+  };
+}
+
+function buildActionItems(input: {
+  input: AssembleContextPackInput;
+  selected: RankedCandidate[];
+  orientation: ContextPackOrientation;
+  reviewTargets: ContextReviewTarget[];
+  mode: TaskBriefMode;
+}): ContextPackActionItem[] {
+  const actions: ContextPackActionItem[] = [];
+  const explicitObjectHints = new Set(input.input.classified.intent.objectHints ?? []);
+
+  for (const target of input.reviewTargets.filter((target) => explicitObjectHints.has(target.id)).slice(0, 4)) {
+    actions.push({
+      priority: 1,
+      action: 'review_target',
+      label: `Review ${target.title}`,
+      targetKind: target.kind,
+      targetId: target.id,
+      targetStatus: target.status,
+      targetTitle: target.title,
+      reason: target.reason,
+    });
+  }
+
+  for (const file of input.orientation.recommendedFiles.slice(0, 3)) {
+    actions.push({
+      priority: 2,
+      action: 'read_file',
+      label: `Read ${file.path}`,
+      targetKind: 'file',
+      targetPath: file.path,
+      reason: file.reason,
+    });
+  }
+
+  const queuedTargets = input.reviewTargets
+    .filter((target) => !explicitObjectHints.has(target.id))
+    .slice(0, isReviewQueueMode(input.mode) ? 5 : 2);
+  for (const target of queuedTargets) {
+    actions.push({
+      priority: 3,
+      action: 'inspect_review_target',
+      label: `Inspect ${target.title}`,
+      targetKind: target.kind,
+      targetId: target.id,
+      targetStatus: target.status,
+      targetTitle: target.title,
+      reason: target.reason,
+    });
+  }
+
+  for (const command of input.orientation.verificationCommands.slice(0, 2)) {
+    actions.push({
+      priority: 4,
+      action: 'run_verification',
+      label: command,
+      targetKind: 'command',
+      command,
+      reason: 'Likely verification command for the classified task.',
+    });
+  }
+
+  if (input.input.contextFit?.fitStatus === 'insufficient') {
+    actions.push({
+      priority: 5,
+      action: 'ask_clarification',
+      label: 'Clarify missing context before relying on this pack',
+      targetKind: 'clarification',
+      reason: input.input.contextFit.missingSignals.slice(0, 3).join('; ') || 'Context fit is insufficient.',
+    });
+  }
+
+  if (actions.length === 0) {
+    actions.push({
+      priority: 5,
+      action: 'inspect_shortlist',
+      label: 'Inspect the returned shortlist before working',
+      reason: 'No direct files, review targets, or verification commands were inferred.',
+    });
+  }
+
+  return actions
+    .sort((left, right) => left.priority - right.priority || left.label.localeCompare(right.label))
+    .slice(0, 10);
+}
+
+function taskBriefModeFor(classified: ClassifiedQuery): TaskBriefMode {
+  if (classified.intent.taskBriefMode) {
+    return classified.intent.taskBriefMode;
+  }
+
+  switch (classified.taskType) {
+    case 'debugging':
+      return 'debugging';
+    case 'planning':
+      return 'planning';
+    case 'review':
+      return 'review';
+    case 'implementation':
+    case 'refactor':
+    case 'testing':
+    case 'exploration':
+      return 'implementation';
+    case 'unknown':
+      return 'unknown';
+  }
+}
+
+function taskBriefGoal(classified: ClassifiedQuery, mode: TaskBriefMode): string {
+  switch (mode) {
+    case 'reflection_review':
+      return 'review reflection drafts';
+    case 'context_quality_review':
+      return 'review context-quality feedback and noisy retrieval signals';
+    case 'handoff_cleanup':
+      return 'clean up current handoff state';
+    case 'operations_review':
+      return 'review open knowledge gaps and learning proposals';
+    default:
+      return classified.intent.taskGoal;
+  }
+}
+
+function prefersWorkflowBeforePriorLessons(mode: TaskBriefMode): boolean {
+  return mode === 'review'
+    || mode === 'reflection_review'
+    || mode === 'context_quality_review'
+    || mode === 'handoff_cleanup'
+    || mode === 'operations_review';
+}
+
+function isReviewQueueMode(mode: TaskBriefMode): boolean {
+  return mode === 'reflection_review'
+    || mode === 'context_quality_review'
+    || mode === 'handoff_cleanup'
+    || mode === 'operations_review';
 }
 
 function recommendedFilesFor(

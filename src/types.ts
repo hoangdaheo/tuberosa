@@ -35,6 +35,17 @@ export type RetrievalWorkflowStage =
   | 'exploration'
   | 'unknown';
 
+export type TaskBriefMode =
+  | 'implementation'
+  | 'debugging'
+  | 'planning'
+  | 'review'
+  | 'handoff_cleanup'
+  | 'reflection_review'
+  | 'context_quality_review'
+  | 'operations_review'
+  | 'unknown';
+
 export type RetrievalEvidenceType =
   | 'spec'
   | 'workflow'
@@ -368,9 +379,11 @@ export interface ClassifiedQuery {
 export interface RetrievalIntent {
   taskGoal: string;
   workflowStage: RetrievalWorkflowStage;
+  taskBriefMode?: TaskBriefMode;
   impliedFiles: string[];
   impliedSymbols: string[];
   impliedDomains: string[];
+  objectHints?: string[];
   recentSessionReferences: string[];
   requiredEvidenceTypes: RetrievalEvidenceType[];
   uncertaintyReasons: string[];
@@ -484,6 +497,47 @@ export interface ContextPackOrientation {
   notes: string[];
 }
 
+export type ContextReviewTargetKind =
+  | 'reflection_draft'
+  | 'knowledge_gap'
+  | 'learning_proposal'
+  | 'context_pack'
+  | 'agent_session'
+  | 'knowledge'
+  | 'unknown';
+
+export interface ContextReviewTarget {
+  kind: ContextReviewTargetKind;
+  id: string;
+  status: string;
+  title: string;
+  recommendedAction: string;
+  reason: string;
+}
+
+export interface ContextPackActionItem {
+  priority: number;
+  action: string;
+  label: string;
+  targetKind?: ContextReviewTargetKind | 'file' | 'command' | 'clarification';
+  targetId?: string;
+  targetStatus?: string;
+  targetTitle?: string;
+  targetPath?: string;
+  command?: string;
+  reason?: string;
+}
+
+export interface ContextPackTaskBrief {
+  mode: TaskBriefMode;
+  goal: string;
+  actionItems: ContextPackActionItem[];
+  reviewTargets: ContextReviewTarget[];
+  directEvidenceKnowledgeIds: string[];
+  adjacentKnowledgeIds: string[];
+  omittedReviewTargetCount: number;
+}
+
 export interface ContextPackSection {
   name: 'essential' | 'supporting' | 'optional';
   items: RankedCandidate[];
@@ -546,6 +600,7 @@ export interface ContextPack {
   classified: ClassifiedQuery;
   contextFit?: ContextFit;
   orientation?: ContextPackOrientation;
+  taskBrief?: ContextPackTaskBrief;
   actionableMissingSignals?: ActionableMissingSignals;
   sections: ContextPackSection[];
   deepContext?: DeepContext;

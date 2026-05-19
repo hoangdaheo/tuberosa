@@ -74,6 +74,26 @@ test('valid HTTP knowledge inputs keep the success response shape', async () => 
   equal(body.title, 'Auth workflow');
 });
 
+test('HTTP context search includes task brief in the pack response', async () => {
+  const response = await dispatchHttp(fakeServices({
+    retrieval: {
+      searchContext: async () => samplePack(),
+    },
+  }), {
+    method: 'POST',
+    url: '/context/search',
+    body: {
+      project: 'agent-memory',
+      prompt: 'Find auth guidance',
+    },
+  });
+  const body = response.body as { taskBrief?: { mode?: string; actionItems?: Array<{ action?: string }> } };
+
+  equal(response.status, 200);
+  equal(body.taskBrief?.mode, 'implementation');
+  equal(body.taskBrief?.actionItems?.[0]?.action, 'inspect_shortlist');
+});
+
 test('valid MCP tool calls are validated then dispatched', async () => {
   const result = await handleMcpRequest(fakeServices({
     retrieval: {
@@ -93,6 +113,7 @@ test('valid MCP tool calls are validated then dispatched', async () => {
       contextPackId?: string;
       contextFit?: { fitStatus?: string };
       orientation?: { inferredTask?: string };
+      taskBrief?: { mode?: string; actionItems?: Array<{ action?: string }> };
       sections?: Array<{ items: Array<{ fitReasons?: string[]; evidenceCategory?: string; usefulnessReason?: string }> }>;
       deepContextReturned?: boolean;
       deepContext?: { sections?: Array<{ itemCount?: number; items?: unknown[] }> };
@@ -102,6 +123,8 @@ test('valid MCP tool calls are validated then dispatched', async () => {
   equal(result.structuredContent?.contextPackId, 'pack-1');
   equal(result.structuredContent?.contextFit?.fitStatus, 'ready');
   equal(result.structuredContent?.orientation?.inferredTask, 'understand existing code or workflow');
+  equal(result.structuredContent?.taskBrief?.mode, 'implementation');
+  equal(result.structuredContent?.taskBrief?.actionItems?.[0]?.action, 'inspect_shortlist');
   equal(result.structuredContent?.sections?.[0]?.items[0]?.fitReasons?.[0], 'project:agent-memory');
   equal(result.structuredContent?.sections?.[0]?.items[0]?.evidenceCategory, 'workflowGuidance');
   equal(result.structuredContent?.sections?.[0]?.items[0]?.usefulnessReason, 'Workflow guidance for wiki context.');
@@ -1137,6 +1160,20 @@ function samplePack(overrides: Partial<ContextPack> = {}): ContextPack {
         other: [],
       },
       notes: [],
+    },
+    taskBrief: {
+      mode: 'implementation',
+      goal: 'understand existing code or workflow',
+      actionItems: [{
+        priority: 5,
+        action: 'inspect_shortlist',
+        label: 'Inspect the returned shortlist before working',
+        reason: 'No direct files, review targets, or verification commands were inferred.',
+      }],
+      reviewTargets: [],
+      directEvidenceKnowledgeIds: [],
+      adjacentKnowledgeIds: [],
+      omittedReviewTargetCount: 0,
     },
     actionableMissingSignals: {
       files: [],

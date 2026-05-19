@@ -77,9 +77,11 @@ export interface KnowledgeStore {
   createKnowledgeConflict(input: KnowledgeConflictInput): Promise<KnowledgeConflict>;
   updateKnowledgeConflict(id: string, patch: KnowledgeConflictPatchInput): Promise<KnowledgeConflict | undefined>;
   createKnowledgeGap(input: KnowledgeGapInput): Promise<KnowledgeGap>;
+  getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined>;
   listKnowledgeGaps(options: ListKnowledgeGapsOptions): Promise<KnowledgeGap[]>;
   updateKnowledgeGap(id: string, patch: KnowledgeGapPatchInput): Promise<KnowledgeGap | undefined>;
   createLearningProposal(input: LearningProposalInput): Promise<LearningProposal>;
+  getLearningProposal(id: string): Promise<LearningProposal | undefined>;
   listLearningProposals(options: ListLearningProposalsOptions): Promise<LearningProposal[]>;
   updateLearningProposal(id: string, patch: LearningProposalPatchInput): Promise<LearningProposal | undefined>;
   listLabels(options: { project?: string; limit: number }): Promise<LabelRecord[]>;

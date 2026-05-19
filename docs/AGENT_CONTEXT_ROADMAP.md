@@ -607,6 +607,8 @@ Acceptance:
 - Add knowledge-gap and conflict-review records in Phase 9.
 - Add optional context-usefulness fields in Phase 10, such as `evidenceCategory`, `usefulnessReason`, `evidenceStrength`, and `actionableMissingSignals`.
 - Add context-quality operations report fields in the post-v1 baseline, such as linked feedback records, adjacent item summaries, open gaps/proposals, and suggested review actions.
+- Add optional `taskBrief` to context pack responses. It is the first-class agent action surface: task mode, compact goal, prioritized action items, surfaced review targets, direct evidence ids, adjacent context ids, and omitted review-target count.
+- For review/admin prompts, context search can surface pending or needs-change reflection drafts, open or needs-change knowledge gaps, and open or needs-change learning proposals. Explicit UUIDs are resolved against reflection drafts, context packs, agent sessions, knowledge items, knowledge gaps, and learning proposals even when they are not approved searchable memory.
 - Keep existing endpoints and MCP tools backward compatible.
 
 ## Test Plan

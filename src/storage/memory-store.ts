@@ -331,6 +331,10 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .slice(0, options.limit);
   }
 
+  async getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined> {
+    return this.gaps.get(id);
+  }
+
   async updateKnowledgeGap(id: string, patch: KnowledgeGapPatchInput): Promise<KnowledgeGap | undefined> {
     const current = this.gaps.get(id);
     if (!current) {
@@ -384,6 +388,10 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .filter((proposal) => !options.affectedKnowledgeId || proposal.affectedKnowledgeId === options.affectedKnowledgeId)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, options.limit);
+  }
+
+  async getLearningProposal(id: string): Promise<LearningProposal | undefined> {
+    return this.proposals.get(id);
   }
 
   async updateLearningProposal(id: string, patch: LearningProposalPatchInput): Promise<LearningProposal | undefined> {

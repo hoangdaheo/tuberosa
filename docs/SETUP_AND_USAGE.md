@@ -517,6 +517,7 @@ Important response fields:
 - `confidence`: pack-level confidence.
 - `contextFit`: fit status, fit score, fit reasons, and missing signals for deciding whether to use the pack.
 - `orientation`: inferred task, recommended files, likely surfaces, likely verification commands, actionable missing-signal buckets, and uncertainty notes.
+- `taskBrief`: first-class startup action surface with task mode, compact goal, prioritized action items, surfaced review targets, direct evidence ids, adjacent context ids, and omitted review-target count.
 - `actionableMissingSignals`: pack-level missing signals grouped into files, symbols, errors, docs, intent, and other.
 - `classified`: extracted files, symbols, errors, technologies, business areas, and lexical query.
 - `sections`: `essential`, `supporting`, and `optional` groups.
@@ -527,6 +528,8 @@ Important response fields:
 - `sections[].items[].usefulnessReason`: compact agent-facing explanation of how to use the item.
 - `sections[].items[].actionableMissingSignals`: item-level missing signals grouped into actionable buckets.
 - `sections[].items[].references`: file, URL, commit, tool, conversation, or external references.
+
+Use `taskBrief` first when deciding what to do next. `orientation` remains the descriptive navigation block; `taskBrief.actionItems` is the operational checklist. `taskBrief.reviewTargets` can include explicit UUID matches plus pending or needs-change reflection drafts, open or needs-change knowledge gaps, and open or needs-change learning proposals for review/admin prompts.
 
 ### Search Context With Debug Trace
 
@@ -1060,7 +1063,7 @@ Recommended agent flow:
 2. Pass the user's normal prompt as-is, then add inferred project, cwd, files, symbols, errors, task type, `contextMode: "layered"`, and `includeDeepContext: true` when known.
    - MCP schemas advertise valid `taskType` values: `debugging`, `implementation`, `refactor`, `review`, `planning`, `exploration`, `testing`, and `unknown`.
    - If unsure, omit `taskType` or use `unknown`. Runtime validation also normalizes common aliases such as `development` and `coding` to `implementation`.
-3. Inspect `orientation` for inferred task, recommended files, likely surfaces, verification commands, and actionable missing-signal buckets.
+3. Inspect `taskBrief` first for mode, action items, review targets, direct evidence, and adjacent context. Then inspect `orientation` for recommended files, likely surfaces, verification commands, and actionable missing-signal buckets.
 4. If `deepContextReturned` is true, use the returned expanded context before working; otherwise inspect the shortlist and fetch the full pack only after confirming it is appropriate.
 5. Follow the returned policy: proceed, confirm, or clarify.
 6. Record the selected, rejected, stale, irrelevant, or missing context with `tuberosa_record_context_decision`.

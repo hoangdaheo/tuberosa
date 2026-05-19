@@ -3,9 +3,11 @@ import type { AppConfig } from '../config.js';
 import type { ModelProvider } from '../model/provider.js';
 import type {
   AgentContextDecision,
+  AgentSession,
   ClassifiedQuery,
   ContextFit,
   ContextPack,
+  ContextReviewTarget,
   ContextSearchInput,
   DeepContext,
   DeepContextItem,
@@ -14,16 +16,21 @@ import type {
   FeedbackInput,
   KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
+  KnowledgeGap,
   LearningProposalType,
+  LearningProposal,
   KnowledgeRelation,
   KnowledgeSearchResult,
   QueryRewriteResult,
   RetrievalEvidenceType,
+  ReflectionDraft,
   RankedCandidate,
   SearchOptions,
+  StoredKnowledge,
+  TaskBriefMode,
 } from '../types.js';
 import { sha256, stableJson } from '../util/hash.js';
-import { normalizeLabel, uniqueStrings } from '../util/text.js';
+import { normalizeLabel, truncate, uniqueStrings } from '../util/text.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import {
@@ -42,6 +49,8 @@ import { fuseCandidates } from './fusion.js';
 const DEFAULT_TOKEN_BUDGET = 4000;
 const SEARCH_LIMIT = 18;
 const RERANK_LIMIT = 24;
+const REVIEW_TARGET_LIMIT = 12;
+const REVIEW_QUEUE_STATUS_LIMIT = 24;
 const CONTINUATION_SESSION_LIMIT = 6;
 const CONTINUATION_FILE_LIMIT = 8;
 const CONTINUATION_SYMBOL_LIMIT = 8;
@@ -112,7 +121,10 @@ export class RetrievalService {
       addedExactTerms: rewriteResult.addedExactTerms,
     });
 
-    const cached = await this.getCachedContextPack(cacheKey, normalized);
+    const shouldResolveReviewTargets = shouldResolveReviewTargetsFor(rewriteResult.classified);
+    const cached = shouldResolveReviewTargets
+      ? undefined
+      : await this.getCachedContextPack(cacheKey, normalized);
     if (cached) {
       return this.safety.sanitizeContextPack(cached);
     }
@@ -134,6 +146,9 @@ export class RetrievalService {
     });
     debug?.recordTiming('fit', fitStartedAt);
     debug?.recordStage('fit', fitEvaluation.candidates);
+    const reviewTargetResolution = shouldResolveReviewTargets
+      ? await this.resolveReviewTargets(normalized, rewriteResult.classified, project)
+      : { reviewTargets: [] as ContextReviewTarget[], omittedReviewTargetCount: 0 };
     const assemblyStartedAt = Date.now();
     const pack = this.buildContextPack({
       queryId,
@@ -142,6 +157,8 @@ export class RetrievalService {
       candidates: fitEvaluation.candidates,
       contextFit: fitEvaluation.contextFit,
       input: normalized,
+      reviewTargets: reviewTargetResolution.reviewTargets,
+      omittedReviewTargetCount: reviewTargetResolution.omittedReviewTargetCount,
     });
     if (normalized.contextMode === 'layered') {
       pack.deepContext = await this.buildDeepContext(pack, normalized.deepContextBudget);
@@ -397,6 +414,114 @@ export class RetrievalService {
     return new Map(entries.filter(([, relations]) => relations.length > 0));
   }
 
+  private async resolveReviewTargets(
+    _input: NormalizedContextSearchInput,
+    classified: ClassifiedQuery,
+    project?: string,
+  ): Promise<{ reviewTargets: ContextReviewTarget[]; omittedReviewTargetCount: number }> {
+    const explicitIds = uniqueStrings(classified.intent.objectHints ?? []);
+    const explicitTargets = await Promise.all(explicitIds.map((id) => this.resolveExplicitReviewTarget(id)));
+    const queueEntries = shouldSurfaceReviewQueues(classified)
+      ? await this.listReviewQueueTargets(project)
+      : [];
+    const explicitTargetIds = new Set(explicitTargets.map((target) => target.id));
+    const queuedTargets = queueEntries
+      .filter((entry) => !explicitTargetIds.has(entry.target.id))
+      .sort(compareReviewQueueEntries)
+      .map((entry) => entry.target);
+    const availableQueueSlots = Math.max(0, REVIEW_TARGET_LIMIT - explicitTargets.length);
+    const selectedQueueTargets = queuedTargets.slice(0, availableQueueSlots);
+
+    return {
+      reviewTargets: [...explicitTargets, ...selectedQueueTargets],
+      omittedReviewTargetCount: Math.max(0, queuedTargets.length - selectedQueueTargets.length),
+    };
+  }
+
+  private async resolveExplicitReviewTarget(id: string): Promise<ContextReviewTarget> {
+    const [draft, gap, proposal, pack, session, knowledge] = await Promise.all([
+      this.store.getReflectionDraft(id),
+      this.store.getKnowledgeGap(id),
+      this.store.getLearningProposal(id),
+      this.store.getContextPack(id),
+      this.store.getAgentSession(id),
+      this.store.getKnowledge(id),
+    ]);
+
+    if (draft) {
+      return reflectionDraftTarget(draft, 'Prompt named this reflection draft id.');
+    }
+    if (gap) {
+      return knowledgeGapTarget(gap, 'Prompt named this knowledge gap id.');
+    }
+    if (proposal) {
+      return learningProposalTarget(proposal, 'Prompt named this learning proposal id.');
+    }
+    if (pack) {
+      return contextPackTarget(pack, 'Prompt named this context pack id.');
+    }
+    if (session) {
+      return agentSessionTarget(session, 'Prompt named this agent session id.');
+    }
+    if (knowledge) {
+      return knowledgeTarget(knowledge, 'Prompt named this knowledge item id.');
+    }
+
+    return {
+      kind: 'unknown',
+      id,
+      status: 'not_found',
+      title: `Unresolved object ${id}`,
+      recommendedAction: 'Verify the id or create the missing review record before proceeding.',
+      reason: 'Prompt named this UUID, but it did not match a known review object.',
+    };
+  }
+
+  private async listReviewQueueTargets(project?: string): Promise<ReviewQueueEntry[]> {
+    const [
+      pendingDrafts,
+      needsChangesDrafts,
+      openGaps,
+      needsChangesGaps,
+      openProposals,
+      needsChangesProposals,
+    ] = await Promise.all([
+      this.store.listReflectionDrafts({ project, status: 'pending', limit: REVIEW_QUEUE_STATUS_LIMIT }),
+      this.store.listReflectionDrafts({ project, status: 'needs_changes', limit: REVIEW_QUEUE_STATUS_LIMIT }),
+      this.store.listKnowledgeGaps({ project, status: 'open', limit: REVIEW_QUEUE_STATUS_LIMIT }),
+      this.store.listKnowledgeGaps({ project, status: 'needs_changes', limit: REVIEW_QUEUE_STATUS_LIMIT }),
+      this.store.listLearningProposals({ project, status: 'open', limit: REVIEW_QUEUE_STATUS_LIMIT }),
+      this.store.listLearningProposals({ project, status: 'needs_changes', limit: REVIEW_QUEUE_STATUS_LIMIT }),
+    ]);
+
+    return [
+      ...pendingDrafts.map((draft) => reviewQueueEntry(
+        reflectionDraftTarget(draft, 'Pending reflection draft in the review queue.'),
+        draft.createdAt,
+      )),
+      ...needsChangesDrafts.map((draft) => reviewQueueEntry(
+        reflectionDraftTarget(draft, 'Reflection draft needs changes before approval.'),
+        draft.createdAt,
+      )),
+      ...openGaps.map((gap) => reviewQueueEntry(
+        knowledgeGapTarget(gap, 'Open knowledge gap in the review queue.'),
+        gap.createdAt,
+      )),
+      ...needsChangesGaps.map((gap) => reviewQueueEntry(
+        knowledgeGapTarget(gap, 'Knowledge gap needs changes before it can be closed.'),
+        gap.createdAt,
+      )),
+      ...openProposals.map((proposal) => reviewQueueEntry(
+        learningProposalTarget(proposal, 'Open learning proposal in the review queue.'),
+        proposal.createdAt,
+      )),
+      ...needsChangesProposals.map((proposal) => reviewQueueEntry(
+        learningProposalTarget(proposal, 'Learning proposal needs changes before approval or dismissal.'),
+        proposal.createdAt,
+      )),
+    ];
+  }
+
   private buildContextPack(input: {
     queryId: string;
     project?: string;
@@ -404,6 +529,8 @@ export class RetrievalService {
     candidates: RankedCandidate[];
     contextFit: ContextFit;
     input: NormalizedContextSearchInput;
+    reviewTargets: ContextReviewTarget[];
+    omittedReviewTargetCount: number;
   }): ContextPack {
     return assembleContextPack({
       queryId: input.queryId,
@@ -415,6 +542,8 @@ export class RetrievalService {
       rejectedKnowledgeIds: input.input.rejectedKnowledgeIds,
       contextFit: input.contextFit,
       usefulnessCaps: usefulnessCapsForRequest(input.input),
+      reviewTargets: input.reviewTargets,
+      omittedReviewTargetCount: input.omittedReviewTargetCount,
     });
   }
 
@@ -515,6 +644,153 @@ export class RetrievalService {
     }
 
     return { ...input, ...enriched };
+  }
+}
+
+interface ReviewQueueEntry {
+  target: ContextReviewTarget;
+  createdAt?: string;
+}
+
+function reviewQueueEntry(target: ContextReviewTarget, createdAt?: string): ReviewQueueEntry {
+  return { target, createdAt };
+}
+
+function shouldResolveReviewTargetsFor(classified: ClassifiedQuery): boolean {
+  return (classified.intent.objectHints ?? []).length > 0 || shouldSurfaceReviewQueues(classified);
+}
+
+function shouldSurfaceReviewQueues(classified: ClassifiedQuery): boolean {
+  const mode = taskBriefMode(classified);
+  return mode === 'reflection_review'
+    || mode === 'context_quality_review'
+    || mode === 'handoff_cleanup'
+    || mode === 'operations_review';
+}
+
+function taskBriefMode(classified: ClassifiedQuery): TaskBriefMode {
+  return classified.intent.taskBriefMode ?? (
+    classified.taskType === 'debugging'
+      ? 'debugging'
+      : classified.taskType === 'planning'
+        ? 'planning'
+        : classified.taskType === 'review'
+          ? 'review'
+          : classified.taskType === 'unknown'
+            ? 'unknown'
+            : 'implementation'
+  );
+}
+
+function compareReviewQueueEntries(left: ReviewQueueEntry, right: ReviewQueueEntry): number {
+  const urgencyDelta = reviewStatusUrgency(left.target.status) - reviewStatusUrgency(right.target.status);
+  if (urgencyDelta !== 0) {
+    return urgencyDelta;
+  }
+
+  return (right.createdAt ?? '').localeCompare(left.createdAt ?? '');
+}
+
+function reviewStatusUrgency(status: string): number {
+  switch (status) {
+    case 'needs_changes':
+      return 0;
+    case 'pending':
+    case 'open':
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+function reflectionDraftTarget(draft: ReflectionDraft, reason: string): ContextReviewTarget {
+  return {
+    kind: 'reflection_draft',
+    id: draft.id,
+    status: draft.status,
+    title: draft.title,
+    recommendedAction: draft.status === 'needs_changes'
+      ? 'Revise the draft or reject it before it can become searchable memory.'
+      : 'Review accuracy, usefulness, scope, privacy, labels, references, and duplicate risk.',
+    reason,
+  };
+}
+
+function knowledgeGapTarget(gap: KnowledgeGap, reason: string): ContextReviewTarget {
+  return {
+    kind: 'knowledge_gap',
+    id: gap.id,
+    status: gap.status,
+    title: truncate(gap.reason ?? gap.prompt, 96),
+    recommendedAction: gap.status === 'needs_changes'
+      ? 'Revise the gap review notes or dismiss it after the missing context is handled.'
+      : 'Inspect missing signals and decide whether to add knowledge, labels, references, or dismiss the gap.',
+    reason,
+  };
+}
+
+function learningProposalTarget(proposal: LearningProposal, reason: string): ContextReviewTarget {
+  return {
+    kind: 'learning_proposal',
+    id: proposal.id,
+    status: proposal.status,
+    title: `${proposal.proposalType}: ${truncate(proposal.reason, 82)}`,
+    recommendedAction: proposal.status === 'needs_changes'
+      ? 'Revise proposal metadata or dismiss it before approval.'
+      : learningProposalAction(proposal),
+    reason,
+  };
+}
+
+function contextPackTarget(pack: ContextPack, reason: string): ContextReviewTarget {
+  return {
+    kind: 'context_pack',
+    id: pack.id,
+    status: pack.status,
+    title: `Context pack: ${truncate(pack.prompt, 82)}`,
+    recommendedAction: 'Inspect the pack, confirm fit, and record a context decision when appropriate.',
+    reason,
+  };
+}
+
+function agentSessionTarget(session: AgentSession, reason: string): ContextReviewTarget {
+  return {
+    kind: 'agent_session',
+    id: session.id,
+    status: session.status,
+    title: `Agent session: ${truncate(session.prompt, 82)}`,
+    recommendedAction: session.status === 'active'
+      ? 'Inspect context decisions and finish or annotate the active session.'
+      : 'Inspect session decisions, outcome, and reflection links.',
+    reason,
+  };
+}
+
+function knowledgeTarget(knowledge: StoredKnowledge, reason: string): ContextReviewTarget {
+  return {
+    kind: 'knowledge',
+    id: knowledge.id,
+    status: knowledge.status ?? 'unknown',
+    title: knowledge.title,
+    recommendedAction: knowledge.status === 'needs_review'
+      ? 'Review labels, references, freshness, and safety before relying on this knowledge.'
+      : 'Inspect this knowledge item and confirm it is relevant to the task.',
+    reason,
+  };
+}
+
+function learningProposalAction(proposal: LearningProposal): string {
+  switch (proposal.proposalType) {
+    case 'missing_label':
+      return 'Review suggested labels and approve, request changes, or dismiss.';
+    case 'missing_reference':
+      return 'Review suggested references and approve, request changes, or dismiss.';
+    case 'missing_relation':
+      return 'Review whether labels or graph relations should be tightened.';
+    case 'supersedes':
+      return 'Review whether the candidate should supersede affected knowledge.';
+    case 'auto_memory_cleanup':
+      return 'Review the auto-memory cleanup action before changing memory status.';
   }
 }
 
@@ -680,6 +956,29 @@ const CONTINUATION_SYMBOL_STOP_WORDS = new Set([
   'hardening',
   'tuberosa',
   'mcp',
+  'implement',
+  'everything',
+  'tried',
+  'failed',
+  'needed',
+  'correction',
+  'things',
+  'status',
+  'summary',
+  'notes',
+  'draft',
+  'drafts',
+  'gap',
+  'gaps',
+  'proposal',
+  'proposals',
+  'operation',
+  'operations',
+  'uuid',
+  'uuids',
+  'http',
+  'api',
+  'json',
 ]);
 
 function isLikelyDocumentIdentifier(value: string): boolean {

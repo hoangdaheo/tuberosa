@@ -265,6 +265,9 @@ Pack assembly also adds context-usefulness metadata without changing storage sch
 - `usefulnessReason`: compact agent-facing explanation for why to use the item, including exact evidence, graph paths, feedback contribution, freshness/stale risk, and supersession suppression when present
 - `actionableMissingSignals`: item-level missing signals grouped by files, symbols, errors, docs, intent, and other
 - `orientation`: pack-level startup guidance with inferred task, recommended files, likely surfaces, verification commands, missing-signal buckets, and notes
+- `taskBrief`: top-level agent action surface with task mode, compact goal, prioritized actions, review targets, direct evidence knowledge ids, adjacent knowledge ids, and omitted review-target count
+
+For reflection, context-quality, handoff-cleanup, and operations-review prompts, retrieval resolves explicit UUIDs against reflection drafts, context packs, agent sessions, knowledge items, knowledge gaps, and learning proposals. It also surfaces compact review queues for pending or needs-change reflection drafts, open or needs-change knowledge gaps, and open or needs-change learning proposals. Normal implementation prompts do not include these queues unless the prompt names explicit object ids.
 
 `assembleContextPack` enforces token budget and section shape:
 
@@ -272,7 +275,7 @@ Pack assembly also adds context-usefulness metadata without changing storage sch
 - Anchored searches are prompts with files, symbols, errors, business areas, or technologies.
 - Anchored searches use a stricter final-score floor so unrelated optional context does not leak into packs.
 - General searches use a lower final-score floor to keep useful semantic matches.
-- Direct task evidence is ordered ahead of prior lessons, workflow guidance, and adjacent context before section budgets are applied.
+- Direct task evidence is ordered ahead of prior lessons, workflow guidance, and adjacent context before section budgets are applied. For review/admin modes, workflow guidance is ordered before unrelated prior selected memories unless the memory has direct file or UUID evidence.
 - Minimum effective budget is `900` tokens.
 - Essential section receives about 52 percent of budget.
 - Supporting section receives about 34 percent.
@@ -693,7 +696,7 @@ Tool flow:
 
 1. `tools/list` returns direct retrieval tools and session workflow tools.
 2. `tools/call` dispatches by name.
-3. `tuberosa_search_context` returns compact shortlist details, context fit, and candidate fit reasons, including graph-connected file, symbol, error, session, and incident-lesson signals when relation expansion contributed a candidate.
+3. `tuberosa_search_context` returns compact shortlist details, `taskBrief`, context fit, and candidate fit reasons, including graph-connected file, symbol, error, session, and incident-lesson signals when relation expansion contributed a candidate.
 4. `tuberosa_get_context_pack` returns full pack.
 5. `tuberosa_start_session` creates a session and returns a shortlist plus policy.
 6. `tuberosa_record_context_decision` records feedback and a session audit decision.

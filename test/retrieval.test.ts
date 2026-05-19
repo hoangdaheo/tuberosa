@@ -111,6 +111,47 @@ test('classifier suppresses roadmap meta words and sequencing technology noise',
   ok(classified.files.includes('docs/FLOW_LOGIC.md'));
 });
 
+test('classifier extracts review object ids and suppresses admin handoff words', () => {
+  const draftId = '11111111-1111-4111-8111-111111111111';
+  const classified = classifyQuery({
+    prompt: [
+      `Handoff cleanup for object ${draftId}.`,
+      'Everything Tried Failed Needed Correction and Things are section labels, not code symbols.',
+    ].join(' '),
+    cwd: '/home/nash/tuberosa',
+  });
+
+  deepEqual(classified.intent.objectHints, [draftId]);
+  equal(classified.intent.taskBriefMode, 'handoff_cleanup');
+  equal(classified.symbols.includes(draftId), false);
+  equal(classified.symbols.includes('Everything'), false);
+  equal(classified.symbols.includes('Tried'), false);
+  equal(classified.symbols.includes('Failed'), false);
+  equal(classified.symbols.includes('Needed'), false);
+  equal(classified.symbols.includes('Correction'), false);
+  equal(classified.symbols.includes('Things'), false);
+  ok(classified.exactTerms.includes(draftId));
+});
+
+test('classifier infers specialized task brief modes for review/admin prompts', () => {
+  equal(classifyQuery({
+    prompt: 'Review pending reflection drafts and approve the accurate ones.',
+    cwd: '/home/nash/tuberosa',
+  }).intent.taskBriefMode, 'reflection_review');
+  equal(classifyQuery({
+    prompt: 'Review context-quality noisy adjacent feedback for Tuberosa.',
+    cwd: '/home/nash/tuberosa',
+  }).intent.taskBriefMode, 'context_quality_review');
+  equal(classifyQuery({
+    prompt: 'Clean up the handoff current work section.',
+    cwd: '/home/nash/tuberosa',
+  }).intent.taskBriefMode, 'handoff_cleanup');
+  equal(classifyQuery({
+    prompt: 'Review operations gaps and proposals queue.',
+    cwd: '/home/nash/tuberosa',
+  }).intent.taskBriefMode, 'operations_review');
+});
+
 test('context pack usefulness prioritizes direct task evidence and returns startup orientation', () => {
   const classified: ClassifiedQuery = {
     project: 'tuberosa',
@@ -193,6 +234,144 @@ test('context pack usefulness prioritizes direct task evidence and returns start
   deepEqual(pack.actionableMissingSignals?.symbols, ['ContextUsefulness']);
   ok(pack.orientation?.recommendedFiles.some((file) => file.path === 'src/retrieval/context-pack.ts'));
   ok(pack.orientation?.verificationCommands.includes('pnpm run eval:retrieval'));
+  equal(pack.taskBrief?.mode, 'implementation');
+  deepEqual(pack.taskBrief?.directEvidenceKnowledgeIds, ['direct']);
+  deepEqual(pack.taskBrief?.adjacentKnowledgeIds, ['adjacent']);
+  equal(pack.taskBrief?.actionItems[0]?.action, 'read_file');
+  ok(pack.taskBrief?.actionItems.some((item) => item.action === 'run_verification'));
+});
+
+test('review/admin task brief orders workflow guidance before unrelated prior memories', () => {
+  const classified: ClassifiedQuery = {
+    project: 'tuberosa',
+    taskType: 'review',
+    confidence: 0.8,
+    files: [],
+    symbols: [],
+    errors: [],
+    technologies: [],
+    businessAreas: [],
+    exactTerms: ['context-quality'],
+    lexicalQuery: 'context-quality review',
+    intent: {
+      taskGoal: 'review context quality',
+      workflowStage: 'review',
+      taskBriefMode: 'context_quality_review',
+      impliedFiles: [],
+      impliedSymbols: [],
+      impliedDomains: [],
+      objectHints: [],
+      recentSessionReferences: [],
+      requiredEvidenceTypes: ['workflow'],
+      uncertaintyReasons: [],
+    },
+  };
+  const priorMemory = rankedCandidate({
+    knowledgeId: 'prior-memory',
+    title: 'Prior selected memory',
+    itemType: 'memory',
+    finalScore: 0.96,
+    matchReasons: ['metadata match', 'feedback:selected:6'],
+    references: [{ type: 'conversation', uri: 'reflection://draft/noisy-memory' }],
+    labels: [],
+    fitScore: 0.7,
+  });
+  const workflowGuidance = rankedCandidate({
+    knowledgeId: 'workflow-guidance',
+    title: 'Context quality review workflow',
+    itemType: 'rule',
+    finalScore: 0.58,
+    matchReasons: ['metadata match'],
+    references: [],
+    labels: [{ type: 'task_type', value: 'review', weight: 1 }],
+    fitScore: 0.6,
+  });
+
+  const pack = assembleContextPack({
+    project: 'tuberosa',
+    prompt: 'Review context-quality feedback queues',
+    classified,
+    candidates: [priorMemory, workflowGuidance],
+    tokenBudget: 4000,
+    contextFit: {
+      fitStatus: 'needs_confirmation',
+      fitScore: 0.55,
+      fitReasons: ['sparse review query'],
+      missingSignals: [],
+    },
+  });
+  const items = pack.sections.flatMap((section) => section.items);
+
+  equal(items[0].knowledgeId, 'workflow-guidance');
+  equal(items[0].evidenceCategory, 'workflowGuidance');
+  equal(items[1].knowledgeId, 'prior-memory');
+  equal(items[1].evidenceCategory, 'priorLessons');
+});
+
+test('task brief action items prioritize explicit review targets, files, and verification', () => {
+  const targetId = '22222222-2222-4222-8222-222222222222';
+  const classified: ClassifiedQuery = {
+    project: 'tuberosa',
+    taskType: 'review',
+    confidence: 0.8,
+    files: ['src/retrieval/context-pack.ts'],
+    symbols: [],
+    errors: [],
+    technologies: [],
+    businessAreas: [],
+    exactTerms: ['src/retrieval/context-pack.ts', targetId],
+    lexicalQuery: `src/retrieval/context-pack.ts ${targetId} retrieval`,
+    intent: {
+      taskGoal: 'review context quality',
+      workflowStage: 'review',
+      taskBriefMode: 'reflection_review',
+      impliedFiles: ['src/retrieval/context-pack.ts'],
+      impliedSymbols: [],
+      impliedDomains: [],
+      objectHints: [targetId],
+      recentSessionReferences: [],
+      requiredEvidenceTypes: ['code_reference'],
+      uncertaintyReasons: [],
+    },
+  };
+  const direct = rankedCandidate({
+    knowledgeId: 'direct',
+    title: 'Context pack implementation',
+    itemType: 'code_ref',
+    labels: [{ type: 'file', value: 'src/retrieval/context-pack.ts', weight: 1 }],
+    references: [{ type: 'file', uri: 'src/retrieval/context-pack.ts' }],
+    matchReasons: ['file:src/retrieval/context-pack.ts'],
+  });
+
+  const pack = assembleContextPack({
+    project: 'tuberosa',
+    prompt: `Review reflection draft ${targetId} for retrieval taskBrief behavior`,
+    classified,
+    candidates: [direct],
+    tokenBudget: 4000,
+    contextFit: {
+      fitStatus: 'ready',
+      fitScore: 0.78,
+      fitReasons: ['covered file:1/1'],
+      missingSignals: [],
+    },
+    reviewTargets: [{
+      kind: 'reflection_draft',
+      id: targetId,
+      status: 'pending',
+      title: 'Pending task brief memory',
+      recommendedAction: 'Review the draft.',
+      reason: 'Prompt named this reflection draft id.',
+    }],
+  });
+
+  deepEqual(pack.taskBrief?.actionItems.map((item) => item.action).slice(0, 3), [
+    'review_target',
+    'read_file',
+    'run_verification',
+  ]);
+  equal(pack.taskBrief?.actionItems[0]?.targetId, targetId);
+  equal(pack.taskBrief?.reviewTargets[0]?.id, targetId);
 });
 
 test('context pack usefulness reasons include evidence details without changing selected ids', () => {
@@ -1453,6 +1632,119 @@ test('too_much_adjacent_context creates a learning proposal but does not retry o
   equal(result.retry, undefined);
   const proposals = await store.listLearningProposals({ project: 'agent-memory', limit: 5 });
   ok(proposals.some((proposal) => proposal.metadata.feedbackType === 'too_much_adjacent_context'));
+});
+
+test('review task brief surfaces explicit reflection draft status without approved memory', async () => {
+  const { retrieval, reflection } = createTestServices();
+  const draft = await reflection.createDraft({
+    project: 'agent-memory',
+    title: 'Pending retrieval lesson',
+    summary: 'Pending reflection should be reviewable before approval.',
+    content: 'Review this draft before it becomes searchable memory.',
+    triggerType: 'manual',
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: `Review reflection draft ${draft.id}`,
+    bypassCache: true,
+  });
+
+  equal(pack.taskBrief?.mode, 'reflection_review');
+  equal(pack.taskBrief?.reviewTargets[0]?.kind, 'reflection_draft');
+  equal(pack.taskBrief?.reviewTargets[0]?.id, draft.id);
+  equal(pack.taskBrief?.reviewTargets[0]?.status, 'pending');
+  equal(pack.sections.flatMap((section) => section.items).length, 0);
+});
+
+test('review task brief surfaces pending drafts and open review queues', async () => {
+  const { retrieval, reflection, store } = createTestServices();
+  const pendingDraft = await reflection.createDraft({
+    project: 'agent-memory',
+    title: 'Pending queue draft',
+    summary: 'Pending draft.',
+    content: 'Pending draft content with enough detail for validation.',
+    triggerType: 'manual',
+  });
+  const needsChangesDraft = await reflection.createDraft({
+    project: 'agent-memory',
+    title: 'Needs changes queue draft',
+    summary: 'Needs changes draft.',
+    content: 'Needs changes draft content with enough detail for validation.',
+    triggerType: 'manual',
+  });
+  await store.updateReflectionDraft(needsChangesDraft.id, { status: 'needs_changes' });
+  const openGap = await store.createKnowledgeGap({
+    project: 'agent-memory',
+    prompt: 'Missing context for noisy pack',
+    missingSignals: ['missing file:src/context.ts'],
+  });
+  const needsChangesGap = await store.createKnowledgeGap({
+    project: 'agent-memory',
+    prompt: 'Needs changes gap',
+    missingSignals: ['missing symbol:ContextBrief'],
+  });
+  await store.updateKnowledgeGap(needsChangesGap.id, { status: 'needs_changes' });
+  const openProposal = await store.createLearningProposal({
+    project: 'agent-memory',
+    proposalType: 'missing_relation',
+    reason: 'Adjacent context needs tighter relation.',
+    evidence: ['feedback:too_much_adjacent_context'],
+  });
+  const needsChangesProposal = await store.createLearningProposal({
+    project: 'agent-memory',
+    proposalType: 'missing_label',
+    reason: 'Needs label review.',
+    evidence: ['feedback:rejected'],
+  });
+  await store.updateLearningProposal(needsChangesProposal.id, { status: 'needs_changes' });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Review operations gaps and proposals queue',
+    bypassCache: true,
+  });
+  const targets = pack.taskBrief?.reviewTargets ?? [];
+
+  equal(pack.taskBrief?.mode, 'operations_review');
+  ok(targets.some((target) => target.kind === 'reflection_draft' && target.id === pendingDraft.id));
+  ok(targets.some((target) => target.kind === 'reflection_draft' && target.id === needsChangesDraft.id));
+  ok(targets.some((target) => target.kind === 'knowledge_gap' && target.id === openGap.id));
+  ok(targets.some((target) => target.kind === 'knowledge_gap' && target.id === needsChangesGap.id));
+  ok(targets.some((target) => target.kind === 'learning_proposal' && target.id === openProposal.id));
+  ok(targets.some((target) => target.kind === 'learning_proposal' && target.id === needsChangesProposal.id));
+  equal(targets[0]?.status, 'needs_changes');
+});
+
+test('implementation task brief does not surface review queues without review intent', async () => {
+  const { retrieval, reflection, store } = createTestServices();
+  await reflection.createDraft({
+    project: 'agent-memory',
+    title: 'Pending queue draft',
+    summary: 'Pending draft.',
+    content: 'Pending draft content with enough detail for validation.',
+    triggerType: 'manual',
+  });
+  await store.createKnowledgeGap({
+    project: 'agent-memory',
+    prompt: 'Missing implementation context',
+    missingSignals: ['missing file:src/context.ts'],
+  });
+  await store.createLearningProposal({
+    project: 'agent-memory',
+    proposalType: 'missing_relation',
+    reason: 'Review relation later.',
+    evidence: ['feedback:rejected'],
+  });
+
+  const pack = await retrieval.searchContext({
+    project: 'agent-memory',
+    prompt: 'Implement context pack task brief behavior',
+    bypassCache: true,
+  });
+
+  equal(pack.taskBrief?.mode, 'implementation');
+  deepEqual(pack.taskBrief?.reviewTargets, []);
 });
 
 test('feedback history adjusts later retrieval ranking', async () => {
