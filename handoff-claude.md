@@ -216,6 +216,6 @@ Roadmap item: exact anchored search first → relation expansion → provider re
 
 - `handoff.md` is the Phase 9 continuation anchor — always read it first.
 - `isGraphEvidence` in `context-pack.ts` is the correct fix for the superseded graph bypass. Do not move this logic back into the stores.
-- Do not create a separate v2 effort. Continue Phase 9 in `docs/AGENT_CONTEXT_ROADMAP.md`.
+- Do not treat the v1 roadmap as a creative ceiling. Use it as baseline context, then plan the next Tuberosa product increment around user value.
 - The eval fixture `relations` mechanism (`seedRelations`, `KnowledgeRelationCreator`) is the right pattern for all future relation-dependent eval cases.
 - Prefer `unexpectedKnowledgeIds` (natural suppression test) over `rejectedKnowledgeIds` (pre-filter test) when the goal is to verify that the retrieval pipeline itself demotes an item.

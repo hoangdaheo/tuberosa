@@ -292,7 +292,7 @@ export class AgentSessionService {
   }
 
   private async selectedContextPack(session: AgentSession, decisions: AgentContextDecision[]) {
-    const selected = [...decisions].reverse().find((decision) => decision.decision === 'selected' && decision.contextPackId);
+    const selected = [...decisions].reverse().find((decision) => isSelectedDecision(decision.decision) && decision.contextPackId);
     const packId = selected?.contextPackId ?? session.initialContextPackId;
     return packId ? this.store.getContextPack(packId) : undefined;
   }
@@ -338,7 +338,7 @@ function buildLearningDraftInput(
     .flatMap((section) => section.items.map((item) => item.title))
     .slice(0, 4) ?? [];
   const negativeDecisions = decisions
-    .filter((decision) => decision.decision !== 'selected')
+    .filter((decision) => !isSelectedDecision(decision.decision))
     .map((decision) => `${decision.decision}${decision.reason ? `: ${decision.reason}` : ''}`);
 
   return {
@@ -394,7 +394,10 @@ function learningGate(input: {
     reasons.push('selected context pack is missing or not ready');
   }
 
-  if (input.decisions.some((decision) => ['rejected', 'irrelevant', 'stale', 'missing_context'].includes(decision.decision))) {
+  if (input.decisions.some((decision) => (
+    ['rejected', 'irrelevant', 'stale'].includes(decision.decision)
+    || isMissingContextDecision(decision.decision)
+  ))) {
     reasons.push('session has negative or missing-context decisions');
   }
 
@@ -531,8 +534,8 @@ function sessionCompliance(
   decisions: Array<{ id: string; decision: string }>,
   contextBypassReason: string | undefined,
 ): AgentContextCompliance {
-  const selected = decisions.filter((decision) => decision.decision === 'selected');
-  const missing = decisions.filter((decision) => decision.decision === 'missing_context');
+  const selected = decisions.filter((decision) => isSelectedDecision(decision.decision));
+  const missing = decisions.filter((decision) => isMissingContextDecision(decision.decision));
   const decisionIds = decisions.map((decision) => decision.id);
   const checkedAt = new Date().toISOString();
 
@@ -561,7 +564,7 @@ function sessionCompliance(
     return {
       status: 'missing_context_recorded',
       checkedAt,
-      instruction: 'Context was insufficient and missing_context was recorded for review.',
+      instruction: 'Context was insufficient or missing a required quality signal, and feedback was recorded for review.',
       decisionIds,
       contextPackId: session.initialContextPackId,
     };
@@ -583,4 +586,15 @@ function sessionCompliance(
     instruction: 'No context pack or explicit bypass reason was recorded for this session.',
     decisionIds,
   };
+}
+
+function isSelectedDecision(decision: string): boolean {
+  return decision === 'selected' || decision === 'selected_but_noisy';
+}
+
+function isMissingContextDecision(decision: string): boolean {
+  return decision === 'missing_context'
+    || decision === 'missing_orientation'
+    || decision === 'missing_current_handoff'
+    || decision === 'missing_verification_commands';
 }

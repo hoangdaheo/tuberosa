@@ -43,7 +43,7 @@ Tuberosa is a local-first MCP context broker. It retrieves ranked project knowle
 ### Two entry points
 
 - **`src/index.ts`** — HTTP server (`src/http/server.ts`). All REST endpoints live here.
-- **`src/mcp-stdio.ts`** — MCP stdio server (`src/mcp/server.ts`). Exposes four tools (`tuberosa_search_context`, `tuberosa_get_context_pack`, `tuberosa_reflect`, `tuberosa_feedback_context`) plus resources and prompts. The MCP entry point defaults `TUBEROSA_CACHE=memory` so clients can initialize without Redis.
+- **`src/mcp-stdio.ts`** — MCP stdio server (`src/mcp/server.ts`). Exposes retrieval, agent-session, reflection-review, feedback, and error-log tools, including `tuberosa_search_context`, `tuberosa_start_session`, `tuberosa_record_context_decision`, `tuberosa_finish_session`, and `tuberosa_append_session_note`. The MCP entry point defaults `TUBEROSA_CACHE=memory` so clients can initialize without Redis.
 
 ### Retrieval pipeline (`src/retrieval/`)
 

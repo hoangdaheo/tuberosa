@@ -578,8 +578,10 @@ Planned work:
   - missing file or symbol references
 - Done: first-class context-quality feedback types are now accepted by HTTP `/context/feedback`, MCP `tuberosa_feedback_context`, agent context decisions, and the new `tuberosa_append_session_note` tool:
   - `selected_but_noisy` keeps the pack `selected`, contributes a smaller ranking boost via `selectedNoisyCount`, and does not trigger retry.
+  - `selected_but_noisy` is treated as a selected session decision for compliance and learning-pack selection.
   - `too_much_adjacent_context` creates a `missing_relation` learning proposal so reviewers can tighten labels/relations without retrying or boosting ranking.
   - `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands` create `knowledge_gaps` review records with the specific feedback type captured in `metadata.feedbackType`.
+  - `missing_orientation`, `missing_current_handoff`, and `missing_verification_commands` satisfy missing-context session compliance instead of leaving the session as undecided.
 - Done: reflection-draft label/reference review is now supported via `PATCH /reflection-drafts/:id` (and `ReflectionService.updateDraft`). Reviewed labels run through the existing noisy-symbol/ambiguous-technology filter and through secret redaction, and references are persisted alongside the draft before approval.
 - Done: a new `POST /agent-sessions/:id/notes` HTTP endpoint and `tuberosa_append_session_note` MCP tool append post-finish notes to `agent_sessions.metadata.notes`. When a `feedbackType` is supplied, the note is paired with a regular feedback event tagged `metadata.agentSessionId` and `metadata.postFinishNote: true` for downstream learning and audits.
 
@@ -635,8 +637,8 @@ Additional checks:
 
 ## Assumptions
 
-- Keep Tuberosa local-first and single-user for now.
-- Do not add a frontend in this roadmap; expose admin/review capability through HTTP first.
+- Keep local-first operation excellent, but do not treat single-user or MCP-only usage as a product ceiling after the v1 roadmap.
+- Frontend, workspace, hosted, collaboration, and richer agent-review experiences are valid post-v1 directions when they preserve reviewed memory, safety, provenance, and context-fit discipline.
 - Do not add a validation dependency in Phase 0 unless local validators become too complex.
 - Existing ingestion dedupe and atomic stale cleanup work is the baseline.
-- Phases should be implemented in order, and each phase should be merged only after its tests pass.
+- The phase order described this v1 roadmap. After Phase 10, use it as historical baseline and plan the next product increment around user value, not as a restriction against creative Tuberosa work.

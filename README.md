@@ -19,7 +19,7 @@ Use Tuberosa when an agent needs project-specific context before or during work:
 - Reflection memories: reviewed lessons from previous agent sessions.
 - Retrieval provenance: every suggested context item carries labels, references, scores, and match reasons.
 
-Tuberosa is not a general chat UI yet. The first-class integration surface is MCP, with HTTP as the operational and debugging API.
+MCP remains the first-class integration surface, with HTTP as the operational and debugging API. The v1 API shape should not block richer product surfaces such as review workspaces, guided agent-start flows, or collaborative context tools when they fit Tuberosa's core context-broker purpose.
 
 ## Detailed Guides
 
@@ -613,9 +613,9 @@ Implement matching improvements in this order:
 
 Do not add more heuristics without eval coverage. Matching should improve through measured retrieval quality, not only manual weight tweaks.
 
-## Admin And Debug UI Direction
+## Product UI Direction
 
-The recommended v1 UI is an admin/debug interface, not a full AI chat workspace.
+The v1 baseline is an admin/debug interface, but it is no longer a ceiling. Future UI work can explore richer agent workspaces, review flows, and context-quality tools when they preserve provenance, reviewed memory, and local-first operation.
 
 Primary jobs:
 

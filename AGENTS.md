@@ -2,7 +2,7 @@
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+**Tradeoff:** These guidelines bias toward deliberate product judgment over speed. For trivial tasks, use judgment.
 
 ## 1. Think Before Coding
 
@@ -14,17 +14,17 @@ Before implementing:
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
 
-## 2. Simplicity First
+## 2. Intentional Scope
 
-**Minimum code that solves the problem. Nothing speculative.**
+**Build the right thing for the current product stage. Do not let the old v1 scope cap useful ideas.**
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+- For ordinary fixes, keep changes narrow and avoid speculative abstractions.
+- For Tuberosa product work, the v1 roadmap is no longer a ceiling. Agents may propose and build more creative, cohesive experiences when they directly advance Tuberosa's purpose as an agent context broker and learning layer.
+- Prefer prototypes or thin vertical slices for broad ideas, with clear verification and rollback boundaries.
+- Add flexibility only when it supports a real workflow, integration surface, or review loop.
+- Avoid over-engineering, but do not reject useful product direction only because it is beyond the original v1 shape.
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+Ask yourself: "Is this complexity buying a real product capability or just hedging?" If it is only hedging, simplify.
 
 ## 3. Surgical Changes
 

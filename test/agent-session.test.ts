@@ -266,6 +266,83 @@ test('reflection draft labels and references can be reviewed before approval', a
   ok(stored?.references.some((reference) => reference.uri === 'docs/AGENT_CONTEXT_ROADMAP.md'));
 });
 
+test('selected_but_noisy context decisions satisfy session compliance', async () => {
+  const { agentSessions, ingestion } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'wiki',
+    sourceUri: 'docs/current.md',
+    itemType: 'wiki',
+    title: 'Current startup context',
+    summary: 'Current startup context.',
+    content: 'Current startup context for agent sessions and context-quality feedback.',
+    trustLevel: 90,
+  });
+
+  const started = await agentSessions.startSession({
+    project: 'agent-memory',
+    prompt: 'Review startup context usefulness',
+    cwd: '/repo',
+  });
+  await agentSessions.recordContextDecision({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    feedbackType: 'selected_but_noisy',
+    reason: 'Useful context, but adjacent memories made the pack noisy.',
+  });
+
+  const finished = await agentSessions.finishSession({
+    sessionId: started.session.id,
+    outcome: 'completed',
+    summary: 'Reviewed startup context usefulness with noisy-but-selected context.',
+    learningMode: 'off',
+  });
+
+  equal(finished.compliance.status, 'compliant');
+  equal((finished.session.metadata.contextCompliance as { status?: string } | undefined)?.status, 'compliant');
+});
+
+test('missing context-quality decisions satisfy missing-context compliance', async () => {
+  const { agentSessions, ingestion } = createTestServices();
+
+  await ingestion.ingestKnowledge({
+    project: 'agent-memory',
+    sourceType: 'wiki',
+    sourceUri: 'docs/current.md',
+    itemType: 'wiki',
+    title: 'Current startup context',
+    summary: 'Current startup context.',
+    content: 'Current startup context for agent sessions and context-quality feedback.',
+    trustLevel: 90,
+  });
+
+  const started = await agentSessions.startSession({
+    project: 'agent-memory',
+    prompt: 'Review startup context usefulness',
+    cwd: '/repo',
+  });
+  await agentSessions.recordContextDecision({
+    sessionId: started.session.id,
+    contextPackId: started.contextPack.id,
+    feedbackType: 'missing_verification_commands',
+    reason: 'The pack did not say which verification commands to run.',
+  });
+
+  const finished = await agentSessions.finishSession({
+    sessionId: started.session.id,
+    outcome: 'completed',
+    summary: 'Reviewed startup context usefulness and reported missing verification guidance.',
+    learningMode: 'off',
+  });
+
+  equal(finished.compliance.status, 'missing_context_recorded');
+  equal(
+    (finished.session.metadata.contextCompliance as { status?: string } | undefined)?.status,
+    'missing_context_recorded',
+  );
+});
+
 test('post-finish session note appends notes and optionally records feedback', async () => {
   const { agentSessions, ingestion, store } = createTestServices();
 
