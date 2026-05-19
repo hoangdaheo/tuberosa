@@ -8,29 +8,34 @@ Improve Tuberosa's retrieval quality and signal-to-noise ratio so that context p
 
 ## Current State
 
-**All tests passing: 104/104. Retrieval eval: 11/11 (all metrics at 100%). Agent-context eval: pass.**
+**All tests passing: 104/104. Retrieval eval: 11/11 (all metrics at 100%). Agent-context eval: pass. Build: clean.**
 
-Six defects were identified via a live evaluation session (three probes: BM25 implementation, stale-item debugging, session lifecycle exploration) and resolved in this session:
+Nine defects resolved across two sessions:
 
 | # | Defect | Status |
 |---|--------|--------|
-| 1 | Tuberosa's own source files not indexed — zero `code_ref` items in store | Seed script written, awaiting first run |
+| 1 | Tuberosa's own source files not indexed — zero `code_ref` items in store | Fixed: `seed:self` ran, 25 files / 111 items ingested |
 | 2 | `selected_but_noisy` feedback added `+0.02` (inverted penalty) | Fixed: now subtracts `-0.03` per occurrence |
 | 3 | "Walk", "Debug", "Explain" etc. extracted as PascalCase symbols | Fixed: 34 verbs added to `SYMBOL_STOP_WORDS` |
 | 4 | `exploration` task type always scored `insufficient` (workflow items not counted) | Fixed: `workflow` added to exploration-aligned types |
 | 5 | Hyphenated terms (`intent-suppression`, `selected_but_noisy`) not in `exactTerms` | Fixed: `extractCompoundTerms()` added to classifier |
-| 6 | `usefulnessReason` always returned boilerplate template | Fixed: matched files/symbols now appended to guidance reason |
+| 6 | `usefulnessReason` always returned boilerplate template | Fixed: matched files/symbols now appended to reason |
+| 7 | `searchMetadata` scored all label types equally — broad `domain`/`business_area` labels scored same as precise `file`/`symbol`/`error` | Fixed: precise labels score 0.94; broad labels score 0.82 |
+| 8 | `fusion.ts` `matchReasons` only scanned text content — items matched via file/symbol labels got no `file:` reason | Fixed: label values checked alongside text content |
+| 9 | `usefulnessReason` matched-signal suffix only applied to `workflowGuidance` | Fixed: extracted `extractMatchedSignals()` helper applied to all categories |
 
 ---
 
-## Files Actively Edited This Session
+## Files Actively Edited
 
 | File | Change |
 |------|--------|
 | `src/retrieval/classifier.ts` | Added 34 words to `SYMBOL_STOP_WORDS`; added `extractCompoundTerms()` function; wired into `exactTerms` |
 | `src/retrieval/context-fit.ts` | Added `'workflow'` to `taskAlignedItemTypes()` for `exploration` case |
 | `src/retrieval/service.ts` | Fixed `feedbackScoreAdjustment()` — separated noisy penalty from selected boost |
-| `src/retrieval/context-pack.ts` | Updated `usefulnessReason()` — extracts `file:` and `symbol:` from `matchReasons` for `workflowGuidance` items |
+| `src/retrieval/context-pack.ts` | Extracted `extractMatchedSignals()` helper; applied to `priorLessons`, `workflowGuidance`, and `adjacentContext` |
+| `src/retrieval/fusion.ts` | `matchReasons()` now checks candidate `labels` array (by type) alongside text content for file/symbol/error signals |
+| `src/storage/postgres-store.ts` | `searchMetadata()` splits terms into `preciseTerms` (file/symbol/error) vs `broadTerms`; CASE WHEN scores precise matches at 0.94, broad at 0.82; ORDER BY raw_score DESC |
 | `eval/retrieval-fixtures.json` | Updated `stale-auth-rejection` fixture: `expectedContextFitStatus` changed from `insufficient` to `needs_confirmation` (correct new behavior) |
 | `scripts/seed-tuberosa-src.ts` | New script — ingests Tuberosa's own `src/` and `docs/` into the knowledge store |
 | `package.json` | Added `"seed:self": "tsx scripts/seed-tuberosa-src.ts"` |
@@ -46,57 +51,42 @@ Six defects were identified via a live evaluation session (three probes: BM25 im
 
 **`stale-auth-rejection` fixture regression**
 - Adding `'workflow'` to exploration-aligned item types raised the fit score for this case from `insufficient` to `needs_confirmation`.
-- Initial concern: the CLAUDE.md rule says "do not adjust thresholds to make tests pass — fix the logic."
-- Resolution: the new behavior IS correct — when a relevant `workflow` item is found for an exploration query, `needs_confirmation` is the right fit status (not `insufficient`). The fixture was calibrated against the old wrong behavior. Updated fixture accordingly.
-- All other 10 cases unaffected; all retrieval quality metrics remain at 100%.
-
----
-
-## Pending: Run the Seed Script
-
-The largest remaining gap — no `code_ref` items for Tuberosa's own codebase — is fixed in code but **not yet applied to the running Postgres instance**. The seed script is ready:
-
-```bash
-pnpm run seed:self
-```
-
-This will ingest ~20 source files across `src/retrieval/`, `src/model/`, `src/agent-session/`, `src/ingest/`, `src/storage/`, `src/operations/`, `src/mcp/` as `code_ref` items, plus all `docs/*.md` as atomic `wiki` items.
-
-After running, smoke-test with a BM25 probe to confirm `src/model/provider.ts` and `src/retrieval/fusion.ts` now surface in context packs for retrieval implementation tasks.
+- Resolution: the new behavior IS correct — when a relevant `workflow` item is found for an exploration query, `needs_confirmation` is the right fit status. The fixture was calibrated against the old wrong behavior. Updated fixture accordingly.
 
 ---
 
 ## Improve Plan — Next Steps
 
-### Immediate (after seed:self runs)
+### Immediate (no blockers)
 
-1. **Smoke-test the seed output** — run `tuberosa_search_context` with a prompt like "add BM25 reranker to retrieval pipeline" and verify that `src/model/provider.ts` and `src/retrieval/fusion.ts` appear in the `essential` section with `evidenceCategory: directTaskEvidence`.
+1. **Re-evaluate the three chronic noisy items** — with the inverted feedback penalty and tiered label scoring now applied, run a few sessions and check if "Own backup schedulers", "Debounce physical mirror", "Run migrations" are losing rank. They have 3–4 noisy feedbacks each; tiered scoring now demotes them when matched only by broad `domain` labels.
 
-2. **Re-evaluate the three chronic noisy items** — with the inverted feedback penalty now applied, query `tuberosa_collect_context_quality_feedback` after a few sessions to confirm "Own backup schedulers", "Debounce physical mirror", and "Run migrations" are losing rank. If they still dominate, consider adding explicit `task_type` scope labels to those items to narrow when they fire.
+2. **Verify `code_ref` items surface in context packs** — start a new session with prompt "add BM25 reranker to retrieval pipeline" and confirm `src/model/provider.ts` and `src/retrieval/fusion.ts` appear in `essential` with `evidenceCategory: directTaskEvidence`. These are now indexed and will surface via both the label-tier scoring (file labels score 0.94) and the fusion label-match reason path.
 
-3. **Add a `domain` label filter to `searchMetadata`** — the root cause of the noisy items is that label matching in `postgres-store.ts:searchMetadata()` (lines ~806–850) treats all label types equally. Prefer `file`, `symbol`, `error` labels over `domain`, `business_area` matches when scoring metadata candidates. This would be a retrieval-layer fix rather than a data-quality fix.
+3. **Process pending reflection drafts** — 12 drafts are in `needs_changes` or `pending` state. Use `tuberosa_list_reflection_drafts` and `tuberosa_review_reflection_draft` to approve or reject them.
 
 ### Longer term
 
-4. **Context-fit usefulnessReason for non-workflow categories** — the `priorLessons` and `adjacentContext` categories could also benefit from showing matched signals, not just `workflowGuidance`.
+4. **Topic/domain scoping** — add `metadata.domain` to knowledge items so items about `ops/backup` don't score against `retrieval` task contexts. This goes beyond tiered scoring and would filter candidates at the search stage.
 
-5. **Topic/domain scoping** — add `metadata.domain` to knowledge items so that items about `ops/backup` don't score against `retrieval` task contexts.
+5. **Context-fit usefulnessReason for `directTaskEvidence`** — the current string `"Direct task evidence from X, Y, Z."` uses `directSignals` (classification outputs), not matched file/symbol reasons. Consider appending matched signals here too for consistency.
+
+6. **Re-seed when source files change** — `pnpm run seed:self` is idempotent (upserts by path), but should be re-run after significant source refactors so code_ref chunks stay current.
 
 ---
 
-## Audit Checklist for Previous Changes
+## Audit Checklist
 
-Before merging or continuing, verify:
-
-- [ ] `pnpm test` → 104/104 pass
-- [ ] `pnpm run eval:retrieval` → all 11 cases PASS, all metrics at 100%
-- [ ] `pnpm run eval:agent-context` → pass
-- [ ] `pnpm run build` → no TypeScript errors
-- [ ] `pnpm run seed:self` → runs without error, logs ~20+ ingested items
-- [ ] Manual smoke-test: `tuberosa_search_context` with `prompt: "add BM25 reranker"` now includes `code_ref` items for `src/model/provider.ts` or `src/retrieval/service.ts`
+- [x] `pnpm test` → 104/104 pass
+- [x] `pnpm run eval:retrieval` → all 11 cases PASS, all metrics at 100%
+- [x] `pnpm run eval:agent-context` → pass
+- [x] `pnpm run build` → no TypeScript errors
+- [x] `pnpm run seed:self` → ran successfully, 25 files / 111 items ingested
+- [ ] Manual smoke-test: `tuberosa_search_context` with `prompt: "add BM25 reranker"` → includes `code_ref` items for `src/model/provider.ts` or `src/retrieval/service.ts` with `file:` match reasons
 - [ ] Manual smoke-test: `tuberosa_search_context` with `prompt: "Walk me through the agent session lifecycle"` → classifier `symbols: []` (no false "Walk" symbol)
 - [ ] Manual smoke-test: `tuberosa_search_context` with `prompt: "why is intent-suppression not applying"` → `exactTerms` contains `intent-suppression`
-- [ ] Review: `feedbackScoreAdjustment` in `src/retrieval/service.ts` — confirm items with high `selectedNoisyCount` are now scoring lower than before. The three chronic offenders (backup scheduler, physical mirror, migrations) each have 3–4 noisy feedbacks; their score adjustment should now be negative net.
+- [ ] Manual smoke-test: verify backup/mirror/migrations items have lower rank after tiered scoring — they match via `domain` label, not `file`/`symbol`, so they should now score at 0.82 instead of 0.94 in metadata search
+- [ ] Restart MCP server to activate all code changes in live process
 
 ---
 
