@@ -150,7 +150,7 @@ export function SessionView({ defaultProject }: Props) {
             <div class="form-row">
               <label htmlFor="contextMode">Context mode</label>
               <select id="contextMode" value={form.contextMode} onChange={(e) => update('contextMode', (e.target as HTMLSelectElement).value as FormState['contextMode'])}>
-                <option value="lean">lean (summaries only)</option>
+                <option value="compact">compact (summaries only)</option>
                 <option value="layered">layered (with deep context)</option>
               </select>
             </div>

@@ -1,5 +1,6 @@
 import type { SummaryViewModel } from '../presenters/summaryPresenter.js';
 import { Pill } from '../components/Pill.js';
+import { navigate } from '../state/store.js';
 
 interface Props {
   summary: SummaryViewModel | null;
@@ -75,22 +76,25 @@ export function SummarySidebar(props: Props) {
             <h2>At a glance</h2>
             <div class="metrics" data-testid="summary-metrics">
               {summary.metrics.map((m) => (
-                <div class="metric" key={m.label}>
+                <button class="metric" key={m.label} title={m.hint} onClick={() => navigate(m.target)} data-testid={`metric-${slug(m.label)}`}>
                   <div class="value" style={{ color: emphasisColor(m.emphasis) }}>{m.value}{m.capped && '+'}</div>
                   <div class="label">{m.label}</div>
-                </div>
+                </button>
               ))}
             </div>
+            <p class="small muted metric-help">Select a metric to open the review surface. Hover for what the count means.</p>
           </div>
 
           {summary.recommendedActions.length > 0 && (
             <div class="panel">
               <h2>Next actions</h2>
-              <ol class="bullets small" style={{ paddingLeft: '1.4em' }}>
+              <ol class="bare small action-list">
                 {summary.recommendedActions.map((a) => (
                   <li key={`${a.priority}-${a.label}`}>
-                    <strong>{a.label}</strong>
-                    {a.count > 0 && <> ({a.count})</>}
+                    <button class="action-row" onClick={() => navigate(a.target)}>
+                      <strong>{a.label}</strong>
+                      {a.count > 0 && <span class="pill muted">{a.count}</span>}
+                    </button>
                     {a.reason && <div class="muted small">{a.reason}</div>}
                   </li>
                 ))}
@@ -107,4 +111,8 @@ function emphasisColor(emphasis: 'warn' | 'good' | undefined): string | undefine
   if (emphasis === 'warn') return 'var(--warn)';
   if (emphasis === 'good') return 'var(--good)';
   return undefined;
+}
+
+function slug(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }

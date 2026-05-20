@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import test from 'node:test';
-import { ok } from 'node:assert/strict';
+import { equal, ok } from 'node:assert/strict';
 import { AgentSessionService } from '../../src/agent-session/service.js';
 import type { AppServices } from '../../src/app.js';
 import { MemoryCache } from '../../src/cache.js';
@@ -53,7 +53,7 @@ const config: AppConfig = {
   errorLogCaptureClientErrors: false,
 };
 
-test('workbench browser flow renders preact app, recommendation panel, and glossary', async (t) => {
+test('workbench browser flow renders overview, queues, actions, and clamped glossary', async (t) => {
   try { await access(chromePath); } catch {
     t.skip(`Chrome executable not found at ${chromePath}`);
     return;
@@ -86,21 +86,30 @@ test('workbench browser flow renders preact app, recommendation panel, and gloss
 
       // Preact app boots
       await page.locator('h1').filter({ hasText: 'Tuberosa Workbench' }).waitFor();
-      await page.locator('[data-testid="nav-session"]').waitFor();
+      await page.locator('[data-testid="nav-overview"]').waitFor();
+      await page.locator('[data-testid="overview-view"]').waitFor();
+      equal(await page.evaluate(() => (globalThis as unknown as { location: { hash: string } }).location.hash), '#/overview');
 
       // Sidebar refreshes summary
       await page.locator('[data-testid="project-input"]').fill(project);
       await page.locator('[data-testid="refresh-summary"]').click();
       await page.locator('[data-testid="summary-metrics"]').waitFor();
+      await page.locator('[data-testid="overview-queue-counts"]').waitFor();
+
+      const overviewText = await page.locator('[data-testid="overview-view"]').textContent();
+      ok(overviewText?.includes('Tuberosa chooses the right project context for agents and reviews what they learn.'), 'overview explains the product purpose');
+      ok(overviewText?.includes('Workflow Map'), 'overview renders workflow map');
+      ok(overviewText?.includes('Knowledge gaps'), 'overview renders queue counts');
 
       // Start a session
+      await page.locator('[data-testid="try-session"]').click();
+      await page.locator('[data-testid="session-form"]').waitFor();
       await page.locator('[data-testid="session-prompt"]').fill(
         'Implement browser verification for src/http/workbench.ts WorkbenchSummary and verification commands.',
       );
       await page.locator('#project').fill(project);
       await page.locator('#cwd').fill('/home/nash/tuberosa');
       await page.locator('#taskType').selectOption('implementation');
-      await page.locator('#contextMode').selectOption('layered');
       await page.locator('[data-testid="session-form"]').getByRole('button', { name: 'Start session', exact: true }).click();
       await page.locator('[data-testid="session-result"]').waitFor();
 
@@ -108,10 +117,12 @@ test('workbench browser flow renders preact app, recommendation panel, and gloss
       ok(sessionText?.toLowerCase().includes('context fit'), 'session result mentions context fit');
 
       // Record a decision
-      await page.locator('#feedback').selectOption('selected');
-      await page.locator('#reason').fill('Browser smoke selected');
+      await page.locator('#feedback').selectOption('selected_but_noisy');
+      await page.locator('#reason').fill('Browser smoke selected noisy context');
       await page.locator('[data-testid="record-decision"]').click();
       await page.locator('[data-testid="decision-log"]').waitFor();
+      await page.locator('[data-testid="refresh-summary"]').click();
+      await page.locator('[data-testid="quality-list"]').waitFor({ state: 'detached' }).catch(() => undefined);
 
       // Finish
       await page.locator('#finish-summary').fill('Browser smoke finished the workbench session.');
@@ -133,22 +144,17 @@ test('workbench browser flow renders preact app, recommendation panel, and gloss
       // Quality tab
       await page.locator('[data-testid="nav-quality"]').click();
       await page.locator('[data-testid="quality-view"]').waitFor();
+      await page.locator('[data-testid="quality-list"]').waitFor();
+      const qualityText = await page.locator('[data-testid="quality-list"]').textContent();
+      ok(qualityText?.includes('selected_but_noisy'), 'context quality list renders feedback rows');
+
+      await verifyMetricTargets(page);
+      await verifyQueuesRender(page);
+      await verifyQueueActions(page);
+      await verifyNoOverflowAcrossWorkbench(page);
 
       // Guide tab + glossary
-      await page.locator('[data-testid="nav-guide"]').click();
-      await page.locator('[data-testid="guide-view"]').waitFor();
-      await page.locator('[data-testid="glossary-context_pack"]').waitFor();
-
-      // Inline glossary tooltip
-      const term = page.locator('.term').first();
-      await term.scrollIntoViewIfNeeded();
-      await term.hover();
-      await page.locator('.term .tooltip').first().waitFor({ state: 'visible' });
-
-      // Mobile viewport
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.locator('h1').filter({ hasText: 'Tuberosa Workbench' }).waitFor();
-      ok(await hasNoHorizontalOverflow(page));
+      await verifyGlossaryTooltips(page);
     } finally {
       await browser.close();
     }
@@ -210,6 +216,41 @@ async function seedWorkbenchProject(services: AppServices, project: string): Pro
     affectedKnowledgeId: adjacent.id,
     reason: 'Adjacent workbench queue workflow needs a browser label.',
     evidence: [`knowledge:${direct.id}`, 'file:src/http/workbench.ts'],
+  });
+
+  await services.ingestion.ingestKnowledge({
+    project,
+    sourceType: 'agent_session',
+    sourceUri: 'agent-session://browser-risky-memory',
+    itemType: 'memory',
+    title: 'Risky auto memory without grounded references',
+    summary: 'This memory has auto-learning metadata but lacks grounded references.',
+    content: 'Risky memories should be visible in the workbench audit queue.',
+    trustLevel: 72,
+    metadata: { source: 'agent_session_finish', learningMode: 'auto' },
+  });
+
+  await services.store.createKnowledgeConflict({
+    project,
+    leftKnowledgeId: direct.id,
+    rightKnowledgeId: adjacent.id,
+    conflictType: 'summary_contradiction',
+    sharedEvidence: ['file:src/http/workbench.ts'],
+    reason: 'Seeded conflict keeps the conflicts queue populated.',
+  });
+
+  await services.errorLogs.recordLog({
+    project,
+    category: 'test',
+    severity: 'error',
+    status: 'open',
+    title: 'Seeded workbench browser error log',
+    summary: 'Browser test error logs should render from openErrorLogs.logs.',
+    message: 'Seeded workbench browser error log',
+    files: ['src/workbench/views/MemoryView.tsx'],
+    symbols: ['MemoryView'],
+    errors: ['WorkbenchBrowserSeedError'],
+    tags: ['workbench-browser'],
   });
 }
 
@@ -273,4 +314,132 @@ async function hasNoHorizontalOverflow(page: Page): Promise<boolean> {
     };
     return global.document.documentElement.scrollWidth <= global.window.innerWidth + 1;
   });
+}
+
+async function verifyMetricTargets(page: Page): Promise<void> {
+  const cases = [
+    ['metric-pending-drafts', '#/memory/drafts'],
+    ['metric-risky-memories', '#/memory/risky'],
+    ['metric-quality-feedback', '#/quality'],
+    ['metric-knowledge-gaps', '#/memory/gaps'],
+    ['metric-proposals', '#/memory/proposals'],
+    ['metric-conflicts', '#/memory/conflicts'],
+    ['metric-error-logs', '#/memory/errors'],
+    ['metric-sessions', '#/session'],
+  ] as const;
+
+  for (const [testId, expectedHash] of cases) {
+    await page.locator(`[data-testid="${testId}"]`).click();
+    await page.waitForFunction((hash) => (
+      globalThis as unknown as { location: { hash: string } }
+    ).location.hash === hash, expectedHash);
+  }
+}
+
+async function verifyQueuesRender(page: Page): Promise<void> {
+  const cases = [
+    ['#/memory/gaps', 'gaps-tab', 'Seeded gap keeps the memory review view populated.'],
+    ['#/memory/proposals', 'proposals-tab', 'Adjacent workbench queue workflow needs a browser label.'],
+    ['#/memory/conflicts', 'conflicts-tab', 'Seeded conflict keeps the conflicts queue populated.'],
+    ['#/memory/risky', 'risky-tab', 'Risky auto memory without grounded references'],
+    ['#/memory/errors', 'errors-tab', 'Seeded workbench browser error log'],
+  ] as const;
+
+  for (const [hash, testId, expectedText] of cases) {
+    await gotoHash(page, hash, testId);
+    const text = await page.locator(`[data-testid="${testId}"]`).textContent();
+    ok(text?.includes(expectedText), `${testId} renders seeded row`);
+  }
+}
+
+async function verifyQueueActions(page: Page): Promise<void> {
+  await gotoHash(page, '#/memory/gaps', 'gaps-tab');
+  await page.locator('[data-testid="queue-action-knowledge-gaps-needs-changes"]').first().click();
+  await page.getByText('No open gaps').waitFor();
+
+  await gotoHash(page, '#/memory/proposals', 'proposals-tab');
+  await page.locator('[data-testid="queue-action-learning-proposals-needs-changes"]').first().click();
+  await page.getByText('No proposals').waitFor();
+
+  await gotoHash(page, '#/memory/conflicts', 'conflicts-tab');
+  await page.locator('[data-testid="queue-action-knowledge-conflicts-resolve"]').first().click();
+  await page.getByText('No open conflicts').waitFor();
+
+  await gotoHash(page, '#/memory/risky', 'risky-tab');
+  await page.locator('[data-testid="queue-action-risky-memories-archive"]').first().click();
+  await page.locator('[data-testid="risky-tab"]').getByText('archived').waitFor();
+
+  await gotoHash(page, '#/memory/errors', 'errors-tab');
+  await page.locator('[data-testid="queue-action-error-logs-archive"]').first().click();
+  await page.getByText('No open error logs.').waitFor();
+}
+
+async function verifyNoOverflowAcrossWorkbench(page: Page): Promise<void> {
+  const routes = [
+    ['#/overview', 'overview-view'],
+    ['#/guide', 'guide-view'],
+    ['#/session', 'session-form'],
+    ['#/quality', 'quality-view'],
+    ['#/memory/drafts', 'memory-view'],
+    ['#/memory/knowledge', 'knowledge-tab'],
+    ['#/memory/gaps', 'gaps-tab'],
+    ['#/memory/proposals', 'proposals-tab'],
+    ['#/memory/conflicts', 'conflicts-tab'],
+    ['#/memory/risky', 'risky-tab'],
+    ['#/memory/errors', 'errors-tab'],
+  ] as const;
+
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    for (const [hash, testId] of routes) {
+      await gotoHash(page, hash, testId);
+      ok(await hasNoHorizontalOverflow(page), `${hash} has no horizontal overflow at ${width}px`);
+    }
+  }
+}
+
+async function verifyGlossaryTooltips(page: Page): Promise<void> {
+  await gotoHash(page, '#/guide', 'guide-view');
+  await page.locator('[data-testid="glossary-context_pack"]').waitFor();
+
+  for (const width of [1280, 900, 768, 701, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    const terms = page.locator('[data-testid="guide-view"] .term');
+    const count = await terms.count();
+    ok(count > 0, 'guide renders inline glossary terms');
+    for (let i = 0; i < count; i += 1) {
+      const term = terms.nth(i);
+      await term.scrollIntoViewIfNeeded();
+      await term.hover();
+      equal(await page.locator('.term .tooltip.open').count(), 0, `hover term ${i} at ${width}px does not open tooltip`);
+      await term.click();
+      await assertTooltipWithinViewport(page, width, `click term ${i} at ${width}px`);
+      await page.keyboard.press('Escape');
+      await term.focus();
+      equal(await page.locator('.term .tooltip.open').count(), 0, `focus term ${i} at ${width}px does not open tooltip`);
+      await page.keyboard.press('Enter');
+      await assertTooltipWithinViewport(page, width, `keyboard term ${i} at ${width}px`);
+      await page.keyboard.press('Escape');
+    }
+    ok(await hasNoHorizontalOverflow(page), `guide has no horizontal overflow at ${width}px`);
+  }
+}
+
+async function assertTooltipWithinViewport(page: Page, width: number, label: string): Promise<void> {
+  const tooltip = page.locator('.term .tooltip.open').first();
+  await tooltip.waitFor({ state: 'visible' });
+  const box = await tooltip.boundingBox();
+  ok(box, `${label}: tooltip has a bounding box`);
+  ok(box.x >= -1, `${label}: tooltip left edge is in viewport`);
+  ok(box.x + box.width <= width + 1, `${label}: tooltip right edge is in viewport`);
+  ok(box.y >= -1, `${label}: tooltip top edge is in viewport`);
+  const viewport = page.viewportSize();
+  ok(viewport && box.y + box.height <= viewport.height + 1, `${label}: tooltip bottom edge is in viewport`);
+}
+
+async function gotoHash(page: Page, hash: string, testId: string): Promise<void> {
+  await page.evaluate((nextHash) => {
+    (globalThis as unknown as { location: { hash: string } }).location.hash = nextHash;
+  }, hash);
+  await page.locator(`[data-testid="${testId}"]`).waitFor();
 }

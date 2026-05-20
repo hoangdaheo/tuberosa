@@ -30,25 +30,36 @@ export function QualityView({ summary }: Props) {
         : (
           <ul class="bare" data-testid="quality-list">
             {items.map((item) => (
-              <li class="card" key={item.id}>
+              <li class="card" key={item.feedback.id}>
                 <div class="card-header">
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div class="card-title">{item.reason ?? '(no reason given)'}</div>
-                    <div class="small muted">pack {item.contextPackId ? <code>{item.contextPackId}</code> : '—'} · {new Date(item.createdAt).toLocaleString()}</div>
+                    <div class="card-title">{item.feedback.reason ?? item.contextPack?.prompt ?? item.session?.prompt ?? '(no reason given)'}</div>
+                    <div class="small muted">
+                      pack {item.feedback.contextPackId ? <code>{item.feedback.contextPackId}</code> : '-'} · {new Date(item.feedback.createdAt).toLocaleString()}
+                    </div>
                   </div>
-                  <Pill kind={feedbackKind(item.feedbackType)}>{item.feedbackType}</Pill>
+                  <Pill kind={feedbackKind(item.feedback.feedbackType)}>{item.feedback.feedbackType}</Pill>
                 </div>
-                {item.knowledgeIds && item.knowledgeIds.length > 0 && (
-                  <div class="small muted">
-                    Knowledge IDs:{' '}
-                    {item.knowledgeIds.map((id, i) => <span key={id}>{i > 0 && ', '}<code>{id}</code></span>)}
-                  </div>
-                )}
+                {item.missingSignals.length > 0 && <QualityLine label="Missing signals" values={item.missingSignals} />}
+                {item.adjacentItems.length > 0 && <QualityLine label="Noisy adjacent items" values={item.adjacentItems.map((entry) => entry.title)} />}
+                {item.openKnowledgeGaps.length > 0 && <QualityLine label="Open gaps" values={item.openKnowledgeGaps.map((gap) => gap.reason ?? gap.id)} />}
+                {item.openLearningProposals.length > 0 && <QualityLine label="Open proposals" values={item.openLearningProposals.map((proposal) => `${proposal.proposalType}: ${proposal.reason}`)} />}
+                {item.suggestedReviewActions.length > 0 && <QualityLine label="Suggested actions" values={item.suggestedReviewActions} />}
               </li>
             ))}
           </ul>
         )
       }
+    </div>
+  );
+}
+
+function QualityLine({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div class="small muted quality-line">
+      <strong>{label}:</strong>{' '}
+      {values.slice(0, 4).map((value, i) => <span key={`${label}-${i}`}>{i > 0 && ' · '}{value}</span>)}
+      {values.length > 4 && <span> · +{values.length - 4} more</span>}
     </div>
   );
 }

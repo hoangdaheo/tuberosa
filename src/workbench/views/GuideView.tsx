@@ -12,25 +12,63 @@ export function GuideView() {
   return (
     <section data-testid="guide-view" class="stack">
       <div class="panel guide-doc">
-        <h1>How Tuberosa works</h1>
+        <h1>Beginner Guide</h1>
         <p class="muted">
-          Tuberosa is a <GlossaryTerm termKey="context_broker">context broker</GlossaryTerm> — a service that sits
-          between coding agents and your project's accumulated knowledge. It keeps agents from rediscovering the
-          same patterns, lessons, and runbooks on every task.
+          Tuberosa is a <GlossaryTerm termKey="context_broker">context broker</GlossaryTerm>. It chooses the
+          project knowledge an agent should read before work starts, then keeps the review queues honest so
+          new lessons become trusted only after a decision.
         </p>
+        <div class="flow-map" aria-label="Tuberosa flow map">
+          {[
+            ['Prompt', 'An agent starts with a task and local project clues.'],
+            ['Broker', 'Tuberosa classifies the request and searches reviewed knowledge.'],
+            ['Context pack', 'The broker returns compact essential, supporting, and optional context.'],
+            ['Decision', 'The agent records whether the context was useful, noisy, stale, or missing.'],
+            ['Reviewed memory', 'Lessons, gaps, conflicts, and incidents wait here until a reviewer acts.'],
+          ].map(([title, text], i) => (
+            <div class="flow-node" key={title}>
+              <span class="flow-index">{i + 1}</span>
+              <strong>{title}</strong>
+              <span>{text}</span>
+            </div>
+          ))}
+        </div>
 
-        <h2>1. Store and label knowledge</h2>
+        <h2>What Tuberosa does</h2>
         <p>
-          You ingest project files, specs, runbooks, and lessons into Tuberosa. Each item becomes a{' '}
-          <GlossaryTerm termKey="knowledge_item">knowledge item</GlossaryTerm> with{' '}
-          <GlossaryTerm termKey="label">labels</GlossaryTerm> (files, symbols, errors, technologies),{' '}
-          <GlossaryTerm termKey="reference">references</GlossaryTerm>, a{' '}
-          <GlossaryTerm termKey="trust_level">trust level</GlossaryTerm>, and a{' '}
-          <GlossaryTerm termKey="freshness">freshness</GlossaryTerm> timestamp. Long docs are split by heading via
-          the <GlossaryTerm termKey="atomizer">atomizer</GlossaryTerm> so each idea is independently retrievable.
+          It stores specs, workflows, code references, incident lessons, and approved memories as{' '}
+          <GlossaryTerm termKey="knowledge_item">knowledge items</GlossaryTerm>. Each item carries{' '}
+          <GlossaryTerm termKey="label">labels</GlossaryTerm>, <GlossaryTerm termKey="reference">references</GlossaryTerm>,{' '}
+          <GlossaryTerm termKey="trust_level">trust</GlossaryTerm>, and <GlossaryTerm termKey="freshness">freshness</GlossaryTerm>
+          so retrieval can prefer concrete evidence over generic semantic matches.
+        </p>
+        <p>
+          When a task arrives, the broker returns a <GlossaryTerm termKey="context_pack">context pack</GlossaryTerm>
+          with a <GlossaryTerm termKey="context_fit">context fit</GlossaryTerm> verdict. The workbench exists to
+          operate the review loop around those packs, not to edit database rows by hand.
         </p>
 
-        <h2>2. Classify and search</h2>
+        <h2>How agents should use it</h2>
+        <ol class="bullets">
+          <li>Start an <GlossaryTerm termKey="agent_session">agent session</GlossaryTerm> before substantial work.</li>
+          <li>Read the task brief, direct evidence, missing signals, and verification commands.</li>
+          <li>Record a <GlossaryTerm termKey="context_decision">context decision</GlossaryTerm> before continuing.</li>
+          <li>Finish the session with outcome, summary, and any useful <GlossaryTerm termKey="learning_signal">learning signals</GlossaryTerm>.</li>
+          <li>Review the resulting <GlossaryTerm termKey="reflection_draft">reflection draft</GlossaryTerm> before it becomes memory.</li>
+        </ol>
+
+        <h2>What each queue means</h2>
+        <div class="queue-guide">
+          <div><strong>Pending drafts</strong><span>Proposed lessons waiting for approve, needs changes, or reject.</span></div>
+          <div><strong>Context quality</strong><span>Feedback that says context was noisy, stale, rejected, or missing.</span></div>
+          <div><strong>Gaps</strong><span>Missing evidence agents could not find and a reviewer may need to ingest.</span></div>
+          <div><strong>Proposals</strong><span>Suggested label, reference, relation, supersession, or memory cleanup.</span></div>
+          <div><strong>Conflicts</strong><span>Knowledge items that disagree and need resolve or dismiss.</span></div>
+          <div><strong>Risky memories</strong><span>Auto-approved lessons that still deserve audit.</span></div>
+          <div><strong>Error logs</strong><span>Captured failures that can become reviewed bugfix lessons.</span></div>
+        </div>
+
+        <h2>Retrieval internals</h2>
         <p>
           When an agent asks for help, Tuberosa{' '}
           <GlossaryTerm termKey="classify">classifies</GlossaryTerm> the prompt into structured signals and searches
@@ -51,17 +89,7 @@ export function GuideView() {
           <GlossaryTerm termKey="task_brief">task brief</GlossaryTerm> and a{' '}
           <GlossaryTerm termKey="context_fit">context fit</GlossaryTerm> verdict.
         </p>
-
-        <h2>3. Feedback and learn</h2>
-        <p>
-          The agent records <GlossaryTerm termKey="context_decision">context decisions</GlossaryTerm> on what was
-          useful, noisy, missing, or stale. Each decision adjusts future scoring. When the agent finishes, it can
-          emit a <GlossaryTerm termKey="reflection_draft">reflection draft</GlossaryTerm> with the lesson it
-          learned, optionally backed by structured{' '}
-          <GlossaryTerm termKey="learning_signal">learning signals</GlossaryTerm>.
-        </p>
-
-        <h2>4. Review and approve</h2>
+        <h2>Review and approve</h2>
         <p>
           The <GlossaryTerm termKey="learning_gate">learning gate</GlossaryTerm> evaluates each draft against 11
           quality signals. If every gate passes the draft is auto-approved into{' '}
@@ -69,15 +97,6 @@ export function GuideView() {
           human review. The recommendation panel surfaces every gate as a pro, con, or blocker so you can decide
           quickly.
         </p>
-
-        <h2>What you do here</h2>
-        <ul class="bullets">
-          <li>Review pending <GlossaryTerm termKey="reflection_draft">reflection drafts</GlossaryTerm> and approve, edit, or reject them.</li>
-          <li>Audit risky auto-approved memories and roll them back if needed.</li>
-          <li>Investigate <GlossaryTerm termKey="knowledge_gap">knowledge gaps</GlossaryTerm> and ingest the missing material.</li>
-          <li>Apply <GlossaryTerm termKey="learning_proposal">learning proposals</GlossaryTerm> to keep the knowledge base tidy.</li>
-          <li>Triage <GlossaryTerm termKey="error_log">error logs</GlossaryTerm> and turn recurring failures into reflections.</li>
-        </ul>
 
         <h2>Frequently asked</h2>
         <p><strong>What happens when I approve a draft?</strong> The draft is ingested as a knowledge item with trust level 85 and source <code>reflection://draft/&lt;id&gt;</code>. It immediately becomes searchable for future tasks.</p>

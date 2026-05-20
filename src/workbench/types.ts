@@ -175,55 +175,11 @@ export interface KnowledgeItem {
   createdAt: string;
 }
 
-export interface WorkbenchCounts {
-  recentSessions?: number;
-  activeSessions?: number;
-  pendingDrafts?: number;
-  contextQualityRecords?: number;
-  contextQualityMatched?: number;
-  openGaps?: number;
-  openProposals?: number;
-  openConflicts?: number;
-  autoMemories?: number;
-  riskyAutoMemories?: number;
-  openErrorLogs?: number;
-  backupCount?: number;
-}
-
-export interface WorkbenchSummary {
-  generatedAt: string;
-  filters: { project?: string; limit: number };
-  health: {
-    ok: boolean;
-    store: string;
-    durability: string;
-    cache: string;
-    modelProvider: string;
-    backupStatus?: { latestBackup?: { createdAt: string; ageSeconds: number }; health?: string };
-  };
-  counts: WorkbenchCounts;
-  countMetadata?: { capped?: Partial<Record<keyof WorkbenchCounts, boolean>> };
-  recentSessions: Array<{ id: string; prompt: string; status: string; outcome?: string; createdAt: string }>;
-  contextQuality: {
-    records: Array<{
-      id: string;
-      feedbackType: string;
-      reason?: string;
-      contextPackId?: string;
-      createdAt: string;
-      knowledgeIds?: string[];
-    }>;
-    totalMatched: number;
-    filters: { limit: number };
-  };
-  pendingDrafts: Array<Partial<ReflectionDraft> & { id: string; title: string; summary: string }>;
-  openGaps: Array<{ id: string; topic?: string; prompt?: string; project?: string; missingSignals?: Record<string, string[]> | string[]; createdAt: string }>;
-  openProposals: Array<{ id: string; proposalType: string; title?: string; reason?: string; createdAt: string }>;
-  openConflicts: Array<{ id: string; status: string; reason: string; createdAt: string }>;
-  riskyAutoMemories: Array<{ id: string; title: string; reasons?: string[]; review?: string }>;
-  openErrorLogs: {
-    records: Array<{ id: string; category: string; severity: string; status: string; title: string; lastSeenAt: string; occurrenceCount: number }>;
-    totalMatched: number;
-  };
-  recommendedActions: Array<{ priority: number; target: string; label: string; count: number; href?: string; reason?: string }>;
-}
+export type WorkbenchSummary = import('../types.js').WorkbenchSummary;
+export type WorkbenchCounts = import('../types.js').WorkbenchSummaryCounts;
+export type WorkbenchRecommendedActionTarget = import('../types.js').WorkbenchRecommendedActionTarget;
+export type WorkbenchKnowledgeGapSummary = import('../types.js').WorkbenchKnowledgeGapSummary;
+export type WorkbenchLearningProposalSummary = import('../types.js').WorkbenchLearningProposalSummary;
+export type WorkbenchKnowledgeConflictSummary = import('../types.js').WorkbenchKnowledgeConflictSummary;
+export type WorkbenchKnowledgeSummary = import('../types.js').WorkbenchKnowledgeSummary;
+export type WorkbenchErrorLogSummary = import('../types.js').ErrorLogSummary;

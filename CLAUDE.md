@@ -2,6 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Tuberosa MCP startup rule
+
+For any non-trivial implementation, debugging, review, or planning task in this repo, call Tuberosa before reading or editing code.
+
+If the `tuberosa_*` tools are deferred, load them first with ToolSearch/select for:
+
+- `tuberosa_start_session`
+- `tuberosa_record_context_decision`
+- `tuberosa_finish_session`
+- `tuberosa_search_context`
+- `tuberosa_get_context_pack`
+- `tuberosa_get_workbench_summary`
+
+Then call `tuberosa_start_session` with:
+
+- `project: "tuberosa"`
+- `cwd: "/home/nash/tuberosa"`
+- the user's prompt as `prompt`
+- `contextMode: "layered"`
+- `noiseTolerance: "strict"`
+- `includeDeepContext: true`
+- known `files`, `symbols`, and `errors` when the prompt names them
+
+Inspect `contextFit`, `orientation`, and `taskBrief` before proceeding. Record a `selected`, `selected_but_noisy`, `rejected`, `stale`, `irrelevant`, or `missing_context` decision with `tuberosa_record_context_decision` before substantive work. Finish meaningful sessions with `tuberosa_finish_session`.
+
+If ToolSearch says no matching `tuberosa_*` tools exist, or the MCP server disconnects, state that explicitly in the response and continue from direct repo evidence. Do not rationalize skipping Tuberosa as a product judgment unless the tool call was actually attempted or the task is trivial.
+
 ## Commands
 
 ```bash

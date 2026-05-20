@@ -527,11 +527,17 @@ Claude Code writes project-scoped MCP config to `.mcp.json`. A manual equivalent
   "mcpServers": {
     "tuberosa": {
       "command": "pnpm",
-      "args": ["--dir", "/home/nash/tuberosa", "run", "mcp"],
+      "args": ["--silent", "--dir", "/home/nash/tuberosa", "run", "mcp"],
       "env": {}
     }
   }
 }
+```
+
+Add this to `CLAUDE.md` or the session prompt so Claude actually invokes the deferred tools:
+
+```text
+Before implementation, debugging, review, or planning in this repo, load the deferred tuberosa_* tools if needed, then call tuberosa_start_session with project "tuberosa", cwd "/home/nash/tuberosa", contextMode "layered", noiseTolerance "strict", includeDeepContext true, and the user's prompt. Inspect contextFit and taskBrief, record a context decision with tuberosa_record_context_decision, and finish meaningful sessions with tuberosa_finish_session. If the tools are unavailable, say so explicitly before continuing from direct repo evidence.
 ```
 
 For user scope instead of project scope:
