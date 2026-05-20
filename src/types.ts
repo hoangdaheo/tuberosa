@@ -1296,6 +1296,71 @@ export interface ErrorLogCollection {
   agentBrief: string;
 }
 
+export interface WorkbenchSummaryInput {
+  project?: string;
+  limit: number;
+}
+
+export interface WorkbenchSummaryHealth {
+  ok: true;
+  service: 'tuberosa';
+  store: BackupStatus['store'];
+  durability: 'persistent' | 'ephemeral';
+  cache: string;
+  modelProvider: string;
+  backupDir: string;
+  backupStatus: BackupStatus;
+}
+
+export type WorkbenchRecommendedActionTarget =
+  | 'context_quality'
+  | 'pending_drafts'
+  | 'risky_auto_memories'
+  | 'knowledge_gaps'
+  | 'learning_proposals'
+  | 'knowledge_conflicts'
+  | 'error_logs'
+  | 'agent_sessions'
+  | 'none';
+
+export interface WorkbenchRecommendedAction {
+  priority: number;
+  target: WorkbenchRecommendedActionTarget;
+  label: string;
+  count: number;
+  href?: string;
+  reason: string;
+}
+
+export interface WorkbenchSummary {
+  generatedAt: string;
+  filters: WorkbenchSummaryInput;
+  health: WorkbenchSummaryHealth;
+  counts: {
+    recentSessions: number;
+    activeSessions: number;
+    pendingDrafts: number;
+    contextQualityRecords: number;
+    contextQualityMatched: number;
+    openGaps: number;
+    openProposals: number;
+    openConflicts: number;
+    autoMemories: number;
+    riskyAutoMemories: number;
+    openErrorLogs: number;
+    backupCount: number;
+  };
+  recentSessions: AgentSession[];
+  contextQuality: ContextQualityReport;
+  pendingDrafts: ReflectionDraft[];
+  openGaps: KnowledgeGap[];
+  openProposals: LearningProposal[];
+  openConflicts: KnowledgeConflict[];
+  riskyAutoMemories: StoredKnowledge[];
+  openErrorLogs: ErrorLogCollection;
+  recommendedActions: WorkbenchRecommendedAction[];
+}
+
 export interface CreateErrorLogReflectionDraftInput {
   errorLogIds: string[];
   project?: string;

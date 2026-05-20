@@ -7,7 +7,7 @@ import type { AppConfig } from '../src/config.js';
 import { appErrorToJsonRpcError, ValidationError } from '../src/errors.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { handleMcpRequest } from '../src/mcp/server.js';
-import type { ContextPack, ContextQualityReport, ReflectionDraft } from '../src/types.js';
+import type { ContextPack, ContextQualityReport, ReflectionDraft, WorkbenchSummary } from '../src/types.js';
 
 const config: AppConfig = {
   env: 'test',
@@ -494,6 +494,128 @@ test('MCP context-quality feedback tool exposes schema and report shape', async 
   equal(result.structuredContent?.report?.records[0]?.feedback.feedbackType, 'selected_but_noisy');
   equal(result.structuredContent?.report?.records[0]?.adjacentItems[0]?.title, 'Adjacent memory');
   ok(result.structuredContent?.instruction?.includes('Review linked gaps'));
+});
+
+test('MCP workbench summary tool exposes schema and dispatches aggregate summary', async () => {
+  const toolsList = await handleMcpRequest(fakeServices(), { method: 'tools/list' }) as {
+    tools: Array<{
+      name: string;
+      inputSchema?: {
+        properties?: Record<string, { type?: string }>;
+      };
+    }>;
+  };
+  const tool = toolsList.tools.find((item) => item.name === 'tuberosa_get_workbench_summary');
+  ok(tool);
+  equal(tool.inputSchema?.properties?.project?.type, 'string');
+  equal(tool.inputSchema?.properties?.limit?.type, 'number');
+
+  const riskyMemory = {
+    id: 'knowledge-auto-1',
+    project: 'agent-memory',
+    sourceType: 'agent_session_finish',
+    sourceUri: 'agent-session://auto-1',
+    status: 'approved',
+    itemType: 'memory',
+    title: 'Risky auto memory',
+    summary: 'Auto memory needs audit.',
+    content: 'Auto memory needs audit.',
+    trustLevel: 80,
+    metadata: { source: 'agent_session_finish', learningMode: 'auto' },
+    labels: [],
+    references: [],
+    createdAt: new Date().toISOString(),
+  };
+  const result = await handleMcpRequest(fakeServices({
+    operations: {
+      getBackupStatus: async () => ({
+        backupDir: '.tuberosa/test-backups',
+        store: 'memory',
+        health: 'no_backups',
+        backupCount: 0,
+        totalRows: 0,
+        scheduler: {
+          enabled: false,
+          running: false,
+          writeThroughEnabled: false,
+        },
+      }),
+      listAgentSessions: async (options: { project?: string; limit: number }) => {
+        equal(options.project, 'agent-memory');
+        equal(options.limit, 100);
+        return [{
+          id: 'session-1',
+          project: 'agent-memory',
+          prompt: 'Find auth guidance',
+          status: 'active',
+          reflectionDraftIds: [],
+          metadata: {},
+          createdAt: new Date().toISOString(),
+        }];
+      },
+      collectContextQualityFeedback: async (input: { project?: string; limit: number }) => {
+        equal(input.project, 'agent-memory');
+        equal(input.limit, 4);
+        return {
+          ...sampleContextQualityReport(),
+          filters: { project: input.project, limit: input.limit },
+        };
+      },
+      listReflectionDrafts: async () => [sampleDraft()],
+      listKnowledgeGaps: async () => [],
+      listLearningProposals: async () => [],
+      listKnowledgeConflicts: async () => [],
+      listKnowledge: async (options: { review?: string }) => (
+        options.review === 'auto_memory' || options.review === 'risky_auto_memory' ? [riskyMemory] : []
+      ),
+      requestWriteThroughBackup: () => undefined,
+      requestPhysicalMirror: () => undefined,
+    },
+    errorLogInsights: {
+      collect: async (options: { project?: string; statuses?: string[]; limit: number; offset: number }) => {
+        equal(options.project, 'agent-memory');
+        deepEqual(options.statuses, ['open', 'triaged']);
+        equal(options.limit, 4);
+        equal(options.offset, 0);
+        return {
+          project: 'agent-memory',
+          generatedAt: new Date().toISOString(),
+          totalMatched: 1,
+          returned: 1,
+          filters: options,
+          rollups: {
+            categories: [{ value: 'agent_tool', count: 1 }],
+            severities: [{ value: 'error', count: 1 }],
+            statuses: [{ value: 'open', count: 1 }],
+            files: [],
+            symbols: [],
+            errors: [],
+            tags: [],
+          },
+          clusters: [],
+          logs: [sampleErrorLog()],
+          agentBrief: '# Error Log Brief\n',
+        };
+      },
+    },
+  }), {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_get_workbench_summary',
+      arguments: {
+        project: 'agent-memory',
+        limit: 4,
+      },
+    },
+  }) as {
+    structuredContent?: WorkbenchSummary & { instruction?: string };
+  };
+
+  equal(result.structuredContent?.filters.project, 'agent-memory');
+  equal(result.structuredContent?.counts.riskyAutoMemories, 1);
+  equal(result.structuredContent?.counts.openErrorLogs, 1);
+  ok(result.structuredContent?.recommendedActions.some((action) => action.target === 'risky_auto_memories'));
+  ok(result.structuredContent?.instruction?.includes('tuberosa_start_session'));
 });
 
 test('MCP finish session schema exposes outcome and reflection draft enums', async () => {

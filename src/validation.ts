@@ -50,6 +50,7 @@ import type {
   StartAgentSessionInput,
   TaskType,
   TriggerType,
+  WorkbenchSummaryInput,
 } from './types.js';
 import { ValidationError } from './errors.js';
 
@@ -399,6 +400,16 @@ export function validateContextQualityReportInput(value: unknown): ContextQualit
       CONTEXT_QUALITY_FEEDBACK_TYPES,
       'context quality report input',
     ),
+    limit: Math.min(limit, 100),
+  };
+}
+
+export function validateWorkbenchSummaryInput(value: unknown): WorkbenchSummaryInput {
+  const record = expectObject(value, 'workbench summary input');
+  const limit = readOptionalPositiveInteger(record, 'limit', 'workbench summary input') ?? 10;
+
+  return {
+    project: readOptionalString(record, 'project', 'workbench summary input'),
     limit: Math.min(limit, 100),
   };
 }

@@ -18,6 +18,7 @@
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "error-logs": "tsx scripts/error-logs.ts",
+    "workbench": "tsx scripts/workbench.ts",
     "context-quality": "tsx scripts/context-quality.ts",
     "organization": "tsx scripts/organization.ts",
     "benchmark": "tsx scripts/benchmark.ts",

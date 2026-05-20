@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
+import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
   validateAppendAgentSessionNoteInput,
@@ -36,11 +37,15 @@ import {
   validateRestoreBackupInput,
   validateResolveErrorLogInput,
   validateStartAgentSessionInput,
+  validateWorkbenchSummaryInput,
 } from '../validation.js';
+import { workbenchHtml } from './workbench.js';
 
 type RouteParams = Record<string, string>;
 type RouteMatcher = (url: URL) => RouteParams | undefined;
-type RouteHandler = (context: RouteContext) => Promise<unknown> | unknown;
+type RouteHandler = (context: RouteContext) => Promise<RouteResult> | RouteResult;
+type RouteResult = unknown | RawHttpResponse;
+const RAW_RESPONSE = Symbol('raw_http_response');
 
 interface RouteContext {
   services: AppServices;
@@ -54,6 +59,13 @@ interface HttpRoute {
   match: RouteMatcher;
   handle: RouteHandler;
   public?: boolean;
+}
+
+interface RawHttpResponse {
+  [RAW_RESPONSE]: true;
+  status: number;
+  contentType: string;
+  body: string | Buffer;
 }
 
 export function createHttpServer(services: AppServices) {
@@ -100,7 +112,11 @@ class HttpRouter {
         url,
         params: matched.params,
       });
-      sendJson(response, 200, body);
+      if (isRawHttpResponse(body)) {
+        sendRaw(response, body);
+      } else {
+        sendJson(response, 200, body);
+      }
     } catch (error) {
       const appError = toAppError(error);
       await maybeCaptureHttpError(this.services, request, url, method, appError);
@@ -139,6 +155,12 @@ function createRoutes(): HttpRoute[] {
         cache: services.config.cache,
         modelProvider: services.config.modelProvider,
       }),
+    },
+    {
+      method: 'GET',
+      match: exactPath('/workbench'),
+      public: true,
+      handle: () => rawResponse('text/html; charset=utf-8', workbenchHtml()),
     },
     {
       method: 'POST',
@@ -475,6 +497,11 @@ function createRoutes(): HttpRoute[] {
       ),
     },
     {
+      method: 'GET',
+      match: exactPath('/operations/workbench/summary'),
+      handle: ({ services, url }) => buildWorkbenchSummary(services, readWorkbenchSummaryOptions(url)),
+    },
+    {
       method: 'POST',
       match: exactPath('/operations/error-logs'),
       handle: async ({ services, request }) => {
@@ -735,6 +762,28 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(encoded);
 }
 
+function rawResponse(contentType: string, body: string | Buffer, status = 200): RawHttpResponse {
+  return {
+    [RAW_RESPONSE]: true,
+    status,
+    contentType,
+    body,
+  };
+}
+
+function isRawHttpResponse(value: unknown): value is RawHttpResponse {
+  return typeof value === 'object' && value !== null && (value as RawHttpResponse)[RAW_RESPONSE] === true;
+}
+
+function sendRaw(response: ServerResponse, body: RawHttpResponse): void {
+  const encoded = Buffer.isBuffer(body.body) ? body.body : Buffer.from(body.body, 'utf8');
+  response.writeHead(body.status, {
+    'Content-Type': body.contentType,
+    'Content-Length': encoded.length,
+  });
+  response.end(encoded);
+}
+
 export class HttpError extends AppError {
   constructor(status: number, message: string) {
     super({ code: httpErrorCode(status), status, message });
@@ -898,6 +947,13 @@ function readContextQualityReportOptions(url: URL) {
     project: url.searchParams.get('project') ?? undefined,
     feedbackType: url.searchParams.get('feedbackType') ?? undefined,
     limit: readLimit(url),
+  });
+}
+
+function readWorkbenchSummaryOptions(url: URL) {
+  return validateWorkbenchSummaryInput({
+    project: url.searchParams.get('project') ?? undefined,
+    limit: readOptionalQueryNumber(url, 'limit'),
   });
 }
 
