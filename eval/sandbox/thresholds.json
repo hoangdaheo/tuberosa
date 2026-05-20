@@ -1,0 +1,14 @@
+{
+  "description": "Phase 1 baseline thresholds. These reflect *current observed* behaviour on the synthetic corpus so any regression fails CI. Phase 2+ tightens them as filters improve.",
+  "minHitRate": 0.7,
+  "minMRR": 0.4,
+  "maxNoiseRate": 0.35,
+  "minStaleSuppressionRate": 0.95,
+  "minDuplicateSuppressionRate": 0.0,
+  "minAdversarialBlockRate": 0.9,
+  "maxItemTypeCatchAllRate": 0.6,
+  "minPerFilterPrecision": {
+    "safety_block_ingest": 0.9,
+    "safety_redact_retrieval": 0.0
+  }
+}

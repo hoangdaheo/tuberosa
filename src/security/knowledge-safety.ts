@@ -1,5 +1,9 @@
-import type { KnowledgeInput, RankedCandidate, ReflectionDraftInput, SearchCandidate } from '../types.js';
+import type { FilterEvent, KnowledgeInput, RankedCandidate, ReflectionDraftInput, SearchCandidate } from '../types.js';
 import { SafetyBlockedError } from '../errors.js';
+
+export interface SafetySanitizeOptions {
+  onFilterEvent?: (event: FilterEvent) => void;
+}
 
 export type KnowledgeSafetyStatus = 'safe' | 'suspicious' | 'blocked';
 export type KnowledgeSafetyIssueType = 'secret' | 'prompt_injection' | 'malware_indicator';
@@ -158,17 +162,23 @@ export class KnowledgeSafetyService {
     };
   }
 
-  sanitizeSearchCandidates<T extends SearchCandidate | RankedCandidate>(candidates: T[]): T[] {
+  sanitizeSearchCandidates<T extends SearchCandidate | RankedCandidate>(
+    candidates: T[],
+    options: SafetySanitizeOptions = {},
+  ): T[] {
     return candidates
-      .map((candidate) => this.sanitizeSearchCandidate(candidate))
+      .map((candidate) => this.sanitizeSearchCandidate(candidate, options))
       .filter((candidate): candidate is T => Boolean(candidate));
   }
 
-  sanitizeContextPack<T extends { sections: Array<{ items: RankedCandidate[]; tokenEstimate: number }> }>(pack: T): T {
+  sanitizeContextPack<T extends { sections: Array<{ items: RankedCandidate[]; tokenEstimate: number }> }>(
+    pack: T,
+    options: SafetySanitizeOptions = {},
+  ): T {
     return {
       ...pack,
       sections: pack.sections.map((section) => {
-        const items = this.sanitizeSearchCandidates(section.items);
+        const items = this.sanitizeSearchCandidates(section.items, options);
         return {
           ...section,
           items,
@@ -178,8 +188,17 @@ export class KnowledgeSafetyService {
     };
   }
 
-  private sanitizeSearchCandidate<T extends SearchCandidate | RankedCandidate>(candidate: T): T | undefined {
+  private sanitizeSearchCandidate<T extends SearchCandidate | RankedCandidate>(
+    candidate: T,
+    options: SafetySanitizeOptions = {},
+  ): T | undefined {
     if (isMetadataBlocked(candidate.metadata)) {
+      options.onFilterEvent?.({
+        filter: 'safety_block_retrieval',
+        action: 'excluded',
+        knowledgeId: candidate.knowledgeId,
+        reason: 'Knowledge was previously marked unsafe at ingestion (metadata.safety.status=blocked).',
+      });
       return undefined;
     }
 
@@ -190,7 +209,24 @@ export class KnowledgeSafetyService {
     const decision = decideSafety([title, summary, content, contextualContent]);
 
     if (decision.status === 'blocked') {
+      options.onFilterEvent?.({
+        filter: 'safety_block_retrieval',
+        action: 'excluded',
+        knowledgeId: candidate.knowledgeId,
+        reason: `Retrieval-time scan blocked candidate: ${decision.issues.map((issue) => issue.message).join('; ')}`,
+        metadata: { issues: decision.issues },
+      });
       return undefined;
+    }
+
+    if (decision.redactionCount > 0 || decision.status === 'suspicious') {
+      options.onFilterEvent?.({
+        filter: 'safety_redact_retrieval',
+        action: 'redacted',
+        knowledgeId: candidate.knowledgeId,
+        reason: `Retrieval-time scan redacted ${decision.redactionCount} secret(s); status=${decision.status}.`,
+        metadata: { redactionCount: decision.redactionCount, status: decision.status },
+      });
     }
 
     return {

@@ -3,6 +3,7 @@ export type AppErrorCode =
   | 'not_found'
   | 'safety_blocked'
   | 'ingestion_limit'
+  | 'duplicate_knowledge'
   | 'model_provider_error'
   | 'store_error'
   | 'cache_error'
@@ -54,6 +55,12 @@ export class SafetyBlockedError extends AppError {
 export class IngestionLimitAppError extends AppError {
   constructor(message = 'Ingestion limit exceeded.', details?: unknown) {
     super({ code: 'ingestion_limit', status: 413, message, details });
+  }
+}
+
+export class DuplicateIngestionError extends AppError {
+  constructor(message = 'Knowledge rejected as duplicate.', details?: unknown) {
+    super({ code: 'duplicate_knowledge', status: 409, message, details });
   }
 }
 

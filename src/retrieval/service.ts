@@ -25,8 +25,12 @@ import type {
   RetrievalEvidenceType,
   ReflectionDraft,
   RankedCandidate,
+  CandidateSource,
+  SearchCandidate,
   SearchOptions,
   StoredKnowledge,
+  SuppressionEvent,
+  SuppressionReason,
   TaskBriefMode,
 } from '../types.js';
 import { sha256, stableJson } from '../util/hash.js';
@@ -137,7 +141,14 @@ export class RetrievalService {
       debug,
     );
     const candidates = await this.findCandidates(normalized, rewriteResult.classified, project, debug);
-    const rankedCandidates = await this.rankCandidates(normalized.prompt, candidates, rewriteResult.classified, project, debug);
+    const rankedCandidates = await this.rankCandidates(
+      normalized.prompt,
+      candidates,
+      rewriteResult.classified,
+      project,
+      debug,
+      normalized.disabledSources,
+    );
     const fitStartedAt = Date.now();
     const fitEvaluation = this.fitEvaluator.evaluate({
       project,
@@ -153,6 +164,7 @@ export class RetrievalService {
     );
     debug?.recordTiming('fit', fitStartedAt);
     debug?.recordStage('fit', fitEvaluation.candidates);
+    debug?.recordFitScores(fitEvaluation.candidates);
     const reviewTargetResolution = shouldResolveReviewTargets
       ? await this.resolveReviewTargets(normalized, rewriteResult.classified, project)
       : { reviewTargets: [] as ContextReviewTarget[], omittedReviewTargetCount: 0 };
@@ -363,12 +375,27 @@ export class RetrievalService {
     classified: ClassifiedQuery,
     project?: string,
     debug?: RetrievalDebugBuilder,
+    disabledSources?: CandidateSource[],
   ): Promise<RankedCandidate[]> {
     const fusionStartedAt = Date.now();
-    const fused = fuseCandidates(
-      [candidates.metadata, candidates.lexical, candidates.memory, candidates.vector, candidates.graph],
-      classified,
-    ).slice(0, RERANK_LIMIT);
+    const disabled = new Set<CandidateSource>(disabledSources ?? []);
+    const candidateGroups: SearchCandidate[][] = [
+      disabled.has('metadata') ? [] : candidates.metadata,
+      disabled.has('lexical') ? [] : candidates.lexical,
+      disabled.has('memory') ? [] : candidates.memory,
+      disabled.has('vector') ? [] : candidates.vector,
+      disabled.has('graph') ? [] : candidates.graph,
+    ];
+    let fused: RankedCandidate[];
+    if (debug) {
+      const fuseResult = fuseCandidates(candidateGroups, classified, { collectBreakdown: true });
+      fused = fuseResult.ranked.slice(0, RERANK_LIMIT);
+      if (fuseResult.breakdown) {
+        debug.recordFusionBreakdown(fuseResult.breakdown);
+      }
+    } else {
+      fused = fuseCandidates(candidateGroups, classified).slice(0, RERANK_LIMIT);
+    }
     debug?.recordTiming('fusion', fusionStartedAt);
     debug?.recordStage('fusion', fused);
 
@@ -382,8 +409,13 @@ export class RetrievalService {
       inputKnowledgeIds: fused.map((candidate) => candidate.knowledgeId),
       decisions: rerankResult.decisions,
     });
-    const reranked = this.safety.sanitizeSearchCandidates(rerankResult.candidates);
-    const adjusted = await this.applyRankingAdjustments(reranked, classified, project ?? classified.project);
+    if (debug) {
+      debug.recordRerankScores(rerankResult.candidates);
+    }
+    const reranked = this.safety.sanitizeSearchCandidates(rerankResult.candidates, {
+      onFilterEvent: debug ? (event) => debug.recordFilterEvent(event) : undefined,
+    });
+    const adjusted = await this.applyRankingAdjustments(reranked, classified, project ?? classified.project, debug);
     debug?.recordStage('rerank', adjusted);
     return adjusted;
   }
@@ -392,16 +424,18 @@ export class RetrievalService {
     candidates: RankedCandidate[],
     classified: ClassifiedQuery,
     project?: string,
+    debug?: RetrievalDebugBuilder,
   ): Promise<RankedCandidate[]> {
     const summaries = await this.store.getFeedbackSummaries(
       [...new Set(candidates.map((candidate) => candidate.knowledgeId))],
       { project },
     );
     const supersededBy = await this.supersededByRelations(candidates, project);
+    const onSuppression = debug ? (event: SuppressionEvent) => debug.recordSuppressionEvent(event) : undefined;
 
     return candidates
-      .map((candidate) => applyFeedbackSummary(candidate, summaries.get(candidate.knowledgeId)))
-      .map((candidate) => applyIntentSuppression(candidate, classified, supersededBy.get(candidate.knowledgeId) ?? []))
+      .map((candidate) => applyFeedbackSummary(candidate, summaries.get(candidate.knowledgeId), onSuppression))
+      .map((candidate) => applyIntentSuppression(candidate, classified, supersededBy.get(candidate.knowledgeId) ?? [], onSuppression))
       .sort((left, right) => right.finalScore - left.finalScore || left.rank - right.rank)
       .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
   }
@@ -1349,6 +1383,7 @@ function proposalEvidence(
 function applyFeedbackSummary(
   candidate: RankedCandidate,
   summary: KnowledgeFeedbackSummary | undefined,
+  onSuppression?: (event: SuppressionEvent) => void,
 ): RankedCandidate {
   if (!summary) {
     return candidate;
@@ -1368,6 +1403,18 @@ function applyFeedbackSummary(
     scoreAdjustment: adjustment,
   };
 
+  if (onSuppression && adjustment < 0) {
+    const reason = feedbackSuppressionReason(status);
+    if (reason) {
+      onSuppression({
+        knowledgeId: candidate.knowledgeId,
+        reason,
+        deltaScore: adjustment,
+        evidence: `feedback status=${status}, latest=${summary.latestFeedbackType ?? 'unknown'}`,
+      });
+    }
+  }
+
   return {
     ...candidate,
     finalScore: clampScore(candidate.finalScore + adjustment),
@@ -1382,14 +1429,45 @@ function applyFeedbackSummary(
   };
 }
 
+function feedbackSuppressionReason(status: string): SuppressionReason | undefined {
+  switch (status) {
+    case 'stale':
+      return 'feedback_stale';
+    case 'rejected':
+      return 'feedback_rejected';
+    case 'irrelevant':
+      return 'feedback_irrelevant';
+    default:
+      return undefined;
+  }
+}
+
 function applyIntentSuppression(
   candidate: RankedCandidate,
   classified: ClassifiedQuery,
   supersededBy: KnowledgeRelation[],
+  onSuppression?: (event: SuppressionEvent) => void,
 ): RankedCandidate {
   const adjustment = intentSuppressionAdjustment(candidate, classified, supersededBy);
   if (adjustment.score === 0) {
     return candidate;
+  }
+
+  if (onSuppression && adjustment.score < 0) {
+    for (const reason of adjustment.reasons) {
+      if (!reason.startsWith('suppression:')) {
+        continue;
+      }
+      const mapped = mapSuppressionReason(reason);
+      if (mapped) {
+        onSuppression({
+          knowledgeId: candidate.knowledgeId,
+          reason: mapped,
+          deltaScore: adjustment.score / Math.max(1, adjustment.reasons.filter((r) => r.startsWith('suppression:')).length),
+          evidence: reason,
+        });
+      }
+    }
   }
 
   return {
@@ -1408,6 +1486,19 @@ function applyIntentSuppression(
       },
     },
   };
+}
+
+function mapSuppressionReason(reason: string): SuppressionReason | undefined {
+  if (reason.includes('superseded')) return 'superseded';
+  if (reason.includes('freshness')) return 'stale_freshness';
+  if (reason.includes('domain_mismatch')) return 'domain_mismatch';
+  if (reason.includes('evidence_mismatch')) return 'evidence_mismatch';
+  if (reason.includes('prior feedback')) {
+    if (reason.includes('stale')) return 'feedback_stale';
+    if (reason.includes('rejected')) return 'feedback_rejected';
+    if (reason.includes('irrelevant')) return 'feedback_irrelevant';
+  }
+  return 'other';
 }
 
 function intentSuppressionAdjustment(

@@ -1,0 +1,3 @@
+{
+  "_comment": "Override knobs for src/retrieval/policy.ts. Anything omitted falls back to DEFAULT_POLICY. Set TUBEROSA_RETRIEVAL_POLICY=/abs/path.json to point elsewhere."
+}

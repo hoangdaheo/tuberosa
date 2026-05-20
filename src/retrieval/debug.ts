@@ -1,5 +1,6 @@
 import type {
   ContextPack,
+  FilterEvent,
   QueryRewriteResult,
   RankedCandidate,
   RerankDecision,
@@ -8,7 +9,9 @@ import type {
   RetrievalDebugStageName,
   RetrievalDebugTimingName,
   RetrievalDebugTrace,
+  ScoreBreakdown,
   SearchCandidate,
+  SuppressionEvent,
 } from '../types.js';
 
 interface RetrievalDebugBuilderInput {
@@ -27,8 +30,54 @@ export class RetrievalDebugBuilder {
   private readonly stages: RetrievalDebugStage[] = [];
   private queryRewrite?: RetrievalDebugTrace['queryRewrite'];
   private providerRerank?: RetrievalDebugTrace['providerRerank'];
+  private fusionBreakdown?: Map<string, ScoreBreakdown>;
+  private readonly filterEvents: FilterEvent[] = [];
+  private readonly suppressionEvents: SuppressionEvent[] = [];
 
   constructor(private readonly input: RetrievalDebugBuilderInput) {}
+
+  recordFusionBreakdown(breakdown: Map<string, ScoreBreakdown>): void {
+    this.fusionBreakdown = breakdown;
+  }
+
+  recordRerankScores(candidates: Array<RankedCandidate>): void {
+    if (!this.fusionBreakdown) {
+      return;
+    }
+    for (const candidate of candidates) {
+      const entry = this.fusionBreakdown.get(candidate.knowledgeId);
+      if (entry) {
+        entry.rerankScore = candidate.rerankScore;
+        entry.rerankDelta = candidate.rerankScore - entry.fusedScore;
+      }
+    }
+  }
+
+  recordFitScores(candidates: Array<RankedCandidate>): void {
+    if (!this.fusionBreakdown) {
+      return;
+    }
+    for (const candidate of candidates) {
+      const entry = this.fusionBreakdown.get(candidate.knowledgeId);
+      if (entry && typeof candidate.fitScore === 'number') {
+        entry.fitScore = candidate.fitScore;
+      }
+    }
+  }
+
+  recordFilterEvent(event: FilterEvent): void {
+    this.filterEvents.push(event);
+  }
+
+  recordSuppressionEvent(event: SuppressionEvent): void {
+    this.suppressionEvents.push(event);
+    if (this.fusionBreakdown) {
+      const entry = this.fusionBreakdown.get(event.knowledgeId);
+      if (entry) {
+        entry.suppressionDeltas.push(event);
+      }
+    }
+  }
 
   recordTiming(name: RetrievalDebugTimingName, startedAt: number): void {
     this.timingsMs[name] = elapsedMs(startedAt);
@@ -118,6 +167,9 @@ export class RetrievalDebugBuilder {
       selected: Object.fromEntries(
         pack.sections.map((section) => [section.name, section.items.map(toDebugCandidate)]),
       ) as RetrievalDebugTrace['selected'],
+      fusionBreakdown: this.fusionBreakdown ? [...this.fusionBreakdown.values()] : undefined,
+      filterEvents: this.filterEvents.length > 0 ? this.filterEvents : undefined,
+      suppressionEvents: this.suppressionEvents.length > 0 ? this.suppressionEvents : undefined,
     };
   }
 }

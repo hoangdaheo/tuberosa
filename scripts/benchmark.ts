@@ -60,6 +60,23 @@ interface KnowledgeCompletenessBlock {
   live: KnowledgeCompletenessSummary;
 }
 
+interface SandboxBlock {
+  available: boolean;
+  knowledgeCount: number;
+  promptCount: number;
+  hitRate: number;
+  mrr: number;
+  noiseRate: number;
+  staleSuppressionRate: number;
+  duplicateSuppressionRate: number;
+  adversarialBlockRate: number;
+  itemTypeCatchAllRate: number;
+  passRate: number;
+  failures: string[];
+  latencyP50Ms: number;
+  latencyP95Ms: number;
+}
+
 interface BenchmarkRun {
   timestamp: string;
   commit: string;
@@ -70,6 +87,7 @@ interface BenchmarkRun {
   knowledgeCompleteness: KnowledgeCompletenessBlock;
   agentContextPass: boolean;
   liveProbes: LiveProbeBlock | null;
+  sandbox: SandboxBlock | null;
   compositeScore: number;
 }
 
@@ -277,6 +295,59 @@ async function runLiveProbes(): Promise<LiveProbeBlock | null> {
   };
 }
 
+function runSandbox(): SandboxBlock | null {
+  const result = spawnSync(TSX, ['scripts/sandbox.ts', '--json'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: 180_000,
+  });
+  if (result.status !== 0 && result.status !== 1) {
+    return null;
+  }
+  const stdout = (result.stdout ?? '').trim();
+  if (!stdout) {
+    return null;
+  }
+  try {
+    const start = stdout.indexOf('{');
+    const json = start >= 0 ? stdout.slice(start) : stdout;
+    const parsed = JSON.parse(json) as {
+      knowledgeCount: number;
+      promptCount: number;
+      metrics: {
+        hitRate: number;
+        mrr: number;
+        noiseRate: number;
+        staleSuppressionRate: number;
+        duplicateSuppressionRate: number;
+        adversarialBlockRate: number;
+        itemTypeCatchAllRate: number;
+        latency: { p50: number; p95: number };
+      };
+      failures: string[];
+    };
+    const failureCount = parsed.failures.length;
+    return {
+      available: true,
+      knowledgeCount: parsed.knowledgeCount,
+      promptCount: parsed.promptCount,
+      hitRate: parsed.metrics.hitRate,
+      mrr: parsed.metrics.mrr,
+      noiseRate: parsed.metrics.noiseRate,
+      staleSuppressionRate: parsed.metrics.staleSuppressionRate,
+      duplicateSuppressionRate: parsed.metrics.duplicateSuppressionRate,
+      adversarialBlockRate: parsed.metrics.adversarialBlockRate,
+      itemTypeCatchAllRate: parsed.metrics.itemTypeCatchAllRate,
+      passRate: failureCount === 0 ? 1 : 0,
+      failures: parsed.failures,
+      latencyP50Ms: parsed.metrics.latency.p50,
+      latencyP95Ms: parsed.metrics.latency.p95,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ─── composite score ──────────────────────────────────────────────────────
 
 // Weights reflect what matters most for the goal: giving agents direct, actionable evidence.
@@ -296,6 +367,7 @@ function computeCompositeScore(
   tests: TestResult,
   agentContextPass: boolean,
   liveProbes: LiveProbeBlock | null,
+  sandbox: SandboxBlock | null,
 ): number {
   const retrievalScore =
     r.hitRate * RETRIEVAL_WEIGHTS.hitRate +
@@ -310,17 +382,26 @@ function computeCompositeScore(
   const systemScore = testRate * 0.60 + (agentContextPass ? 1 : 0) * 0.40;
   const completenessScore = knowledgeCompletenessCompositeScore(knowledgeCompleteness);
 
+  const sandboxScore = sandbox && sandbox.available ? sandbox.passRate : 0;
+  const sandboxSlice = sandbox && sandbox.available ? 0.10 : 0;
+
   if (liveProbes?.available) {
     return Math.round((
-      retrievalScore * 0.50
+      retrievalScore * (0.50 - sandboxSlice / 2)
       + systemScore * 0.25
       + liveProbes.passRate * 0.10
       + completenessScore * 0.15
+      + sandboxScore * sandboxSlice
     ) * 100);
   }
 
   // Normalize without live probe slice
-  return Math.round((retrievalScore * 0.55 + systemScore * 0.30 + completenessScore * 0.15) * 100);
+  return Math.round((
+    retrievalScore * (0.55 - sandboxSlice / 2)
+    + systemScore * 0.30
+    + completenessScore * 0.15
+    + sandboxScore * sandboxSlice
+  ) * 100);
 }
 
 function knowledgeCompletenessCompositeScore(block: KnowledgeCompletenessBlock): number {
@@ -399,6 +480,14 @@ function printReport(run: BenchmarkRun, previous: BenchmarkRun | null): void {
     console.log(`  - Live Probes   server not reachable (skipped)`);
   }
 
+  if (run.sandbox && run.sandbox.available) {
+    const sb = run.sandbox;
+    const status = sb.failures.length === 0 ? '✓' : '✗';
+    console.log(`  ${status} Sandbox       ${sb.promptCount} prompts — hit ${pct(sb.hitRate)} mrr ${sb.mrr.toFixed(3)}`);
+  } else {
+    console.log(`  - Sandbox       not available (skipped)`);
+  }
+
   console.log('');
   console.log('  Retrieval Metrics');
   console.log(`    hit@5                   ${pct(run.retrieval.hitRate)}`);
@@ -420,6 +509,24 @@ function printReport(run: BenchmarkRun, previous: BenchmarkRun | null): void {
     for (const probe of run.liveProbes.results) {
       const icon = probe.pass ? '✓' : '✗';
       console.log(`    ${icon} ${probe.name.padEnd(26)} ${probe.detail}`);
+    }
+  }
+
+  if (run.sandbox && run.sandbox.available) {
+    console.log('');
+    console.log('  Sandbox Metrics');
+    console.log(`    hit rate                ${pct(run.sandbox.hitRate)}`);
+    console.log(`    MRR                     ${run.sandbox.mrr.toFixed(4)}`);
+    console.log(`    noise rate              ${pct(run.sandbox.noiseRate)}`);
+    console.log(`    stale suppression       ${pct(run.sandbox.staleSuppressionRate)}`);
+    console.log(`    duplicate suppression   ${pct(run.sandbox.duplicateSuppressionRate)}`);
+    console.log(`    adversarial block       ${pct(run.sandbox.adversarialBlockRate)}`);
+    console.log(`    memory catch-all rate   ${pct(run.sandbox.itemTypeCatchAllRate)}`);
+    console.log(`    latency p50/p95 (ms)    ${run.sandbox.latencyP50Ms} / ${run.sandbox.latencyP95Ms}`);
+    if (run.sandbox.failures.length > 0) {
+      for (const failure of run.sandbox.failures) {
+        console.log(`    ! ${failure}`);
+      }
     }
   }
 
@@ -481,7 +588,15 @@ process.stdout.write(
     : ' server not reachable\n',
 );
 
-const compositeScore = computeCompositeScore(retrieval, knowledgeCompleteness, tests, agentContextPass, liveProbes);
+process.stdout.write('Running sandbox...');
+const sandbox = runSandbox();
+process.stdout.write(
+  sandbox && sandbox.available
+    ? ` ${sandbox.promptCount} prompts, hit ${pct(sandbox.hitRate)}, ${sandbox.failures.length} failures\n`
+    : ' skipped\n',
+);
+
+const compositeScore = computeCompositeScore(retrieval, knowledgeCompleteness, tests, agentContextPass, liveProbes, sandbox);
 const previous = loadLastRun();
 
 const run: BenchmarkRun = {
@@ -494,6 +609,7 @@ const run: BenchmarkRun = {
   knowledgeCompleteness,
   agentContextPass,
   liveProbes,
+  sandbox,
   compositeScore,
 };
 

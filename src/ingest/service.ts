@@ -6,6 +6,7 @@ import { classifyQuery, labelsFromClassification } from '../retrieval/classifier
 import type { KnowledgeStore } from '../storage/store.js';
 import { estimateTokens, splitIntoChunks, uniqueStrings } from '../util/text.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
+import { DuplicateDetector } from './duplicate-detector.js';
 import { MarkdownAtomizer, type DocumentAtom, type DocumentAtomizer } from './document-atomizer.js';
 
 export type IngestionMode = 'document' | 'atomic';
@@ -28,6 +29,7 @@ export interface IngestionServiceOptions {
   atomizers?: DocumentAtomizer[];
   safety?: KnowledgeSafetyService;
   maxContentBytes?: number;
+  duplicateDetector?: DuplicateDetector;
 }
 
 export class IngestionLimitError extends IngestionLimitAppError {}
@@ -37,6 +39,7 @@ export class IngestionService {
   private readonly safety: KnowledgeSafetyService;
   private readonly relationInference: KnowledgeRelationInference;
   private readonly maxContentBytes?: number;
+  private readonly duplicateDetector: DuplicateDetector;
 
   constructor(
     private readonly store: KnowledgeStore,
@@ -47,13 +50,16 @@ export class IngestionService {
     this.safety = options.safety ?? new KnowledgeSafetyService();
     this.relationInference = new KnowledgeRelationInference();
     this.maxContentBytes = options.maxContentBytes;
+    this.duplicateDetector = options.duplicateDetector ?? new DuplicateDetector(store, models);
   }
 
   async ingestKnowledge(input: KnowledgeInput) {
     this.ensureContentWithinLimit(input.content);
     const sanitizedInput = this.safety.sanitizeKnowledgeInput(input);
-    const chunks = await this.buildChunks(sanitizedInput);
-    const stored = await this.store.upsertKnowledge(sanitizedInput, chunks);
+    const duplicate = await this.duplicateDetector.assertNotDuplicate(sanitizedInput);
+    const augmented = applyDuplicateFlag(sanitizedInput, duplicate);
+    const chunks = await this.buildChunks(augmented);
+    const stored = await this.store.upsertKnowledge(augmented, chunks);
     await this.store.replaceInferredKnowledgeRelations(stored.id, this.relationInference.infer(stored));
     return stored;
   }
@@ -255,6 +261,24 @@ function baseFileLabels(project: string, file: IngestFileInput): LabelInput[] {
 function summarizeContent(content: string): string {
   const firstParagraph = content.split(/\n{2,}/).map((paragraph) => paragraph.trim()).find(Boolean) ?? content.trim();
   return firstParagraph.slice(0, 360);
+}
+
+function applyDuplicateFlag(input: KnowledgeInput, duplicate: { decision: string; jaccard: number; cosine: number; match?: { id: string } }): KnowledgeInput {
+  if (duplicate.decision !== 'flag' || !duplicate.match) {
+    return input;
+  }
+  return {
+    ...input,
+    metadata: {
+      ...(input.metadata ?? {}),
+      duplicateCandidate: {
+        of: duplicate.match.id,
+        jaccard: duplicate.jaccard,
+        cosine: duplicate.cosine,
+        detectedAt: new Date().toISOString(),
+      },
+    },
+  };
 }
 
 function mergeLabels(labels: LabelInput[]): LabelInput[] {

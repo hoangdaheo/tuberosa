@@ -361,6 +361,11 @@ export interface ContextSearchInput {
   rejectedKnowledgeIds?: string[];
   bypassCache?: boolean;
   debug?: boolean;
+  /**
+   * Sandbox / evaluation flag. When provided, zeroes the listed candidate sources before fusion
+   * so per-source contribution can be measured. MUST NOT be exposed in production MCP/HTTP surfaces.
+   */
+  disabledSources?: CandidateSource[];
 }
 
 export type ContextMode = 'compact' | 'layered';
@@ -1682,6 +1687,65 @@ export interface RetrievalFilterDecision {
   reason: string;
 }
 
+export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'reference';
+
+export interface FusionContribution {
+  source: FusionContributionStage;
+  rank: number;
+  rawScore: number;
+  sourceWeight: number;
+  contribution: number;
+}
+
+export interface ScoreBreakdown {
+  knowledgeId: string;
+  contributions: FusionContribution[];
+  fusedScoreBeforeNormalize: number;
+  fusedScore: number;
+  rerankScore: number;
+  rerankDelta: number;
+  fitScore?: number;
+  suppressionDeltas: SuppressionEvent[];
+}
+
+export type SuppressionReason =
+  | 'stale_freshness'
+  | 'aging_freshness'
+  | 'feedback_rejected'
+  | 'feedback_stale'
+  | 'feedback_irrelevant'
+  | 'domain_mismatch'
+  | 'low_trust'
+  | 'safety_blocked'
+  | 'evidence_mismatch'
+  | 'superseded'
+  | 'other';
+
+export interface SuppressionEvent {
+  knowledgeId: string;
+  reason: SuppressionReason;
+  deltaScore: number;
+  evidence?: string;
+}
+
+export type FilterEventKind =
+  | 'safety_block_ingest'
+  | 'safety_block_retrieval'
+  | 'safety_redact_retrieval'
+  | 'rejected_knowledge'
+  | 'stale_feedback'
+  | 'duplicate'
+  | 'off_domain'
+  | 'other';
+
+export interface FilterEvent {
+  filter: FilterEventKind;
+  action: 'excluded' | 'redacted' | 'flagged' | 'penalized';
+  knowledgeId?: string;
+  reason: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface RetrievalDebugTrace {
   fingerprint: string;
   cache: {
@@ -1714,4 +1778,7 @@ export interface RetrievalDebugTrace {
   timingsMs: Partial<Record<RetrievalDebugTimingName, number>>;
   stages: RetrievalDebugStage[];
   selected: Record<ContextPackSection['name'], RetrievalDebugCandidate[]>;
+  fusionBreakdown?: ScoreBreakdown[];
+  filterEvents?: FilterEvent[];
+  suppressionEvents?: SuppressionEvent[];
 }

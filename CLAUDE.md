@@ -39,6 +39,8 @@ pnpm run dev              # HTTP server in watch mode (port 3027)
 pnpm run migrate          # Apply SQL migrations to Postgres
 pnpm run eval:retrieval   # Deterministic retrieval quality eval (must pass before merging retrieval changes)
 pnpm run eval:agent-context # Agent session compliance eval
+pnpm run sandbox          # Knowledge-mapping sandbox: tiered synthetic corpus + golden prompts + per-source ablation. Emits eval/sandbox/report.md.
+pnpm run sandbox:ablate   # Sandbox with per-source ablation rows (lexical/vector/metadata/memory/graph each disabled in turn)
 pnpm run test:integration # Docker-gated Postgres + Redis integration tests (skips if stack is down)
 ```
 

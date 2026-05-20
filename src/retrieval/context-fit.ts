@@ -1,12 +1,13 @@
 import type { ClassifiedQuery, ContextFit, RankedCandidate, TaskType } from '../types.js';
 import { clamp, normalizeLabel } from '../util/text.js';
 import { hasDomainMismatch } from './classifier.js';
+import { freshnessWindowFor, getRetrievalPolicy } from './policy.js';
 
 const TOP_CANDIDATE_LIMIT = 6;
 const READY_THRESHOLD = 0.72;
 const NEEDS_CONFIRMATION_THRESHOLD = 0.45;
-const CURRENT_FRESHNESS_DAYS = 180;
-const STALE_FRESHNESS_DAYS = 365;
+const CURRENT_FRESHNESS_BONUS = 0.05;
+const AGING_PENALTY = -0.04;
 
 interface ContextFitEvaluationInput {
   project?: string;
@@ -366,18 +367,20 @@ function freshnessAdjustment(
     return 0;
   }
 
-  if (daysOld <= CURRENT_FRESHNESS_DAYS) {
-    reasons.push('freshness:current');
-    return 0.05;
+  const window = freshnessWindowFor(getRetrievalPolicy(), candidate.itemType);
+
+  if (daysOld <= window.currentDays) {
+    reasons.push(`freshness:current:${candidate.itemType}`);
+    return CURRENT_FRESHNESS_BONUS;
   }
 
-  if (daysOld > STALE_FRESHNESS_DAYS) {
-    missingSignals.push('freshness:stale');
-    return -0.12;
+  if (daysOld > window.staleDays) {
+    missingSignals.push(`freshness:stale:${candidate.itemType}`);
+    return window.stalePenalty ?? -0.12;
   }
 
-  missingSignals.push('freshness:aging');
-  return -0.04;
+  missingSignals.push(`freshness:aging:${candidate.itemType}`);
+  return AGING_PENALTY;
 }
 
 function safetyAdjustment(

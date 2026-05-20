@@ -1,23 +1,53 @@
-import type { ClassifiedQuery, RankedCandidate, SearchCandidate } from '../types.js';
+import type {
+  ClassifiedQuery,
+  FusionContribution,
+  FusionContributionStage,
+  KnowledgeItemType,
+  RankedCandidate,
+  ScoreBreakdown,
+  SearchCandidate,
+} from '../types.js';
 import { clamp } from '../util/text.js';
+import { getRetrievalPolicy } from './policy.js';
 
-const SOURCE_WEIGHTS: Record<SearchCandidate['source'], number> = {
-  metadata: 1.15,
-  reference: 1.12,
-  graph: 1.1,
-  memory: 1.08,
-  lexical: 1,
-  vector: 0.92,
-};
+export interface FuseOptions {
+  collectBreakdown?: boolean;
+}
 
-export function fuseCandidates(groups: SearchCandidate[][], classified: ClassifiedQuery): RankedCandidate[] {
+export interface FuseResult {
+  ranked: RankedCandidate[];
+  breakdown?: Map<string, ScoreBreakdown>;
+}
+
+export function fuseCandidates(
+  groups: SearchCandidate[][],
+  classified: ClassifiedQuery,
+): RankedCandidate[];
+export function fuseCandidates(
+  groups: SearchCandidate[][],
+  classified: ClassifiedQuery,
+  options: FuseOptions,
+): FuseResult;
+export function fuseCandidates(
+  groups: SearchCandidate[][],
+  classified: ClassifiedQuery,
+  options?: FuseOptions,
+): RankedCandidate[] | FuseResult {
   const byKnowledge = new Map<string, RankedCandidate>();
+  const breakdown = options?.collectBreakdown ? new Map<string, ScoreBreakdown>() : undefined;
 
   for (const group of groups) {
     for (const candidate of group) {
       const existing = byKnowledge.get(candidate.knowledgeId);
       const sourceBoost = sourceWeight(candidate, classified);
       const contribution = sourceBoost / (60 + Math.max(1, candidate.rank));
+
+      if (breakdown) {
+        const entry = breakdown.get(candidate.knowledgeId) ?? createBreakdown(candidate.knowledgeId);
+        entry.contributions.push(buildContribution(candidate, sourceBoost, contribution));
+        entry.fusedScoreBeforeNormalize += contribution;
+        breakdown.set(candidate.knowledgeId, entry);
+      }
 
       if (!existing) {
         byKnowledge.set(candidate.knowledgeId, {
@@ -42,32 +72,71 @@ export function fuseCandidates(groups: SearchCandidate[][], classified: Classifi
 
   const maxScore = Math.max(...[...byKnowledge.values()].map((candidate) => candidate.fusedScore), 0.0001);
 
-  return [...byKnowledge.values()]
+  const ranked = [...byKnowledge.values()]
     .map((candidate) => ({
       ...candidate,
       fusedScore: clamp(candidate.fusedScore / maxScore, 0, 1),
     }))
     .sort((left, right) => right.fusedScore - left.fusedScore);
+
+  if (!breakdown) {
+    return ranked;
+  }
+
+  for (const candidate of ranked) {
+    const entry = breakdown.get(candidate.knowledgeId);
+    if (entry) {
+      entry.fusedScore = candidate.fusedScore;
+    }
+  }
+
+  return { ranked, breakdown };
+}
+
+function buildContribution(
+  candidate: SearchCandidate,
+  sourceWeightValue: number,
+  contribution: number,
+): FusionContribution {
+  return {
+    source: candidate.source as FusionContributionStage,
+    rank: candidate.rank,
+    rawScore: candidate.rawScore,
+    sourceWeight: sourceWeightValue,
+    contribution,
+  };
+}
+
+function createBreakdown(knowledgeId: string): ScoreBreakdown {
+  return {
+    knowledgeId,
+    contributions: [],
+    fusedScoreBeforeNormalize: 0,
+    fusedScore: 0,
+    rerankScore: 0,
+    rerankDelta: 0,
+    suppressionDeltas: [],
+  };
 }
 
 function sourceWeight(candidate: SearchCandidate, classified: ClassifiedQuery): number {
-  let weight = SOURCE_WEIGHTS[candidate.source];
+  const policy = getRetrievalPolicy();
+  let weight = policy.sourceWeights[candidate.source] ?? 1;
 
-  if (classified.files.length || classified.symbols.length || classified.errors.length) {
-    if (candidate.source === 'metadata' || candidate.source === 'lexical' || candidate.source === 'graph') {
-      weight += 0.18;
+  const hasHardSignal = classified.files.length || classified.symbols.length || classified.errors.length;
+  if (hasHardSignal) {
+    if (policy.hardSignalBoost.sources.includes(candidate.source)) {
+      weight += policy.hardSignalBoost.bonus;
     }
     if (candidate.source === 'vector') {
-      weight -= 0.08;
+      weight += policy.hardSignalVectorPenalty;
     }
   }
 
-  if (classified.taskType === 'debugging' && ['bugfix', 'memory', 'workflow'].includes(candidate.itemType)) {
-    weight += 0.16;
-  }
-
-  if (classified.taskType === 'planning' && ['spec', 'wiki', 'workflow'].includes(candidate.itemType)) {
-    weight += 0.12;
+  for (const boost of policy.taskItemTypeBoosts) {
+    if (classified.taskType === boost.taskType && (boost.itemTypes as KnowledgeItemType[]).includes(candidate.itemType)) {
+      weight += boost.bonus;
+    }
   }
 
   return weight;
