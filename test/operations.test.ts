@@ -458,6 +458,7 @@ test('operations workbench summary aggregates review queues and static route loa
   const errorLogDir = await mkdtemp(join(tmpdir(), 'tuberosa-workbench-error-logs-'));
   const services = createTestServices(backupDir, errorLogDir);
   const project = 'workbench-review';
+  const secret = 'TUBEROSA_SECRET_DO_NOT_LEAK_IN_WORKBENCH';
 
   try {
     const direct = await services.store.upsertKnowledge({
@@ -489,11 +490,12 @@ test('operations workbench summary aggregates review queues and static route loa
       itemType: 'memory',
       title: 'Auto-approved workbench memory',
       summary: 'Auto memory without grounded references.',
-      content: 'This auto-approved memory should stay visible for audit.',
+      content: `This auto-approved memory should stay visible for audit. ${secret}`,
       trustLevel: 80,
       metadata: {
         source: 'agent_session_finish',
         learningMode: 'auto',
+        secret,
       },
     }, []);
     const pack = contextQualityPack(project, direct, adjacent);
@@ -502,13 +504,15 @@ test('operations workbench summary aggregates review queues and static route loa
       project,
       prompt: 'Review the Tuberosa workbench queues.',
       initialContextPackId: pack.id,
+      metadata: { agentOutputSummary: secret },
     });
     await services.store.createReflectionDraft({
       project,
       title: 'Pending workbench draft',
       summary: 'Workbench drafts need review.',
-      content: 'Review pending drafts before they become searchable memory.',
+      content: `Review pending drafts before they become searchable memory. ${secret}`,
       triggerType: 'manual',
+      metadata: { secret },
     }, []);
     await services.store.createKnowledgeGap({
       project,
@@ -559,21 +563,67 @@ test('operations workbench summary aggregates review queues and static route loa
     equal(summary.counts.openConflicts, 1);
     equal(summary.counts.riskyAutoMemories, 1);
     equal(summary.counts.openErrorLogs, 1);
+    equal(summary.countMetadata.scanLimit, 100);
     ok(summary.contextQuality.records.some((record) => record.feedback.feedbackType === 'selected_but_noisy'));
     ok(summary.recommendedActions.some((action) => action.target === 'risky_auto_memories'));
+    equal(summary.pendingDrafts[0].duplicateCandidateCount, 0);
+    equal(summary.riskyAutoMemories[0].labelCount, 0);
+    ok(!('content' in summary.pendingDrafts[0]));
+    ok(!('metadata' in summary.riskyAutoMemories[0]));
+    ok(!JSON.stringify(summary).includes(secret));
 
     const viaHttp = await get(services, `/operations/workbench/summary?project=${project}&limit=5`) as Record<string, unknown>;
     equal((viaHttp.counts as Record<string, unknown>).openErrorLogs, 1);
     ok((viaHttp.recommendedActions as Array<Record<string, unknown>>).some((action) => action.target === 'context_quality'));
+    ok(!JSON.stringify(viaHttp).includes(secret));
 
     const html = await getRaw(services, '/workbench');
     equal(html.status, 200);
     ok(html.body.includes('Tuberosa Workbench'));
     ok(html.body.includes('/operations/workbench/summary'));
+    ok(!html.body.includes(secret));
   } finally {
     await services.close();
     await rm(backupDir, { recursive: true, force: true });
     await rm(errorLogDir, { recursive: true, force: true });
+  }
+});
+
+test('workbench summary endpoint is API-key protected while static workbench stays public', async () => {
+  const services = createTestServices();
+  services.config.apiKey = 'correct-api-key';
+
+  try {
+    const html = await dispatchHttpRaw(services, {
+      method: 'GET',
+      url: '/workbench',
+    });
+    equal(html.status, 200);
+    ok(html.body.includes('Tuberosa Workbench'));
+    ok(!html.body.includes('correct-api-key'));
+
+    const noKey = await dispatchHttp(services, {
+      method: 'GET',
+      url: '/operations/workbench/summary?project=protected-workbench&limit=1',
+    });
+    equal(noKey.status, 401);
+
+    const wrongKey = await dispatchHttp(services, {
+      method: 'GET',
+      url: '/operations/workbench/summary?project=protected-workbench&limit=1',
+      headers: { 'x-tuberosa-api-key': 'wrong-api-key' },
+    });
+    equal(wrongKey.status, 401);
+
+    const validKey = await dispatchHttp(services, {
+      method: 'GET',
+      url: '/operations/workbench/summary?project=protected-workbench&limit=1',
+      headers: { 'x-tuberosa-api-key': 'correct-api-key' },
+    });
+    equal(validKey.status, 200);
+    equal((validKey.body as Record<string, unknown>).filters !== undefined, true);
+  } finally {
+    await services.close();
   }
 });
 
@@ -1228,6 +1278,10 @@ test('operations API creates and restores portable JSONL backups', async () => {
     const status = await get(services, '/operations/backups/status') as Record<string, unknown>;
     equal(status.health, 'healthy');
     equal((status.latestBackup as Record<string, unknown>).id, 'unit-backup');
+    const scheduler = status.scheduler as Record<string, unknown>;
+    equal(scheduler.lastBackupId, 'unit-backup');
+    equal(typeof scheduler.lastSuccessAt, 'string');
+    equal(scheduler.lastError, undefined);
 
     const verification = await post(services, '/operations/backups/unit-backup/verify', {}) as Record<string, unknown>;
     equal(verification.ok, true);
@@ -1821,7 +1875,7 @@ async function getRaw(services: AppServices, url: string): Promise<{ status: num
 
 async function dispatchHttp(
   services: AppServices,
-  input: { method: string; url: string; body?: unknown },
+  input: { method: string; url: string; body?: unknown; headers?: Record<string, string> },
 ): Promise<{ status: number; body: unknown }> {
   const encoded = input.body === undefined ? '' : JSON.stringify(input.body);
   const request = Readable.from(encoded ? [Buffer.from(encoded)] : []) as IncomingMessage;
@@ -1830,6 +1884,7 @@ async function dispatchHttp(
   request.headers = {
     'content-length': String(Buffer.byteLength(encoded)),
     'content-type': 'application/json',
+    ...input.headers,
   };
 
   let status = 0;
@@ -1855,7 +1910,7 @@ async function dispatchHttp(
 
 async function dispatchHttpRaw(
   services: AppServices,
-  input: { method: string; url: string; body?: unknown },
+  input: { method: string; url: string; body?: unknown; headers?: Record<string, string> },
 ): Promise<{ status: number; body: string }> {
   const encoded = input.body === undefined ? '' : JSON.stringify(input.body);
   const request = Readable.from(encoded ? [Buffer.from(encoded)] : []) as IncomingMessage;
@@ -1864,6 +1919,7 @@ async function dispatchHttpRaw(
   request.headers = {
     'content-length': String(Buffer.byteLength(encoded)),
     'content-type': 'application/json',
+    ...input.headers,
   };
 
   let status = 0;

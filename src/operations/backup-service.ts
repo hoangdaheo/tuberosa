@@ -131,7 +131,11 @@ export class BackupService {
 
     this.inFlightBackup = this.writeBackup(input);
     try {
-      return await this.inFlightBackup;
+      const backup = await this.inFlightBackup;
+      this.schedulerState.lastSuccessAt = new Date().toISOString();
+      this.schedulerState.lastBackupId = backup.id;
+      this.schedulerState.lastError = undefined;
+      return backup;
     } finally {
       this.inFlightBackup = undefined;
     }

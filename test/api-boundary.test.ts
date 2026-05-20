@@ -538,6 +538,7 @@ test('MCP workbench summary tool exposes schema and dispatches aggregate summary
           enabled: false,
           running: false,
           writeThroughEnabled: false,
+          lastError: 'EACCES: backup directory is not writable',
         },
       }),
       listAgentSessions: async (options: { project?: string; limit: number }) => {
@@ -614,6 +615,8 @@ test('MCP workbench summary tool exposes schema and dispatches aggregate summary
   equal(result.structuredContent?.filters.project, 'agent-memory');
   equal(result.structuredContent?.counts.riskyAutoMemories, 1);
   equal(result.structuredContent?.counts.openErrorLogs, 1);
+  equal(result.structuredContent?.countMetadata.scanLimit, 100);
+  ok(result.structuredContent?.recommendedActions.some((action) => action.target === 'backup_health'));
   ok(result.structuredContent?.recommendedActions.some((action) => action.target === 'risky_auto_memories'));
   ok(result.structuredContent?.instruction?.includes('tuberosa_start_session'));
 });

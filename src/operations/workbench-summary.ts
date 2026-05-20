@@ -1,21 +1,35 @@
 import type { AppConfig } from '../config.js';
 import type { ErrorLogInsightService } from '../error-log/insights.js';
 import type {
-  AgentSession,
   CollectErrorLogsOptions,
+  BackupStatus,
   ContextQualityReport,
-  KnowledgeConflict,
-  KnowledgeGap,
-  LearningProposal,
-  ReflectionDraft,
-  StoredKnowledge,
+  ErrorLogCollection,
+  ErrorLogSummary,
+  ReferenceInput,
+  WorkbenchBackupStatus,
+  WorkbenchContextQualityReport,
+  WorkbenchCountMetadata,
+  WorkbenchErrorLogCollection,
+  WorkbenchFeedbackSummary,
+  WorkbenchKnowledgeConflictSummary,
+  WorkbenchKnowledgeGapSummary,
+  WorkbenchKnowledgeSummary,
+  WorkbenchLearningProposalSummary,
+  WorkbenchReflectionDraftSummary,
   WorkbenchRecommendedAction,
+  WorkbenchSessionSummary,
   WorkbenchSummary,
+  WorkbenchSummaryCountKey,
+  WorkbenchSummaryCounts,
   WorkbenchSummaryInput,
 } from '../types.js';
 import type { OperationsService } from './service.js';
 
 const COUNT_LIMIT = 100;
+const SHORT_TEXT_LIMIT = 240;
+const PROMPT_TEXT_LIMIT = 320;
+const ARRAY_PREVIEW_LIMIT = 8;
 
 export interface WorkbenchSummaryServices {
   config: Pick<AppConfig, 'store' | 'cache' | 'modelProvider' | 'backupDir'>;
@@ -68,14 +82,17 @@ export async function buildWorkbenchSummary(
     services.errorLogInsights.collect(openErrorLogOptions(project, filters.limit)),
   ]);
 
-  const recentSessions = sessionCandidates.slice(0, filters.limit);
-  const pendingDrafts = pendingDraftCandidates.slice(0, filters.limit);
-  const openGaps = openGapCandidates.slice(0, filters.limit);
-  const openProposals = openProposalCandidates.slice(0, filters.limit);
-  const openConflicts = openConflictCandidates.slice(0, filters.limit);
-  const riskyAutoMemories = riskyAutoMemoryCandidates.slice(0, filters.limit);
+  const recentSessions = sessionCandidates.slice(0, filters.limit).map(compactSession);
+  const contextQualitySummary = compactContextQuality(contextQuality);
+  const pendingDrafts = pendingDraftCandidates.slice(0, filters.limit).map(compactDraft);
+  const openGaps = openGapCandidates.slice(0, filters.limit).map(compactGap);
+  const openProposals = openProposalCandidates.slice(0, filters.limit).map(compactProposal);
+  const openConflicts = openConflictCandidates.slice(0, filters.limit).map(compactConflict);
+  const riskyAutoMemories = riskyAutoMemoryCandidates.slice(0, filters.limit).map(compactKnowledge);
+  const openErrorLogSummary = compactErrorLogs(openErrorLogs);
+  const backupStatusSummary = compactBackupStatus(backupStatus);
   const activeSessions = sessionCandidates.filter((session) => session.status === 'active').length;
-  const counts = {
+  const counts: WorkbenchSummaryCounts = {
     recentSessions: sessionCandidates.length,
     activeSessions,
     pendingDrafts: pendingDraftCandidates.length,
@@ -89,6 +106,15 @@ export async function buildWorkbenchSummary(
     openErrorLogs: openErrorLogs.totalMatched,
     backupCount: backupStatus.backupCount,
   };
+  const countMetadata = buildCountMetadata({
+    sessionCandidates,
+    pendingDraftCandidates,
+    openGapCandidates,
+    openProposalCandidates,
+    openConflictCandidates,
+    autoMemoryCandidates,
+    riskyAutoMemoryCandidates,
+  });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -101,20 +127,22 @@ export async function buildWorkbenchSummary(
       cache: services.config.cache,
       modelProvider: services.config.modelProvider,
       backupDir: services.config.backupDir,
-      backupStatus,
+      backupStatus: backupStatusSummary,
     },
     counts,
+    countMetadata,
     recentSessions,
-    contextQuality,
+    contextQuality: contextQualitySummary,
     pendingDrafts,
     openGaps,
     openProposals,
     openConflicts,
     riskyAutoMemories,
-    openErrorLogs,
+    openErrorLogs: openErrorLogSummary,
     recommendedActions: recommendedActions({
       counts,
-      contextQuality,
+      backupStatus,
+      contextQuality: contextQualitySummary,
       recentSessions,
       pendingDrafts,
       openGaps,
@@ -136,18 +164,31 @@ function openErrorLogOptions(project: string | undefined, limit: number): Collec
 }
 
 function recommendedActions(input: {
-  counts: WorkbenchSummary['counts'];
-  contextQuality: ContextQualityReport;
-  recentSessions: AgentSession[];
-  pendingDrafts: ReflectionDraft[];
-  openGaps: KnowledgeGap[];
-  openProposals: LearningProposal[];
-  openConflicts: KnowledgeConflict[];
-  riskyAutoMemories: StoredKnowledge[];
+  counts: WorkbenchSummaryCounts;
+  backupStatus: BackupStatus;
+  contextQuality: WorkbenchContextQualityReport;
+  recentSessions: WorkbenchSessionSummary[];
+  pendingDrafts: WorkbenchReflectionDraftSummary[];
+  openGaps: WorkbenchKnowledgeGapSummary[];
+  openProposals: WorkbenchLearningProposalSummary[];
+  openConflicts: WorkbenchKnowledgeConflictSummary[];
+  riskyAutoMemories: WorkbenchKnowledgeSummary[];
   project?: string;
 }): WorkbenchRecommendedAction[] {
   const actions: WorkbenchRecommendedAction[] = [];
   const projectQuery = input.project ? { project: input.project } : {};
+  const backupIssue = backupHealthIssue(input.backupStatus);
+
+  if (backupIssue) {
+    actions.push({
+      priority: 1,
+      target: 'backup_health',
+      label: 'Repair backup health',
+      count: 1,
+      href: '/operations/backups/status',
+      reason: backupIssue,
+    });
+  }
 
   if (input.contextQuality.totalMatched > 0) {
     actions.push({
@@ -251,6 +292,389 @@ function recommendedActions(input: {
   }
 
   return actions.sort((left, right) => left.priority - right.priority || left.label.localeCompare(right.label));
+}
+
+function buildCountMetadata(input: {
+  sessionCandidates: unknown[];
+  pendingDraftCandidates: unknown[];
+  openGapCandidates: unknown[];
+  openProposalCandidates: unknown[];
+  openConflictCandidates: unknown[];
+  autoMemoryCandidates: unknown[];
+  riskyAutoMemoryCandidates: unknown[];
+}): WorkbenchCountMetadata {
+  const capped: Partial<Record<WorkbenchSummaryCountKey, boolean>> = {};
+  markCapped(capped, 'recentSessions', input.sessionCandidates);
+  markCapped(capped, 'activeSessions', input.sessionCandidates);
+  markCapped(capped, 'pendingDrafts', input.pendingDraftCandidates);
+  markCapped(capped, 'openGaps', input.openGapCandidates);
+  markCapped(capped, 'openProposals', input.openProposalCandidates);
+  markCapped(capped, 'openConflicts', input.openConflictCandidates);
+  markCapped(capped, 'autoMemories', input.autoMemoryCandidates);
+  markCapped(capped, 'riskyAutoMemories', input.riskyAutoMemoryCandidates);
+
+  return {
+    scanLimit: COUNT_LIMIT,
+    capped,
+  };
+}
+
+function markCapped(
+  capped: Partial<Record<WorkbenchSummaryCountKey, boolean>>,
+  key: WorkbenchSummaryCountKey,
+  candidates: unknown[],
+): void {
+  if (candidates.length >= COUNT_LIMIT) {
+    capped[key] = true;
+  }
+}
+
+function compactSession(session: {
+  id: string;
+  project?: string;
+  cwd?: string;
+  prompt: string;
+  status: WorkbenchSessionSummary['status'];
+  outcome?: WorkbenchSessionSummary['outcome'];
+  summary?: string;
+  initialContextPackId?: string;
+  reflectionDraftIds: string[];
+  createdAt: string;
+  updatedAt?: string;
+  finishedAt?: string;
+}): WorkbenchSessionSummary {
+  return {
+    id: session.id,
+    project: session.project,
+    cwd: session.cwd,
+    status: session.status,
+    outcome: session.outcome,
+    prompt: shortText(session.prompt, PROMPT_TEXT_LIMIT),
+    summary: optionalShortText(session.summary),
+    initialContextPackId: session.initialContextPackId,
+    reflectionDraftCount: session.reflectionDraftIds.length,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    finishedAt: session.finishedAt,
+  };
+}
+
+function compactContextQuality(report: ContextQualityReport): WorkbenchContextQualityReport {
+  return {
+    generatedAt: report.generatedAt,
+    filters: report.filters,
+    totalMatched: report.totalMatched,
+    records: report.records.map((record) => ({
+      feedback: compactFeedback(record.feedback),
+      contextPack: record.contextPack
+        ? {
+          ...record.contextPack,
+          prompt: shortText(record.contextPack.prompt, PROMPT_TEXT_LIMIT),
+          missingSignals: previewStrings(record.contextPack.missingSignals),
+        }
+        : undefined,
+      session: record.session
+        ? {
+          ...record.session,
+          prompt: shortText(record.session.prompt, PROMPT_TEXT_LIMIT),
+          summary: optionalShortText(record.session.summary),
+        }
+        : undefined,
+      adjacentItems: record.adjacentItems.map((item) => ({
+        ...item,
+        reasons: previewStrings(item.reasons),
+        missingSignals: previewStrings(item.missingSignals),
+      })),
+      missingSignals: previewStrings(record.missingSignals),
+      openKnowledgeGaps: record.openKnowledgeGaps.map((gap) => ({
+        ...gap,
+        missingSignals: previewStrings(gap.missingSignals),
+        reason: optionalShortText(gap.reason),
+      })),
+      openLearningProposals: record.openLearningProposals.map((proposal) => ({
+        ...proposal,
+        reason: shortText(proposal.reason),
+        evidence: previewStrings(proposal.evidence),
+      })),
+      suggestedReviewActions: previewStrings(record.suggestedReviewActions, 12),
+    })),
+    rollups: report.rollups,
+  };
+}
+
+function compactFeedback(feedback: ContextQualityReport['records'][number]['feedback']): WorkbenchFeedbackSummary {
+  return {
+    id: feedback.id,
+    project: feedback.project,
+    contextPackId: feedback.contextPackId,
+    feedbackType: feedback.feedbackType,
+    reason: optionalShortText(feedback.reason),
+    rejectedKnowledgeCount: feedback.rejectedKnowledgeIds?.length ?? 0,
+    createdAt: feedback.createdAt,
+  };
+}
+
+function compactDraft(draft: {
+  id: string;
+  project?: string;
+  title: string;
+  summary: string;
+  itemType: WorkbenchReflectionDraftSummary['itemType'];
+  triggerType: WorkbenchReflectionDraftSummary['triggerType'];
+  status: WorkbenchReflectionDraftSummary['status'];
+  suggestedLabels: unknown[];
+  references: unknown[];
+  duplicateCandidates: unknown[];
+  createdAt: string;
+}): WorkbenchReflectionDraftSummary {
+  return {
+    id: draft.id,
+    project: draft.project,
+    title: shortText(draft.title),
+    summary: shortText(draft.summary),
+    itemType: draft.itemType,
+    triggerType: draft.triggerType,
+    status: draft.status,
+    labelCount: draft.suggestedLabels.length,
+    referenceCount: draft.references.length,
+    duplicateCandidateCount: draft.duplicateCandidates.length,
+    createdAt: draft.createdAt,
+  };
+}
+
+function compactGap(gap: {
+  id: string;
+  project?: string;
+  sourceSessionId?: string;
+  contextPackId?: string;
+  prompt: string;
+  missingSignals: string[];
+  reason?: string;
+  status: WorkbenchKnowledgeGapSummary['status'];
+  createdAt: string;
+  updatedAt?: string;
+  reviewedAt?: string;
+}): WorkbenchKnowledgeGapSummary {
+  return {
+    id: gap.id,
+    project: gap.project,
+    status: gap.status,
+    sourceSessionId: gap.sourceSessionId,
+    contextPackId: gap.contextPackId,
+    prompt: shortText(gap.prompt, PROMPT_TEXT_LIMIT),
+    missingSignals: previewStrings(gap.missingSignals),
+    missingSignalCount: gap.missingSignals.length,
+    reason: optionalShortText(gap.reason),
+    createdAt: gap.createdAt,
+    updatedAt: gap.updatedAt,
+    reviewedAt: gap.reviewedAt,
+  };
+}
+
+function compactProposal(proposal: {
+  id: string;
+  project?: string;
+  sourceSessionId?: string;
+  contextPackId?: string;
+  affectedKnowledgeId?: string;
+  candidateKnowledgeId?: string;
+  reason: string;
+  evidence: string[];
+  status: WorkbenchLearningProposalSummary['status'];
+  proposalType: WorkbenchLearningProposalSummary['proposalType'];
+  createdAt: string;
+  updatedAt?: string;
+  reviewedAt?: string;
+}): WorkbenchLearningProposalSummary {
+  return {
+    id: proposal.id,
+    project: proposal.project,
+    status: proposal.status,
+    proposalType: proposal.proposalType,
+    sourceSessionId: proposal.sourceSessionId,
+    contextPackId: proposal.contextPackId,
+    affectedKnowledgeId: proposal.affectedKnowledgeId,
+    candidateKnowledgeId: proposal.candidateKnowledgeId,
+    reason: shortText(proposal.reason),
+    evidence: previewStrings(proposal.evidence),
+    evidenceCount: proposal.evidence.length,
+    createdAt: proposal.createdAt,
+    updatedAt: proposal.updatedAt,
+    reviewedAt: proposal.reviewedAt,
+  };
+}
+
+function compactConflict(conflict: {
+  id: string;
+  project?: string;
+  status: WorkbenchKnowledgeConflictSummary['status'];
+  conflictType: WorkbenchKnowledgeConflictSummary['conflictType'];
+  leftKnowledgeId: string;
+  rightKnowledgeId: string;
+  sharedEvidence: string[];
+  reason: string;
+  createdAt: string;
+  updatedAt?: string;
+  resolvedAt?: string;
+}): WorkbenchKnowledgeConflictSummary {
+  return {
+    id: conflict.id,
+    project: conflict.project,
+    status: conflict.status,
+    conflictType: conflict.conflictType,
+    leftKnowledgeId: conflict.leftKnowledgeId,
+    rightKnowledgeId: conflict.rightKnowledgeId,
+    sharedEvidence: previewStrings(conflict.sharedEvidence),
+    sharedEvidenceCount: conflict.sharedEvidence.length,
+    reason: shortText(conflict.reason),
+    createdAt: conflict.createdAt,
+    updatedAt: conflict.updatedAt,
+    resolvedAt: conflict.resolvedAt,
+  };
+}
+
+function compactKnowledge(knowledge: {
+  id: string;
+  project: string;
+  sourceType?: string;
+  sourceUri?: string;
+  status?: WorkbenchKnowledgeSummary['status'];
+  itemType: WorkbenchKnowledgeSummary['itemType'];
+  title: string;
+  summary: string;
+  trustLevel: number;
+  freshnessAt?: string;
+  labels: unknown[];
+  references: unknown[];
+  createdAt: string;
+  updatedAt?: string;
+}): WorkbenchKnowledgeSummary {
+  return {
+    id: knowledge.id,
+    project: knowledge.project,
+    sourceType: knowledge.sourceType,
+    sourceUri: knowledge.sourceUri,
+    status: knowledge.status,
+    itemType: knowledge.itemType,
+    title: shortText(knowledge.title),
+    summary: shortText(knowledge.summary),
+    trustLevel: knowledge.trustLevel,
+    freshnessAt: knowledge.freshnessAt,
+    labelCount: knowledge.labels.length,
+    referenceCount: knowledge.references.length,
+    createdAt: knowledge.createdAt,
+    updatedAt: knowledge.updatedAt,
+  };
+}
+
+function compactErrorLogs(collection: ErrorLogCollection): WorkbenchErrorLogCollection {
+  return {
+    generatedAt: collection.generatedAt,
+    project: collection.project,
+    totalMatched: collection.totalMatched,
+    returned: collection.returned,
+    nextOffset: collection.nextOffset,
+    filters: collection.filters,
+    rollups: collection.rollups,
+    clusters: collection.clusters.map((cluster) => ({
+      ...cluster,
+      title: shortText(cluster.title),
+      files: previewStrings(cluster.files),
+      symbols: previewStrings(cluster.symbols),
+      errors: previewStrings(cluster.errors),
+      tags: previewStrings(cluster.tags),
+      logIds: previewStrings(cluster.logIds),
+    })),
+    logs: collection.logs.map(compactErrorLog),
+  };
+}
+
+function compactErrorLog(log: ErrorLogSummary): ErrorLogSummary {
+  return {
+    ...log,
+    title: shortText(log.title),
+    summary: shortText(log.summary),
+    files: previewStrings(log.files),
+    symbols: previewStrings(log.symbols),
+    errors: previewStrings(log.errors),
+    tags: previewStrings(log.tags),
+    references: log.references.slice(0, ARRAY_PREVIEW_LIMIT).map(compactReference),
+  };
+}
+
+function compactBackupStatus(status: BackupStatus): WorkbenchBackupStatus {
+  return {
+    backupDir: status.backupDir,
+    store: status.store,
+    health: status.health,
+    latestBackup: status.latestBackup
+      ? {
+        id: status.latestBackup.id,
+        path: status.latestBackup.path,
+        createdAt: status.latestBackup.createdAt,
+        format: status.latestBackup.format,
+        totalRows: status.latestBackup.totalRows,
+        ageSeconds: status.latestBackup.ageSeconds,
+        health: status.latestBackup.health,
+        tableCount: status.latestBackup.tables.length,
+      }
+      : undefined,
+    latestVerification: status.latestVerification
+      ? {
+        backupId: status.latestVerification.backupId,
+        path: status.latestVerification.path,
+        ok: status.latestVerification.ok,
+        health: status.latestVerification.health,
+        checkedAt: status.latestVerification.checkedAt,
+        manifestVersion: status.latestVerification.manifestVersion,
+        totalRows: status.latestVerification.totalRows,
+        issueCount: status.latestVerification.issues.length,
+        issues: status.latestVerification.issues.slice(0, ARRAY_PREVIEW_LIMIT),
+      }
+      : undefined,
+    backupCount: status.backupCount,
+    totalRows: status.totalRows,
+    scheduler: status.scheduler,
+  };
+}
+
+function compactReference(reference: ReferenceInput): ReferenceInput {
+  return {
+    type: reference.type,
+    uri: reference.uri,
+    lineStart: reference.lineStart,
+    lineEnd: reference.lineEnd,
+    commitSha: reference.commitSha,
+  };
+}
+
+function backupHealthIssue(status: BackupStatus): string | undefined {
+  if (status.scheduler.lastError) {
+    return `Backup scheduler last error: ${shortText(status.scheduler.lastError)}`;
+  }
+
+  if (status.health === 'unhealthy' || status.health === 'degraded') {
+    return `Backup health is ${status.health}; inspect backup status before trusting recovery state.`;
+  }
+
+  return undefined;
+}
+
+function previewStrings(values: string[], limit = ARRAY_PREVIEW_LIMIT): string[] {
+  return values.slice(0, limit).map((value) => shortText(value));
+}
+
+function optionalShortText(value: string | undefined, max = SHORT_TEXT_LIMIT): string | undefined {
+  return value === undefined ? undefined : shortText(value, max);
+}
+
+function shortText(value: string, max = SHORT_TEXT_LIMIT): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, max - 3))}...`;
 }
 
 function endpointWithQuery(path: string, params: Record<string, string | number | undefined>): string {

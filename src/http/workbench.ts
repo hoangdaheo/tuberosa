@@ -502,17 +502,17 @@ export function workbenchHtml(): string {
 
     function renderMetrics(summary) {
       const metrics = [
-        ['Context-quality', summary.counts.contextQualityMatched],
-        ['Pending drafts', summary.counts.pendingDrafts],
-        ['Risky auto memories', summary.counts.riskyAutoMemories],
-        ['Open gaps', summary.counts.openGaps],
-        ['Open proposals', summary.counts.openProposals],
-        ['Open conflicts', summary.counts.openConflicts],
-        ['Open error logs', summary.counts.openErrorLogs],
-        ['Active sessions', summary.counts.activeSessions],
+        ['contextQualityMatched', 'Context-quality'],
+        ['pendingDrafts', 'Pending drafts'],
+        ['riskyAutoMemories', 'Risky auto memories'],
+        ['openGaps', 'Open gaps'],
+        ['openProposals', 'Open proposals'],
+        ['openConflicts', 'Open conflicts'],
+        ['openErrorLogs', 'Open error logs'],
+        ['activeSessions', 'Active sessions'],
       ];
-      els.metrics.replaceChildren(...metrics.map(([label, value]) => node('div', { class: 'metric' }, [
-        node('strong', {}, String(value)),
+      els.metrics.replaceChildren(...metrics.map(([key, label]) => node('div', { class: 'metric' }, [
+        node('strong', {}, formatCount(summary, key)),
         node('span', {}, label),
       ])));
     }
@@ -726,6 +726,11 @@ export function workbenchHtml(): string {
 
     function score(value) {
       return typeof value === 'number' ? value.toFixed(3) : '';
+    }
+
+    function formatCount(summary, key) {
+      const value = summary.counts?.[key] ?? 0;
+      return summary.countMetadata?.capped?.[key] ? String(value) + '+' : String(value);
     }
 
     function valueOf(selector) {

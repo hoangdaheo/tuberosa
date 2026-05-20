@@ -1,12 +1,13 @@
 import type {
   ErrorLogSummary,
-  KnowledgeConflict,
-  KnowledgeGap,
-  LearningProposal,
-  ReflectionDraft,
-  StoredKnowledge,
+  WorkbenchKnowledgeConflictSummary,
+  WorkbenchKnowledgeGapSummary,
+  WorkbenchKnowledgeSummary,
+  WorkbenchLearningProposalSummary,
+  WorkbenchReflectionDraftSummary,
   WorkbenchRecommendedAction,
   WorkbenchSummary,
+  WorkbenchSummaryCountKey,
 } from '../types.js';
 import { buildWorkbenchSummary, type WorkbenchSummaryServices } from './workbench-summary.js';
 
@@ -102,12 +103,13 @@ export function formatWorkbenchSummary(
     `Backups: ${summary.health.backupStatus.health}; count=${summary.health.backupStatus.backupCount}; dir=${summary.health.backupDir}`,
     '',
     '## Counts',
-    `Recent sessions: ${summary.counts.recentSessions}; active=${summary.counts.activeSessions}`,
-    `Context quality: matched=${summary.counts.contextQualityMatched}; showing=${summary.counts.contextQualityRecords}`,
-    `Pending drafts: ${summary.counts.pendingDrafts}`,
-    `Open gaps/proposals/conflicts: ${summary.counts.openGaps}/${summary.counts.openProposals}/${summary.counts.openConflicts}`,
-    `Auto memories: ${summary.counts.autoMemories}; risky=${summary.counts.riskyAutoMemories}`,
-    `Open error logs: ${summary.counts.openErrorLogs}`,
+    `Count scan limit: ${summary.countMetadata.scanLimit}; capped values end with +`,
+    `Recent sessions: ${formatCount(summary, 'recentSessions')}; active=${formatCount(summary, 'activeSessions')}`,
+    `Context quality: matched=${formatCount(summary, 'contextQualityMatched')}; showing=${formatCount(summary, 'contextQualityRecords')}`,
+    `Pending drafts: ${formatCount(summary, 'pendingDrafts')}`,
+    `Open gaps/proposals/conflicts: ${formatCount(summary, 'openGaps')}/${formatCount(summary, 'openProposals')}/${formatCount(summary, 'openConflicts')}`,
+    `Auto memories: ${formatCount(summary, 'autoMemories')}; risky=${formatCount(summary, 'riskyAutoMemories')}`,
+    `Open error logs: ${formatCount(summary, 'openErrorLogs')}`,
     '',
     '## Recommended Actions',
     ...formatRecommendedActions(summary.recommendedActions, options.apiBase),
@@ -178,7 +180,7 @@ function formatMemoryReview(summary: WorkbenchSummary, apiBase?: string): string
   return lines.length > 0 ? lines : ['No pending memory review items matched these filters.'];
 }
 
-function appendDrafts(lines: string[], drafts: ReflectionDraft[], apiBase?: string): void {
+function appendDrafts(lines: string[], drafts: WorkbenchReflectionDraftSummary[], apiBase?: string): void {
   if (drafts.length === 0) {
     return;
   }
@@ -189,7 +191,7 @@ function appendDrafts(lines: string[], drafts: ReflectionDraft[], apiBase?: stri
   }
 }
 
-function appendAutoMemories(lines: string[], memories: StoredKnowledge[], apiBase?: string): void {
+function appendAutoMemories(lines: string[], memories: WorkbenchKnowledgeSummary[], apiBase?: string): void {
   if (memories.length === 0) {
     return;
   }
@@ -200,7 +202,7 @@ function appendAutoMemories(lines: string[], memories: StoredKnowledge[], apiBas
   }
 }
 
-function appendGaps(lines: string[], gaps: KnowledgeGap[], apiBase?: string): void {
+function appendGaps(lines: string[], gaps: WorkbenchKnowledgeGapSummary[], apiBase?: string): void {
   if (gaps.length === 0) {
     return;
   }
@@ -211,7 +213,7 @@ function appendGaps(lines: string[], gaps: KnowledgeGap[], apiBase?: string): vo
   }
 }
 
-function appendProposals(lines: string[], proposals: LearningProposal[], apiBase?: string): void {
+function appendProposals(lines: string[], proposals: WorkbenchLearningProposalSummary[], apiBase?: string): void {
   if (proposals.length === 0) {
     return;
   }
@@ -222,7 +224,7 @@ function appendProposals(lines: string[], proposals: LearningProposal[], apiBase
   }
 }
 
-function appendConflicts(lines: string[], conflicts: KnowledgeConflict[], apiBase?: string): void {
+function appendConflicts(lines: string[], conflicts: WorkbenchKnowledgeConflictSummary[], apiBase?: string): void {
   if (conflicts.length === 0) {
     return;
   }
@@ -248,6 +250,11 @@ function formatFilters(filters: WorkbenchSummary['filters']): string {
     filters.project ? `project=${filters.project}` : 'project=all',
     `limit=${filters.limit}`,
   ].join('; ');
+}
+
+function formatCount(summary: WorkbenchSummary, key: WorkbenchSummaryCountKey): string {
+  const value = summary.counts[key];
+  return summary.countMetadata.capped[key] ? `${value}+` : String(value);
 }
 
 function endpointWithQuery(
