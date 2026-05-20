@@ -34,6 +34,7 @@ import {
   validateRecordAgentContextDecisionInput,
   validateReflectionDraftPatchInput,
   validateReflectionDraftInput,
+  validateReflectionDraftReviewInput,
   validateRestoreBackupInput,
   validateResolveErrorLogInput,
   validateStartAgentSessionInput,
@@ -615,6 +616,24 @@ function createRoutes(): HttpRoute[] {
         }
 
         services.operations.requestPhysicalMirror('reflection-updated');
+        return draft;
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/reflection-drafts\/([^/]+)\/review$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = validateReflectionDraftReviewInput({
+          ...await readJsonBody(request, services.config.maxRequestBytes),
+          id: params.id,
+        });
+        const draft = await services.reflection.reviewDraft(body);
+        if (!draft) {
+          throw new NotFoundError('Reflection draft not found.');
+        }
+
+        services.operations.requestWriteThroughBackup('reflection-reviewed');
+        services.operations.requestPhysicalMirror('reflection-reviewed');
         return draft;
       },
     },

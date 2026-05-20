@@ -241,14 +241,57 @@ test('operations API reviews, updates, imports, and lists audit records', async 
       content: 'When adding operations APIs, list reflection drafts and let reviewers reject stale drafts before approval.',
       triggerType: 'manual',
     }) as Record<string, unknown>;
-    const rejectedDraft = await patch(services, `/reflection-drafts/${draft.id}`, {
-      status: 'rejected',
-      metadata: { reason: 'superseded' },
+    const rejectedDraft = await post(services, `/reflection-drafts/${draft.id}/review`, {
+      decision: 'reject',
+      reviewer: 'operations-test',
+      reviewerNote: 'Superseded by newer operations notes.',
     }) as Record<string, unknown>;
     equal(rejectedDraft.status, 'rejected');
 
     const drafts = await get(services, `/reflection-drafts?project=${project}&status=rejected`) as Array<Record<string, unknown>>;
     ok(drafts.some((item) => item.id === draft.id));
+
+    const revisionDraft = await post(services, '/reflection-drafts', {
+      project,
+      title: 'Revise operations rubric',
+      summary: 'Operations review rubric should be narrower before approval.',
+      content: 'Use needs_changes when a reflection draft has a useful lesson but lacks references or has too much scope.',
+      triggerType: 'manual',
+    }) as Record<string, unknown>;
+    const needsChangesDraft = await post(services, `/reflection-drafts/${revisionDraft.id}/review`, {
+      decision: 'needs_changes',
+      reviewer: 'operations-test',
+      reviewerNote: 'Add concrete references before approval.',
+      evaluation: {
+        accuracy: 'pass',
+        usefulness: 'concern',
+        duplicateRisk: 'low',
+      },
+    }) as Record<string, unknown>;
+    equal(needsChangesDraft.status, 'needs_changes');
+    const reviewMetadata = (needsChangesDraft.metadata as Record<string, unknown>).review as Record<string, unknown>;
+    equal(reviewMetadata.reviewerNote, 'Add concrete references before approval.');
+
+    const approvalDraft = await post(services, '/reflection-drafts', {
+      project,
+      title: 'Approve operations memory',
+      summary: 'Approved reflection drafts become searchable knowledge.',
+      content: 'After reviewer approval, a reflection draft is ingested as trusted reflection knowledge.',
+      triggerType: 'manual',
+    }) as Record<string, unknown>;
+    const approvedDraft = await post(services, `/reflection-drafts/${approvalDraft.id}/review`, {
+      decision: 'approve',
+      reviewer: 'operations-test',
+      evaluation: {
+        accuracy: 'pass',
+        usefulness: 'pass',
+        scope: 'pass',
+        privacySafety: 'pass',
+      },
+    }) as Record<string, unknown>;
+    equal(approvedDraft.status, 'approved');
+    const approvedKnowledge = await get(services, `/knowledge?project=${project}&limit=50`) as Array<Record<string, unknown>>;
+    ok(approvedKnowledge.some((item) => item.sourceUri === `reflection://draft/${approvalDraft.id}`));
 
     const sessionStart = await post(services, '/agent-sessions', {
       project,

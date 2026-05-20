@@ -133,7 +133,20 @@ test('workbench browser flow starts, reviews, and finishes an agent session', as
       await page.locator('#qualityResult .item-title').filter({ hasText: 'selected_but_noisy' }).first().waitFor();
 
       await page.getByRole('button', { name: 'Memory Review', exact: true }).click();
-      await page.locator('#memoryResult').getByText('Open Gaps').waitFor();
+      await page.locator('#memoryResult .item-title').filter({ hasText: 'Open Gaps' }).waitFor();
+      await page.locator('#draftReviewResult').getByText('Pending browser workbench draft').waitFor();
+      await page.locator('#knowledgeResult').getByText('Workbench browser audit workflow').waitFor();
+      await page.locator('#draftReviewer').fill('browser-smoke');
+      await page.locator('#draftReviewResult textarea').first().fill('Useful draft, but the smoke seed has no references.');
+      await page.locator('#draftReviewResult').getByRole('button', { name: 'Needs changes', exact: true }).click();
+      await page.waitForFunction(() => (
+        (globalThis as unknown as { document: { querySelector(selector: string): { textContent?: string | null } | null } })
+          .document
+          .querySelector('#status')
+          ?.textContent
+          ?.includes('needs_changes')
+      ));
+      await page.locator('#draftReviewResult').getByText('No reflection drafts matched this status.').waitFor();
 
       ok(await hasNoHorizontalOverflow(page));
       await page.setViewportSize({ width: 390, height: 844 });

@@ -111,6 +111,16 @@ export function workbenchHtml(): string {
       color: #fff;
     }
 
+    button.warn {
+      border-color: var(--warn);
+      color: var(--warn);
+    }
+
+    button.danger {
+      border-color: var(--bad);
+      color: var(--bad);
+    }
+
     button:disabled {
       opacity: 0.55;
       cursor: wait;
@@ -202,9 +212,79 @@ export function workbenchHtml(): string {
       margin: 8px 0;
     }
 
+    .notice {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: end;
+      margin-bottom: 10px;
+    }
+
+    .toolbar label {
+      min-width: 150px;
+    }
+
+    .card-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .card-main {
+      min-width: 0;
+    }
+
     .item-title {
       font-weight: 750;
       overflow-wrap: anywhere;
+    }
+
+    .queue-line {
+      border-top: 1px solid var(--line);
+      padding: 8px 0;
+    }
+
+    .queue-line:first-of-type {
+      border-top: 0;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .field {
+      min-width: 0;
+    }
+
+    .field strong {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
+    .review-controls {
+      border-top: 1px solid var(--line);
+      margin-top: 10px;
+      padding-top: 10px;
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--accent-2);
+      margin: 8px 0;
     }
 
     .muted { color: var(--muted); }
@@ -260,6 +340,7 @@ export function workbenchHtml(): string {
       aside { position: static; }
       .controls { justify-content: flex-start; }
       .grid, .grid.two { grid-template-columns: 1fr; }
+      .field-grid, .card-header { grid-template-columns: 1fr; }
       .span-2, .span-4 { grid-column: auto; }
     }
   </style>
@@ -353,6 +434,61 @@ export function workbenchHtml(): string {
             <h2>Memory Review</h2>
             <div id="memoryResult"></div>
           </section>
+          <section class="panel">
+            <h2>Reflection Draft Queue</h2>
+            <div class="notice small">
+              Pending drafts are proposed memories. They do not become searchable context until a reviewer approves them.
+              Use needs changes when a draft is useful but too broad, ungrounded, duplicated, or missing references.
+            </div>
+            <div class="toolbar" style="margin-top:10px">
+              <label>Status
+                <select id="draftStatus">
+                  <option value="pending">pending</option>
+                  <option value="needs_changes">needs changes</option>
+                  <option value="rejected">rejected</option>
+                  <option value="approved">approved</option>
+                </select>
+              </label>
+              <label>Reviewer <input id="draftReviewer" autocomplete="off" placeholder="optional"></label>
+              <button id="loadDrafts" type="button">Load Drafts</button>
+            </div>
+            <div id="draftReviewResult"></div>
+          </section>
+          <section class="panel">
+            <h2>Knowledge Browser</h2>
+            <div class="notice small">
+              Knowledge is the reviewed store Tuberosa retrieves from. These cards show trust, status, provenance,
+              labels, references, and content without making you read raw JSON.
+            </div>
+            <div class="toolbar" style="margin-top:10px">
+              <label>Search <input id="knowledgeQuery" autocomplete="off" placeholder="title, summary, content"></label>
+              <label>Status
+                <select id="knowledgeStatus">
+                  <option value="">any</option>
+                  <option value="approved">approved</option>
+                  <option value="needs_review">needs review</option>
+                  <option value="archived">archived</option>
+                  <option value="blocked">blocked</option>
+                </select>
+              </label>
+              <label>Review filter
+                <select id="knowledgeReview">
+                  <option value="">none</option>
+                  <option value="questionable">questionable</option>
+                  <option value="risky_auto_memory">risky auto memory</option>
+                  <option value="auto_memory">auto memory</option>
+                  <option value="stale">stale</option>
+                  <option value="rejected">rejected feedback</option>
+                  <option value="irrelevant">irrelevant feedback</option>
+                  <option value="low_trust">low trust</option>
+                  <option value="unsafe">unsafe</option>
+                  <option value="orphaned">orphaned</option>
+                </select>
+              </label>
+              <button id="loadKnowledge" type="button">Load Knowledge</button>
+            </div>
+            <div id="knowledgeResult"></div>
+          </section>
         </section>
       </div>
     </main>
@@ -376,6 +512,15 @@ export function workbenchHtml(): string {
       sessionResult: document.querySelector('#sessionResult'),
       qualityResult: document.querySelector('#qualityResult'),
       memoryResult: document.querySelector('#memoryResult'),
+      draftStatus: document.querySelector('#draftStatus'),
+      draftReviewer: document.querySelector('#draftReviewer'),
+      draftReviewResult: document.querySelector('#draftReviewResult'),
+      loadDrafts: document.querySelector('#loadDrafts'),
+      knowledgeQuery: document.querySelector('#knowledgeQuery'),
+      knowledgeStatus: document.querySelector('#knowledgeStatus'),
+      knowledgeReview: document.querySelector('#knowledgeReview'),
+      knowledgeResult: document.querySelector('#knowledgeResult'),
+      loadKnowledge: document.querySelector('#loadKnowledge'),
     };
 
     els.apiKey.value = localStorage.getItem('tuberosa.apiKey') || '';
@@ -387,7 +532,10 @@ export function workbenchHtml(): string {
       tab.addEventListener('click', () => switchView(tab.dataset.view));
     });
 
-    els.refresh.addEventListener('click', refreshSummary);
+    els.refresh.addEventListener('click', refreshCurrentView);
+    els.loadDrafts.addEventListener('click', () => loadDraftQueue());
+    els.draftStatus.addEventListener('change', () => loadDraftQueue());
+    els.loadKnowledge.addEventListener('click', () => loadKnowledge());
     els.apiKey.addEventListener('input', () => localStorage.setItem('tuberosa.apiKey', els.apiKey.value));
     els.projectFilter.addEventListener('input', () => {
       localStorage.setItem('tuberosa.project', els.projectFilter.value);
@@ -401,10 +549,22 @@ export function workbenchHtml(): string {
 
     refreshSummary();
 
-    function switchView(view) {
+    async function switchView(view) {
       document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.view === view));
       document.querySelectorAll('.view').forEach((section) => section.classList.toggle('active', section.id === view));
-      if (view === 'quality' || view === 'memory') refreshSummary();
+      if (view === 'quality' || view === 'memory') await refreshCurrentView();
+    }
+
+    async function refreshCurrentView() {
+      await refreshSummary();
+      if (activeView() === 'memory') {
+        await loadDraftQueue({ quiet: true });
+        await loadKnowledge({ quiet: true });
+      }
+    }
+
+    function activeView() {
+      return document.querySelector('.view.active')?.id || 'start';
     }
 
     async function refreshSummary() {
@@ -497,6 +657,87 @@ export function workbenchHtml(): string {
         setError(error);
       } finally {
         setBusy(false);
+      }
+    }
+
+    async function loadDraftQueue(options = {}) {
+      if (!options.quiet) setBusy(true, 'Loading reflection drafts');
+      try {
+        const params = new URLSearchParams();
+        const project = valueOf('#projectFilter');
+        const status = valueOf('#draftStatus') || 'pending';
+        const limit = valueOf('#limitFilter') || '10';
+        if (project) params.set('project', project);
+        params.set('status', status);
+        params.set('limit', limit);
+        const drafts = await api('/reflection-drafts?' + params.toString());
+        renderDraftQueue(drafts);
+        if (!options.quiet) setStatus('Loaded ' + drafts.length + ' reflection drafts');
+      } catch (error) {
+        els.draftReviewResult.replaceChildren(empty(error instanceof Error ? error.message : String(error)));
+        if (!options.quiet) setError(error);
+      } finally {
+        if (!options.quiet) setBusy(false);
+      }
+    }
+
+    async function reviewDraft(id, decision) {
+      setBusy(true, 'Reviewing reflection draft');
+      try {
+        const result = await api('/reflection-drafts/' + encodeURIComponent(id) + '/review', {
+          method: 'POST',
+          body: JSON.stringify(compact({
+            decision,
+            reviewer: valueOf('#draftReviewer'),
+            reviewerNote: valueOf('#draftReviewNote-' + id),
+            evaluation: draftEvaluation(id),
+          })),
+        });
+        await refreshSummary();
+        await loadDraftQueue({ quiet: true });
+        setStatus('Recorded ' + decision + ' for draft ' + result.id);
+      } catch (error) {
+        setError(error);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function draftEvaluation(id) {
+      const evaluation = compact({
+        accuracy: valueOf('#draftAccuracy-' + id),
+        usefulness: valueOf('#draftUsefulness-' + id),
+        scope: valueOf('#draftScope-' + id),
+        privacySafety: valueOf('#draftPrivacySafety-' + id),
+        labels: valueOf('#draftLabels-' + id),
+        references: valueOf('#draftReferences-' + id),
+        duplicateRisk: valueOf('#draftDuplicateRisk-' + id),
+      });
+      return Object.keys(evaluation).length ? evaluation : undefined;
+    }
+
+    async function loadKnowledge(options = {}) {
+      if (!options.quiet) setBusy(true, 'Loading knowledge');
+      try {
+        const params = new URLSearchParams();
+        const project = valueOf('#projectFilter');
+        const query = valueOf('#knowledgeQuery');
+        const status = valueOf('#knowledgeStatus');
+        const review = valueOf('#knowledgeReview');
+        const limit = valueOf('#limitFilter') || '10';
+        if (project) params.set('project', project);
+        if (query) params.set('q', query);
+        if (status) params.set('status', status);
+        if (review) params.set('review', review);
+        params.set('limit', limit);
+        const knowledge = await api('/knowledge?' + params.toString());
+        renderKnowledge(knowledge);
+        if (!options.quiet) setStatus('Loaded ' + knowledge.length + ' knowledge items');
+      } catch (error) {
+        els.knowledgeResult.replaceChildren(empty(error instanceof Error ? error.message : String(error)));
+        if (!options.quiet) setError(error);
+      } finally {
+        if (!options.quiet) setBusy(false);
       }
     }
 
@@ -604,26 +845,277 @@ export function workbenchHtml(): string {
 
     function renderMemory(summary) {
       const blocks = [
-        ['Pending Drafts', summary.pendingDrafts, (item) => item.title + ' - ' + item.status],
-        ['Risky Auto Memories', summary.riskyAutoMemories, (item) => item.title + ' - ' + (item.status || 'approved')],
-        ['Open Gaps', summary.openGaps, (item) => item.id + ' - ' + (item.reason || item.missingSignals.join(', '))],
-        ['Open Proposals', summary.openProposals, (item) => item.proposalType + ' - ' + item.reason],
-        ['Open Conflicts', summary.openConflicts, (item) => item.conflictType + ' - ' + item.reason],
-        ['Open Error Logs', summary.openErrorLogs.logs, (item) => item.title + ' - ' + item.status + '/' + item.severity],
+        ['Pending Drafts', summary.pendingDrafts, renderDraftSummary, 'Review these before they can become searchable memory.'],
+        ['Risky Auto Memories', summary.riskyAutoMemories, renderKnowledgeSummary, 'Approved memories with weak trust, missing grounding, or negative feedback.'],
+        ['Open Gaps', summary.openGaps, renderGapSummary, 'Evidence agents expected but could not find.'],
+        ['Open Proposals', summary.openProposals, renderProposalSummary, 'Suggested label, reference, relation, supersession, or cleanup actions.'],
+        ['Open Conflicts', summary.openConflicts, renderConflictSummary, 'Knowledge that may disagree or need a supersession decision.'],
+        ['Open Error Logs', summary.openErrorLogs.logs, renderErrorLogSummary, 'Incidents that can become reviewed lessons after resolution.'],
       ];
       const children = [
-        node('div', { class: 'row' }, summary.recommendedActions.map((action) => pill(action.label + ' ' + action.count))),
-        ...blocks.map(([title, items, formatter]) => renderReviewBlock(title, items, formatter)),
+        node('div', { class: 'notice' }, [
+          node('div', { class: 'item-title' }, 'What the queues mean'),
+          node('div', { class: 'small muted' }, [
+            'Context-quality records explain why startup context was noisy or incomplete. ',
+            'Pending drafts are proposed memories waiting for approval. ',
+            'Open gaps and proposals are maintenance work for improving future retrieval.',
+          ]),
+        ]),
+        renderActionList(summary.recommendedActions),
+        ...blocks.map(([title, items, formatter, description]) => renderReviewBlock(title, items, formatter, description)),
       ];
       els.memoryResult.replaceChildren(node('div', { class: 'stack' }, children));
     }
 
-    function renderReviewBlock(title, items, formatter) {
-      if (!items || items.length === 0) return node('div', { class: 'item' }, [node('div', { class: 'item-title' }, title), node('div', { class: 'small muted' }, 'No matches')]);
+    function renderActionList(actions) {
+      if (!actions || actions.length === 0) return node('div');
+      return node('div', { class: 'item' }, [
+        node('div', { class: 'item-title' }, 'Recommended Actions'),
+        ...actions.map((action) => node('div', { class: 'queue-line' }, [
+          node('div', { class: 'row' }, [
+            pill('priority ' + action.priority),
+            pill(String(action.count)),
+            action.href ? link(action.href, action.label) : node('span', { class: 'item-title' }, action.label),
+          ]),
+          node('div', { class: 'small muted' }, action.reason || ''),
+        ])),
+      ]);
+    }
+
+    function renderReviewBlock(title, items, formatter, description) {
+      if (!items || items.length === 0) {
+        return node('div', { class: 'item' }, [
+          node('div', { class: 'item-title' }, title),
+          node('div', { class: 'small muted' }, description),
+          node('div', { class: 'small muted' }, 'No matches'),
+        ]);
+      }
+
       return node('div', { class: 'item' }, [
         node('div', { class: 'item-title' }, title),
-        ...items.map((item) => node('div', { class: 'small' }, formatter(item))),
+        node('div', { class: 'small muted' }, description),
+        ...items.map((item) => node('div', { class: 'queue-line' }, formatter(item))),
       ]);
+    }
+
+    function renderDraftQueue(drafts) {
+      if (!drafts || drafts.length === 0) {
+        els.draftReviewResult.replaceChildren(empty('No reflection drafts matched this status.'));
+        return;
+      }
+
+      els.draftReviewResult.replaceChildren(node('div', { class: 'stack' }, drafts.map(renderDraftCard)));
+    }
+
+    function renderDraftCard(draft) {
+      const canReview = draft.status === 'pending' || draft.status === 'needs_changes';
+      return node('article', { class: 'item' }, [
+        node('div', { class: 'card-header' }, [
+          node('div', { class: 'card-main' }, [
+            node('div', { class: 'item-title' }, draft.title),
+            node('div', { class: 'small muted' }, draft.summary || 'No summary recorded.'),
+          ]),
+          node('div', { class: 'row' }, [
+            pill(humanStatus(draft.status)),
+            pill(humanStatus(draft.itemType)),
+            pill(humanStatus(draft.triggerType)),
+          ]),
+        ]),
+        node('div', { class: 'field-grid', style: 'margin-top:10px' }, [
+          field('Review meaning', draftReviewMeaning(draft.status)),
+          field('Created', formatDate(draft.createdAt)),
+          field('Project', draft.project || 'personal'),
+        ]),
+        renderChipList('Suggested labels', (draft.suggestedLabels || []).map(formatLabel)),
+        renderChipList('References', (draft.references || []).map(formatReference)),
+        renderChipList('Duplicate candidates', (draft.duplicateCandidates || []).map(formatDuplicateCandidate)),
+        node('details', {}, [
+          node('summary', {}, 'Read draft content'),
+          node('pre', {}, draft.content || 'No content recorded.'),
+        ]),
+        renderReviewControls(draft, canReview),
+      ]);
+    }
+
+    function renderReviewControls(draft, canReview) {
+      if (!canReview) {
+        return node('div', { class: 'review-controls small muted' }, 'This draft already has a terminal review status.');
+      }
+
+      const id = draft.id;
+      return node('div', { class: 'review-controls stack' }, [
+        node('div', { class: 'field-grid' }, [
+          node('label', {}, ['Accuracy', reviewSelect('draftAccuracy-' + id, ['pass', 'concern', 'fail'])]),
+          node('label', {}, ['Usefulness', reviewSelect('draftUsefulness-' + id, ['pass', 'concern', 'fail'])]),
+          node('label', {}, ['Scope', reviewSelect('draftScope-' + id, ['pass', 'concern', 'fail'])]),
+          node('label', {}, ['Privacy', reviewSelect('draftPrivacySafety-' + id, ['pass', 'concern', 'fail'])]),
+          node('label', {}, ['Labels', reviewSelect('draftLabels-' + id, ['pass', 'concern', 'fail'])]),
+          node('label', {}, ['References', reviewSelect('draftReferences-' + id, ['pass', 'concern', 'fail'])]),
+          node('label', {}, ['Duplicate risk', reviewSelect('draftDuplicateRisk-' + id, ['low', 'medium', 'high'])]),
+        ]),
+        node('label', {}, ['Reviewer note', node('textarea', { id: 'draftReviewNote-' + id, placeholder: 'Why this should be approved, rejected, or revised' })]),
+        node('div', { class: 'row' }, [
+          button('Approve', () => reviewDraft(id, 'approve'), 'primary'),
+          button('Needs changes', () => reviewDraft(id, 'needs_changes'), 'warn'),
+          button('Reject', () => reviewDraft(id, 'reject'), 'danger'),
+        ]),
+      ]);
+    }
+
+    function renderKnowledge(knowledge) {
+      if (!knowledge || knowledge.length === 0) {
+        els.knowledgeResult.replaceChildren(empty('No knowledge matched these filters.'));
+        return;
+      }
+
+      els.knowledgeResult.replaceChildren(node('div', { class: 'stack' }, knowledge.map(renderKnowledgeCard)));
+    }
+
+    function renderKnowledgeCard(item) {
+      return node('article', { class: 'item' }, [
+        node('div', { class: 'card-header' }, [
+          node('div', { class: 'card-main' }, [
+            node('div', { class: 'item-title' }, item.title),
+            node('div', { class: 'small muted' }, item.summary || 'No summary recorded.'),
+          ]),
+          node('div', { class: 'row' }, [
+            pill(humanStatus(item.status || 'approved')),
+            pill(humanStatus(item.itemType)),
+            pill('trust ' + item.trustLevel),
+          ]),
+        ]),
+        node('div', { class: 'field-grid', style: 'margin-top:10px' }, [
+          field('Source', [item.sourceType, item.sourceUri].filter(Boolean).join(' / ') || 'unknown'),
+          field('Freshness', item.freshnessAt ? formatDate(item.freshnessAt) : 'not set'),
+          field('Updated', formatDate(item.updatedAt || item.createdAt)),
+        ]),
+        renderChipList('Labels', (item.labels || []).map(formatLabel)),
+        renderChipList('References', (item.references || []).map(formatReference)),
+        node('details', {}, [
+          node('summary', {}, 'Read knowledge content'),
+          node('pre', {}, item.content || 'No content recorded.'),
+        ]),
+        node('div', { class: 'row' }, [
+          link('/knowledge/' + encodeURIComponent(item.id), 'JSON'),
+          item.sourceUri ? node('span', { class: 'small muted mono' }, item.sourceUri) : node('span'),
+        ]),
+      ]);
+    }
+
+    function renderDraftSummary(item) {
+      return summaryLine(item.title, [
+        humanStatus(item.status),
+        humanStatus(item.itemType),
+        item.labelCount + ' labels',
+        item.referenceCount + ' refs',
+        item.duplicateCandidateCount + ' duplicates',
+      ], item.summary);
+    }
+
+    function renderKnowledgeSummary(item) {
+      return summaryLine(item.title, [
+        humanStatus(item.status || 'approved'),
+        humanStatus(item.itemType),
+        'trust ' + item.trustLevel,
+        item.labelCount + ' labels',
+        item.referenceCount + ' refs',
+      ], item.summary);
+    }
+
+    function renderGapSummary(item) {
+      return summaryLine(item.reason || 'Knowledge gap', [
+        humanStatus(item.status),
+        item.missingSignalCount + ' missing signals',
+      ], item.prompt, item.missingSignals);
+    }
+
+    function renderProposalSummary(item) {
+      return summaryLine(humanStatus(item.proposalType), [
+        humanStatus(item.status),
+        item.evidenceCount + ' evidence items',
+      ], item.reason, item.evidence);
+    }
+
+    function renderConflictSummary(item) {
+      return summaryLine(humanStatus(item.conflictType), [
+        humanStatus(item.status),
+        item.sharedEvidenceCount + ' shared evidence',
+      ], item.reason, [item.leftKnowledgeId, item.rightKnowledgeId]);
+    }
+
+    function renderErrorLogSummary(item) {
+      return summaryLine(item.title, [
+        humanStatus(item.status),
+        humanStatus(item.severity),
+        humanStatus(item.category || 'error'),
+      ], item.summary || item.command || 'No summary recorded.');
+    }
+
+    function summaryLine(title, badges, description, extra = []) {
+      return [
+        node('div', { class: 'row' }, [
+          node('span', { class: 'item-title' }, title || 'Untitled'),
+          ...badges.filter(Boolean).map(pill),
+        ]),
+        description ? node('div', { class: 'small muted' }, description) : node('div'),
+        extra && extra.length ? node('div', { class: 'small mono muted' }, extra.join(' | ')) : node('div'),
+      ];
+    }
+
+    function field(label, value) {
+      return node('div', { class: 'field small' }, [
+        node('strong', {}, label),
+        node('span', {}, value || 'None'),
+      ]);
+    }
+
+    function renderChipList(title, values) {
+      if (!values || values.length === 0) return renderList(title, []);
+      return node('div', {}, [
+        node('h3', {}, title),
+        node('div', { class: 'row' }, values.slice(0, 16).map((value) => pill(value))),
+      ]);
+    }
+
+    function reviewSelect(id, values) {
+      return node('select', { id }, [
+        node('option', { value: '' }, 'not checked'),
+        ...values.map((value) => node('option', { value }, humanStatus(value))),
+      ]);
+    }
+
+    function formatLabel(label) {
+      if (!label) return '';
+      return humanStatus(label.type || 'label') + ': ' + String(label.value || '');
+    }
+
+    function formatReference(reference) {
+      if (!reference) return '';
+      const lines = reference.lineStart ? ':' + reference.lineStart + (reference.lineEnd ? '-' + reference.lineEnd : '') : '';
+      return humanStatus(reference.type || 'ref') + ': ' + String(reference.uri || '') + lines;
+    }
+
+    function formatDuplicateCandidate(candidate) {
+      if (!candidate) return '';
+      const title = candidate.title || candidate.knowledgeId || candidate.id || 'candidate';
+      const value = typeof candidate.score === 'number' ? ' ' + score(candidate.score) : '';
+      return String(title) + value;
+    }
+
+    function draftReviewMeaning(status) {
+      if (status === 'pending') return 'Not searchable until approved.';
+      if (status === 'needs_changes') return 'Reviewer asked for edits before approval.';
+      if (status === 'approved') return 'Approved and eligible to become memory.';
+      if (status === 'rejected') return 'Rejected and should not become memory.';
+      return humanStatus(status);
+    }
+
+    function humanStatus(value) {
+      return String(value || '').replace(/_/g, ' ');
+    }
+
+    function formatDate(value) {
+      return value ? new Date(value).toLocaleString() : 'unknown';
     }
 
     function renderLinks(record) {
