@@ -8,9 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@preact/signals':
+        specifier: ^2.9.0
+        version: 2.9.0(preact@10.29.2)
       pg:
         specifier: ^8.13.1
         version: 8.20.0
+      preact:
+        specifier: ^10.29.2
+        version: 10.29.2
       redis:
         specifier: ^4.7.0
         version: 4.7.1
@@ -21,6 +27,9 @@ importers:
       '@types/pg':
         specifier: ^8.11.10
         version: 8.20.0
+      esbuild:
+        specifier: ^0.28.0
+        version: 0.28.0
       playwright-core:
         specifier: ^1.60.0
         version: 1.60.0
@@ -189,6 +198,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@preact/signals-core@1.14.2':
+    resolution: {integrity: sha512-RZHdBj9ZF4n40Rp4jS052EHHjBWf96P9oNdXPfhQTovCuWY9iQn3Gq+gOTJSgBO9A/JBuPfMOWsSX/lIU9Pc/A==}
+
+  '@preact/signals@2.9.0':
+    resolution: {integrity: sha512-hYrY0KyUqkDgOl1qba/JGn6y81pXnurn21PMaxfcMwdncdZ3M/oVdmpTvEnsGjh48dIwDVc7bjWHqIsngSjYug==}
+    peerDependencies:
+      preact: '>= 10.25.0 || >=11.0.0-0'
+
   '@redis/bloom@1.2.0':
     resolution: {integrity: sha512-HG2DFjYKbpNmVXsa0keLHp/3leGJz1mjh09f2RLGGLQZzSHpkmZWuwJbAvo3QcRY8p80m5+ZdXZdYOSBLlp7Cg==}
     peerDependencies:
@@ -297,6 +314,9 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
+  preact@10.29.2:
+    resolution: {integrity: sha512-7tNmwg/7mzzAoB/8kSg6Hl37JraAZw3Z3A0JSY7VXlZwo82Xn0G7wKbNNs2qoF4ZEEsQGTwDAroNdqKs1ofJxQ==}
+
   redis@4.7.1:
     resolution: {integrity: sha512-S1bJDnqLftzHXHP8JsT5II/CtHWQrASX5K96REjWjlmWKrviSOLWmM7QnRLstAWsu1VBBV1ffV6DzCvxNP0UJQ==}
 
@@ -403,6 +423,13 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.0':
     optional: true
+
+  '@preact/signals-core@1.14.2': {}
+
+  '@preact/signals@2.9.0(preact@10.29.2)':
+    dependencies:
+      '@preact/signals-core': 1.14.2
+      preact: 10.29.2
 
   '@redis/bloom@1.2.0(@redis/client@1.6.1)':
     dependencies:
@@ -522,6 +549,8 @@ snapshots:
   postgres-interval@1.2.0:
     dependencies:
       xtend: 4.0.2
+
+  preact@10.29.2: {}
 
   redis@4.7.1:
     dependencies:

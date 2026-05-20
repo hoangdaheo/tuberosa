@@ -1,4 +1,5 @@
 import { NotFoundError } from '../errors.js';
+import { evaluateGates } from '../reflection/recommendation.js';
 import type { ReflectionService } from '../reflection/service.js';
 import type { RetrievalService } from '../retrieval/service.js';
 import type { KnowledgeStore } from '../storage/store.js';
@@ -409,63 +410,22 @@ function learningGate(input: {
   selectedPack?: ContextPack;
   draft: ReflectionDraft;
 }): { canAutoApprove: boolean; reasons: string[] } {
-  const reasons: string[] = [];
+  const gates = evaluateGates({
+    draft: input.draft,
+    mode: input.mode,
+    outcome: input.input.outcome,
+    compliance: input.compliance,
+    decisions: input.decisions,
+    selectedPack: input.selectedPack,
+  });
 
-  if (input.mode !== 'auto') {
-    reasons.push('auto approval disabled by learningMode');
-  }
+  const failures = gates.filter((gate) => gate.status !== 'pass');
+  const canAutoApprove = input.mode === 'auto' && failures.length === 0;
+  const reasons = canAutoApprove
+    ? ['passed auto-learning safety, duplicate, evidence, and usefulness gates']
+    : failures.map((gate) => `${gate.label.toLowerCase()}: ${gate.message}`);
 
-  if (input.input.outcome !== 'completed') {
-    reasons.push('only completed sessions can auto-approve learning');
-  }
-
-  if (input.compliance.status !== 'compliant') {
-    reasons.push(`context compliance is ${input.compliance.status}`);
-  }
-
-  if (!input.selectedPack || input.selectedPack.contextFit?.fitStatus !== 'ready') {
-    reasons.push('selected context pack is missing or not ready');
-  }
-
-  if (input.decisions.some((decision) => (
-    ['rejected', 'irrelevant', 'stale'].includes(decision.decision)
-    || isMissingContextDecision(decision.decision)
-  ))) {
-    reasons.push('session has negative or missing-context decisions');
-  }
-
-  if (input.decisions.some((decision) => decision.decision === 'selected_but_noisy' || decision.decision === 'too_much_adjacent_context')) {
-    reasons.push('session has noisy context feedback');
-  }
-
-  if (hasLowConfidenceLearningSignals(input.draft.metadata)) {
-    reasons.push('learning candidate includes low-confidence signals');
-  }
-
-  if (input.draft.duplicateCandidates.length > 0) {
-    reasons.push('similar approved memory already exists');
-  }
-
-  if (!hasGroundedReference(input.draft.references)) {
-    reasons.push('learning candidate lacks a grounded non-conversation reference');
-  }
-
-  if (!input.draft.suggestedLabels.some((label) => label.type === 'task_type' || label.type === 'file' || label.type === 'symbol' || label.type === 'error')) {
-    reasons.push('learning candidate lacks concrete task, file, symbol, or error labels');
-  }
-
-  if (input.draft.summary.length < 32 || input.draft.content.length < 100) {
-    reasons.push('learning candidate is too short');
-  }
-
-  if (reasons.length === 0) {
-    reasons.push('passed auto-learning safety, duplicate, evidence, and usefulness gates');
-  }
-
-  return {
-    canAutoApprove: input.mode === 'auto' && reasons.length === 1 && reasons[0].startsWith('passed '),
-    reasons,
-  };
+  return { canAutoApprove, reasons };
 }
 
 function learningReferences(

@@ -3,6 +3,7 @@ import type { IngestionService } from '../ingest/service.js';
 import { ValidationError } from '../errors.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
+import { recommendDraft, type DraftRecommendation } from './recommendation.js';
 import type {
   LabelInput,
   KnowledgeTaxonomy,
@@ -129,6 +130,10 @@ export class ReflectionService {
       ...reference,
       uri: this.safety.redactSecrets(reference.uri).trim(),
     })).filter((reference) => reference.uri.length > 0);
+  }
+
+  async recommendDraft(id: string): Promise<DraftRecommendation | undefined> {
+    return recommendDraft(this.store, id);
   }
 
   async reviewDraft(input: ReflectionDraftReviewInput) {

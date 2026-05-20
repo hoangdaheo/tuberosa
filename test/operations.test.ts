@@ -623,7 +623,7 @@ test('operations workbench summary aggregates review queues and static route loa
     const html = await getRaw(services, '/workbench');
     equal(html.status, 200);
     ok(html.body.includes('Tuberosa Workbench'));
-    ok(html.body.includes('/operations/workbench/summary'));
+    ok(html.body.includes('/workbench/static/app.js'));
     ok(!html.body.includes(secret));
   } finally {
     await services.close();

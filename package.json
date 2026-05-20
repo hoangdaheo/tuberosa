@@ -6,7 +6,9 @@
   "packageManager": "pnpm@11.1.2",
   "main": "dist/src/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsx scripts/build-workbench.ts",
+    "build:workbench": "tsx scripts/build-workbench.ts",
+    "dev:workbench": "tsx scripts/build-workbench.ts --watch",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/src/index.js",
     "mcp": "node --import tsx src/mcp-stdio.ts",
@@ -30,12 +32,15 @@
     "test": "node --test --import tsx test/*.test.ts"
   },
   "dependencies": {
+    "@preact/signals": "^2.9.0",
     "pg": "^8.13.1",
+    "preact": "^10.29.2",
     "redis": "^4.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
+    "esbuild": "^0.28.0",
     "playwright-core": "^1.60.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

@@ -40,7 +40,7 @@ import {
   validateStartAgentSessionInput,
   validateWorkbenchSummaryInput,
 } from '../validation.js';
-import { workbenchHtml } from './workbench.js';
+import { readWorkbenchAsset, workbenchHtml } from './workbench.js';
 
 type RouteParams = Record<string, string>;
 type RouteMatcher = (url: URL) => RouteParams | undefined;
@@ -162,6 +162,18 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/workbench'),
       public: true,
       handle: () => rawResponse('text/html; charset=utf-8', workbenchHtml()),
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/workbench\/static\/(.+)$/, ['asset']),
+      public: true,
+      handle: async ({ params }) => {
+        const asset = await readWorkbenchAsset(params.asset);
+        if (!asset) {
+          throw new NotFoundError(`Workbench asset not found: ${params.asset}`);
+        }
+        return rawResponse(asset.contentType, asset.body);
+      },
     },
     {
       method: 'POST',
@@ -635,6 +647,17 @@ function createRoutes(): HttpRoute[] {
         services.operations.requestWriteThroughBackup('reflection-reviewed');
         services.operations.requestPhysicalMirror('reflection-reviewed');
         return draft;
+      },
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/reflection-drafts\/([^/]+)\/recommendation$/, ['id']),
+      handle: async ({ services, params }) => {
+        const recommendation = await services.reflection.recommendDraft(params.id);
+        if (!recommendation) {
+          throw new NotFoundError('Reflection draft not found.');
+        }
+        return recommendation;
       },
     },
     {

@@ -19,8 +19,10 @@ import { ReflectionService } from '../../src/reflection/service.js';
 import { RetrievalService } from '../../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../../src/storage/memory-store.js';
 import { chromium, type Page } from 'playwright-core';
+import { stat } from 'node:fs/promises';
 
 const chromePath = '/usr/bin/google-chrome';
+const bundlePath = join(process.cwd(), 'dist/workbench/app.js');
 
 const config: AppConfig = {
   env: 'test',
@@ -51,11 +53,13 @@ const config: AppConfig = {
   errorLogCaptureClientErrors: false,
 };
 
-test('workbench browser flow starts, reviews, and finishes an agent session', async (t) => {
-  try {
-    await access(chromePath);
-  } catch {
+test('workbench browser flow renders preact app, recommendation panel, and glossary', async (t) => {
+  try { await access(chromePath); } catch {
     t.skip(`Chrome executable not found at ${chromePath}`);
+    return;
+  }
+  try { await stat(bundlePath); } catch {
+    t.skip(`Workbench bundle not built (run pnpm run build:workbench). Missing ${bundlePath}`);
     return;
   }
 
@@ -79,88 +83,77 @@ test('workbench browser flow starts, reviews, and finishes an agent session', as
     try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       await page.goto(`${baseUrl}/workbench`);
+
+      // Preact app boots
       await page.locator('h1').filter({ hasText: 'Tuberosa Workbench' }).waitFor();
+      await page.locator('[data-testid="nav-session"]').waitFor();
 
-      await page.locator('#projectFilter').fill(project);
-      await page.locator('#refresh').click();
-      await waitForSummary(page);
+      // Sidebar refreshes summary
+      await page.locator('[data-testid="project-input"]').fill(project);
+      await page.locator('[data-testid="refresh-summary"]').click();
+      await page.locator('[data-testid="summary-metrics"]').waitFor();
 
-      await page.locator('#prompt').fill(
+      // Start a session
+      await page.locator('[data-testid="session-prompt"]').fill(
         'Implement browser verification for src/http/workbench.ts WorkbenchSummary and verification commands.',
       );
-      await page.locator('#sessionProject').fill(project);
+      await page.locator('#project').fill(project);
       await page.locator('#cwd').fill('/home/nash/tuberosa');
       await page.locator('#taskType').selectOption('implementation');
       await page.locator('#contextMode').selectOption('layered');
-      await page.locator('#includeDeepContext').selectOption('false');
-      await page.getByRole('button', { name: 'Start', exact: true }).click();
-      await page.locator('#sessionResult').getByText('Task Brief').waitFor();
+      await page.locator('[data-testid="session-form"]').getByRole('button', { name: 'Start session', exact: true }).click();
+      await page.locator('[data-testid="session-result"]').waitFor();
 
-      const sessionText = await page.locator('#sessionResult').textContent();
-      ok(sessionText?.includes('Verification Commands'));
-      ok(sessionText?.includes('Missing Signals'));
-      ok(sessionText?.includes('Direct Evidence'));
-      ok(sessionText?.includes('Adjacent Context'));
-      ok(sessionText?.includes('Workbench browser audit workflow'), 'seeded direct evidence should render');
+      const sessionText = await page.locator('[data-testid="session-result"]').textContent();
+      ok(sessionText?.toLowerCase().includes('context fit'), 'session result mentions context fit');
 
-      for (const decision of ['selected', 'selected_but_noisy', 'rejected', 'missing_context']) {
-        await page.locator('#decisionReason').fill(`Browser smoke ${decision}`);
-        await page.getByRole('button', { name: decision, exact: true }).click();
-        await page.waitForFunction((expected) => (
-          (globalThis as unknown as { document: { querySelector(selector: string): { textContent?: string | null } | null } })
-            .document
-            .querySelector('#decisionResult')
-            ?.textContent
-            ?.includes(String(expected))
-        ), decision);
-      }
+      // Record a decision
+      await page.locator('#feedback').selectOption('selected');
+      await page.locator('#reason').fill('Browser smoke selected');
+      await page.locator('[data-testid="record-decision"]').click();
+      await page.locator('[data-testid="decision-log"]').waitFor();
 
-      await page.locator('#finishSummary').fill('Browser smoke finished the workbench session.');
-      await page.getByRole('button', { name: 'Finish Session', exact: true }).click();
-      await page.waitForFunction(() => (
-        (globalThis as unknown as { document: { querySelector(selector: string): { textContent?: string | null } | null } })
-          .document
-          .querySelector('#finishResult')
-          ?.textContent
-          ?.includes('compliance')
-      ));
+      // Finish
+      await page.locator('#finish-summary').fill('Browser smoke finished the workbench session.');
+      await page.locator('[data-testid="finish-session"]').click();
+      await page.locator('[data-testid="finish-result"]').waitFor();
 
-      const metricsText = await page.locator('#metrics').textContent();
-      ok(metricsText?.includes('Context-quality'));
-      ok(metricsText?.includes('Active sessions'));
+      // Memory review tab + recommendation panel
+      await page.locator('[data-testid="nav-memory"]').click();
+      await page.locator('[data-testid="memory-view"]').waitFor();
+      await page.locator('[data-testid="draft-card"]').first().waitFor();
+      await page.locator('[data-testid="draft-card"]').first().locator('button').first().click();
+      await page.locator('[data-testid="recommendation-panel"]').waitFor();
+      const verdictText = await page.locator('[data-testid="recommendation-verdict"]').textContent();
+      ok(verdictText && /Approve|Reject|Needs changes/.test(verdictText), 'recommendation verdict renders');
+      // The seeded draft has no grounded references and a manual trigger -> we expect cons or blockers
+      const blockerOrCon = await page.locator('[data-testid="recommendation-blockers"], [data-testid="recommendation-cons"]').count();
+      ok(blockerOrCon > 0, 'recommendation surfaces at least one con or blocker for unsubstantive seed draft');
 
-      await page.getByRole('button', { name: 'Context Quality Review', exact: true }).click();
-      await page.locator('#qualityResult .item-title').filter({ hasText: 'selected_but_noisy' }).first().waitFor();
+      // Quality tab
+      await page.locator('[data-testid="nav-quality"]').click();
+      await page.locator('[data-testid="quality-view"]').waitFor();
 
-      await page.getByRole('button', { name: 'Memory Review', exact: true }).click();
-      await page.locator('#memoryResult .item-title').filter({ hasText: 'Open Gaps' }).waitFor();
-      await page.locator('#draftReviewResult').getByText('Pending browser workbench draft').waitFor();
-      await page.locator('#knowledgeResult').getByText('Workbench browser audit workflow').waitFor();
-      await page.locator('#draftReviewer').fill('browser-smoke');
-      await page.locator('#draftReviewResult textarea').first().fill('Useful draft, but the smoke seed has no references.');
-      await page.locator('#draftReviewResult').getByRole('button', { name: 'Needs changes', exact: true }).click();
-      await page.waitForFunction(() => (
-        (globalThis as unknown as { document: { querySelector(selector: string): { textContent?: string | null } | null } })
-          .document
-          .querySelector('#status')
-          ?.textContent
-          ?.includes('needs_changes')
-      ));
-      await page.locator('#draftReviewResult').getByText('No reflection drafts matched this status.').waitFor();
+      // Guide tab + glossary
+      await page.locator('[data-testid="nav-guide"]').click();
+      await page.locator('[data-testid="guide-view"]').waitFor();
+      await page.locator('[data-testid="glossary-context_pack"]').waitFor();
 
-      ok(await hasNoHorizontalOverflow(page));
+      // Inline glossary tooltip
+      const term = page.locator('.term').first();
+      await term.scrollIntoViewIfNeeded();
+      await term.hover();
+      await page.locator('.term .tooltip').first().waitFor({ state: 'visible' });
+
+      // Mobile viewport
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.reload();
       await page.locator('h1').filter({ hasText: 'Tuberosa Workbench' }).waitFor();
-      await waitForSummary(page);
       ok(await hasNoHorizontalOverflow(page));
     } finally {
       await browser.close();
     }
   } finally {
-    if (server) {
-      await closeServer(server);
-    }
+    if (server) await closeServer(server);
     await services.close();
     await rm(backupDir, { recursive: true, force: true });
     await rm(errorLogDir, { recursive: true, force: true });
@@ -266,29 +259,10 @@ async function listen(server: Server): Promise<string> {
 }
 
 async function closeServer(server: Server): Promise<void> {
-  if (!server.listening) {
-    return;
-  }
-
+  if (!server.listening) return;
   await new Promise<void>((resolve, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve();
-      }
-    });
+    server.close((error) => (error ? reject(error) : resolve()));
   });
-}
-
-async function waitForSummary(page: Page): Promise<void> {
-  await page.waitForFunction(() => (
-    (globalThis as unknown as { document: { querySelector(selector: string): { textContent?: string | null } | null } })
-      .document
-      .querySelector('#status')
-      ?.textContent
-      ?.includes('Summary loaded')
-  ));
 }
 
 async function hasNoHorizontalOverflow(page: Page): Promise<boolean> {
