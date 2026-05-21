@@ -7,12 +7,15 @@ export interface AppConfig {
   store: 'postgres' | 'memory';
   cache: 'redis' | 'memory' | 'none';
   autoMigrate: boolean;
-  modelProvider: 'hash' | 'openai' | 'local';
+  modelProvider: 'hash' | 'openai' | 'local' | 'ollama';
   embeddingDimensions: number;
   openAiApiKey?: string;
   openAiEmbeddingModel: string;
   openAiRewriteModel?: string;
   openAiRerankModel?: string;
+  ollamaUrl?: string;
+  ollamaRerankModel?: string;
+  ollamaTimeoutMs?: number;
   contextCacheTtlSeconds: number;
   contextMode?: 'compact' | 'layered';
   deepContextBudget?: number;
@@ -44,12 +47,15 @@ export function loadConfig(): AppConfig {
     store: readEnum(process.env.TUBEROSA_STORE, ['postgres', 'memory'], 'postgres'),
     cache: readEnum(process.env.TUBEROSA_CACHE, ['redis', 'memory', 'none'], 'redis'),
     autoMigrate: readBoolean(process.env.TUBEROSA_AUTO_MIGRATE, true),
-    modelProvider: readEnum(process.env.TUBEROSA_MODEL_PROVIDER, ['hash', 'openai', 'local'], process.env.OPENAI_API_KEY ? 'openai' : 'hash'),
+    modelProvider: readEnum(process.env.TUBEROSA_MODEL_PROVIDER, ['hash', 'openai', 'local', 'ollama'], process.env.OPENAI_API_KEY ? 'openai' : 'hash'),
     embeddingDimensions: Number(process.env.EMBEDDING_DIMENSIONS ?? 1536),
     openAiApiKey: process.env.OPENAI_API_KEY || undefined,
     openAiEmbeddingModel: process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
     openAiRewriteModel: process.env.OPENAI_REWRITE_MODEL || undefined,
     openAiRerankModel: process.env.OPENAI_RERANK_MODEL || undefined,
+    ollamaUrl: process.env.TUBEROSA_OLLAMA_URL || undefined,
+    ollamaRerankModel: process.env.TUBEROSA_OLLAMA_RERANK_MODEL || undefined,
+    ollamaTimeoutMs: process.env.TUBEROSA_OLLAMA_TIMEOUT_MS ? Number(process.env.TUBEROSA_OLLAMA_TIMEOUT_MS) : undefined,
     contextCacheTtlSeconds: Number(process.env.CONTEXT_CACHE_TTL_SECONDS ?? 300),
     contextMode: readEnum(process.env.TUBEROSA_CONTEXT_MODE, ['compact', 'layered'] as Array<'compact' | 'layered'>, 'layered'),
     deepContextBudget: Number(process.env.TUBEROSA_DEEP_CONTEXT_BUDGET ?? 60_000),

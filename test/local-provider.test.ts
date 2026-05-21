@@ -77,7 +77,7 @@ describe('LocalCrossEncoderProvider', () => {
     assert.equal(result.candidates[0].knowledgeId, 'k2', 'high local score should win even with low fused score');
     assert.ok(result.candidates[0].rerankScore > result.candidates[1].rerankScore);
     assert.ok(result.candidates[0].matchReasons.some((reason) => reason.startsWith('local-rerank:')));
-    assert.equal(result.model, 'Xenova/bge-reranker-base');
+    assert.equal(result.model, 'onnx-community/bge-reranker-v2-m3-ONNX');
   });
 
   it('falls back to the hash provider when the scorer throws', async () => {

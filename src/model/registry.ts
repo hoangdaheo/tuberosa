@@ -8,6 +8,7 @@ import type {
 import { HashModelProvider } from './provider.js';
 import type { ModelProvider } from './provider.js';
 import { LocalCrossEncoderProvider } from './local-provider.js';
+import { OllamaRerankProvider } from './ollama-provider.js';
 
 export type ModelCapability = 'embed' | 'rewriteQuery' | 'rerank';
 
@@ -88,6 +89,36 @@ export function buildProviderRegistry(config: AppConfig): ModelProvider | null {
   registry.register(asCapabilityProvider({
     name: 'local-cross-encoder',
     provider: new LocalCrossEncoderProvider({ embeddingDimensions: config.embeddingDimensions, fallback: hash }),
+    capabilities: ['rerank'],
+  }));
+  return registry;
+}
+
+/**
+ * Build a composed ModelProvider that uses Ollama's `/api/rerank` for reranking and
+ * the hash provider for embeddings + query rewrite. The OllamaRerankProvider falls
+ * back to hash rerank if the HTTP call fails, so this path is safe even without a
+ * running Ollama server.
+ */
+export function buildOllamaRegistry(config: AppConfig): ModelProvider | null {
+  if (config.modelProvider !== 'ollama') return null;
+
+  const hash = new HashModelProvider(config.embeddingDimensions);
+  const registry = new ProviderRegistry(hash);
+  registry.register(asCapabilityProvider({
+    name: 'hash',
+    provider: hash,
+    capabilities: ['embed', 'rewriteQuery'],
+  }));
+  registry.register(asCapabilityProvider({
+    name: 'ollama-reranker',
+    provider: new OllamaRerankProvider({
+      modelId: config.ollamaRerankModel,
+      ollamaUrl: config.ollamaUrl,
+      timeoutMs: config.ollamaTimeoutMs,
+      embeddingDimensions: config.embeddingDimensions,
+      fallback: hash,
+    }),
     capabilities: ['rerank'],
   }));
   return registry;

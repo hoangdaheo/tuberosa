@@ -44,6 +44,13 @@ export function createModelProvider(config: AppConfig): ModelProvider {
     if (registry) return registry;
   }
 
+  if (config.modelProvider === 'ollama') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, global-require
+    const { buildOllamaRegistry } = require('./registry.js') as typeof import('./registry.js');
+    const registry = buildOllamaRegistry(config);
+    if (registry) return registry;
+  }
+
   return new HashModelProvider(config.embeddingDimensions);
 }
 

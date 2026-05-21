@@ -49,7 +49,7 @@ export interface LocalCrossEncoderScorer {
   dispose?(): Promise<void> | void;
 }
 
-const DEFAULT_MODEL_ID = 'Xenova/bge-reranker-base';
+const DEFAULT_MODEL_ID = 'onnx-community/bge-reranker-v2-m3-ONNX';
 const DEFAULT_TOP_K = 16;
 
 export class LocalCrossEncoderProvider implements ModelProvider {
