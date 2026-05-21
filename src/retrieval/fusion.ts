@@ -8,7 +8,11 @@ import type {
   SearchCandidate,
 } from '../types.js';
 import { clamp } from '../util/text.js';
-import { getRetrievalPolicy } from './policy.js';
+import {
+  effectiveSourceWeight,
+  effectiveTaskItemTypeBoosts,
+  getRetrievalPolicy,
+} from './policy.js';
 
 export interface FuseOptions {
   collectBreakdown?: boolean;
@@ -121,7 +125,7 @@ function createBreakdown(knowledgeId: string): ScoreBreakdown {
 
 function sourceWeight(candidate: SearchCandidate, classified: ClassifiedQuery): number {
   const policy = getRetrievalPolicy();
-  let weight = policy.sourceWeights[candidate.source] ?? 1;
+  let weight = effectiveSourceWeight(policy, candidate.source, classified.taskType);
 
   const hasHardSignal = classified.files.length || classified.symbols.length || classified.errors.length;
   if (hasHardSignal) {
@@ -133,8 +137,11 @@ function sourceWeight(candidate: SearchCandidate, classified: ClassifiedQuery): 
     }
   }
 
-  for (const boost of policy.taskItemTypeBoosts) {
-    if (classified.taskType === boost.taskType && (boost.itemTypes as KnowledgeItemType[]).includes(candidate.itemType)) {
+  for (const boost of effectiveTaskItemTypeBoosts(policy, classified.taskType)) {
+    if (
+      (boost.taskType === classified.taskType || boost.taskType === 'unknown')
+      && (boost.itemTypes as KnowledgeItemType[]).includes(candidate.itemType)
+    ) {
       weight += boost.bonus * labelConfidenceMultiplier(candidate, classified);
     }
   }

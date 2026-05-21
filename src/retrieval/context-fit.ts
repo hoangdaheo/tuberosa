@@ -1,7 +1,7 @@
 import type { ClassifiedQuery, ContextFit, RankedCandidate, TaskType } from '../types.js';
 import { clamp, normalizeLabel } from '../util/text.js';
 import { hasDomainMismatch } from './classifier.js';
-import { freshnessWindowFor, getRetrievalPolicy } from './policy.js';
+import { coverageProfileFor, freshnessWindowFor, getRetrievalPolicy } from './policy.js';
 
 const TOP_CANDIDATE_LIMIT = 6;
 const READY_THRESHOLD = 0.72;
@@ -171,29 +171,30 @@ function aggregateCoverage(input: ContextFitEvaluationInput, candidates: RankedC
   const missingSignals: string[] = [];
   let matchedWeight = 0;
   let possibleWeight = 0;
+  const coverage = coverageProfileFor(getRetrievalPolicy(), input.classified.taskType);
 
   const add = (name: string, signals: string[], weight: number) => {
     if (signals.length === 0) {
       return;
     }
 
-    const coverage = aggregateSignalCoverage(signals, candidates);
+    const cov = aggregateSignalCoverage(signals, candidates);
     possibleWeight += weight;
-    matchedWeight += weight * coverage.ratio;
+    matchedWeight += weight * cov.ratio;
 
-    if (coverage.matched.length > 0) {
-      reasons.push(`covered ${name}:${coverage.matched.length}/${signals.length}`);
+    if (cov.matched.length > 0) {
+      reasons.push(`covered ${name}:${cov.matched.length}/${signals.length}`);
     }
-    for (const signal of coverage.missing) {
+    for (const signal of cov.missing) {
       missingSignals.push(`missing ${name}:${signal}`);
     }
   };
 
-  add('file', input.classified.files, 0.24);
-  add('symbol', input.classified.symbols, 0.22);
-  add('error', input.classified.errors, 0.22);
-  add('technology', input.classified.technologies, 0.12);
-  add('business area', input.classified.businessAreas, 0.12);
+  add('file', input.classified.files, coverage.file);
+  add('symbol', input.classified.symbols, coverage.symbol);
+  add('error', input.classified.errors, coverage.error);
+  add('technology', input.classified.technologies, coverage.technology);
+  add('business area', input.classified.businessAreas, coverage.businessArea);
 
   const expectedProject = input.project ?? input.classified.project;
   if (expectedProject) {

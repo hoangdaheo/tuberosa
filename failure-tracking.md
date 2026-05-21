@@ -110,7 +110,65 @@ Records every attempted approach that failed, was reverted, or required a workar
 - **Fix:** Recorded the discrepancy in `roadmap-claude.md` Phase 3 deviations. Phase 4 (calibrated fusion) is a more direct lever for reducing memory-item dominance in selections. The new `itemTypeDiagonalRate` metric (68.3%) is a corpus-independent measure of categorization accuracy; the threshold floor in `eval/sandbox/thresholds.json` now uses that.
 
 ## Phase 4 — Matching Engine
-(not started)
+
+### 1. `@xenova/transformers` as a hard dependency would have made install brittle
+- **Where:** `src/model/local-provider.ts` initial draft.
+- **Tried:** Adding `@xenova/transformers` to `dependencies` so the local cross-encoder could import it statically.
+- **Why it failed:** The package is ~150MB on first model fetch and pulls in `onnxruntime-node`, which has platform-specific binaries (`linux-arm64`, `darwin-x64`, etc.). On a fresh CI runner without network access (or behind a corporate proxy) `pnpm install` would fail outright, breaking every Tuberosa contributor who doesn't actually want local reranking. Even with the package installed, the test suite must remain offline-deterministic — pulling weights at runtime is incompatible with `pnpm test`.
+- **Fix:** LocalCrossEncoderProvider uses a `Function('s', 'return import(s)')` dynamic-import indirection so missing packages or model caches fall back to the existing hash reranker. Users who want real local reranking install `@xenova/transformers` themselves. Tests inject a `LocalCrossEncoderScorer` to verify the rank-blending logic without touching the package. Documented in `roadmap-claude.md` Phase 4 plan deviation §1.
+
+### 2. CommonJS `require` chosen over dynamic `import()` for the registry hookup
+- **Where:** `src/model/provider.ts` — `createModelProvider`.
+- **Tried:** Importing `buildProviderRegistry` statically at the top of `provider.ts`.
+- **Why it failed:** A static import meant the registry module (and its transitive imports of `local-provider.ts`) loaded on every Tuberosa startup, including OpenAI and hash paths where the registry isn't needed. That re-introduced the heavy dependency the lazy loader was designed to dodge.
+- **Fix:** Inside the `config.modelProvider === 'local'` branch, deferred `require('./registry.js')`. Comes with an ESLint suppression; the import is only resolved when `TUBEROSA_MODEL_PROVIDER=local`.
+
+### 3. `graphMaxHops=2` did not produce a measurable MRR gain on the current sandbox corpus
+- **Where:** `src/storage/memory-store.ts` — `searchGraphRelations` depth-2 frontier.
+- **Tried:** Enabling `graphMaxHops=2` by default to expand graph candidates two hops out.
+- **Why it failed:** The synthetic sandbox graph has shallow relations (Tier A items have direct references to Tier B/C items; depth-2 doesn't reach more gold answers). Enabling depth-2 added 6-9ms p50 latency without moving hit/MRR. The plan called for "gated by sandbox cost/benefit" — the cost showed, the benefit did not.
+- **Fix:** Keep `graphMaxHops=1` as the default; leave the depth-2 code path in place so projects with denser graphs can flip the flag. Documented in `roadmap-claude.md` Phase 4 plan deviation §2.
+
+### 4. Per-task source-weight deltas had to stay small to keep eval:retrieval green
+- **Where:** `src/retrieval/policy.ts` — `DEFAULT_POLICY.taskProfiles`.
+- **Tried:** Larger deltas (±0.1 to ±0.2) on `taskProfiles.<taskType>.sourceWeights` to drive a visible MRR gain.
+- **Why it failed:** Even a 0.1 delta flipped 2 of the 14 eval:retrieval fixture cases (`symbol-paywall-modal` and `selected-feedback-paywall`) — task profiles tuned for the sandbox were not safe on the existing fixtures.
+- **Fix:** Capped initial per-task deltas to ±0.06. The calibration script (`scripts/calibrate-fusion.ts`) produces larger values bounded into `[0.7, 1.4]`, but those are only applied when the user explicitly runs calibration and writes them to `config/retrieval-policy.json` — never as code defaults.
+
+### 5. Sandbox `minMRR` threshold could not be raised
+- **Where:** `eval/sandbox/thresholds.json`.
+- **Tried:** Raising `minMRR` from 0.45 → 0.5 to lock in the per-task profile gain.
+- **Why it failed:** Phase 4 measured MRR is 0.4882, only +0.0004 over Phase 3. Tightening to 0.5 would make the sandbox fail. The plan's +0.05 MRR target was not achievable on this corpus shape — the Phase 3 baseline was already near-ceiling for the synthetic fixtures.
+- **Fix:** Left `minMRR=0.45` as the floor. Tightened `minItemTypeDiagonalRate` from 0.6 → 0.65 instead, since that metric moved 68.3% → 68.7% — the more durable signal that per-task profiles actually re-weighted ranking.
 
 ## Phase 5 — One-Command Install
-(not started)
+
+### 1. ES-module entrypoint detection initially used `require.main === module`
+- **Where:** `bin/tuberosa.ts` — `isMainModule()`.
+- **Tried:** `if (require.main === module) { runCli(...) }` — the standard CommonJS idiom.
+- **Why it failed:** The repo is `"type": "module"`; `require` is not defined and the file would never run as an entrypoint. Also, when the test imports `dispatch` from the module, the CLI side-effect would still fire under any heuristic that compares filesystem paths.
+- **Fix:** `isMainModule()` compares `import.meta.url` against `new URL(\`file://${process.argv[1]}\`).href`, plus a `.endsWith('/bin/tuberosa.{ts,js}')` fallback. This survives `tsx bin/tuberosa.ts`, `node dist/bin/tuberosa.js`, and `import { dispatch } from '../bin/tuberosa.js'` without invoking the CLI in tests.
+
+### 2. Doctor's MCP stdout check flagged the JSON-RPC framing writer as a problem
+- **Where:** `bin/commands/doctor.ts` — `checkMcpStdio`. Surfaced when smoke-testing `node dist/bin/tuberosa.js doctor` against this checkout.
+- **Tried:** Regex `/console\.log\(|process\.stdout\.write\(/` to enforce CLAUDE.md's rule that the MCP entrypoint must not write to stdout.
+- **Why it failed:** The MCP protocol's transport *requires* `process.stdout.write` to emit JSON-RPC frames (`src/mcp-stdio.ts:101-105`). The check fired against legitimate framing code and reported a fail every single time, even on a clean repo.
+- **Fix:** Narrowed the regex to `/console\.log\(/`. That call is never the right one inside the MCP path because it concatenates a newline and interleaves text into the protocol stream. `process.stdout.write` with explicit framing is allowed. Plan deviation recorded in `roadmap-claude.md` Phase 5 deviation §3.
+
+### 3. `npx tuberosa init` initially tried to also bring up the `app` container
+- **Where:** `bin/commands/compose-template.ts` — earlier draft mirrored `docker-compose.yml` 1:1.
+- **Tried:** Including the `app` and `worker` services so `init` produced a fully running HTTP server.
+- **Why it failed:** The `app` container builds the user's checkout image, which takes 60-90s on a cold Docker host and breaks if the user is still editing. The plan's success criterion was "<90s on a clean Docker host," and the build alone consumed that budget. Worse, the `app` would race the user's own `pnpm run dev`, holding port 3027.
+- **Fix:** Trimmed the template to `postgres` + `redis` only. `init` brings up the data stores; the user runs `pnpm run dev` (or `npx tuberosa mcp`) in their own terminal. Plan deviation recorded in `roadmap-claude.md` Phase 5 deviation §1.
+
+### 4. `curl /health` and `pnpm run seed:self` were removed from the success path
+- **Where:** `bin/commands/init.ts` — `printSuccess`.
+- **Tried:** Verifying init by hitting `http://127.0.0.1:3027/health` and offering to run `pnpm run seed:self`.
+- **Why it failed:** With the `app` container removed (failure §3), nothing listens on 3027 yet — the curl would always return connection-refused. `seed:self` ingests the Tuberosa source itself, which is exactly wrong for any project that uses Tuberosa as a dependency.
+- **Fix:** Replaced the post-install verification with a printed MCP snippet and a pointer to `pnpm run dev`. Users who want self-seeding still have `pnpm run seed:self` available.
+
+### 5. `tuberosa mcp` initially spawned `pnpm run mcp`
+- **Where:** `bin/commands/mcp.ts` — first draft.
+- **Tried:** Wrapping `pnpm run mcp` so the existing npm script handled all the env wiring.
+- **Why it failed:** `pnpm run` prints a one-line banner (`> tuberosa@0.1.0 mcp …`) to stdout before invoking the child. That banner corrupts the very first MCP JSON-RPC frame the client reads. Same root cause as failure §2.
+- **Fix:** `mcp` resolves the entrypoint directly (`dist/src/mcp-stdio.js` preferred, else `src/mcp-stdio.ts` via tsx) and spawns `node` with stdio inheritance. No pnpm banner, no shell wrapper.

@@ -5,6 +5,15 @@
   "type": "module",
   "packageManager": "pnpm@11.1.2",
   "main": "dist/src/index.js",
+  "bin": {
+    "tuberosa": "dist/bin/tuberosa.js"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    ".env.example",
+    "migrations/"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsx scripts/build-workbench.ts",
     "build:workbench": "tsx scripts/build-workbench.ts",
@@ -29,6 +38,7 @@
     "eval:agent-context": "tsx scripts/eval-agent-context.ts",
     "sandbox": "tsx scripts/sandbox.ts",
     "sandbox:ablate": "tsx scripts/sandbox.ts --ablate",
+    "calibrate-fusion": "tsx scripts/calibrate-fusion.ts",
     "test:integration": "node --test --import tsx test/integration.test.ts",
     "test:workbench-browser": "node --test --import tsx test/browser/workbench-browser.test.ts",
     "test": "node --test --import tsx test/*.test.ts"

@@ -49,6 +49,7 @@ import type {
   StoredKnowledge,
 } from '../types.js';
 import { estimateTokens, normalizeLabel, uniqueStrings } from '../util/text.js';
+import { getRetrievalPolicy, graphHopMultiplier } from '../retrieval/policy.js';
 import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 interface MemoryChunk extends ChunkInput {
@@ -500,6 +501,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     const directTargets = graphTargetTerms(classified);
     const seedKnowledgeIds = new Set(options.seedKnowledgeIds ?? []);
     const scored = new Map<string, GraphScore>();
+    const policy = getRetrievalPolicy();
+    const depth2Frontier = new Set<string>();
 
     for (const relation of this.relations.values()) {
       const item = this.knowledge.get(relation.fromKnowledgeId);
@@ -509,18 +512,36 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
       const directScore = directTargets.has(graphRelationKey(relation.targetKind, relation.targetValue));
       if (directScore) {
-        const score = 0.95 * relation.confidence;
+        const score = graphHopMultiplier(policy, 'target', relation.relationType) * relation.confidence;
         keepBestGraphScore(scored, item.id, score, relation, 'target_signal');
+        depth2Frontier.add(item.id);
       }
 
       if (seedKnowledgeIds.has(relation.fromKnowledgeId) && relation.targetKnowledgeId) {
-        const score = 0.68 * relation.confidence;
+        const score = graphHopMultiplier(policy, 'seed', relation.relationType) * relation.confidence;
         keepBestGraphScore(scored, relation.targetKnowledgeId, score, relation, 'seed_outbound');
+        depth2Frontier.add(relation.targetKnowledgeId);
       }
 
       if (relation.targetKnowledgeId && seedKnowledgeIds.has(relation.targetKnowledgeId)) {
-        const score = 0.68 * relation.confidence;
+        const score = graphHopMultiplier(policy, 'seed', relation.relationType) * relation.confidence;
         keepBestGraphScore(scored, relation.fromKnowledgeId, score, relation, 'seed_inbound');
+        depth2Frontier.add(relation.fromKnowledgeId);
+      }
+    }
+
+    if (policy.graphMaxHops >= 2 && depth2Frontier.size > 0) {
+      for (const relation of this.relations.values()) {
+        if (!relation.targetKnowledgeId) continue;
+        const fromInFrontier = depth2Frontier.has(relation.fromKnowledgeId);
+        const toInFrontier = depth2Frontier.has(relation.targetKnowledgeId);
+        if (fromInFrontier === toInFrontier) continue;
+        const expandTo = fromInFrontier ? relation.targetKnowledgeId : relation.fromKnowledgeId;
+        if (!expandTo || scored.has(expandTo) || depth2Frontier.has(expandTo)) continue;
+        const target = this.knowledge.get(expandTo);
+        if (!target || !this.allowed(target, options) || target.status !== 'approved') continue;
+        const score = graphHopMultiplier(policy, 'depth2', relation.relationType) * relation.confidence;
+        keepBestGraphScore(scored, expandTo, score, relation, 'depth2_expansion');
       }
     }
 
@@ -1244,7 +1265,7 @@ interface GraphPath {
   targetKnowledgeId?: string;
   targetValue?: string;
   confidence: number;
-  reason: 'target_signal' | 'seed_outbound' | 'seed_inbound';
+  reason: 'target_signal' | 'seed_outbound' | 'seed_inbound' | 'depth2_expansion';
 }
 
 function keepBestGraphScore(

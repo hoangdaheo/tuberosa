@@ -1,0 +1,215 @@
+import type {
+  QueryRewriteInput,
+  QueryRewriteResult,
+  RerankInput,
+  RerankResult,
+} from '../types.js';
+import { clamp, truncate } from '../util/text.js';
+import { HashModelProvider } from './provider.js';
+import type { ModelProvider } from './provider.js';
+
+/**
+ * Phase 4 — Local cross-encoder reranker.
+ *
+ * Default behaviour: lazily import `@xenova/transformers`, instantiate the
+ * `bge-reranker-base` (or configured) cross-encoder, and rescore the top-N
+ * candidates. The package is intentionally NOT a hard dependency — when the
+ * import fails (offline test env, package not installed, model not in cache),
+ * we fall back to the `HashModelProvider` rerank so the rest of the pipeline
+ * continues to function. This keeps the project install-light and the eval
+ * harness deterministic.
+ *
+ * Embeddings + query rewrite delegate to the fallback hash provider so a single
+ * `TUBEROSA_MODEL_PROVIDER=local` setting is enough to compose
+ * `hash embeddings + local rerank`.
+ */
+export interface LocalRerankerOptions {
+  /** Pretrained reranker model id. Defaults to `Xenova/bge-reranker-base`. */
+  modelId?: string;
+  /** Maximum candidates passed to the cross-encoder per request. */
+  topK?: number;
+  /** Optional cache directory override. Falls back to `~/.cache/tuberosa/models/`. */
+  cacheDir?: string;
+  /**
+   * Optional injected scorer. When provided, the provider uses it instead of
+   * loading the ONNX pipeline. Tests rely on this to keep the rerank step
+   * deterministic and offline.
+   */
+  scorer?: LocalCrossEncoderScorer;
+  /** Backing provider for embed / rewriteQuery / fallback rerank. Defaults to HashModelProvider. */
+  fallback?: ModelProvider;
+  /** Embedding dimension (only used when constructing the default hash fallback). */
+  embeddingDimensions?: number;
+}
+
+export interface LocalCrossEncoderScorer {
+  /** Return a parallel array of relevance scores in [0, 1] for each candidate. */
+  score(prompt: string, candidates: Array<{ knowledgeId: string; text: string }>): Promise<number[]>;
+  /** Optional dispose hook for the underlying pipeline. */
+  dispose?(): Promise<void> | void;
+}
+
+const DEFAULT_MODEL_ID = 'Xenova/bge-reranker-base';
+const DEFAULT_TOP_K = 16;
+
+export class LocalCrossEncoderProvider implements ModelProvider {
+  readonly name = 'local-cross-encoder';
+
+  private readonly fallback: ModelProvider;
+  private readonly modelId: string;
+  private readonly topK: number;
+  private readonly cacheDir?: string;
+  private scorerPromise: Promise<LocalCrossEncoderScorer | null> | null = null;
+  private hasLoggedLoadFailure = false;
+
+  constructor(options: LocalRerankerOptions = {}) {
+    this.fallback = options.fallback ?? new HashModelProvider(options.embeddingDimensions ?? 1536);
+    this.modelId = options.modelId ?? process.env.TUBEROSA_RERANKER_MODEL ?? DEFAULT_MODEL_ID;
+    this.topK = options.topK ?? Number(process.env.TUBEROSA_RERANKER_TOPK ?? DEFAULT_TOP_K);
+    this.cacheDir = options.cacheDir ?? process.env.TUBEROSA_MODEL_CACHE_DIR;
+    if (options.scorer) {
+      this.scorerPromise = Promise.resolve(options.scorer);
+    }
+  }
+
+  async embed(text: string): Promise<number[]> {
+    return this.fallback.embed(text);
+  }
+
+  async rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult | undefined> {
+    return this.fallback.rewriteQuery(input);
+  }
+
+  async rerank(input: RerankInput): Promise<RerankResult> {
+    if (input.candidates.length === 0) {
+      return { candidates: [] };
+    }
+    const scorer = await this.loadScorer();
+    if (!scorer) {
+      return this.fallback.rerank(input);
+    }
+
+    const windowSize = Math.min(this.topK, input.candidates.length);
+    const window = input.candidates.slice(0, windowSize);
+    const tail = input.candidates.slice(windowSize);
+    const payload = window.map((candidate) => ({
+      knowledgeId: candidate.knowledgeId,
+      text: truncate(candidate.contextualContent || candidate.content || candidate.summary || candidate.title, 1024),
+    }));
+
+    let scores: number[] = [];
+    try {
+      scores = await scorer.score(input.prompt, payload);
+    } catch (error) {
+      this.logLoadFailure(`local reranker scoring threw: ${error instanceof Error ? error.message : String(error)}`);
+      return this.fallback.rerank(input);
+    }
+
+    const reranked = window.map((candidate, index) => {
+      const localScore = clamp(scores[index] ?? 0, 0, 1);
+      const trustScore = clamp(candidate.trustLevel / 100, 0, 1);
+      // 0.70 to the local cross-encoder, 0.22 to the fused retrieval score, 0.08 to trust.
+      const blended = clamp(localScore * 0.7 + candidate.fusedScore * 0.22 + trustScore * 0.08, 0, 1);
+      return {
+        ...candidate,
+        rerankScore: blended,
+        finalScore: blended,
+        matchReasons: [...candidate.matchReasons, `local-rerank:${this.modelId}:${localScore.toFixed(3)}`],
+        metadata: {
+          ...(candidate.metadata ?? {}),
+          localRerank: {
+            model: this.modelId,
+            score: localScore,
+          },
+        },
+      };
+    });
+
+    const fallbackForTail = tail.length > 0
+      ? (await this.fallback.rerank({ ...input, candidates: tail })).candidates
+      : [];
+
+    const merged = [...reranked, ...fallbackForTail]
+      .sort((left, right) => right.finalScore - left.finalScore || left.rank - right.rank)
+      .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+
+    return { candidates: merged, model: this.modelId };
+  }
+
+  private async loadScorer(): Promise<LocalCrossEncoderScorer | null> {
+    if (this.scorerPromise) return this.scorerPromise;
+    this.scorerPromise = this.createDefaultScorer();
+    return this.scorerPromise;
+  }
+
+  private async createDefaultScorer(): Promise<LocalCrossEncoderScorer | null> {
+    try {
+      const transformers = (await dynamicImport('@xenova/transformers')) as TransformersModule | null;
+      if (!transformers || typeof transformers.pipeline !== 'function') {
+        this.logLoadFailure('@xenova/transformers is not installed; install it to enable local reranking');
+        return null;
+      }
+      if (this.cacheDir && transformers.env) {
+        transformers.env.cacheDir = this.cacheDir;
+      }
+      const pipeline = await transformers.pipeline('text-classification', this.modelId, {
+        quantized: true,
+      });
+      return new TransformersScorer(pipeline);
+    } catch (error) {
+      this.logLoadFailure(`local reranker init failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  private logLoadFailure(reason: string): void {
+    if (this.hasLoggedLoadFailure) return;
+    this.hasLoggedLoadFailure = true;
+    if ((process.env.NODE_ENV ?? '') === 'test' || process.env.TUBEROSA_SILENT_LOCAL_PROVIDER === 'true') return;
+    process.stderr.write(`[tuberosa] local cross-encoder unavailable; falling back to hash rerank — ${reason}\n`);
+  }
+}
+
+interface TransformersPipeline {
+  (input: unknown, options?: unknown): Promise<unknown>;
+}
+
+interface TransformersModule {
+  pipeline: (task: string, model: string, options?: Record<string, unknown>) => Promise<TransformersPipeline>;
+  env?: { cacheDir?: string };
+}
+
+class TransformersScorer implements LocalCrossEncoderScorer {
+  constructor(private readonly pipeline: TransformersPipeline) {}
+
+  async score(prompt: string, candidates: Array<{ knowledgeId: string; text: string }>): Promise<number[]> {
+    if (candidates.length === 0) return [];
+    const pairs = candidates.map((candidate) => ({ text: prompt, text_pair: candidate.text }));
+    const raw = await this.pipeline(pairs, { topk: 1 });
+    if (!Array.isArray(raw)) return candidates.map(() => 0);
+    return raw.map((entry) => normalizeScore(entry));
+  }
+}
+
+function normalizeScore(entry: unknown): number {
+  if (Array.isArray(entry)) {
+    return normalizeScore(entry[0]);
+  }
+  if (typeof entry === 'object' && entry !== null && 'score' in entry) {
+    const value = (entry as { score?: unknown }).score;
+    if (typeof value === 'number' && Number.isFinite(value)) return clamp(value, 0, 1);
+  }
+  if (typeof entry === 'number' && Number.isFinite(entry)) return clamp(entry, 0, 1);
+  return 0;
+}
+
+/** Indirection so bundlers / tsc don't try to resolve the optional package statically. */
+async function dynamicImport(specifier: string): Promise<unknown> {
+  try {
+    // eslint-disable-next-line no-new-func
+    const importer = new Function('s', 'return import(s)') as (s: string) => Promise<unknown>;
+    return await importer(specifier);
+  } catch {
+    return null;
+  }
+}

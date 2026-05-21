@@ -33,6 +33,17 @@ export function createModelProvider(config: AppConfig): ModelProvider {
     return new OpenAiModelProvider(config);
   }
 
+  if (config.modelProvider === 'local') {
+    // Lazy import to avoid pulling the registry module when it isn't needed.
+    // The registry returns a composed `hash embeddings + local cross-encoder rerank`
+    // provider; if the underlying transformers package is missing it falls back to
+    // the hash reranker, so this code path is always safe to take.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, global-require
+    const { buildProviderRegistry } = require('./registry.js') as typeof import('./registry.js');
+    const registry = buildProviderRegistry(config);
+    if (registry) return registry;
+  }
+
   return new HashModelProvider(config.embeddingDimensions);
 }
 

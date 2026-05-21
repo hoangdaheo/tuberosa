@@ -26,21 +26,29 @@ MCP remains the first-class integration surface, with HTTP as the operational an
 - [Setup and usage](docs/SETUP_AND_USAGE.md)
 - [Flow logic](docs/FLOW_LOGIC.md)
 
-## Quick Start For Codex
+## Quick Start
 
-Use this path when you want the next Codex session to connect to Tuberosa as an MCP server.
-
-1. Install dependencies and start the durable local stack:
+One command brings up the full local stack (Postgres + Redis + migrations) when Docker is available, and gracefully falls back to in-memory embedded mode when it isn't.
 
 ```bash
-corepack enable
-pnpm install
-test -f .env || cp .env.example .env
-docker compose up --build -d
-curl -fsS http://localhost:3027/health
+npx tuberosa init       # full local stack (Docker) or embedded fallback
+npx tuberosa doctor     # diagnose Node / pnpm / Docker / port / Postgres / MCP issues
+npx tuberosa mcp        # run the MCP stdio server with embedded-mode defaults
 ```
 
-2. Add Tuberosa to your Codex MCP config, normally `~/.codex/config.toml`:
+`init` writes a project-local `.tuberosa/compose.yml`, brings the stack up, waits for Postgres health, runs `pnpm run migrate`, and copies `.env.example → .env` when missing. It is idempotent — safe to re-run when something drifts. Pass `--no-docker` to force the embedded (volatile) mode.
+
+### MCP snippets
+
+Claude Code / Codex / Cursor — `~/.codex/config.toml` or the matching client config:
+
+```toml
+[mcp_servers.tuberosa]
+command = "npx"
+args    = ["tuberosa", "mcp"]
+```
+
+For a Tuberosa checkout that you want to attach to a durable Postgres stack, add:
 
 ```toml
 [mcp_servers.tuberosa]
@@ -51,9 +59,7 @@ args = [
 ]
 ```
 
-3. Restart Codex. In the next session, ask Codex to use `tuberosa_search_context` before implementation or debugging, then fetch the selected pack with `tuberosa_get_context_pack`.
-
-The Docker stack supplies Postgres, Redis, migrations, and the HTTP API. Codex starts the MCP stdio process on demand; that process uses the same local Postgres store and defaults to memory cache unless `TUBEROSA_CACHE` is explicitly set. The MCP command must write only JSON-RPC protocol frames to stdout, so the Codex config runs Node directly instead of `pnpm run`.
+The MCP command must write only JSON-RPC protocol frames to stdout. `npx tuberosa mcp` enforces this by inheriting stdio without adding any banner text.
 
 ## Architecture
 

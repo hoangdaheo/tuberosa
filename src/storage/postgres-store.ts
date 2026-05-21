@@ -52,6 +52,8 @@ import type {
 } from '../types.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
+import { getRetrievalPolicy } from '../retrieval/policy.js';
+import type { KnowledgeRelationType } from '../types.js';
 import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 type Queryable = Pool | PoolClient;
@@ -913,6 +915,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       return [];
     }
 
+    const policy = getRetrievalPolicy();
+    const relationKindMultiplierSql = buildRelationKindMultiplierSql(policy.relationKindMultipliers);
     const result = await this.pool.query(
       `
         WITH graph_targets AS (
@@ -922,7 +926,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         graph_matches AS (
           SELECT
             kr.from_knowledge_id AS knowledge_id,
-            0.95 * kr.confidence AS graph_score,
+            ${'$6::real'} * (${relationKindMultiplierSql}) * kr.confidence AS graph_score,
             jsonb_build_object(
               'relationId', kr.id,
               'relationType', kr.relation_type,
@@ -939,7 +943,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
           UNION ALL
           SELECT
             kr.target_knowledge_id AS knowledge_id,
-            0.68 * kr.confidence AS graph_score,
+            ${'$7::real'} * (${relationKindMultiplierSql}) * kr.confidence AS graph_score,
             jsonb_build_object(
               'relationId', kr.id,
               'relationType', kr.relation_type,
@@ -956,7 +960,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
           UNION ALL
           SELECT
             kr.from_knowledge_id AS knowledge_id,
-            0.68 * kr.confidence AS graph_score,
+            ${'$7::real'} * (${relationKindMultiplierSql}) * kr.confidence AS graph_score,
             jsonb_build_object(
               'relationId', kr.id,
               'relationType', kr.relation_type,
@@ -993,6 +997,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         options.project ?? null,
         options.rejectedKnowledgeIds ?? [],
         options.limit,
+        policy.graphHopWeights.target,
+        policy.graphHopWeights.seed,
       ],
     );
 
@@ -2504,6 +2510,27 @@ function mapAgentContextDecisionRow(row: Record<string, unknown>): AgentContextD
 
 function vectorLiteral(embedding: number[]): string {
   return `[${embedding.map((value) => Number(value.toFixed(8))).join(',')}]`;
+}
+
+/**
+ * Phase 4 — emit a CASE expression that maps `kr.relation_type` to the configured
+ * per-relation-kind multiplier. Defaults to 1.0 when no entry is provided. Values are
+ * embedded directly because they originate from server-side config (no user input).
+ */
+function buildRelationKindMultiplierSql(
+  multipliers: Partial<Record<KnowledgeRelationType, number>>,
+): string {
+  const cases: string[] = [];
+  for (const [relationType, multiplier] of Object.entries(multipliers)) {
+    if (typeof multiplier !== 'number' || !Number.isFinite(multiplier)) continue;
+    cases.push(`WHEN kr.relation_type = ${formatSqlString(relationType)} THEN ${multiplier.toFixed(4)}::real`);
+  }
+  if (cases.length === 0) return '1.0';
+  return `CASE ${cases.join(' ')} ELSE 1.0 END`;
+}
+
+function formatSqlString(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function toIso(value: unknown): string {

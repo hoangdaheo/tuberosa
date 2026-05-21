@@ -1,5 +1,5 @@
 {
-  "description": "Phase 3 thresholds. Adds itemType / label confusion-matrix diagonal-rate floors. The catch-all rate is still gated at 0.6 — the sandbox corpus generator emits an inherent fraction of memory items so the metric is corpus-bounded, not just inference-bounded; see roadmap-claude.md Phase 3 deviations.",
+  "description": "Phase 4 thresholds. itemType diagonal rate raised to 0.65 to lock in the gain from per-task fusion + coverage profiles. catch-all rate still gated at 0.6 — corpus-bounded (see roadmap-claude.md Phase 3 deviations).",
   "minHitRate": 0.9,
   "minMRR": 0.45,
   "maxNoiseRate": 0.2,
@@ -7,7 +7,7 @@
   "minDuplicateSuppressionRate": 0.9,
   "minAdversarialBlockRate": 0.9,
   "maxItemTypeCatchAllRate": 0.6,
-  "minItemTypeDiagonalRate": 0.6,
+  "minItemTypeDiagonalRate": 0.65,
   "minLabelDiagonalRate": 0.05,
   "minPerFilterPrecision": {
     "safety_block_ingest": 0.9,

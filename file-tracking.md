@@ -138,7 +138,82 @@ Status: **completed** 2026-05-21. All six deliverables landed; 181/181 unit test
 - `TUBEROSA_LLM_LABELS=true` is the only switch that enables the LLM enricher; it ships inert.
 
 ## Phase 4 — Matching Engine (Local Cross-Encoder + Calibrated Fusion)
-Status: not started
+
+Status: **completed** 2026-05-21. All six deliverables landed; 192/192 unit tests green; `pnpm run eval:retrieval`, `eval:knowledge-completeness`, `eval:agent-context`, `pnpm run sandbox`, and `pnpm run sandbox:ablate` all PASS against the Phase 4 thresholds (itemType diagonal floor raised to 0.65).
+
+### Created
+- `src/model/local-provider.ts` — `LocalCrossEncoderProvider` implements `ModelProvider`; lazily imports `@xenova/transformers` via a dynamic `Function('s', 'return import(s)')` indirection so a missing package or model cache falls back cleanly to the hash reranker. Tests inject a `LocalCrossEncoderScorer` to keep the rerank step deterministic and offline. Embed + rewriteQuery delegate to the fallback provider so `TUBEROSA_MODEL_PROVIDER=local` yields `hash embeddings + local rerank` in one switch.
+- `src/model/registry.ts` — `ProviderRegistry` composes providers by capability (`embed`, `rewriteQuery`, `rerank`). `buildProviderRegistry(config)` wires `hash → embed/rewriteQuery` + `LocalCrossEncoderProvider → rerank` when `modelProvider === 'local'`.
+- `scripts/calibrate-fusion.ts` — runs the sandbox prompt set with `debug=true`, aggregates per-source fusion contribution toward `expectedSelectedSandboxIds`, normalises to bounded weights in `[0.7, 1.4]`, and writes a merged `config/retrieval-policy.json` patch (`sourceWeights` + per-task `taskProfiles` + `calibration` metadata). `--dry-run` prints the patch without writing.
+- `test/local-provider.test.ts` — 4 tests covering injected scorer ranking, scorer-throws fallback, transformers-package-missing fallback, and embed/rewriteQuery delegation.
+- `test/fusion-profiles.test.ts` — 7 tests covering `effectiveSourceWeight` (delta + rollback flag), `effectiveTaskItemTypeBoosts` merge, `coverageProfileFor` (override + rollback), and `graphHopMultiplier` (hop role × relation kind, defaults).
+
+### Modified
+- `src/retrieval/policy.ts` — `RetrievalPolicy` gained `useTaskProfiles`, `taskProfiles<TaskType>.{sourceWeights,itemTypeBoosts}`, `useCoverageProfiles`, `coverageGlobal`, `coverageProfiles<TaskType>`, `graphHopWeights.{target,seed,depth2}`, `relationKindMultipliers<KnowledgeRelationType>`, `graphMaxHops: 1|2`, and optional `calibration.{calibratedAt,seed,notes}`. Added helpers `effectiveSourceWeight`, `effectiveTaskItemTypeBoosts`, `coverageProfileFor`, `graphHopMultiplier`. `mergePolicy` merges the new fields. Defaults: per-task profiles ON, coverage profiles ON, graphMaxHops=1 (depth-2 opt-in).
+- `src/retrieval/fusion.ts` — `sourceWeight()` consumes `effectiveSourceWeight(policy, source, classified.taskType)` and `effectiveTaskItemTypeBoosts(...)`. Hard-signal and vector penalty paths unchanged.
+- `src/retrieval/context-fit.ts` — `aggregateCoverage` reads per-task coverage weights via `coverageProfileFor(policy, classified.taskType)` so debugging emphasises errors, refactor emphasises symbols, etc. Hardcoded 0.24/0.22/0.22/0.12/0.12 values moved into `DEFAULT_POLICY.coverageGlobal`.
+- `src/storage/memory-store.ts` — `searchGraphRelations` calls `graphHopMultiplier(policy, role, relation.relationType)` for target / seed_outbound / seed_inbound. Added optional depth-2 expansion gated by `policy.graphMaxHops >= 2`; widened the `GraphPath.reason` union to include `'depth2_expansion'`.
+- `src/storage/postgres-store.ts` — graph SQL uses `$6::real` (target) and `$7::real` (seed) parameters from `policy.graphHopWeights` instead of literal 0.95/0.68. Added a per-relation-kind multiplier built via `buildRelationKindMultiplierSql` (CASE WHEN ... THEN <multiplier>::real). Imports `getRetrievalPolicy` and `KnowledgeRelationType`.
+- `src/model/provider.ts` — `createModelProvider(config)` now branches into `local` via a deferred `require('./registry.js')` so the registry module is only loaded when needed.
+- `src/config.ts` — `modelProvider` union widened to `'hash' | 'openai' | 'local'`; `loadConfig()` accepts `local` from `TUBEROSA_MODEL_PROVIDER`.
+- `config/retrieval-policy.json` — `_comment` updated to enumerate the Phase 4 knobs and reference the calibration script.
+- `eval/sandbox/thresholds.json` — `minItemTypeDiagonalRate` raised from 0.6 → 0.65 to lock the Phase 4 gain.
+- `package.json` — added the `calibrate-fusion` script entry.
+- `CLAUDE.md` — documented `pnpm run calibrate-fusion`.
+
+### Phase 4 sandbox vs Phase 3 baseline (`pnpm run sandbox`)
+| metric | Phase 3 | Phase 4 |
+| --- | --- | --- |
+| hit rate | 95.5% | 95.5% |
+| MRR | 0.4878 | **0.4882** |
+| noise rate | 9.1% | 9.1% |
+| memory itemType catch-all rate | 39.4% | 39.4% |
+| itemType diagonal rate | 68.3% | **68.7%** |
+| label diagonal rate | 8.0% | 8.0% |
+| latency p50 / p95 | ~16ms / ~28ms | ~19ms / ~37ms |
+
+### Verification
+- `pnpm run build` — green
+- `pnpm test` — 192/192 green (Phase 3: 181; +11 from `test/local-provider.test.ts` (4) and `test/fusion-profiles.test.ts` (7))
+- `pnpm run eval:retrieval` — 14/14 cases pass, all metrics at 100%
+- `pnpm run eval:knowledge-completeness` — 100% pass rate, 0% noise
+- `pnpm run eval:agent-context` — pass
+- `pnpm run sandbox` — thresholds: PASS (now gated by `minItemTypeDiagonalRate=0.65`)
+- `pnpm run sandbox:ablate` — graph ablation now costs 4.6pts of hit (was neutral), reflecting the per-task profile re-weighting
+- `pnpm run calibrate-fusion -- --dry-run` — emits bounded weights + per-task profiles; not run by default
+
+### Rollback boundary
+- `RetrievalPolicy.useTaskProfiles=false` → fusion ignores per-task source weights and itemType boosts (falls back to global `sourceWeights` + `taskItemTypeBoosts`).
+- `RetrievalPolicy.useCoverageProfiles=false` → context-fit aggregator uses `coverageGlobal` for every task.
+- `RetrievalPolicy.graphMaxHops=1` (default) → no depth-2 expansion; same graph behaviour as Phase 3.
+- `TUBEROSA_MODEL_PROVIDER=local` is opt-in; the default (`hash` / `openai`) is untouched. The local provider also self-rolls-back to the hash reranker when `@xenova/transformers` is missing.
 
 ## Phase 5 — One-Command Install & Local-First Polish
-Status: not started
+
+Status: **completed** 2026-05-21. CLI ships as `bin/tuberosa.ts` with `init` / `doctor` / `mcp` / `help`; 207/207 unit tests + 3 evals + sandbox PASS.
+
+### Created
+- `bin/tuberosa.ts` — top-level dispatcher with shebang. Exposes `runCli(argv, io)` + `dispatch(invocation, io)` so the harness can drive it without spawning a child process. ES-module-aware "is-main" check works under both `tsx bin/tuberosa.ts` and the compiled `dist/bin/tuberosa.js`.
+- `bin/commands/types.ts` — `CommandIo`, `SpawnFn`, `FsAdapter` interfaces. Every subcommand is pure over `CommandIo` so tests inject fakes.
+- `bin/commands/io.ts` — production factories: `createDefaultIo()`, `defaultFs`, `defaultSpawn`. Wraps `node:fs` + `node:child_process` with timeouts and stdio-inherit support.
+- `bin/commands/parser.ts` — tiny argv parser (no `commander`/`yargs` dep). Resolves `--flag` / `--flag=value` / `--flag value`, treats `-h` / `--help` as the help command regardless of position. Includes `usage()` text.
+- `bin/commands/init.ts` — `initCommand` detects Docker, writes `.tuberosa/compose.yml` from the embedded template, brings the stack up, waits up to 60s for Postgres health via `docker compose exec postgres pg_isready`, runs `pnpm run migrate`, copies `.env.example → .env`, prints the MCP snippet. Falls back to embedded mode (memory store) when Docker is missing or `--no-docker` is set, or when `docker compose up` returns non-zero.
+- `bin/commands/doctor.ts` — `doctorCommand` + `runDoctorChecks` produce 7 checks: Node version, pnpm, Docker, port 3027, Postgres reachability (only when `DATABASE_URL` is set), migrations directory, MCP stdout sanity. Supports `--json` output and `--port`/`--root` overrides. Exit code is non-zero only when at least one check **fails**; warnings (e.g., Docker missing) are reported but do not fail.
+- `bin/commands/mcp.ts` — `mcpCommand` resolves the MCP entrypoint (`dist/src/mcp-stdio.js` preferred, else `src/mcp-stdio.ts`), composes embedded defaults (`TUBEROSA_STORE=memory`, `TUBEROSA_CACHE=memory`, `TUBEROSA_MODEL_PROVIDER=hash`, `TUBEROSA_AUTO_MIGRATE=false`), and inherits stdio so JSON-RPC frames pass through unmodified. Respects any value the user already exported. Exports `buildEnv()` for direct unit testing.
+- `bin/commands/compose-template.ts` — embedded compose YAML (Postgres + Redis with health checks, no `app` container). Embedded as a string so the published CLI doesn't need to resolve a data file out of `node_modules`.
+- `test/cli.test.ts` — 15 tests across 6 suites: parser (long flags, `-h`, unknown commands, usage text), doctor (port-held → fail, docker-absent → warn-not-fail, mcp `console.log` → fail), init (docker path writes compose + .env + migrate, docker-absent → embedded, `--no-docker` → forced embedded), mcp (dist preferred, tsx fallback, user env preserved), dispatch (help route), compose template (YAML shape).
+
+### Modified
+- `package.json` — added `"bin": { "tuberosa": "dist/bin/tuberosa.js" }` and `"files": ["dist/", "bin/", ".env.example", "migrations/"]` so `npm pack` / `pnpm publish` produce a runnable distribution.
+- `tsconfig.json` — added `"bin/**/*.ts"` to `include` so `pnpm run build` emits the CLI under `dist/bin/`.
+- `README.md` — rewrote the "Quick Start" section to lead with `npx tuberosa init` / `doctor` / `mcp` and the new MCP snippet that uses `npx tuberosa mcp`. The full Postgres-stack MCP snippet for Tuberosa contributors stays underneath as the durable option.
+
+### Verification
+- `pnpm run build` — green; produces `dist/bin/tuberosa.js` with executable shebang.
+- `node dist/bin/tuberosa.js help` — prints the new help text.
+- `node dist/bin/tuberosa.js doctor` — 7 checks, all ok/skip on this workstation.
+- `pnpm test` — 207/207 green (Phase 4: 192; +15 from `test/cli.test.ts`).
+- `pnpm run eval:retrieval`, `eval:knowledge-completeness`, `eval:agent-context`, `pnpm run sandbox` — unchanged (CLI is additive).
+
+### Rollback boundary
+The CLI is purely additive. None of Phase 1-4 read from `bin/`. Removing `bin/tuberosa.ts`, the `bin` entry in `package.json`, and the `bin/**/*.ts` include from `tsconfig.json` returns the project to the Phase 4 surface with zero downstream effects. The existing `pnpm install && docker compose up -d` path is still documented and supported.
