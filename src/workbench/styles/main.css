@@ -500,6 +500,35 @@ ul.bullets li { margin-bottom: var(--space-1); }
 .toast.bad { background: var(--bad); }
 .toast.good { background: var(--good); }
 
+/* Catchup view */
+.catchup-health {
+  display: flex; flex-wrap: wrap; gap: var(--space-3);
+  font-size: 13px; color: var(--ink-2);
+}
+.catchup-health strong { color: var(--ink); font-weight: 600; }
+.catchup-metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.catchup-metric {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--space-2); border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--surface);
+}
+.catchup-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.catchup-list li { padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius); }
+.catchup-issues { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.catchup-issues li {
+  display: grid; grid-template-columns: max-content 1fr max-content;
+  gap: var(--space-3); align-items: center;
+  padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.catchup-tools { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.catchup-tools li { padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius); }
+.catchup-tools code { font-size: 13px; }
+.catchup-arg { background: var(--surface-2); padding: 1px 4px; border-radius: 3px; margin-right: 4px; }
+
 @media (max-width: 700px) {
   .shell { width: min(100vw - 20px, 1480px); }
   header.app { padding: var(--space-3) 0; }

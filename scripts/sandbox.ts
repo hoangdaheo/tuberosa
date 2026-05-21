@@ -59,7 +59,7 @@ interface SandboxRunMetrics {
   noiseExpected: number;
   noiseRate: number;
   itemTypeCatchAllRate: number;
-  perItemType: Record<string, { hits: number; total: number; precision: number; recall: number }>;
+  perItemType: Record<string, { hits: number; total: number; correctlyHit: number; precision: number; recall: number }>;
   perTier: Record<string, { selected: number; suppressed: number; expectedSelected: number; expectedSuppressed: number }>;
   perSourceContribution: Record<CandidateSource, number>;
   perFilter: Record<string, { triggered: number; correct: number; precision: number }>;
@@ -318,8 +318,11 @@ async function runPrompts(
       if (!knowledge) continue;
       metrics.perTier[knowledge.tier].selected += 1;
       const itemType = knowledge.itemType;
-      const perType = metrics.perItemType[itemType] ?? { hits: 0, total: 0, precision: 0, recall: 0 };
+      const perType = metrics.perItemType[itemType] ?? { hits: 0, total: 0, correctlyHit: 0, precision: 0, recall: 0 };
       perType.hits += 1;
+      if (expectedSelected.has(sandboxId)) {
+        perType.correctlyHit += 1;
+      }
       metrics.perItemType[itemType] = perType;
       itemTypeCatchAllCount.totalSelected += 1;
       if (itemType === 'memory') {
@@ -375,7 +378,7 @@ async function runPrompts(
       const knowledge = sandboxIdToKnowledge(sandboxId, fixture);
       if (!knowledge) continue;
       metrics.perTier[knowledge.tier].expectedSelected += 1;
-      const perType = metrics.perItemType[knowledge.itemType] ?? { hits: 0, total: 0, precision: 0, recall: 0 };
+      const perType = metrics.perItemType[knowledge.itemType] ?? { hits: 0, total: 0, correctlyHit: 0, precision: 0, recall: 0 };
       perType.total += 1;
       metrics.perItemType[knowledge.itemType] = perType;
     }
@@ -432,8 +435,13 @@ async function runPrompts(
     : 0;
 
   for (const [itemType, value] of Object.entries(metrics.perItemType)) {
-    value.precision = value.total > 0 ? value.hits / Math.max(1, value.total) : 0;
-    value.recall = value.total > 0 ? value.hits / Math.max(1, value.total) : 0;
+    value.precision = value.hits > 0 ? value.correctlyHit / value.hits : 0;
+    value.recall = value.total > 0 ? value.correctlyHit / value.total : 0;
+    if (value.precision > 1 || value.recall > 1) {
+      throw new Error(
+        `Sandbox perItemType[${itemType}] produced precision=${value.precision} recall=${value.recall} (correctlyHit=${value.correctlyHit}, hits=${value.hits}, total=${value.total}); both must be ≤ 1.`,
+      );
+    }
     metrics.perItemType[itemType] = value;
   }
 
@@ -485,7 +493,7 @@ function blankMetrics(): SandboxRunMetrics {
       E: { selected: 0, suppressed: 0, expectedSelected: 0, expectedSuppressed: 0 },
       F: { selected: 0, suppressed: 0, expectedSelected: 0, expectedSuppressed: 0 },
     },
-    perSourceContribution: { metadata: 0, lexical: 0, memory: 0, vector: 0, graph: 0, reference: 0 },
+    perSourceContribution: { metadata: 0, lexical: 0, memory: 0, vector: 0, graph: 0 },
     perFilter: {},
     latency: { p50: 0, p95: 0, max: 0, samples: 0 },
     itemTypeDiagonalRate: 0,
@@ -583,10 +591,10 @@ function renderReport(result: SandboxRunResult, fixture: SandboxFixture): string
   lines.push('');
   lines.push(`## Per-ItemType Hits`);
   lines.push('');
-  lines.push(`| itemType | hits | expected | precision | recall |`);
-  lines.push(`| --- | --- | --- | --- | --- |`);
+  lines.push(`| itemType | selected | expected | correct | precision | recall |`);
+  lines.push(`| --- | --- | --- | --- | --- | --- |`);
   for (const [itemType, value] of Object.entries(result.metrics.perItemType)) {
-    lines.push(`| ${itemType} | ${value.hits} | ${value.total} | ${formatRate(value.precision)} | ${formatRate(value.recall)} |`);
+    lines.push(`| ${itemType} | ${value.hits} | ${value.total} | ${value.correctlyHit} | ${formatRate(value.precision)} | ${formatRate(value.recall)} |`);
   }
   lines.push('');
   lines.push(`## Per-Source Fusion Contribution (toward expected items)`);

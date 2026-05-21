@@ -1,12 +1,13 @@
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { BookOpen, ClipboardList, HeartPulse, Home, PlayCircle } from 'lucide-preact';
+import { BookOpen, ClipboardList, HeartPulse, Home, Map, PlayCircle } from 'lucide-preact';
 import './styles/main.css';
 import { api, getApiKey, getLimit, getProject, setApiKey, setLimit, setProject } from './state/api.js';
 import { currentRoute, ensureDefaultRoute, navigate, pushToast } from './state/store.js';
 import { presentSummary, type SummaryViewModel } from './presenters/summaryPresenter.js';
 import { SummarySidebar } from './views/SummarySidebar.js';
 import { OverviewView } from './views/OverviewView.js';
+import { CatchupView } from './views/CatchupView.js';
 import { SessionView } from './views/SessionView.js';
 import { QualityView } from './views/QualityView.js';
 import { MemoryView } from './views/MemoryView.js';
@@ -70,6 +71,7 @@ function App() {
           </div>
           <nav class="tabs" role="tablist">
             <button class={view === 'overview' ? 'active' : ''} onClick={() => navigate('overview')} data-testid="nav-overview"><Home size={15} aria-hidden="true" /> Overview</button>
+            <button class={view === 'catchup' ? 'active' : ''} onClick={() => navigate('catchup')} data-testid="nav-catchup"><Map size={15} aria-hidden="true" /> Catchup</button>
             <button class={view === 'session' ? 'active' : ''} onClick={() => navigate('session')} data-testid="nav-session"><PlayCircle size={15} aria-hidden="true" /> Start session</button>
             <button class={view === 'quality' ? 'active' : ''} onClick={() => navigate('quality')} data-testid="nav-quality"><HeartPulse size={15} aria-hidden="true" /> Context quality</button>
             <button class={view === 'memory' ? 'active' : ''} onClick={() => navigate({ view: 'memory', memoryTab: route.memoryTab })} data-testid="nav-memory"><ClipboardList size={15} aria-hidden="true" /> Memory review</button>
@@ -101,6 +103,7 @@ function App() {
               onRefresh={refresh}
             />
           )}
+          {view === 'catchup' && <CatchupView />}
           {view === 'session' && <SessionView defaultProject={project} />}
           {view === 'quality' && <QualityView summary={summary} />}
           {view === 'memory' && <MemoryView summary={summary} project={project} limit={limit} refresh={refresh} activeTab={route.memoryTab} />}

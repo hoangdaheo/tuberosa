@@ -34,7 +34,8 @@ import type {
   TaskBriefMode,
 } from '../types.js';
 import { sha256, stableJson } from '../util/hash.js';
-import { normalizeLabel, truncate, uniqueStrings } from '../util/text.js';
+import { clamp, metadataString, normalizeLabel, sameSignals, truncate, uniqueStrings } from '../util/text.js';
+import { candidateText } from './candidate-helpers.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import {
@@ -49,7 +50,7 @@ import { classifyQuery, hasDomainMismatch } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
-import { freshnessWindowFor, getRetrievalPolicy } from './policy.js';
+import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint } from './policy.js';
 
 const DEFAULT_TOKEN_BUDGET = 4000;
 const SEARCH_LIMIT = 18;
@@ -958,18 +959,18 @@ function mergeExplicitAndInferred(
   return merged.length ? merged : undefined;
 }
 
-function sameSignals(left: string[] | undefined, right: string[] | undefined): boolean {
-  return (left ?? []).join('\0') === (right ?? []).join('\0');
-}
-
 function projectFromInput(input: ContextSearchInput): string | undefined {
   const hint = input.repoHint ?? input.cwd;
   return hint ? normalizeLabel(hint.split('/').filter(Boolean).at(-1) ?? hint) : undefined;
 }
 
-function isContinuationPrompt(prompt: string): boolean {
+/** @internal Exposed for unit tests; matches the phrases that trigger continuation-provenance expansion. */
+export function isContinuationPrompt(prompt: string): boolean {
   const lower = prompt.toLowerCase();
-  return /\b(continue|resume|handoff|handover)\b|\bpick up\b|\bwhere we left off\b|\bcurrent work\b/.test(lower);
+  // Phrase-anchored: requires an explicit continuation construct. Avoids false positives like
+  // "current rate limit policy", "continue using strict mode", "tests continue to pass" that
+  // would otherwise pay the session × decision × pack expansion.
+  return /\bcontinue\s+(?:the|our|my|this|where|from|previous|prior|last)\b|\bresume (?:the |my |our )?(?:work|session|task)\b|\bhand[ -]?off\b|\bpick up where\b|\bwhere we left off\b|\bpicking up where\b|\bpick up the (?:work|task)\b/.test(lower);
 }
 
 const CONTINUATION_SYMBOL_STOP_WORDS = new Set([
@@ -1208,6 +1209,7 @@ function fingerprintSearch(
     exactTerms: classified.exactTerms,
     queryRewriteModel: rewrite?.model,
     rerankModel: config.openAiRerankModel,
+    policyFingerprint: getRetrievalPolicyFingerprint(),
   }));
 }
 
@@ -1449,13 +1451,7 @@ function feedbackSuppressionConfidence(summary: KnowledgeFeedbackSummary, status
   if (negativeCount === 0) return 0.5;
   const baseline = Math.min(1, negativeCount / 3);
   const isLatestMatching = summary.latestFeedbackType === status;
-  return clampNumber(isLatestMatching ? Math.max(baseline, 0.7) : baseline, 0, 1);
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
+  return clamp(isLatestMatching ? Math.max(baseline, 0.7) : baseline, 0, 1);
 }
 
 function applyIntentSuppression(
@@ -1520,7 +1516,7 @@ function intentSuppressionAdjustment(
     events.push({
       reason: 'superseded',
       deltaScore: roundFeedbackAdjustment(delta),
-      confidence: clampNumber(strongest, 0, 1),
+      confidence: clamp(strongest, 0, 1),
       evidence: `superseded by ${supersededBy[0].fromKnowledgeId} (confidence=${strongest.toFixed(2)})`,
     });
   }
@@ -1607,7 +1603,7 @@ function staleFreshnessConfidence(candidate: RankedCandidate): number {
   const ageDays = Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
   if (ageDays <= window.staleDays) return 0.5;
   const overshootRatio = (ageDays - window.staleDays) / Math.max(1, window.staleDays);
-  return clampNumber(0.6 + overshootRatio * 0.4, 0.6, 1);
+  return clamp(0.6 + overshootRatio * 0.4, 0.6, 1);
 }
 
 function hasHardSignalEvidence(candidate: RankedCandidate, classified: ClassifiedQuery): boolean {
@@ -1683,23 +1679,6 @@ function candidateSupportsEvidence(candidate: RankedCandidate, evidenceType: Ret
 
 function hasMetadataTaxonomy(candidate: RankedCandidate, taxonomy: string): boolean {
   return metadataString(candidate.metadata, 'taxonomy') === taxonomy;
-}
-
-function candidateText(candidate: RankedCandidate): string {
-  return [
-    candidate.title,
-    candidate.summary,
-    candidate.content,
-    candidate.contextualContent,
-    candidate.labels.map((label) => `${label.type}:${label.value}`).join(' '),
-    candidate.references.map((reference) => reference.uri).join(' '),
-    JSON.stringify(candidate.metadata ?? {}),
-  ].join(' ').toLowerCase();
-}
-
-function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
-  const value = metadata?.[key];
-  return typeof value === 'string' ? value : undefined;
 }
 
 function metadataUuidString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {

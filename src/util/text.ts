@@ -18,6 +18,19 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+export function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+export function sameSignal(left: string, right: string): boolean {
+  return normalizeLabel(left) === normalizeLabel(right);
+}
+
+export function sameSignals(left: string[] | undefined, right: string[] | undefined): boolean {
+  return (left ?? []).join('\0') === (right ?? []).join('\0');
+}
+
 export function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) {
     return value;

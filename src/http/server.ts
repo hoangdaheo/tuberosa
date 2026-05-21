@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AppServices } from '../app.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
+import { getCatchupMetadata } from '../operations/catchup.js';
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
   validateAppendAgentSessionNoteInput,
@@ -513,6 +514,15 @@ function createRoutes(): HttpRoute[] {
       method: 'GET',
       match: exactPath('/operations/workbench/summary'),
       handle: ({ services, url }) => buildWorkbenchSummary(services, readWorkbenchSummaryOptions(url)),
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/catchup'),
+      handle: async ({ services, url }) => {
+        const summary = await buildWorkbenchSummary(services, readWorkbenchSummaryOptions(url));
+        const catchup = getCatchupMetadata();
+        return { catchup, summary };
+      },
     },
     {
       method: 'POST',

@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { MemoryCache } from '../src/cache.js';
 import type { AppConfig } from '../src/config.js';
 import { loadRetrievalEvalFixture } from '../src/evaluation/fixture-loader.js';
+import { writeLastEval } from '../src/operations/last-eval.js';
 import {
   RetrievalEvaluator,
   type RetrievalEvalCaseResult,
@@ -72,7 +73,27 @@ async function main(): Promise<void> {
       printReport(report);
     }
 
-    if (shouldFail(report, options)) {
+    const failed = shouldFail(report, options);
+    const num = (value: number | null): number | undefined => (typeof value === 'number' ? value : undefined);
+    writeLastEval({
+      status: failed ? 'fail' : 'pass',
+      generatedAt: new Date().toISOString(),
+      totalCases: report.totalCases,
+      passedCases: report.cases.filter((testCase) => testCase.passed).length,
+      fixtureName: report.fixtureName,
+      project: report.project,
+      metrics: {
+        hitRate: num(report.metrics.hitRate),
+        meanReciprocalRank: num(report.metrics.meanReciprocalRank),
+        selectedCoverageRate: num(report.metrics.selectedCoverageRate),
+        staleRejectionRate: num(report.metrics.staleRejectionRate),
+        exactFileMatchRate: num(report.metrics.exactFileMatchRate),
+        exactSymbolMatchRate: num(report.metrics.exactSymbolMatchRate),
+        exactErrorMatchRate: num(report.metrics.exactErrorMatchRate),
+      },
+    });
+
+    if (failed) {
       process.exitCode = 1;
     }
   } finally {

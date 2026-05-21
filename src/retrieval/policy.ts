@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { CandidateSource, KnowledgeItemType, KnowledgeRelationType, TaskType } from '../types.js';
+import { sha256, stableJson } from '../util/hash.js';
 
 export interface FreshnessWindow {
   /** Days <= currentDays counts as "current" (small positive nudge). */
@@ -116,7 +117,6 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
 
   sourceWeights: {
     metadata: 1.15,
-    reference: 1.12,
     graph: 1.1,
     memory: 1.08,
     lexical: 1.0,
@@ -212,6 +212,7 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
 
 let cachedPolicy: RetrievalPolicy | null = null;
 let cachedPath: string | null = null;
+let cachedPolicyFingerprint: string | null = null;
 
 export function getRetrievalPolicy(): RetrievalPolicy {
   if (cachedPolicy) {
@@ -221,13 +222,25 @@ export function getRetrievalPolicy(): RetrievalPolicy {
   return cachedPolicy;
 }
 
+export function getRetrievalPolicyFingerprint(): string {
+  if (cachedPolicyFingerprint) {
+    return cachedPolicyFingerprint;
+  }
+  cachedPolicyFingerprint = sha256(stableJson(getRetrievalPolicy()));
+  return cachedPolicyFingerprint;
+}
+
+/** @internal Test/admin only. Used by tests and `scripts/calibrate-fusion.ts` to force a reload. */
 export function resetRetrievalPolicyCache(): void {
   cachedPolicy = null;
   cachedPath = null;
+  cachedPolicyFingerprint = null;
 }
 
+/** @internal Test/admin only. Used by tests to inject a synthetic policy without touching the file. */
 export function setRetrievalPolicy(policy: RetrievalPolicy): void {
   cachedPolicy = policy;
+  cachedPolicyFingerprint = null;
 }
 
 export function loadRetrievalPolicy(): RetrievalPolicy {

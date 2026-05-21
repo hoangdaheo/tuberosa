@@ -436,7 +436,7 @@ export interface RerankResult {
   model?: string;
 }
 
-export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'reference' | 'graph';
+export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph';
 
 export interface SearchCandidate {
   knowledgeId: string;
@@ -1695,7 +1695,7 @@ export interface RetrievalFilterDecision {
   reason: string;
 }
 
-export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'reference';
+export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph';
 
 export interface FusionContribution {
   source: FusionContributionStage;

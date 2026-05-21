@@ -1,5 +1,6 @@
 import type { ClassifiedQuery, ContextFit, RankedCandidate, TaskType } from '../types.js';
-import { clamp, normalizeLabel } from '../util/text.js';
+import { clamp, metadataString, normalizeLabel, sameSignal } from '../util/text.js';
+import { candidateText } from './candidate-helpers.js';
 import { hasDomainMismatch } from './classifier.js';
 import { coverageProfileFor, freshnessWindowFor, getRetrievalPolicy } from './policy.js';
 
@@ -277,7 +278,7 @@ function aggregateSignalCoverage(signals: string[], candidates: RankedCandidate[
 function candidateMatchesSignal(candidate: RankedCandidate, signal: string): boolean {
   const rawSignal = signal.toLowerCase();
   const normalizedSignal = normalizeLabel(signal);
-  return candidateSearchText(candidate).includes(rawSignal)
+  return candidateText(candidate).includes(rawSignal)
     || candidateNormalizedText(candidate).includes(normalizedSignal)
     || graphConnectedSignals(candidate).some((connected) => sameSignal(connected, signal));
 }
@@ -518,29 +519,8 @@ function statusForScore(score: number): ContextFit['fitStatus'] {
   return 'insufficient';
 }
 
-function candidateSearchText(candidate: RankedCandidate): string {
-  return [
-    candidate.title,
-    candidate.summary,
-    candidate.content,
-    candidate.contextualContent,
-    candidate.labels.map((label) => `${label.type}:${label.value}`).join(' '),
-    candidate.references.map((reference) => reference.uri).join(' '),
-    JSON.stringify(candidate.metadata ?? {}),
-  ].join(' ').toLowerCase();
-}
-
 function candidateNormalizedText(candidate: RankedCandidate): string {
-  return normalizeLabel(candidateSearchText(candidate));
-}
-
-function sameSignal(left: string, right: string): boolean {
-  return normalizeLabel(left) === normalizeLabel(right);
-}
-
-function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
-  const value = metadata?.[key];
-  return typeof value === 'string' ? value : undefined;
+  return normalizeLabel(candidateText(candidate));
 }
 
 function metadataFlag(metadata: Record<string, unknown> | undefined, key: string): boolean {

@@ -175,6 +175,78 @@ export interface KnowledgeItem {
   createdAt: string;
 }
 
+export interface CatchupKnownIssue {
+  id: string;
+  title: string;
+  status: 'open' | 'in_progress' | 'done' | string;
+}
+
+export interface CatchupMcpTool {
+  name: string;
+  purpose?: string;
+  minArgs: string[];
+}
+
+export interface CatchupDocSnippet {
+  path: string;
+  exists: boolean;
+  content?: string;
+}
+
+export interface CatchupSandboxHeadline {
+  hitRate?: number;
+  mrr?: number;
+  noiseRate?: number;
+  staleSuppression?: number;
+  duplicateSuppression?: number;
+  adversarialBlock?: number;
+  latencyP50?: number;
+  latencyP95?: number;
+  latencyMax?: number;
+}
+
+export interface CatchupSandboxReport {
+  headline: CatchupSandboxHeadline;
+  status: 'pass' | 'fail' | 'unknown';
+  generatedAt?: string;
+  path: string;
+}
+
+export interface CatchupRetrievalEval {
+  status: 'pass' | 'fail';
+  generatedAt: string;
+  totalCases: number;
+  passedCases: number;
+  fixtureName?: string;
+  project?: string;
+  metrics: {
+    hitRate?: number;
+    meanReciprocalRank?: number;
+    selectedCoverageRate?: number;
+    staleRejectionRate?: number;
+    exactFileMatchRate?: number;
+    exactSymbolMatchRate?: number;
+    exactErrorMatchRate?: number;
+  };
+}
+
+export interface CatchupMetadata {
+  configPath: string;
+  configExists: boolean;
+  currentPhase?: string;
+  projectGoal: CatchupDocSnippet;
+  roadmap: CatchupDocSnippet;
+  knownIssues: CatchupKnownIssue[];
+  keyMcpTools: CatchupMcpTool[];
+  sandbox: CatchupSandboxReport | null;
+  retrievalEval: CatchupRetrievalEval | null;
+}
+
+export interface CatchupResponse {
+  catchup: CatchupMetadata;
+  summary: import('../types.js').WorkbenchSummary;
+}
+
 export type WorkbenchSummary = import('../types.js').WorkbenchSummary;
 export type WorkbenchCounts = import('../types.js').WorkbenchSummaryCounts;
 export type WorkbenchRecommendedActionTarget = import('../types.js').WorkbenchRecommendedActionTarget;

@@ -3,7 +3,14 @@ import { strict as assert } from 'node:assert';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_POLICY, freshnessWindowFor, loadRetrievalPolicy, resetRetrievalPolicyCache } from '../src/retrieval/policy.js';
+import {
+  DEFAULT_POLICY,
+  freshnessWindowFor,
+  getRetrievalPolicyFingerprint,
+  loadRetrievalPolicy,
+  resetRetrievalPolicyCache,
+  setRetrievalPolicy,
+} from '../src/retrieval/policy.js';
 
 test('DEFAULT_POLICY exposes Phase 2 knobs with sensible defaults', () => {
   assert.equal(DEFAULT_POLICY.useFreshnessMap, true);
@@ -49,6 +56,27 @@ test('loadRetrievalPolicy merges JSON overrides over DEFAULT_POLICY', () => {
     if (previous === undefined) delete process.env.TUBEROSA_RETRIEVAL_POLICY;
     else process.env.TUBEROSA_RETRIEVAL_POLICY = previous;
     rmSync(dir, { recursive: true, force: true });
+    resetRetrievalPolicyCache();
+  }
+});
+
+test('getRetrievalPolicyFingerprint changes when the policy mutates and resets back when restored', () => {
+  resetRetrievalPolicyCache();
+  try {
+    const base = getRetrievalPolicyFingerprint();
+    assert.ok(base.length === 64, 'fingerprint should be a sha256 hex string');
+
+    setRetrievalPolicy({
+      ...DEFAULT_POLICY,
+      sourceWeights: { ...DEFAULT_POLICY.sourceWeights, metadata: 0.5 },
+    });
+    const mutated = getRetrievalPolicyFingerprint();
+    assert.notEqual(mutated, base, 'fingerprint must change when sourceWeights change');
+
+    resetRetrievalPolicyCache();
+    const restored = getRetrievalPolicyFingerprint();
+    assert.equal(restored, base, 'fingerprint should return to the baseline after reset');
+  } finally {
     resetRetrievalPolicyCache();
   }
 });

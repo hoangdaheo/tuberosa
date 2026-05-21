@@ -18,7 +18,7 @@
 | itemType "memory" catch-all rate | 39.4% |
 | itemType diagonal rate (Phase 3) | 68.7% |
 | label diagonal rate (Phase 3) | 8.0% |
-| latency p50 / p95 / max (ms) | 18 / 25 / 66 |
+| latency p50 / p95 / max (ms) | 13 / 19 / 58 |
 
 ## Per-Tier Selection
 
@@ -33,14 +33,14 @@
 
 ## Per-ItemType Hits
 
-| itemType | hits | expected | precision | recall |
-| --- | --- | --- | --- | --- |
-| memory | 185 | 7 | 2642.9% | 2642.9% |
-| workflow | 164 | 9 | 1822.2% | 1822.2% |
-| code_ref | 28 | 12 | 233.3% | 233.3% |
-| wiki | 29 | 2 | 1450.0% | 1450.0% |
-| bugfix | 31 | 6 | 516.7% | 516.7% |
-| spec | 33 | 8 | 412.5% | 412.5% |
+| itemType | selected | expected | correct | precision | recall |
+| --- | --- | --- | --- | --- | --- |
+| memory | 185 | 7 | 7 | 3.8% | 100.0% |
+| workflow | 164 | 9 | 9 | 5.5% | 100.0% |
+| code_ref | 28 | 12 | 8 | 28.6% | 66.7% |
+| wiki | 29 | 2 | 2 | 6.9% | 100.0% |
+| bugfix | 31 | 6 | 6 | 19.4% | 100.0% |
+| spec | 33 | 8 | 6 | 18.2% | 75.0% |
 
 ## Per-Source Fusion Contribution (toward expected items)
 
@@ -51,7 +51,6 @@
 | memory | 0.4062 |
 | vector | 0.5357 |
 | graph | 0.5917 |
-| reference | 0.0000 |
 
 ## Filter Telemetry
 

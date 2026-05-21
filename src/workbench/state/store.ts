@@ -20,7 +20,7 @@ export function dismissToast(id: number): void {
   toasts.value = toasts.value.filter((t) => t.id !== id);
 }
 
-export type ViewName = 'overview' | 'session' | 'quality' | 'memory' | 'guide';
+export type ViewName = 'overview' | 'catchup' | 'session' | 'quality' | 'memory' | 'guide';
 export type MemoryTabName = 'drafts' | 'knowledge' | 'gaps' | 'proposals' | 'conflicts' | 'risky' | 'errors';
 
 export interface WorkbenchRoute {
@@ -60,7 +60,7 @@ function readHashRoute(): WorkbenchRoute {
 }
 
 function parseView(value: string | undefined): ViewName | undefined {
-  if (value === 'overview' || value === 'session' || value === 'quality' || value === 'memory' || value === 'guide') {
+  if (value === 'overview' || value === 'catchup' || value === 'session' || value === 'quality' || value === 'memory' || value === 'guide') {
     return value;
   }
   return undefined;

@@ -189,7 +189,7 @@ function buildCalibrationOutput(aggregation: Aggregation, seed: number): Calibra
 }
 
 function newSourceMap(): Record<CandidateSource, number> {
-  return { metadata: 0, lexical: 0, vector: 0, memory: 0, graph: 0, reference: 0 };
+  return { metadata: 0, lexical: 0, vector: 0, memory: 0, graph: 0 };
 }
 
 function roundEntries(map: Record<CandidateSource, number>): Record<CandidateSource, number> {
@@ -211,7 +211,7 @@ function toBoundedWeights(
   contributions: Record<CandidateSource, number>,
   baseline: Record<CandidateSource, number>,
 ): Record<CandidateSource, number> {
-  const sources: CandidateSource[] = ['metadata', 'lexical', 'vector', 'memory', 'graph', 'reference'];
+  const sources: CandidateSource[] = ['metadata', 'lexical', 'vector', 'memory', 'graph'];
   const values = sources.map((source) => contributions[source]);
   const total = values.reduce((sum, value) => sum + value, 0);
   if (total <= 0) {

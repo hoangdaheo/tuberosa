@@ -14,6 +14,7 @@ import type {
   TaskBriefMode,
 } from '../types.js';
 import { clamp, truncate, uniqueStrings } from '../util/text.js';
+import { candidateText as candidateTextHelper } from './candidate-helpers.js';
 import { hasDomainMismatch } from './classifier.js';
 
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
@@ -282,16 +283,7 @@ function directTaskSignals(candidate: RankedCandidate, classified: ClassifiedQue
 }
 
 function candidateText(candidate: RankedCandidate): string {
-  return [
-    candidate.knowledgeId,
-    candidate.title,
-    candidate.summary,
-    candidate.content,
-    candidate.contextualContent,
-    candidate.labels.map((label) => `${label.type}:${label.value}`).join(' '),
-    candidate.references.map((reference) => reference.uri).join(' '),
-    JSON.stringify(candidate.metadata ?? {}),
-  ].join(' ').toLowerCase();
+  return candidateTextHelper(candidate, { includeKnowledgeId: true });
 }
 
 function isContinuationAnchorFile(value: string): boolean {
