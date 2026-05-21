@@ -329,19 +329,82 @@ Phase 3 is **structural** — it adds observability and a fallback path without 
 
 **Why:** this is the **single biggest measured uplift available** that we haven't done yet. Anthropic's published numbers: −49% retrieval failures from contextual embeddings + BM25 alone, stacking to −67% with rerank. The breadcrumb variant is **free** (no LLM call) — late chunking and LLM-summarized context are progressive enhancements.
 
-**Changes:**
-- `src/ingest/document-atomizer.ts`:
-  - For each atomized section, prepend a **breadcrumb prefix** to the indexable text: `<file-path> > <h1> > <h2> > <h3>\n\n<atom body>`. Heuristic-only; zero LLM.
-  - The breadcrumb is indexed (FTS + embedding) but **not** stored in `content` — it lives in `contextualContent`, which the retriever already prefers over raw content.
-- Optional: `src/ingest/contextual-summarizer.ts` — when a model provider exposes a cheap rewrite/summary capability (existing `rewriteQuery` slot, future ollama summary), generate a 1-sentence "what is this section about" summary for top-level docs only. Behind `TUBEROSA_CONTEXTUAL_PREFIX_LLM=true` flag, default off.
-- `src/ingest/late-chunker.ts` (new, optional path): when a long-context embedder is configured (e.g., future ollama embed model with 8k+ context), embed the full doc once, pool per-section ranges, write per-atom vectors. Length-gated: skip for docs < ~2k tokens.
-  - Provider-capability check via a new `ModelProvider.supportsLongContextEmbed?: () => boolean` opt-in flag. Default `false` → atomizer keeps current behavior.
+**Status: ✅ DONE (2026-05-22)** — mandatory breadcrumb-prefix path landed; LLM summary + late chunking shipped as inert scaffolds (flag-gated, default off, no current producer).
 
-**Fixtures added before code:**
-- A query naming a parent doc topic (e.g., "phase 4 reranker policy") retrieves the right atom even when the atom body itself doesn't repeat the parent title.
-- Late-chunker fixture (run only when provider supports it): pooled-span vector beats per-atom embedding on cross-reference resolution.
+**Implemented (mandatory):**
+- ✅ `src/ingest/document-atomizer.ts`:
+  - New required field `breadcrumb: string` on `DocumentAtom`.
+  - Every atomization path populates it: the H1/H2/H3 chain for normal heading atoms, `[Introduction]` for the pre-first-heading intro, and `[displayName(path)]` for the `wholeDocumentAtom` degenerate case.
+  - Format: `<source-path> > <h1> > <h2> > ...` via the new `buildBreadcrumb(path, sectionPath)` helper. Empty segments are filtered defensively. Heuristic-only; zero LLM.
+- ✅ `src/ingest/service.ts`:
+  - `buildAtomKnowledgeInput` writes `metadata.breadcrumb = atom.breadcrumb` so the per-atom breadcrumb flows from the atomizer through `KnowledgeInput` into chunk building, without inventing a new path.
+  - `buildChunks` prepends `Breadcrumb: <breadcrumb>` to `contextualContent` (which the retriever already prefers over raw content). The raw `chunk` text — and therefore the stored `content` — stays clean; the breadcrumb lives **only** in `contextualContent` per spec.
+  - Gated by `TUBEROSA_CONTEXTUAL_PREFIX_ENABLED` (default on; set to `false` to disable). Falls back gracefully when `metadata.breadcrumb` is absent (non-atomized ingestion) — no behavior change for direct-`ingestKnowledge` callers.
+- ✅ `test/document-atomizer-phase4.test.ts` (new, 2 tests, all green):
+  - `MarkdownAtomizer emits a breadcrumb on every atom` — verifies every atom carries a non-empty breadcrumb starting with the source path AND that nested atoms (e.g., `Score Weighting`) carry their full parent chain (`Phase 4 Plan > Reranker Policy`) in the breadcrumb.
+  - `parent-topic query retrieves the right atom via breadcrumb (not via body)` — ingests a multi-heading markdown doc where the H3 body deliberately omits the parent-doc topic words, runs `searchContext` for a parent-topic query, and asserts (a) the right atom surfaces, (b) `content` is free of `Breadcrumb:` (clean stored body), (c) `contextualContent` carries the spec-format breadcrumb `docs/phase4.md > Phase 4 Plan > Reranker Policy > Score Weighting`.
 
-**Verification:** Context Entities Recall in `eval:context-mapping` strictly improves; `eval:retrieval` stays green. Sandbox latency must stay within 1.15× of baseline (breadcrumb prefix is the only mandatory cost and it's pure-string).
+**Implemented (optional, scaffolded but inert):**
+- ✅ `src/model/provider.ts`: added two optional capability hooks to the `ModelProvider` interface — `supportsLongContextEmbed?(): boolean` (Phase 4 late-chunking gate, defaults absent → false) and `summarizeSection?(input): Promise<string | undefined>` (Phase 4 contextual summarizer hook). Neither `HashModelProvider` nor `OpenAiModelProvider` implements these — they stay opt-in for a future long-context Ollama / local embedder.
+- ✅ `src/ingest/contextual-summarizer.ts` (new): exports `isContextualSummarizerEnabled()` (reads `TUBEROSA_CONTEXTUAL_PREFIX_LLM`, default `false`) and `summarizeAtomContext(provider, atom, sourceUri)`. Returns `undefined` whenever the flag is off or the provider doesn't implement `summarizeSection`. Currently no provider does — the module is a future seam.
+- ✅ `src/ingest/late-chunker.ts` (new): exports `LATE_CHUNK_MIN_TOKEN_ESTIMATE = 2_000`, `isLateChunkingEnabled()` (reads `TUBEROSA_LATE_CHUNKING_ENABLED`, default `false`), `isLateChunkingSupported(provider)` (combines flag + capability), and `lateChunkDocument(provider, document)` which short-circuits to `undefined` until a real long-context embedder lands. Carry-over comment in the file documents what the real pooled-span implementation must do.
+
+**Baseline deltas (hash provider, 2026-05-22):**
+
+| Metric | Post Phase 3 | Post Phase 4 | Δ |
+|---|---|---|---|
+| Cases (context-mapping) | 8 | 8 | — |
+| Context Precision @ 5 | 25.0% | 25.0% | — |
+| Context Recall | 100% | 100% | — |
+| **Context Entities Recall** | **100%** | **100%** | **— (already at ceiling — see deviation below)** |
+| Noise Sensitivity | 75.0% | 75.0% | — |
+| Direct-evidence Placement | 100% | 100% | — |
+| Fit Calibration | 100% | 100% | — |
+| Forbidden-item Rate | 0.0% | 0.0% | — |
+| `eval:retrieval` | 14/14 green | 14/14 green | — |
+| `eval:agent-context` | green | green | — |
+| `pnpm test` | 239/239 | 241/241 (+2 phase-4 tests) | +2 |
+| Sandbox latency p50 | 13ms | 13ms | — (identical) |
+| Sandbox latency p95 | 18ms | 18ms | — (identical) |
+
+The dedicated regression test (`document-atomizer-phase4.test.ts`) demonstrates the load-bearing improvement: a parent-topic query that did NOT lexically match the atom body now retrieves the correct atom because the breadcrumb prefix carries the parent heading chain into `contextualContent` (visible to both FTS and the embedder). The unit test is the proof — the eval-fixture metric is at the ceiling for unrelated reasons (see deviation).
+
+**Deviations from the original Phase 4 spec (recorded so they aren't lost):**
+- **Context Entities Recall already at 100%** in `eval/context-mapping-fixtures.json`: the spec demanded "Context Entities Recall in eval:context-mapping strictly improves" (target +20% absolute). The fixture's entities recall is already 100% on the 8 current cases because the fixture seeds individual knowledge items (each carrying its file/symbol labels directly) rather than atomized markdown atoms whose entities live in parent headings. Phase 4 cannot improve a ceiling number — the regression test in `test/document-atomizer-phase4.test.ts` is the load-bearing coverage. **Carry-over:** add a fixture case that depends on cross-section breadcrumb retrieval (e.g., a multi-heading markdown doc seeded via the atomic ingestion path) once the context-mapping fixture loader supports atomic ingest; the Phase 4 benefit will then show as a measurable lift.
+- **Breadcrumb wiring split between atomizer and ingest service**: the spec literally says "src/ingest/document-atomizer.ts — for each atomized section, prepend a breadcrumb prefix to the indexable text". The atomizer doesn't own `contextualContent` — that lives in `IngestionService.buildChunks` (which is the only stage that has access to `Project / Knowledge type / Title / Labels / References` and decides the final embedded string). So the implementation **produces** the breadcrumb in the atomizer (per spec authorship) but **writes** it into `contextualContent` in `buildChunks` (because that's where the assembly happens). The result the spec describes (breadcrumb indexed via embedding+FTS, not stored on `content`) is achieved.
+- **`Breadcrumb:` line format vs literal spec format**: the spec example was `<file-path> > <h1> > <h2> > <h3>\n\n<atom body>` (breadcrumb immediately followed by the body separated by `\n\n`). The implementation places the breadcrumb as a `Breadcrumb: <breadcrumb>` line at the **top** of the existing multi-line contextualContent header (alongside `Project:`, `Knowledge type:`, `Title:`, etc.). The atom body still appears at the end of contextualContent after a blank line. This satisfies the spec's substantive requirement (breadcrumb is part of the embedded text + lexical index) while preserving the existing contextualContent shape so no downstream consumer breaks. The unit test asserts the spec-format substring (`docs/phase4.md > Phase 4 Plan > Reranker Policy > Score Weighting`) is present.
+- **`TUBEROSA_CONTEXTUAL_PREFIX_ENABLED` flag lives at the ingest-service level**, not at the atomizer. The atomizer ALWAYS populates `DocumentAtom.breadcrumb`; only the chunk-builder reads the flag and decides whether to weave it into `contextualContent`. Rationale: keeping `breadcrumb` on the atom is harmless and lets future paths (workbench, late-chunker, contextual-summarizer) use it without re-deriving from `sectionPath` + `path`.
+- **No `late-chunker.ts` runtime path yet**: the spec listed late chunking as a progressive enhancement gated by `ModelProvider.supportsLongContextEmbed?`. The hook is on the interface, the gating module is shipped, but no provider implements the capability — so `lateChunkDocument` always returns `undefined` and the existing chunk-and-embed path runs. **Carry-over:** when an Ollama (or future local) embedder with 8k+ context is wired in, implement the pooled-span path in `lateChunkDocument` — the public surface is already in place.
+- **No `contextual-summarizer.ts` runtime path yet**: same rationale — the hook is on `ModelProvider` and the gating module is shipped, but no provider implements `summarizeSection`. **Carry-over:** when an Ollama summary capability lands, register `summarizeSection` on the provider and `summarizeAtomContext` will start returning summaries; weave its `text` into `contextualContent` alongside the breadcrumb.
+- **`TUBEROSA_CONTEXTUAL_PREFIX_LLM` and `TUBEROSA_LATE_CHUNKING_ENABLED`**: both default `false` per the cross-cutting flags table. No env-flag wiring in `src/config.ts` — they are read directly via `process.env.X === 'true'` in the gating helpers, because there is nothing else to configure (no producer, no consumer) until a future phase. Consolidate into `config.ts` when those phases ship.
+- **Late-chunker minimum token estimate**: spec said "skip for docs < ~2k tokens". Implemented as a constant `LATE_CHUNK_MIN_TOKEN_ESTIMATE = 2_000` (with character/4 approximation) in `src/ingest/late-chunker.ts`. The constant is exported so the future producer can override or expose it as a knob in `config/retrieval-policy.json` when needed.
+
+**Files added:**
+- `src/ingest/contextual-summarizer.ts` (scaffold — exports `isContextualSummarizerEnabled` + `summarizeAtomContext`; both inert until a provider implements `summarizeSection`)
+- `src/ingest/late-chunker.ts` (scaffold — exports `isLateChunkingEnabled`, `isLateChunkingSupported`, `lateChunkDocument`, `LATE_CHUNK_MIN_TOKEN_ESTIMATE`; all paths inert until a provider implements `supportsLongContextEmbed`)
+- `test/document-atomizer-phase4.test.ts` (2 tests, all green)
+
+**Files modified:**
+- `src/ingest/document-atomizer.ts` — `DocumentAtom.breadcrumb: string` required field; every atom path populates it; new `buildBreadcrumb(path, sectionPath)` helper.
+- `src/ingest/service.ts` — `buildAtomKnowledgeInput` writes `metadata.breadcrumb`; `buildChunks` reads `metadata.breadcrumb` and prepends `Breadcrumb: <breadcrumb>` to `contextualContent` when `TUBEROSA_CONTEXTUAL_PREFIX_ENABLED !== 'false'`.
+- `src/model/provider.ts` — `ModelProvider` gets two optional capability hooks: `supportsLongContextEmbed?(): boolean` and `summarizeSection?(input): Promise<string | undefined>`. Existing providers untouched.
+- `implements/enhance_rewrite/tuberosa-enhance-knowledge-quality.md` — this status block.
+
+**Verification (all green):**
+- `pnpm run build` ✅
+- `pnpm test` ✅ — 241/241 pass (was 239; +2 from `document-atomizer-phase4.test.ts`)
+- `pnpm run eval:retrieval` ✅ — hit@5 100%, MRR 1.0, all 14 cases pass
+- `pnpm run eval:agent-context` ✅
+- `pnpm run eval:context-mapping` ✅ — no regressions vs Phase 3 (precision 25%, recall 100%, entities 100%, noise 75%, placement 100%, fit 100%, forbidden 0%)
+- `pnpm run sandbox` ✅ — latency p50=13ms, p95=18ms (identical to Phase 3 baseline; well within 1.15× target)
+
+**Tried but not done (deliberate carry-overs):**
+- **Eval-fixture case that demonstrates measurable Entities Recall lift.** The current `eval/context-mapping-fixtures.json` cases all carry per-knowledge file/symbol labels directly, so entities recall is at 100% without breadcrumbs. To prove Phase 4's lift inside the eval harness, add a fixture case that ingests a multi-heading markdown source via atomic mode and queries the parent topic. Requires extending the fixture loader to accept atomic-mode ingestion specs.
+- **Pooled-span late chunking implementation.** When a long-context embedder is wired in (Ollama `nomic-embed-text-v1.5` long context, or similar), implement: (1) embed whole doc once; (2) for each atom, pool the embedder's per-token vectors across `[lineStart..lineEnd]`; (3) emit per-atom vectors via the existing `LateChunkingResult.atomVectors` Map. The surface is in place.
+- **Contextual summarizer LLM call path.** When a provider implements `summarizeSection`, weave the returned summary into `contextualContent` (alongside the breadcrumb) via a new `ContextualSummary:` line in `buildChunks`. The data plumbing is in place; only the call site is missing.
+- **Migrate `TUBEROSA_CONTEXTUAL_PREFIX_LLM` and `TUBEROSA_LATE_CHUNKING_ENABLED` into `src/config.ts`.** They are read directly via `process.env` for now because there is no consumer of an `AppConfig` field for them yet. Consolidate when a producer/consumer pair lands.
+- **`config/retrieval-policy.json` knob for `LATE_CHUNK_MIN_TOKEN_ESTIMATE`.** Currently the constant is hard-coded at 2_000 characters/4 = ~500 tokens. When late chunking has measurable latency, expose the threshold for calibration.
+- **Workbench surface for breadcrumb metadata.** The breadcrumb is now on every atom's `metadata.breadcrumb`, but no workbench card renders it. The downstream presentation change is Phase-3-style optional; not load-bearing for retrieval.
 
 ---
 

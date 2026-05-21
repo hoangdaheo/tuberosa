@@ -15,6 +15,21 @@ export interface ModelProvider {
   embed(text: string): Promise<number[]>;
   rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult | undefined>;
   rerank(input: RerankInput): Promise<RerankResult>;
+  /**
+   * Phase 4 — optional capability flag for the late-chunking ingestion path.
+   * Returns true only when the embedder accepts long-context input (~8k+ tokens)
+   * AND can pool per-section ranges into per-atom vectors. Hash + OpenAI default
+   * to `false`; an Ollama/local long-context embedder can override this when
+   * registered. The late-chunker stays a no-op while this returns false.
+   */
+  supportsLongContextEmbed?(): boolean;
+  /**
+   * Phase 4 — optional contextual summarizer hook. When present AND
+   * `TUBEROSA_CONTEXTUAL_PREFIX_LLM=true`, the ingestion path may ask the
+   * provider for a one-sentence "what is this section about" summary keyed by
+   * section path. Default: not implemented — heuristic breadcrumbs only.
+   */
+  summarizeSection?(input: { sectionPath: string[]; content: string; sourceUri: string }): Promise<string | undefined>;
 }
 
 export const OPENAI_RERANK_SYSTEM_PROMPT = [

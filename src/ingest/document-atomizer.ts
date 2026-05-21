@@ -2,6 +2,17 @@ import { normalizeLabel } from '../util/text.js';
 
 const MIN_ATOM_BODY_CHARS = 12;
 
+/**
+ * Phase 4 — breadcrumb prefix the retriever indexes for cross-section context.
+ *
+ * Anthropic + Jina patterns: a chunk that reads "this section adds X" is unmoored
+ * once embedded on its own. Prepending `<file-path> > <h1> > <h2> > <h3>` to the
+ * indexable text gives the embedder + FTS the parent topic, without LLM cost.
+ *
+ * The breadcrumb is stored on the atom so the ingestion service can weave it into
+ * `contextualContent` (where the retriever already prefers it over raw `content`).
+ * It is NEVER stored on `content`; that stays clean for downstream tooling.
+ */
 export interface DocumentAtom {
   title: string;
   summary: string;
@@ -11,6 +22,8 @@ export interface DocumentAtom {
   headingLevel?: number;
   lineStart: number;
   lineEnd: number;
+  /** Phase 4 — `<source-path> > <h1> > <h2> > ...` indexable breadcrumb prefix. */
+  breadcrumb: string;
 }
 
 export interface DocumentAtomizerInput {
@@ -49,14 +62,16 @@ export class MarkdownAtomizer implements DocumentAtomizer {
     if (firstHeading.lineIndex > 0) {
       const introContent = lines.slice(0, firstHeading.lineIndex).join('\n').trim();
       if (hasMeaningfulBody(introContent)) {
+        const sectionPath = ['Introduction'];
         atoms.push({
           title: `${displayName(input.path)} introduction`,
           summary: summarizeAtom(introContent, `${displayName(input.path)} introduction`),
           content: introContent,
-          sectionPath: ['Introduction'],
+          sectionPath,
           sectionSlug: 'introduction',
           lineStart: 1,
           lineEnd: firstHeading.lineIndex,
+          breadcrumb: buildBreadcrumb(input.path, sectionPath),
         });
       }
     }
@@ -80,6 +95,7 @@ export class MarkdownAtomizer implements DocumentAtomizer {
         headingLevel: heading.level,
         lineStart: start + 1,
         lineEnd: end,
+        breadcrumb: buildBreadcrumb(input.path, heading.sectionPath),
       });
     });
 
@@ -143,15 +159,26 @@ function headingsWithPaths(headings: MarkdownHeading[]): MarkdownHeading[] {
 
 function wholeDocumentAtom(path: string, content: string, lineCount: number): DocumentAtom {
   const title = displayName(path);
+  const sectionPath = [title];
   return {
     title,
     summary: summarizeAtom(content, title),
     content: content.trim(),
-    sectionPath: [title],
+    sectionPath,
     sectionSlug: 'document',
     lineStart: 1,
     lineEnd: Math.max(1, lineCount),
+    breadcrumb: buildBreadcrumb(path, sectionPath),
   };
+}
+
+/**
+ * Phase 4 — produce the breadcrumb string indexed alongside the atom body.
+ * Format: `<source-path> > <h1> > <h2> > ...`. Empty path or sectionPath is degenerate but tolerated.
+ */
+function buildBreadcrumb(path: string, sectionPath: string[]): string {
+  const parts = [path, ...sectionPath].filter((part) => part && part.trim().length > 0);
+  return parts.join(' > ');
 }
 
 function hasMeaningfulBody(content: string): boolean {

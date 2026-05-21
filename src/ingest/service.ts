@@ -262,6 +262,8 @@ export class IngestionService {
         lineStart: atom.lineStart,
         lineEnd: atom.lineEnd,
         atomIndex: index,
+        // Phase 4 — breadcrumb prefix indexed via contextualContent for parent-doc topic retrieval.
+        breadcrumb: atom.breadcrumb,
       },
     };
   }
@@ -271,8 +273,20 @@ export class IngestionService {
     const labels = (input.labels ?? []).map((label) => `${label.type}:${label.value}`).join(', ');
     const refs = (input.references ?? []).map((reference) => reference.uri).join(', ');
 
+    // Phase 4 — when the atomizer set a breadcrumb on this knowledge's metadata, prepend
+    // it to contextualContent so embedding + FTS see the parent-doc heading chain. The
+    // breadcrumb format is `<source-path> > <h1> > <h2> > <h3>`. Heuristic-only; no LLM.
+    // Disable via TUBEROSA_CONTEXTUAL_PREFIX_ENABLED=false (default on per the plan flags table).
+    const breadcrumbEnabled = process.env.TUBEROSA_CONTEXTUAL_PREFIX_ENABLED !== 'false';
+    const breadcrumb = breadcrumbEnabled
+      ? typeof input.metadata?.breadcrumb === 'string' && input.metadata.breadcrumb.trim().length > 0
+        ? input.metadata.breadcrumb.trim()
+        : undefined
+      : undefined;
+
     return Promise.all(chunks.map(async (chunk, index) => {
       const contextualContent = [
+        breadcrumb ? `Breadcrumb: ${breadcrumb}` : undefined,
         `Project: ${input.project}`,
         `Knowledge type: ${input.itemType}`,
         `Title: ${input.title}`,
