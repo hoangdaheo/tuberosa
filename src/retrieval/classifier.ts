@@ -9,6 +9,7 @@ import type {
   TaskType,
 } from '../types.js';
 import { normalizeLabel, uniqueStrings } from '../util/text.js';
+import { isOntologyMatch } from '../relations/ontology.js';
 
 const TECHNOLOGY_TERMS = [
   'typescript',
@@ -423,8 +424,7 @@ export function hasDomainMismatch(
   if (domainLabels.length === 0) {
     return false;
   }
-  const target = classified.domain.toLowerCase();
-  return !domainLabels.some((label) => label.value.toLowerCase() === target);
+  return !domainLabels.some((label) => isOntologyMatch('domain', label.value, classified.domain!));
 }
 
 function stripFilePaths(prompt: string): string {

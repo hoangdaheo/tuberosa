@@ -82,10 +82,18 @@ export type KnowledgeTaxonomy =
   | 'incident_lesson'
   | 'code_reference';
 
+export type LabelProvenanceSource = 'prompt' | 'classifier' | 'ontology' | 'reviewer' | 'llm' | 'ast' | 'heuristic';
+
+export interface LabelProvenance {
+  source: LabelProvenanceSource;
+  confidence: number;
+}
+
 export interface LabelInput {
   type: LabelType;
   value: string;
   weight?: number;
+  provenance?: LabelProvenance;
 }
 
 export interface ReferenceInput {
@@ -1725,6 +1733,7 @@ export interface SuppressionEvent {
   knowledgeId: string;
   reason: SuppressionReason;
   deltaScore: number;
+  confidence: number;
   evidence?: string;
 }
 

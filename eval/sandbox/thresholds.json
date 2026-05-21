@@ -1,14 +1,17 @@
 {
-  "description": "Phase 1 baseline thresholds. These reflect *current observed* behaviour on the synthetic corpus so any regression fails CI. Phase 2+ tightens them as filters improve.",
-  "minHitRate": 0.7,
-  "minMRR": 0.4,
-  "maxNoiseRate": 0.35,
+  "description": "Phase 3 thresholds. Adds itemType / label confusion-matrix diagonal-rate floors. The catch-all rate is still gated at 0.6 — the sandbox corpus generator emits an inherent fraction of memory items so the metric is corpus-bounded, not just inference-bounded; see roadmap-claude.md Phase 3 deviations.",
+  "minHitRate": 0.9,
+  "minMRR": 0.45,
+  "maxNoiseRate": 0.2,
   "minStaleSuppressionRate": 0.95,
-  "minDuplicateSuppressionRate": 0.0,
+  "minDuplicateSuppressionRate": 0.9,
   "minAdversarialBlockRate": 0.9,
   "maxItemTypeCatchAllRate": 0.6,
+  "minItemTypeDiagonalRate": 0.6,
+  "minLabelDiagonalRate": 0.05,
   "minPerFilterPrecision": {
     "safety_block_ingest": 0.9,
-    "safety_redact_retrieval": 0.0
+    "safety_redact_retrieval": 0.0,
+    "duplicate": 0.9
   }
 }

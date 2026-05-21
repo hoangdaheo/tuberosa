@@ -1,4 +1,5 @@
 import { classifyQuery, labelsFromClassification } from '../retrieval/classifier.js';
+import { inferItemType } from '../ingest/item-type-inference.js';
 import type { IngestionService } from '../ingest/service.js';
 import { ValidationError } from '../errors.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
@@ -23,12 +24,17 @@ export class ReflectionService {
 
   async createDraft(input: ReflectionDraftInput) {
     const references = input.references ?? metadataReferences(input.metadata);
+    const inferredItemType = input.itemType ?? inferItemType({
+      content: `${input.title}\n${input.summary}\n${input.content}`,
+      metadata: { triggerType: input.triggerType, ...(input.metadata ?? {}) },
+      references,
+    }).itemType;
     const raw = {
       ...input,
       title: input.title.trim(),
       summary: input.summary.trim(),
       content: input.content.trim(),
-      itemType: input.itemType ?? 'memory',
+      itemType: inferredItemType,
       references,
       metadata: reflectionDraftMetadata(input, references),
       labels: normalizeSuggestedLabels([

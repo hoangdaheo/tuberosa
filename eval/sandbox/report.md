@@ -9,46 +9,48 @@
 
 | Metric | Value |
 | --- | --- |
-| hit rate | 93.2% |
-| MRR | 0.4618 |
+| hit rate | 95.5% |
+| MRR | 0.4878 |
 | noise rate | 9.1% |
 | stale suppression | 100.0% |
 | duplicate suppression | 100.0% |
 | adversarial block rate | 100.0% |
-| itemType "memory" catch-all rate | 38.6% |
-| latency p50 / p95 / max (ms) | 7 / 10 / 33 |
+| itemType "memory" catch-all rate | 39.4% |
+| itemType diagonal rate (Phase 3) | 68.3% |
+| label diagonal rate (Phase 3) | 8.0% |
+| latency p50 / p95 / max (ms) | 18 / 33 / 72 |
 
 ## Per-Tier Selection
 
 | Tier | selected | expected selected | suppressed | expected suppressed |
 | --- | --- | --- | --- | --- |
-| A | 224 | 36 | 0 | 0 |
+| A | 221 | 36 | 0 | 0 |
 | B | 8 | 0 | 72 | 76 |
-| C | 181 | 4 | 4 | 4 |
+| C | 184 | 4 | 4 | 4 |
 | D | 51 | 4 | 4 | 4 |
-| E | 5 | 0 | 8 | 8 |
+| E | 6 | 0 | 8 | 8 |
 | F | 0 | 0 | 0 | 0 |
 
 ## Per-ItemType Hits
 
 | itemType | hits | expected | precision | recall |
 | --- | --- | --- | --- | --- |
-| memory | 181 | 7 | 2585.7% | 2585.7% |
-| workflow | 167 | 9 | 1855.6% | 1855.6% |
-| code_ref | 30 | 12 | 250.0% | 250.0% |
-| wiki | 25 | 2 | 1250.0% | 1250.0% |
-| bugfix | 33 | 6 | 550.0% | 550.0% |
-| spec | 33 | 8 | 412.5% | 412.5% |
+| memory | 185 | 7 | 2642.9% | 2642.9% |
+| workflow | 162 | 9 | 1800.0% | 1800.0% |
+| code_ref | 28 | 12 | 233.3% | 233.3% |
+| wiki | 29 | 2 | 1450.0% | 1450.0% |
+| bugfix | 31 | 6 | 516.7% | 516.7% |
+| spec | 35 | 8 | 437.5% | 437.5% |
 
 ## Per-Source Fusion Contribution (toward expected items)
 
 | source | aggregated contribution |
 | --- | --- |
-| metadata | 0.8796 |
-| lexical | 0.8397 |
-| memory | 0.3955 |
-| vector | 0.5215 |
-| graph | 0.5823 |
+| metadata | 0.8784 |
+| lexical | 0.8387 |
+| memory | 0.3953 |
+| vector | 0.5220 |
+| graph | 0.5820 |
 | reference | 0.0000 |
 
 ## Filter Telemetry
@@ -58,21 +60,34 @@
 | duplicate | 136 | 52 | 38.2% |
 | safety_block_ingest | 24 | 24 | 100.0% |
 
+## Fusion Ablation
+
+| disabled source | hit rate | MRR |
+| --- | --- | --- |
+| lexical | 79.5% | 0.4169 |
+| vector | 81.8% | 0.4385 |
+| metadata | 84.1% | 0.4349 |
+| memory | 95.5% | 0.5597 |
+| graph | 93.2% | 0.5459 |
+
 ## Thresholds
 
 ```json
 {
-  "description": "Phase 1 baseline thresholds. These reflect *current observed* behaviour on the synthetic corpus so any regression fails CI. Phase 2+ tightens them as filters improve.",
-  "minHitRate": 0.7,
-  "minMRR": 0.4,
-  "maxNoiseRate": 0.35,
+  "description": "Phase 3 thresholds. Adds itemType / label confusion-matrix diagonal-rate floors. The catch-all rate is still gated at 0.6 — the sandbox corpus generator emits an inherent fraction of memory items so the metric is corpus-bounded, not just inference-bounded; see roadmap-claude.md Phase 3 deviations.",
+  "minHitRate": 0.9,
+  "minMRR": 0.45,
+  "maxNoiseRate": 0.2,
   "minStaleSuppressionRate": 0.95,
-  "minDuplicateSuppressionRate": 0,
+  "minDuplicateSuppressionRate": 0.9,
   "minAdversarialBlockRate": 0.9,
   "maxItemTypeCatchAllRate": 0.6,
+  "minItemTypeDiagonalRate": 0.6,
+  "minLabelDiagonalRate": 0.05,
   "minPerFilterPrecision": {
     "safety_block_ingest": 0.9,
-    "safety_redact_retrieval": 0
+    "safety_redact_retrieval": 0,
+    "duplicate": 0.9
   }
 }
 ```

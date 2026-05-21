@@ -49,6 +49,7 @@ import { classifyQuery, hasDomainMismatch } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
+import { freshnessWindowFor, getRetrievalPolicy } from './policy.js';
 
 const DEFAULT_TOKEN_BUDGET = 4000;
 const SEARCH_LIMIT = 18;
@@ -1410,6 +1411,7 @@ function applyFeedbackSummary(
         knowledgeId: candidate.knowledgeId,
         reason,
         deltaScore: adjustment,
+        confidence: feedbackSuppressionConfidence(summary, status),
         evidence: `feedback status=${status}, latest=${summary.latestFeedbackType ?? 'unknown'}`,
       });
     }
@@ -1442,6 +1444,20 @@ function feedbackSuppressionReason(status: string): SuppressionReason | undefine
   }
 }
 
+function feedbackSuppressionConfidence(summary: KnowledgeFeedbackSummary, status: string): number {
+  const negativeCount = summary.staleCount + summary.rejectedCount + summary.irrelevantCount;
+  if (negativeCount === 0) return 0.5;
+  const baseline = Math.min(1, negativeCount / 3);
+  const isLatestMatching = summary.latestFeedbackType === status;
+  return clampNumber(isLatestMatching ? Math.max(baseline, 0.7) : baseline, 0, 1);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
 function applyIntentSuppression(
   candidate: RankedCandidate,
   classified: ClassifiedQuery,
@@ -1449,23 +1465,14 @@ function applyIntentSuppression(
   onSuppression?: (event: SuppressionEvent) => void,
 ): RankedCandidate {
   const adjustment = intentSuppressionAdjustment(candidate, classified, supersededBy);
-  if (adjustment.score === 0) {
+  if (adjustment.score === 0 && adjustment.events.length === 0) {
     return candidate;
   }
 
-  if (onSuppression && adjustment.score < 0) {
-    for (const reason of adjustment.reasons) {
-      if (!reason.startsWith('suppression:')) {
-        continue;
-      }
-      const mapped = mapSuppressionReason(reason);
-      if (mapped) {
-        onSuppression({
-          knowledgeId: candidate.knowledgeId,
-          reason: mapped,
-          deltaScore: adjustment.score / Math.max(1, adjustment.reasons.filter((r) => r.startsWith('suppression:')).length),
-          evidence: reason,
-        });
+  if (onSuppression) {
+    for (const event of adjustment.events) {
+      if (event.deltaScore < 0) {
+        onSuppression({ ...event, knowledgeId: candidate.knowledgeId });
       }
     }
   }
@@ -1488,66 +1495,119 @@ function applyIntentSuppression(
   };
 }
 
-function mapSuppressionReason(reason: string): SuppressionReason | undefined {
-  if (reason.includes('superseded')) return 'superseded';
-  if (reason.includes('freshness')) return 'stale_freshness';
-  if (reason.includes('domain_mismatch')) return 'domain_mismatch';
-  if (reason.includes('evidence_mismatch')) return 'evidence_mismatch';
-  if (reason.includes('prior feedback')) {
-    if (reason.includes('stale')) return 'feedback_stale';
-    if (reason.includes('rejected')) return 'feedback_rejected';
-    if (reason.includes('irrelevant')) return 'feedback_irrelevant';
-  }
-  return 'other';
+interface SuppressionAdjustment {
+  score: number;
+  reasons: string[];
+  events: Array<Omit<SuppressionEvent, 'knowledgeId'>>;
 }
 
 function intentSuppressionAdjustment(
   candidate: RankedCandidate,
   classified: ClassifiedQuery,
   supersededBy: KnowledgeRelation[],
-): { score: number; reasons: string[] } {
+): SuppressionAdjustment {
+  const policy = getRetrievalPolicy();
   const reasons: string[] = [];
+  const events: Array<Omit<SuppressionEvent, 'knowledgeId'>> = [];
   let score = 0;
   const hasHardEvidence = hasHardSignalEvidence(candidate, classified);
 
-  if (supersededBy.length > 0) {
+  if (policy.suppressionEnabled.superseded && supersededBy.length > 0) {
     const strongest = Math.max(...supersededBy.map((relation) => relation.confidence));
-    score -= Math.min(0.28, 0.18 + strongest * 0.08);
+    const delta = -Math.min(0.28, 0.18 + strongest * 0.08);
+    score += delta;
     reasons.push(`suppression:superseded:${supersededBy[0].fromKnowledgeId}`);
+    events.push({
+      reason: 'superseded',
+      deltaScore: roundFeedbackAdjustment(delta),
+      confidence: clampNumber(strongest, 0, 1),
+      evidence: `superseded by ${supersededBy[0].fromKnowledgeId} (confidence=${strongest.toFixed(2)})`,
+    });
   }
 
-  if (isStaleCandidate(candidate) && !hasHardEvidence) {
-    score -= 0.14;
+  if (policy.suppressionEnabled.stale && isStaleCandidate(candidate) && !hasHardEvidence) {
+    const delta = -0.14;
+    score += delta;
     reasons.push('suppression:freshness:stale');
+    events.push({
+      reason: 'stale_freshness',
+      deltaScore: delta,
+      confidence: staleFreshnessConfidence(candidate),
+      evidence: `itemType=${candidate.itemType} freshnessAt=${candidate.freshnessAt ?? metadataString(candidate.metadata, 'freshnessAt') ?? 'unknown'}`,
+    });
   }
 
-  const feedback = feedbackStatusFromCandidate(candidate);
-  if ((feedback === 'stale' || feedback === 'rejected' || feedback === 'irrelevant') && !hasHardEvidence) {
-    score -= feedback === 'stale' ? 0.1 : 0.08;
-    reasons.push(`suppression:prior feedback:${feedback}`);
+  if (policy.suppressionEnabled.feedback) {
+    const feedback = feedbackStatusFromCandidate(candidate);
+    if ((feedback === 'stale' || feedback === 'rejected' || feedback === 'irrelevant') && !hasHardEvidence) {
+      const delta = feedback === 'stale' ? -0.1 : -0.08;
+      score += delta;
+      reasons.push(`suppression:prior feedback:${feedback}`);
+      const suppressionReason: SuppressionReason = feedback === 'stale'
+        ? 'feedback_stale'
+        : feedback === 'rejected'
+          ? 'feedback_rejected'
+          : 'feedback_irrelevant';
+      events.push({
+        reason: suppressionReason,
+        deltaScore: delta,
+        confidence: 0.7,
+        evidence: `candidate-side feedback status=${feedback}`,
+      });
+    }
   }
 
-  if (!hasHardEvidence && !requiredEvidenceMatches(candidate, classified.intent.requiredEvidenceTypes)) {
-    score -= 0.1;
+  if (policy.suppressionEnabled.evidenceMismatch
+    && !hasHardEvidence
+    && !requiredEvidenceMatches(candidate, classified.intent.requiredEvidenceTypes)) {
+    const delta = -0.1;
+    score += delta;
     reasons.push('suppression:evidence_mismatch');
+    events.push({
+      reason: 'evidence_mismatch',
+      deltaScore: delta,
+      confidence: 0.6,
+      evidence: `required evidence types=${classified.intent.requiredEvidenceTypes.join(',') || 'none'}`,
+    });
   }
 
-  if (classified.domain) {
+  if (policy.suppressionEnabled.domainMismatch && classified.domain) {
     const domainLabels = candidate.labels.filter((label) => label.type === 'domain');
     if (domainLabels.length > 0) {
       const target = classified.domain.toLowerCase();
       const matches = domainLabels.some((label) => label.value.toLowerCase() === target);
       if (matches) {
-        score += 0.15;
+        const delta = policy.domainMismatch.matchBoost;
+        score += delta;
         reasons.push(`boost:domain_match:${classified.domain}`);
       } else {
-        score -= 0.3;
+        const delta = policy.domainMismatch.mismatchPenalty;
+        score += delta;
         reasons.push(`suppression:domain_mismatch:${classified.domain}`);
+        events.push({
+          reason: 'domain_mismatch',
+          deltaScore: roundFeedbackAdjustment(delta),
+          confidence: 0.9,
+          evidence: `candidate domain labels=[${domainLabels.map((label) => label.value).join(', ')}] expected=${classified.domain}`,
+        });
       }
     }
   }
 
-  return { score: roundFeedbackAdjustment(score), reasons };
+  return { score: roundFeedbackAdjustment(score), reasons, events };
+}
+
+function staleFreshnessConfidence(candidate: RankedCandidate): number {
+  const freshnessAt = candidate.freshnessAt ?? metadataString(candidate.metadata, 'freshnessAt');
+  if (!freshnessAt) return 0.5;
+  const timestamp = Date.parse(freshnessAt);
+  if (Number.isNaN(timestamp)) return 0.5;
+  const policy = getRetrievalPolicy();
+  const window = freshnessWindowFor(policy, candidate.itemType);
+  const ageDays = Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+  if (ageDays <= window.staleDays) return 0.5;
+  const overshootRatio = (ageDays - window.staleDays) / Math.max(1, window.staleDays);
+  return clampNumber(0.6 + overshootRatio * 0.4, 0.6, 1);
 }
 
 function hasHardSignalEvidence(candidate: RankedCandidate, classified: ClassifiedQuery): boolean {
@@ -1574,7 +1634,9 @@ function isStaleCandidate(candidate: RankedCandidate): boolean {
     return false;
   }
 
-  return Date.now() - timestamp > 365 * 86_400_000;
+  const policy = getRetrievalPolicy();
+  const window = freshnessWindowFor(policy, candidate.itemType);
+  return Date.now() - timestamp > window.staleDays * 86_400_000;
 }
 
 function requiredEvidenceMatches(candidate: RankedCandidate, evidenceTypes: RetrievalEvidenceType[]): boolean {

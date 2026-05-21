@@ -95,11 +95,12 @@ export class DuplicateDetector {
   }
 
   private async collectCandidates(input: KnowledgeInput): Promise<StoredKnowledge[]> {
-    return this.store.listKnowledge({
+    const items = await this.store.listKnowledge({
       project: input.project,
       status: 'approved',
       limit: 64,
     });
+    return items.filter((item) => item.sourceUri !== input.sourceUri);
   }
 }
 

@@ -135,11 +135,24 @@ function sourceWeight(candidate: SearchCandidate, classified: ClassifiedQuery): 
 
   for (const boost of policy.taskItemTypeBoosts) {
     if (classified.taskType === boost.taskType && (boost.itemTypes as KnowledgeItemType[]).includes(candidate.itemType)) {
-      weight += boost.bonus;
+      weight += boost.bonus * labelConfidenceMultiplier(candidate, classified);
     }
   }
 
   return weight;
+}
+
+/**
+ * Phase 3 — scale the task-type boost by the confidence of the matching task_type label,
+ * if any. Labels without provenance default to a multiplier of 1 (backward-compatible).
+ */
+function labelConfidenceMultiplier(candidate: SearchCandidate, classified: ClassifiedQuery): number {
+  if (classified.taskType === 'unknown') return 1;
+  const matching = candidate.labels.find((label) => label.type === 'task_type' && label.value === classified.taskType);
+  if (!matching) return 1;
+  const confidence = matching.provenance?.confidence;
+  if (typeof confidence !== 'number') return 1;
+  return clamp(0.5 + confidence * 0.5, 0.5, 1.1);
 }
 
 function matchReasons(candidate: SearchCandidate, classified: ClassifiedQuery): string[] {

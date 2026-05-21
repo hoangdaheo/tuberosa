@@ -2,12 +2,16 @@ import type { ModelProvider } from '../model/provider.js';
 import type { KnowledgeInput, KnowledgeItemType, LabelInput, ReferenceInput } from '../types.js';
 import { IngestionLimitAppError } from '../errors.js';
 import { KnowledgeRelationInference } from '../relations/inference.js';
+import { expandLabelsThroughOntology } from '../relations/ontology.js';
 import { classifyQuery, labelsFromClassification } from '../retrieval/classifier.js';
+import { getRetrievalPolicy } from '../retrieval/policy.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { estimateTokens, splitIntoChunks, uniqueStrings } from '../util/text.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import { DuplicateDetector } from './duplicate-detector.js';
 import { MarkdownAtomizer, type DocumentAtom, type DocumentAtomizer } from './document-atomizer.js';
+import { inferItemType } from './item-type-inference.js';
+import { HeuristicLabelEnricher, LlmLabelEnricher, mergeLabels as mergeLabelsWithProvenance, type LabelEnricher } from './label-enricher.js';
 
 export type IngestionMode = 'document' | 'atomic';
 
@@ -30,6 +34,7 @@ export interface IngestionServiceOptions {
   safety?: KnowledgeSafetyService;
   maxContentBytes?: number;
   duplicateDetector?: DuplicateDetector;
+  labelEnrichers?: LabelEnricher[];
 }
 
 export class IngestionLimitError extends IngestionLimitAppError {}
@@ -40,6 +45,7 @@ export class IngestionService {
   private readonly relationInference: KnowledgeRelationInference;
   private readonly maxContentBytes?: number;
   private readonly duplicateDetector: DuplicateDetector;
+  private readonly labelEnrichers: LabelEnricher[];
 
   constructor(
     private readonly store: KnowledgeStore,
@@ -51,17 +57,72 @@ export class IngestionService {
     this.relationInference = new KnowledgeRelationInference();
     this.maxContentBytes = options.maxContentBytes;
     this.duplicateDetector = options.duplicateDetector ?? new DuplicateDetector(store, models);
+    this.labelEnrichers = options.labelEnrichers ?? [new HeuristicLabelEnricher(), new LlmLabelEnricher()];
   }
 
   async ingestKnowledge(input: KnowledgeInput) {
     this.ensureContentWithinLimit(input.content);
-    const sanitizedInput = this.safety.sanitizeKnowledgeInput(input);
+    const refined = await this.refineInput(input);
+    const sanitizedInput = this.safety.sanitizeKnowledgeInput(refined);
     const duplicate = await this.duplicateDetector.assertNotDuplicate(sanitizedInput);
     const augmented = applyDuplicateFlag(sanitizedInput, duplicate);
     const chunks = await this.buildChunks(augmented);
     const stored = await this.store.upsertKnowledge(augmented, chunks);
     await this.store.replaceInferredKnowledgeRelations(stored.id, this.relationInference.infer(stored));
     return stored;
+  }
+
+  private async refineInput(input: KnowledgeInput): Promise<KnowledgeInput> {
+    const policy = safePolicy();
+    // Inference only fires when the caller passed the catch-all `memory` type.
+    // Explicit non-memory itemTypes are trusted (callers like reflection-review,
+    // CLI ingest, and tests rely on this).
+    const shouldInfer = policy.useItemTypeInference && input.itemType === 'memory';
+    const inferredItemType = shouldInfer
+      ? inferItemType({
+          content: input.content,
+          metadata: input.metadata,
+          references: input.references,
+          hint: input.itemType,
+        })
+      : undefined;
+
+    const baseLabels = input.labels ?? [];
+    const enriched: LabelInput[] = [...baseLabels];
+    for (const enricher of this.labelEnrichers) {
+      try {
+        const labels = await enricher.enrich(input);
+        // Enricher-derived labels are restricted to *axis* types
+        // (technology, business_area, domain, task_type, project). file / symbol / error labels
+        // are caller-curated; re-extracting them from raw content tends to surface stop words
+        // and trigger continuation intent through incidental keywords, so we deliberately
+        // do not add those types via the enricher.
+        const additive = labels.filter((label) => isAxisLabelType(label.type));
+        enriched.push(...additive);
+      } catch {
+        // enricher failures are non-fatal — fall back to base labels.
+      }
+    }
+    const mergedLabels = mergeLabelsWithProvenance(enriched);
+    const finalLabels = expandLabelsThroughOntology(mergedLabels, { enabled: policy.useOntology });
+
+    return {
+      ...input,
+      itemType: inferredItemType?.itemType ?? input.itemType,
+      labels: finalLabels,
+      metadata: inferredItemType
+        ? {
+            ...(input.metadata ?? {}),
+            itemTypeInference: {
+              source: 'phase3',
+              previous: input.itemType,
+              chosen: inferredItemType.itemType,
+              confidence: inferredItemType.confidence,
+              reasons: inferredItemType.reasons,
+            },
+          }
+        : input.metadata,
+    };
   }
 
   async ingestFiles(project: string, files: IngestFileInput[], options: IngestFilesOptions = {}) {
@@ -122,7 +183,7 @@ export class IngestionService {
   }
 
   private buildDocumentKnowledgeInput(project: string, file: IngestFileInput): KnowledgeInput {
-    const itemType = file.itemType ?? inferItemType(file.path);
+    const itemType = file.itemType ?? inferItemTypeFromPath(file.path);
     const title = file.path.split('/').filter(Boolean).at(-1) ?? file.path;
     const classified = classifyQuery({
       prompt: `${file.path}\n${file.content.slice(0, 2000)}`,
@@ -151,7 +212,7 @@ export class IngestionService {
   }
 
   private buildAtomKnowledgeInput(project: string, file: IngestFileInput, atom: DocumentAtom, index: number): KnowledgeInput {
-    const itemType = file.itemType ?? inferItemType(file.path);
+    const itemType = file.itemType ?? inferItemTypeFromPath(file.path);
     const sourceUri = `${file.path}#${atom.sectionSlug}`;
     const classified = classifyQuery({
       prompt: [
@@ -237,7 +298,21 @@ export class IngestionService {
   }
 }
 
-function inferItemType(path: string): KnowledgeItemType {
+const AXIS_LABEL_TYPES = new Set<LabelInput['type']>(['technology', 'business_area', 'domain', 'task_type', 'project']);
+
+function isAxisLabelType(type: LabelInput['type']): boolean {
+  return AXIS_LABEL_TYPES.has(type);
+}
+
+function safePolicy() {
+  try {
+    return getRetrievalPolicy();
+  } catch {
+    return { useItemTypeInference: true, useOntology: true } as ReturnType<typeof getRetrievalPolicy>;
+  }
+}
+
+function inferItemTypeFromPath(path: string): KnowledgeItemType {
   const lower = path.toLowerCase();
   if (lower.endsWith('.md') || lower.includes('/docs/') || lower.includes('/wiki/')) {
     return 'wiki';

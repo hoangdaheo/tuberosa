@@ -6,6 +6,8 @@ import type {
   StoredKnowledge,
 } from '../types.js';
 import { normalizeLabel, uniqueStrings } from '../util/text.js';
+import { extractAstSymbols, pickAstSourceFromReferences, relationsFromAst } from './ast-extractor.js';
+import { getRetrievalPolicy } from '../retrieval/policy.js';
 
 interface RelationSeed {
   relationType: KnowledgeRelationType;
@@ -25,7 +27,7 @@ export class KnowledgeRelationInference {
     ];
     const deduped = dedupeRelationSeeds(seeds);
 
-    return deduped.map((seed) => ({
+    const baseRelations = deduped.map((seed) => ({
       project: item.project,
       fromKnowledgeId: item.id,
       relationType: seed.relationType,
@@ -35,6 +37,28 @@ export class KnowledgeRelationInference {
       inferred: true,
       metadata: seed.metadata ?? {},
     }));
+
+    const astRelations = this.fromAst(item);
+    if (astRelations.length === 0) {
+      return baseRelations;
+    }
+    return mergeRelations(baseRelations, astRelations);
+  }
+
+  private fromAst(item: StoredKnowledge): KnowledgeRelationInput[] {
+    let useAst = true;
+    try {
+      useAst = getRetrievalPolicy().useAstExtractor;
+    } catch {
+      useAst = true;
+    }
+    if (!useAst) return [];
+
+    const filename = pickAstSourceFromReferences(item.references) ?? item.sourceUri;
+    if (!filename) return [];
+
+    const result = extractAstSymbols(item.content, { filename });
+    return relationsFromAst(item, result);
   }
 
   private fromLabels(item: StoredKnowledge): RelationSeed[] {
@@ -171,6 +195,21 @@ function referenceTargetKind(reference: ReferenceInput): KnowledgeRelationTarget
   }
 
   return 'reference';
+}
+
+function mergeRelations(
+  base: KnowledgeRelationInput[],
+  additional: KnowledgeRelationInput[],
+): KnowledgeRelationInput[] {
+  const byKey = new Map<string, KnowledgeRelationInput>();
+  for (const relation of [...base, ...additional]) {
+    const key = `${relation.relationType}:${relation.targetKind}:${normalizeLabel(relation.targetValue ?? '')}`;
+    const existing = byKey.get(key);
+    if (!existing || (relation.confidence ?? 0) > (existing.confidence ?? 0)) {
+      byKey.set(key, relation);
+    }
+  }
+  return [...byKey.values()];
 }
 
 function dedupeRelationSeeds(seeds: RelationSeed[]): RelationSeed[] {

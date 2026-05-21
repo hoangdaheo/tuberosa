@@ -36,6 +36,8 @@ interface SandboxThresholds {
   minDuplicateSuppressionRate: number;
   minAdversarialBlockRate: number;
   maxItemTypeCatchAllRate: number;
+  minItemTypeDiagonalRate?: number;
+  minLabelDiagonalRate?: number;
   minPerFilterPrecision?: Record<string, number>;
 }
 
@@ -62,6 +64,16 @@ interface SandboxRunMetrics {
   perSourceContribution: Record<CandidateSource, number>;
   perFilter: Record<string, { triggered: number; correct: number; precision: number }>;
   latency: { p50: number; p95: number; max: number; samples: number };
+  /** Phase 3 — diagonal hit rate for `expectedItemTypes` ∩ retrieved itemType. */
+  itemTypeDiagonalRate: number;
+  /**
+   * Phase 3 — confusion of selected vs. expected itemTypes.
+   * `confusion[expected][actual] = count`. expected can also be `'<unspecified>'`.
+   */
+  itemTypeConfusion: Record<string, Record<string, number>>;
+  /** Phase 3 — same idea, restricted to label types tested in prompts (e.g., symbol/file). */
+  labelDiagonalRate: number;
+  labelConfusion: Record<string, Record<string, number>>;
 }
 
 interface AblationRow {
@@ -230,6 +242,8 @@ async function runPrompts(
   const latencies: number[] = [];
   const filterPrecisionTracker = new Map<string, { triggered: number; correct: number }>();
   const itemTypeCatchAllCount = { selected: 0, totalSelected: 0 };
+  const itemTypeConfusionCount = { diagonal: 0, total: 0 };
+  const labelConfusionCount = { diagonal: 0, total: 0 };
   const ingestionBlockedSandboxIds = new Set<string>();
 
   const duplicateBlockedSandboxIds = new Set<string>();
@@ -293,7 +307,9 @@ async function runPrompts(
       }
     }
 
-    // Noise / forbidden hits
+    // Noise / forbidden hits + itemType / label confusion bookkeeping
+    const expectedItemTypeSet = new Set(prompt.expectedItemTypes ?? []);
+    const expectedLabelSet = new Set((prompt.expectedLabels ?? []).map((label) => `${label.type}:${label.value.toLowerCase()}`));
     for (const sandboxId of selectedSandboxIds) {
       if (forbidden.has(sandboxId)) {
         metrics.noiseHits += 1;
@@ -308,6 +324,29 @@ async function runPrompts(
       itemTypeCatchAllCount.totalSelected += 1;
       if (itemType === 'memory') {
         itemTypeCatchAllCount.selected += 1;
+      }
+
+      const expectedKey = expectedItemTypeSet.size === 0
+        ? '<unspecified>'
+        : (expectedItemTypeSet.has(itemType) ? itemType : `expected:${[...expectedItemTypeSet].join('|')}`);
+      const confusionRow = metrics.itemTypeConfusion[expectedKey] ?? {};
+      confusionRow[itemType] = (confusionRow[itemType] ?? 0) + 1;
+      metrics.itemTypeConfusion[expectedKey] = confusionRow;
+      itemTypeConfusionCount.total += 1;
+      if (expectedItemTypeSet.size === 0 || expectedItemTypeSet.has(itemType)) {
+        itemTypeConfusionCount.diagonal += 1;
+      }
+
+      for (const label of knowledge.labels ?? []) {
+        const key = `${label.type}:${label.value.toLowerCase()}`;
+        const expectedLabel = expectedLabelSet.has(key) ? key : '<other>';
+        const row = metrics.labelConfusion[expectedLabel] ?? {};
+        row[key] = (row[key] ?? 0) + 1;
+        metrics.labelConfusion[expectedLabel] = row;
+        labelConfusionCount.total += 1;
+        if (expectedLabelSet.has(key)) {
+          labelConfusionCount.diagonal += 1;
+        }
       }
     }
 
@@ -385,6 +424,12 @@ async function runPrompts(
   metrics.itemTypeCatchAllRate = itemTypeCatchAllCount.totalSelected > 0
     ? itemTypeCatchAllCount.selected / itemTypeCatchAllCount.totalSelected
     : 0;
+  metrics.itemTypeDiagonalRate = itemTypeConfusionCount.total > 0
+    ? itemTypeConfusionCount.diagonal / itemTypeConfusionCount.total
+    : 0;
+  metrics.labelDiagonalRate = labelConfusionCount.total > 0
+    ? labelConfusionCount.diagonal / labelConfusionCount.total
+    : 0;
 
   for (const [itemType, value] of Object.entries(metrics.perItemType)) {
     value.precision = value.total > 0 ? value.hits / Math.max(1, value.total) : 0;
@@ -443,6 +488,10 @@ function blankMetrics(): SandboxRunMetrics {
     perSourceContribution: { metadata: 0, lexical: 0, memory: 0, vector: 0, graph: 0, reference: 0 },
     perFilter: {},
     latency: { p50: 0, p95: 0, max: 0, samples: 0 },
+    itemTypeDiagonalRate: 0,
+    itemTypeConfusion: {},
+    labelDiagonalRate: 0,
+    labelConfusion: {},
   };
 }
 
@@ -484,6 +533,12 @@ function evaluateThresholds(metrics: SandboxRunMetrics, thresholds: SandboxThres
   if (metrics.duplicateSuppressionRate < thresholds.minDuplicateSuppressionRate) failures.push(`duplicateSuppressionRate ${metrics.duplicateSuppressionRate.toFixed(3)} < ${thresholds.minDuplicateSuppressionRate}`);
   if (metrics.adversarialBlockRate < thresholds.minAdversarialBlockRate) failures.push(`adversarialBlockRate ${metrics.adversarialBlockRate.toFixed(3)} < ${thresholds.minAdversarialBlockRate}`);
   if (metrics.itemTypeCatchAllRate > thresholds.maxItemTypeCatchAllRate) failures.push(`itemTypeCatchAllRate ${metrics.itemTypeCatchAllRate.toFixed(3)} > ${thresholds.maxItemTypeCatchAllRate}`);
+  if (typeof thresholds.minItemTypeDiagonalRate === 'number' && metrics.itemTypeDiagonalRate < thresholds.minItemTypeDiagonalRate) {
+    failures.push(`itemTypeDiagonalRate ${metrics.itemTypeDiagonalRate.toFixed(3)} < ${thresholds.minItemTypeDiagonalRate}`);
+  }
+  if (typeof thresholds.minLabelDiagonalRate === 'number' && metrics.labelDiagonalRate < thresholds.minLabelDiagonalRate) {
+    failures.push(`labelDiagonalRate ${metrics.labelDiagonalRate.toFixed(3)} < ${thresholds.minLabelDiagonalRate}`);
+  }
   return failures;
 }
 
@@ -514,6 +569,8 @@ function renderReport(result: SandboxRunResult, fixture: SandboxFixture): string
   lines.push(`| duplicate suppression | ${formatRate(result.metrics.duplicateSuppressionRate)} |`);
   lines.push(`| adversarial block rate | ${formatRate(result.metrics.adversarialBlockRate)} |`);
   lines.push(`| itemType "memory" catch-all rate | ${formatRate(result.metrics.itemTypeCatchAllRate)} |`);
+  lines.push(`| itemType diagonal rate (Phase 3) | ${formatRate(result.metrics.itemTypeDiagonalRate)} |`);
+  lines.push(`| label diagonal rate (Phase 3) | ${formatRate(result.metrics.labelDiagonalRate)} |`);
   lines.push(`| latency p50 / p95 / max (ms) | ${result.metrics.latency.p50} / ${result.metrics.latency.p95} / ${result.metrics.latency.max} |`);
   lines.push('');
   lines.push(`## Per-Tier Selection`);
@@ -585,6 +642,7 @@ function printSummary(result: SandboxRunResult): void {
   console.log(`hit=${formatRate(result.metrics.hitRate)} mrr=${result.metrics.mrr.toFixed(4)} noise=${formatRate(result.metrics.noiseRate)}`);
   console.log(`stale_sup=${formatRate(result.metrics.staleSuppressionRate)} dup_sup=${formatRate(result.metrics.duplicateSuppressionRate)} adv_block=${formatRate(result.metrics.adversarialBlockRate)}`);
   console.log(`catchall=${formatRate(result.metrics.itemTypeCatchAllRate)} latency_p50=${result.metrics.latency.p50}ms p95=${result.metrics.latency.p95}ms`);
+  console.log(`itemType_diag=${formatRate(result.metrics.itemTypeDiagonalRate)} label_diag=${formatRate(result.metrics.labelDiagonalRate)}`);
   if (result.ablation) {
     for (const row of result.ablation) {
       console.log(`  ablate-${row.disabled}: hit=${formatRate(row.hitRate)} mrr=${row.mrr.toFixed(4)}`);

@@ -1,8 +1,23 @@
 import type { FilterEvent, KnowledgeInput, RankedCandidate, ReflectionDraftInput, SearchCandidate } from '../types.js';
 import { SafetyBlockedError } from '../errors.js';
+import { getRetrievalPolicy, type RetrievalPolicy } from '../retrieval/policy.js';
 
 export interface SafetySanitizeOptions {
   onFilterEvent?: (event: FilterEvent) => void;
+}
+
+export interface SuspiciousContentClassification {
+  issues: KnowledgeSafetyIssue[];
+}
+
+export interface SuspiciousContentClassifier {
+  readonly name: string;
+  classify(text: string): SuspiciousContentClassification;
+}
+
+export interface KnowledgeSafetyServiceOptions {
+  classifier?: SuspiciousContentClassifier;
+  policyAccessor?: () => RetrievalPolicy;
 }
 
 export type KnowledgeSafetyStatus = 'safe' | 'suspicious' | 'blocked';
@@ -107,6 +122,42 @@ const SUSPICIOUS_PATTERNS: TextPattern[] = [
   },
 ];
 
+const PII_EMAIL_PATTERN: TextPattern = {
+  pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+  issue: { type: 'secret', severity: 'low', message: 'Email address was redacted (PII).', redacted: true },
+};
+
+const PII_PHONE_PATTERN: TextPattern = {
+  pattern: /\b(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/g,
+  issue: { type: 'secret', severity: 'low', message: 'Phone number was redacted (PII).', redacted: true },
+};
+
+const PII_IPV4_PATTERN: TextPattern = {
+  pattern: /\b(?:25[0-5]|2[0-4]\d|[01]?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d?\d)){3}\b/g,
+  issue: { type: 'secret', severity: 'low', message: 'IPv4 address was redacted (PII).', redacted: true },
+};
+
+export const REGEX_CLASSIFIER_NAME = 'regex';
+
+export class RegexSuspiciousContentClassifier implements SuspiciousContentClassifier {
+  readonly name = REGEX_CLASSIFIER_NAME;
+
+  classify(text: string): SuspiciousContentClassification {
+    const issues: KnowledgeSafetyIssue[] = [];
+    for (const { pattern, issue } of BLOCK_PATTERNS) {
+      if (pattern.test(text)) {
+        issues.push(issue);
+      }
+    }
+    for (const { pattern, issue } of SUSPICIOUS_PATTERNS) {
+      if (pattern.test(text)) {
+        issues.push(issue);
+      }
+    }
+    return { issues };
+  }
+}
+
 export class KnowledgeSafetyError extends SafetyBlockedError {
   constructor(readonly issues: KnowledgeSafetyIssue[]) {
     super(`Knowledge blocked by safety policy: ${issues.map((issue) => issue.message).join(' ')}`, issues);
@@ -114,8 +165,16 @@ export class KnowledgeSafetyError extends SafetyBlockedError {
 }
 
 export class KnowledgeSafetyService {
+  private readonly classifier: SuspiciousContentClassifier;
+  private readonly policyAccessor: () => RetrievalPolicy;
+
+  constructor(options: KnowledgeSafetyServiceOptions = {}) {
+    this.classifier = options.classifier ?? new RegexSuspiciousContentClassifier();
+    this.policyAccessor = options.policyAccessor ?? getRetrievalPolicy;
+  }
+
   redactSecrets(value: string): string {
-    return redactSecretPatterns(value).text;
+    return redactSecretPatterns(value, this.activePiiPatterns()).text;
   }
 
   sanitizeKnowledgeInput(input: KnowledgeInput): KnowledgeInput {
@@ -243,33 +302,39 @@ export class KnowledgeSafetyService {
   }
 
   private scanAndRedactText(value: string): TextScanResult {
-    const redacted = redactSecretPatterns(value);
-    let text = redacted.text;
-    const issues: KnowledgeSafetyIssue[] = [...redacted.issues];
-    const redactionCount = redacted.redactionCount;
+    const redacted = redactSecretPatterns(value, this.activePiiPatterns());
+    const text = redacted.text;
+    const classification = this.classifier.classify(text);
+    const issues: KnowledgeSafetyIssue[] = uniqueIssues([...redacted.issues, ...classification.issues]);
+    return { text, issues, redactionCount: redacted.redactionCount };
+  }
 
-    for (const { pattern, issue } of BLOCK_PATTERNS) {
-      if (pattern.test(text)) {
-        issues.push(issue);
-      }
-    }
-
-    for (const { pattern, issue } of SUSPICIOUS_PATTERNS) {
-      if (pattern.test(text)) {
-        issues.push(issue);
-      }
-    }
-
-    return { text, issues: uniqueIssues(issues), redactionCount };
+  private activePiiPatterns(): TextPattern[] {
+    const policy = safePolicy(this.policyAccessor);
+    if (!policy?.piiRedaction) return [];
+    const patterns: TextPattern[] = [];
+    if (policy.piiRedaction.emails) patterns.push(PII_EMAIL_PATTERN);
+    if (policy.piiRedaction.phones) patterns.push(PII_PHONE_PATTERN);
+    if (policy.piiRedaction.ipv4) patterns.push(PII_IPV4_PATTERN);
+    return patterns;
   }
 }
 
-function redactSecretPatterns(value: string): TextScanResult {
+function safePolicy(accessor: () => RetrievalPolicy): RetrievalPolicy | undefined {
+  try {
+    return accessor();
+  } catch {
+    return undefined;
+  }
+}
+
+function redactSecretPatterns(value: string, extraPatterns: TextPattern[] = []): TextScanResult {
   let text = value;
   const issues: KnowledgeSafetyIssue[] = [];
   let redactionCount = 0;
+  const patterns = extraPatterns.length === 0 ? SECRET_PATTERNS : [...SECRET_PATTERNS, ...extraPatterns];
 
-  for (const { pattern, issue } of SECRET_PATTERNS) {
+  for (const { pattern, issue } of patterns) {
     text = text.replace(pattern, () => {
       issues.push(issue);
       redactionCount += 1;

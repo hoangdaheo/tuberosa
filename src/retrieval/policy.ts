@@ -36,6 +36,15 @@ export interface RetrievalPolicy {
     superseded: boolean;
     evidenceMismatch: boolean;
   };
+
+  /** Phase 3 — when true, ingestion expands ontology-aware labels to include their ancestors. */
+  useOntology: boolean;
+
+  /** Phase 3 — when true, IngestionService runs the content-aware itemType inference. */
+  useItemTypeInference: boolean;
+
+  /** Phase 3 — when true, IngestionService runs the AST-based code-label extractor for supported sources. */
+  useAstExtractor: boolean;
 }
 
 export const DEFAULT_POLICY: RetrievalPolicy = {
@@ -82,6 +91,10 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     superseded: true,
     evidenceMismatch: true,
   },
+
+  useOntology: true,
+  useItemTypeInference: true,
+  useAstExtractor: true,
 };
 
 let cachedPolicy: RetrievalPolicy | null = null;

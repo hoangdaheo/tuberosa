@@ -1469,7 +1469,7 @@ test('context fit penalizes stale and rejected candidates', () => {
   const fittedStale = result.candidates.find((candidate) => candidate.knowledgeId === 'stale');
 
   ok((fittedFresh?.fitScore ?? 0) > (fittedStale?.fitScore ?? 0));
-  ok(fittedStale?.fitMissingSignals?.includes('freshness:stale'));
+  ok(fittedStale?.fitMissingSignals?.some((signal) => signal.startsWith('freshness:stale')));
   ok(fittedStale?.fitMissingSignals?.includes('prior feedback:rejected'));
 });
 
