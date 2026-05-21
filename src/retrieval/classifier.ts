@@ -2,6 +2,7 @@ import type {
   ClassifiedQuery,
   ContextSearchInput,
   LabelInput,
+  LabelProvenance,
   RetrievalEvidenceType,
   RetrievalIntent,
   RetrievalWorkflowStage,
@@ -114,36 +115,50 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
 
 export function labelsFromClassification(classified: ClassifiedQuery): LabelInput[] {
   const labels: LabelInput[] = [];
+  const make = (type: LabelInput['type'], value: string, weight: number, confidence: number): LabelInput => ({
+    type,
+    value,
+    weight,
+    provenance: classifierProvenance(confidence),
+  });
 
   if (classified.project) {
-    labels.push({ type: 'project', value: classified.project, weight: 1 });
+    labels.push(make('project', classified.project, 1, 0.9));
   }
 
   if (classified.taskType !== 'unknown') {
-    labels.push({ type: 'task_type', value: classified.taskType, weight: 0.9 });
+    labels.push(make('task_type', classified.taskType, 0.9, 0.8));
+  }
+
+  if (classified.domain) {
+    labels.push(make('domain', classified.domain, 0.85, 0.7));
   }
 
   for (const value of classified.files) {
-    labels.push({ type: 'file', value, weight: 0.9 });
+    labels.push(make('file', value, 0.9, 0.85));
   }
 
   for (const value of classified.symbols) {
-    labels.push({ type: 'symbol', value, weight: 0.85 });
+    labels.push(make('symbol', value, 0.85, 0.8));
   }
 
   for (const value of classified.errors) {
-    labels.push({ type: 'error', value, weight: 0.95 });
+    labels.push(make('error', value, 0.95, 0.9));
   }
 
   for (const value of classified.technologies) {
-    labels.push({ type: 'technology', value, weight: 0.75 });
+    labels.push(make('technology', value, 0.75, 0.7));
   }
 
   for (const value of classified.businessAreas) {
-    labels.push({ type: 'business_area', value, weight: 0.8 });
+    labels.push(make('business_area', value, 0.8, 0.7));
   }
 
   return labels;
+}
+
+function classifierProvenance(confidence: number): LabelProvenance {
+  return { source: 'classifier', confidence: Math.max(0, Math.min(1, confidence)) };
 }
 
 function inferTaskType(lower: string): TaskType {
@@ -420,11 +435,20 @@ export function hasDomainMismatch(
   if (!classified.domain) {
     return false;
   }
-  const domainLabels = candidate.labels.filter((label) => label.type === 'domain');
+  // Phase 1: only USER-SUPPLIED or REVIEWED domain labels participate in mismatch.
+  // Classifier-inferred labels are heuristic (one file's path) and shouldn't trigger
+  // false-positive suppression on candidates that simply live in a different src/X/.
+  const domainLabels = candidate.labels.filter((label) => label.type === 'domain' && isExplicitDomainLabel(label));
   if (domainLabels.length === 0) {
     return false;
   }
   return !domainLabels.some((label) => isOntologyMatch('domain', label.value, classified.domain!));
+}
+
+function isExplicitDomainLabel(label: LabelInput): boolean {
+  const provenance = label.provenance?.source;
+  if (!provenance) return true; // user-supplied with no provenance attached
+  return provenance !== 'classifier';
 }
 
 function stripFilePaths(prompt: string): string {
@@ -672,6 +696,83 @@ const SYMBOL_STOP_WORDS = new Set([
   'Would',
   'Should',
   'Will',
+  // Phase 1: vetted task verbs that frequently appear at sentence start and pollute symbols.
+  // User-supplied symbols via the `symbols:` input bypass this filter — caller authority wins.
+  'Analyze',
+  'Analyse',
+  'Analyzing',
+  'Analysed',
+  'Analyzed',
+  'Answer',
+  'Answers',
+  'Answering',
+  'Answered',
+  'Investigate',
+  'Investigates',
+  'Investigating',
+  'Investigated',
+  'Investigation',
+  'Improving',
+  'Improved',
+  'Improvement',
+  'Implementing',
+  'Implementation',
+  'Fixed',
+  'Fixes',
+  'Fixing',
+  'Adding',
+  'Adds',
+  'Refactoring',
+  'Refactored',
+  'Reviewing',
+  'Reviewed',
+  'Audit',
+  'Audits',
+  'Auditing',
+  'Audited',
+  'Map',
+  'Maps',
+  'Mapping',
+  'Mapped',
+  'Tracing',
+  'Traced',
+  'Plan',
+  'Plans',
+  'Planning',
+  'Planned',
+  'Building',
+  'Built',
+  'Testing',
+  'Tested',
+  'Verifying',
+  'Validate',
+  'Validates',
+  'Validating',
+  'Validated',
+  'Identify',
+  'Identifies',
+  'Identifying',
+  'Identified',
+  'Document',
+  'Documents',
+  'Documenting',
+  'Documented',
+  'Expand',
+  'Expands',
+  'Expanding',
+  'Expanded',
+  'Ensure',
+  'Ensures',
+  'Ensuring',
+  'Ensured',
+  'Confirm',
+  'Confirms',
+  'Confirming',
+  'Confirmed',
+  'Propose',
+  'Proposes',
+  'Proposing',
+  'Proposed',
 ]);
 
 function isLikelyDocumentIdentifier(value: string): boolean {

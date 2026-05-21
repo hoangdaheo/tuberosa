@@ -168,7 +168,12 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       await client.query('BEGIN');
       const projectId = await this.ensureProject(client, input.project);
       const sourceId = await this.upsertSource(client, projectId, input);
-      const knowledgeId = await this.saveKnowledgeItem(client, projectId, sourceId, input);
+      const knowledgeId = await this.saveKnowledgeItem(
+        client,
+        projectId,
+        sourceId,
+        withLabelProvenanceMetadata(input),
+      );
       await this.attachLabels(client, knowledgeId, input.labels ?? []);
       await this.attachReferences(client, knowledgeId, input.references ?? []);
       await this.insertChunks(client, knowledgeId, projectId, chunks);
@@ -266,6 +271,11 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      const mergedMetadataBase = patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata;
+      const mergedMetadata = patch.labels
+        ? mergeLabelProvenanceIntoMetadata(mergedMetadataBase, patch.labels)
+        : mergedMetadataBase;
+
       await client.query(
         `
           UPDATE knowledge_items
@@ -285,7 +295,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
           patch.summary ?? current.summary,
           patch.trustLevel ?? current.trustLevel,
           patch.freshnessAt === null ? null : patch.freshnessAt ?? current.freshnessAt ?? null,
-          patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+          mergedMetadata,
         ],
       );
 
@@ -2186,6 +2196,8 @@ function learningProposalSelect(): string {
 }
 
 function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
+  const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+  const rawLabels = (row.labels ?? []) as LabelInput[];
   return {
     id: String(row.id),
     projectId: row.project_id ? String(row.project_id) : undefined,
@@ -2198,8 +2210,8 @@ function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
     summary: String(row.summary ?? ''),
     content: String(row.content),
     trustLevel: Number(row.trust_level ?? 50),
-    metadata: (row.metadata ?? {}) as Record<string, unknown>,
-    labels: (row.labels ?? []) as LabelInput[],
+    metadata,
+    labels: hydrateLabelProvenance(rawLabels, metadata),
     references: (row.references ?? []) as ReferenceInput[],
     freshnessAt: row.freshness_at ? toIso(row.freshness_at) : undefined,
     createdAt: toIso(row.created_at),
@@ -2539,4 +2551,64 @@ function toIso(value: unknown): string {
   }
 
   return String(value);
+}
+
+const LABEL_PROVENANCE_METADATA_KEY = 'labelProvenance';
+
+function labelProvenanceKey(label: { type: string; value: string }): string {
+  return `${label.type}:${normalizeLabel(label.value)}`;
+}
+
+function buildLabelProvenanceMap(labels: LabelInput[]): Record<string, LabelInput['provenance']> {
+  const map: Record<string, LabelInput['provenance']> = {};
+  for (const label of labels) {
+    if (label.provenance) {
+      map[labelProvenanceKey(label)] = label.provenance;
+    }
+  }
+  return map;
+}
+
+function mergeLabelProvenanceIntoMetadata(
+  metadata: Record<string, unknown>,
+  labels: LabelInput[],
+): Record<string, unknown> {
+  const provenanceMap = buildLabelProvenanceMap(labels);
+  if (Object.keys(provenanceMap).length === 0) {
+    if (!(LABEL_PROVENANCE_METADATA_KEY in metadata)) {
+      return metadata;
+    }
+    const next = { ...metadata };
+    delete next[LABEL_PROVENANCE_METADATA_KEY];
+    return next;
+  }
+  return { ...metadata, [LABEL_PROVENANCE_METADATA_KEY]: provenanceMap };
+}
+
+function withLabelProvenanceMetadata(input: KnowledgeInput): KnowledgeInput {
+  if (!input.labels || input.labels.length === 0) {
+    return input;
+  }
+  const baseMetadata = input.metadata ?? {};
+  const next = mergeLabelProvenanceIntoMetadata(baseMetadata, input.labels);
+  if (next === baseMetadata) {
+    return input;
+  }
+  return { ...input, metadata: next };
+}
+
+function hydrateLabelProvenance(
+  labels: LabelInput[],
+  metadata: Record<string, unknown>,
+): LabelInput[] {
+  const stored = metadata[LABEL_PROVENANCE_METADATA_KEY];
+  if (!stored || typeof stored !== 'object') {
+    return labels;
+  }
+  const map = stored as Record<string, LabelInput['provenance']>;
+  return labels.map((label) => {
+    if (label.provenance) return label;
+    const provenance = map[labelProvenanceKey(label)];
+    return provenance ? { ...label, provenance } : label;
+  });
 }

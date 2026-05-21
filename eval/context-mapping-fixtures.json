@@ -217,6 +217,41 @@
         { "type": "domain", "value": "operations", "weight": 1 },
         { "type": "symbol", "value": "SenderQueue", "weight": 1 }
       ]
+    },
+    {
+      "evalId": "article-search-handler",
+      "sourceType": "file",
+      "sourceUri": "src/retrieval/article-search.ts",
+      "itemType": "code_ref",
+      "title": "Article search handler",
+      "summary": "ArticleSearchHandler powers article search inside src/retrieval/article-search.ts.",
+      "content": "ArticleSearchHandler implements article search for the newsletter app. It ranks articles by relevance and paginates results. The handler lives in src/retrieval/article-search.ts and uses the shared search index.",
+      "trustLevel": 86,
+      "labels": [
+        { "type": "file", "value": "src/retrieval/article-search.ts", "weight": 1 },
+        { "type": "symbol", "value": "ArticleSearchHandler", "weight": 1 },
+        { "type": "business_area", "value": "search", "weight": 0.8 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/retrieval/article-search.ts" }
+      ]
+    },
+    {
+      "evalId": "email-thumbnail-search-helper",
+      "sourceType": "file",
+      "sourceUri": "src/email/thumbnail-search-helper.ts",
+      "itemType": "code_ref",
+      "title": "Thumbnail search helper for email digests",
+      "summary": "Helper that searches for thumbnail images when assembling digest emails.",
+      "content": "This helper in src/email/thumbnail-search-helper.ts performs ad-hoc thumbnail search lookups while assembling outbound digest emails. It is unrelated to the article search retrieval pipeline; it only shares the word 'search' in its name and content.",
+      "trustLevel": 70,
+      "labels": [
+        { "type": "file", "value": "src/email/thumbnail-search-helper.ts", "weight": 1 },
+        { "type": "business_area", "value": "search", "weight": 0.5 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/email/thumbnail-search-helper.ts" }
+      ]
     }
   ],
   "distractors": [
@@ -394,6 +429,20 @@
       "expectedEntities": {
         "files": ["src/email/sender-queue.ts"],
         "symbols": ["SenderQueue"]
+      },
+      "expectedFitStatus": "ready"
+    },
+    {
+      "id": "article-search-domain-routing",
+      "prompt": "Update src/retrieval/article-search.ts ArticleSearchHandler to support paginated results.",
+      "taxon": "nl_to_code",
+      "taskType": "implementation",
+      "expectedRelevantKnowledgeIds": ["article-search-handler"],
+      "directEvidenceKnowledgeIds": ["article-search-handler"],
+      "forbiddenKnowledgeIds": ["email-thumbnail-search-helper"],
+      "expectedEntities": {
+        "files": ["src/retrieval/article-search.ts"],
+        "symbols": ["ArticleSearchHandler"]
       },
       "expectedFitStatus": "ready"
     }

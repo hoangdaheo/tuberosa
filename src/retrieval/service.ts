@@ -32,6 +32,7 @@ import type {
   SuppressionEvent,
   SuppressionReason,
   TaskBriefMode,
+  LabelInput,
 } from '../types.js';
 import { sha256, stableJson } from '../util/hash.js';
 import { clamp, metadataString, normalizeLabel, sameSignals, truncate, uniqueStrings } from '../util/text.js';
@@ -1573,19 +1574,27 @@ function intentSuppressionAdjustment(
       const target = classified.domain.toLowerCase();
       const matches = domainLabels.some((label) => label.value.toLowerCase() === target);
       if (matches) {
+        // Permissive boost: a matching domain (classifier-inferred is fine) lifts the score.
         const delta = policy.domainMismatch.matchBoost;
         score += delta;
         reasons.push(`boost:domain_match:${classified.domain}`);
       } else {
-        const delta = policy.domainMismatch.mismatchPenalty;
-        score += delta;
-        reasons.push(`suppression:domain_mismatch:${classified.domain}`);
-        events.push({
-          reason: 'domain_mismatch',
-          deltaScore: roundFeedbackAdjustment(delta),
-          confidence: 0.9,
-          evidence: `candidate domain labels=[${domainLabels.map((label) => label.value).join(', ')}] expected=${classified.domain}`,
-        });
+        // Strict penalty: only fire when at least one EXPLICIT (user-supplied / reviewed) domain
+        // label exists and none match. Classifier-inferred-only candidates are heuristic and
+        // would create false-positive suppression for any candidate that simply lives under a
+        // different `src/X/` directory than the query.
+        const explicitDomainLabels = domainLabels.filter(isExplicitDomainCandidateLabel);
+        if (explicitDomainLabels.length > 0) {
+          const delta = policy.domainMismatch.mismatchPenalty;
+          score += delta;
+          reasons.push(`suppression:domain_mismatch:${classified.domain}`);
+          events.push({
+            reason: 'domain_mismatch',
+            deltaScore: roundFeedbackAdjustment(delta),
+            confidence: 0.9,
+            evidence: `candidate domain labels=[${explicitDomainLabels.map((label) => label.value).join(', ')}] expected=${classified.domain}`,
+          });
+        }
       }
     }
   }
@@ -1763,4 +1772,10 @@ function clampScore(value: number): number {
 
 function roundFeedbackAdjustment(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function isExplicitDomainCandidateLabel(label: LabelInput): boolean {
+  const provenance = label.provenance?.source;
+  if (!provenance) return true; // user-supplied input with no provenance attached
+  return provenance !== 'classifier';
 }

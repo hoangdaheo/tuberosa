@@ -33,13 +33,21 @@ export class HeuristicLabelEnricher implements LabelEnricher {
     }));
 
     const policy = getRetrievalPolicy();
+    const userLabels = labelsWithProvenance(input.labels ?? [], { source: 'prompt', confidence: 0.95 });
+    const classifierLabels = dropInferredDomainIfUserSupplied(fromClassifier, userLabels);
     const merged = mergeLabels([
-      ...labelsWithProvenance(input.labels ?? [], { source: 'prompt', confidence: 0.95 }),
-      ...fromClassifier,
+      ...userLabels,
+      ...classifierLabels,
     ]);
 
     return expandLabelsThroughOntology(merged, { enabled: policy.useOntology });
   }
+}
+
+function dropInferredDomainIfUserSupplied(classifierLabels: LabelInput[], userLabels: LabelInput[]): LabelInput[] {
+  const userHasDomain = userLabels.some((label) => label.type === 'domain');
+  if (!userHasDomain) return classifierLabels;
+  return classifierLabels.filter((label) => label.type !== 'domain');
 }
 
 export interface LlmLabelEnricherOptions {
