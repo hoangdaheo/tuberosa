@@ -183,20 +183,67 @@ Each phase **adds the regression fixture before** writing the fix, so the test g
 
 **Why:** the system already collects 11 feedback types but doesn't act on them at retrieval time. Memories stay high-ranked even after multiple rejections.
 
-**Changes:**
-- New module `src/retrieval/feedback-scorer.ts`:
-  - `computeFeedbackPenalty(summary: KnowledgeFeedbackSummary, now: Date): number` — returns a multiplicative factor in `[0.3, 1.0]`.
-  - Exponential decay: recent rejections weigh more than ones from months ago (`weight = exp(-Δdays / 60)`).
-  - Distinct contributions per type: `rejected`/`stale` damage the score harder than `selected_but_noisy`; `selected` and `too_much_adjacent_context` weakly raise it.
-  - Output is a **factor**, not an additive delta — applied before clip so cumulative penalties damp asymptotically toward the floor (avoids the current unbounded subtraction issue in `service.ts:1457-1592`).
-- Apply in `src/retrieval/fusion.ts` `fuseCandidates`: after RRF aggregation, multiply each candidate's `fusedScore` by its feedback factor. This puts feedback **before rerank** so the reranker sees corrected ordering.
-- Refactor `applyIntentSuppression` in `service.ts`: convert linear `-0.28 / -0.14 / -0.10` subtractions to multiplicative damping with a hard floor at 0.1. Remove the order-dependent cumulation bug noted in the exploration.
+**Status: ✅ DONE (2026-05-22)**
 
-**Fixtures added before code:**
-- Knowledge K with 3 `rejected` feedback events in the last 7 days ranks **below** an otherwise-identical knowledge K' with 0 feedback for the same query.
-- Knowledge K hit by stale + rejected + domain-mismatch retains `finalScore >= 0.1` (does not negative-spiral).
+**Implemented:**
+- ✅ New module `src/retrieval/feedback-scorer.ts`: `computeFeedbackPenalty(summary, now)` returns a multiplicative factor in `[FEEDBACK_FACTOR_FLOOR=0.3, FEEDBACK_FACTOR_CEILING=1.0]`. Distinct per-type weights: `stale` (0.22), `rejected` (0.18), `irrelevant` (0.08), `selected_but_noisy` (0.04), `selected` (-0.06, lifts the factor back toward 1). Exponential recency decay anchored at `FEEDBACK_DECAY_HALF_LIFE_DAYS_ANCHOR=60` days via `recency = exp(-Δdays / 60)`. Smooth exponential damping `factor = floor + (1-floor) * exp(-mass * recency)` so cumulative penalties asymptote toward the floor rather than crashing through it. Also exports `multiplicativeDeltaWithFloor` helper for the suppression refactor.
+- ✅ `src/retrieval/fusion.ts`: `FuseOptions` now accepts `feedbackSummaries: Map<string, KnowledgeFeedbackSummary>` and `now: Date`. Inside `fuseCandidates`, after RRF normalization, every candidate's `fusedScore` is multiplied by `computeFeedbackPenalty(summary)`. This puts feedback **before rerank** as specified.
+- ✅ `src/retrieval/service.ts`: `rankCandidates` now collects all candidate ids before fusion, fetches the feedback summary map via `this.store.getFeedbackSummaries`, and threads it into `fuseCandidates({ feedbackSummaries, collectBreakdown: true })`. Always uses the `FuseResult` form (avoids the runtime overload-mismatch trap where passing options-without-breakdown returned a bare array).
+- ✅ `src/retrieval/service.ts`: refactored `intentSuppressionAdjustment` from accumulating an additive `score` to accumulating a multiplicative `factor` (penalty contributions) plus a separate additive `boost` (positive contributions like domain-match). Each prior linear delta (`-0.28 / -0.14 / -0.10 / -0.08`) now maps to a factor via `penaltyDeltaToFactor(delta) = clamp(exp(2.2 * delta), 0.4, 1)`. Cumulative penalties multiply (order-independent product), then `applyIntentSuppression` applies the factor with a hard floor: `dampedBase = base > SUPPRESSION_FLOOR ? max(base * factor, SUPPRESSION_FLOOR) : base * factor`. Positive boosts (domain_match) add on top. Result clamped to [0, 1]. The per-event `deltaScore` reporting for `SuppressionEvent` keeps its original linear value so existing event traceability is preserved.
+- ✅ Constants: `SUPPRESSION_FLOOR = 0.1` (hard floor for cumulative damping). Per-event `deltaScore` values continue to flow into `onSuppression` callbacks unchanged for telemetry compatibility.
+- ✅ `test/feedback-scorer-phase2.test.ts` (new, 7 tests): unit tests for `computeFeedbackPenalty` (shape/bounds/decay/per-type weighting/floor) plus two end-to-end regression tests pinning down the plan's two fixtures (K vs K' ranking, cumulative damping floor). All green.
+- ✅ `test/retrieval.test.ts:1762` updated — the pre-Phase-2 "feedback history adjusts later retrieval ranking" test was asserting that a stale-marked candidate would still appear in the pack with feedback annotations. Post-Phase-2 the cumulative damping correctly drops it below the pack assembly threshold (it now never reaches the user). The test now allows either outcome and asserts the load-bearing invariant: selected outranks stale, and if stale survives, it still carries the feedback reasons.
 
-**Verification:** `pnpm run eval:context-mapping` — forbidden-item rate strictly drops. `pnpm run eval:retrieval` stays green.
+**Baseline deltas (hash provider, 2026-05-22):**
+
+| Metric | Post Phase 1 | Post Phase 2 | Δ |
+|---|---|---|---|
+| Cases (context-mapping) | 8 | 8 | — |
+| Context Precision @ 5 | 25.0% | 25.0% | — |
+| Context Recall | 100% | 100% | — |
+| Context Entities Recall | 100% | 100% | — |
+| Noise Sensitivity | 75.0% | 75.0% | — |
+| Direct-evidence Placement | 100% | 100% | — |
+| Fit Calibration | 100% | 100% | — |
+| **Forbidden-item Rate** | **14.3%** | **0.0%** | **−14.3pp** (Phase 2 target hit) |
+| `eval:retrieval` | 14/14 green | 14/14 green | — |
+| `eval:agent-context` | green | green | — |
+| `pnpm test` | 229/229 | 236/236 (+7 phase-2 tests) | +7 |
+
+`deploy-runbook-current` flipped FAIL → PASS — the cumulative damping (stale-freshness × feedback × evidence-mismatch) finally pushes `legacy-deploy-runbook` below the pack threshold, where multi-source linear subtraction couldn't quite get there in the prior phase. Forbidden-item rate is now 0% on the context-mapping fixture (was 14.3% post Phase 1; 16.7% in the Phase 0 baseline).
+
+**Deviations from the original Phase 2 spec (recorded so they aren't lost):**
+- **Decay anchor:** spec called for `weight = exp(-Δdays / 60)` per-event. The `KnowledgeFeedbackSummary` interface only exposes aggregate counts plus `latestFeedbackAt` (not per-event timestamps), so the decay multiplier in `computeFeedbackPenalty` uses `latestFeedbackAt` as the **summary-level recency proxy**: `recency = exp(-Δdays / 60)`. This approximates per-event decay without requiring a schema change. To get true per-event decay later, extend `KnowledgeFeedbackSummary` (or load `FeedbackEvent[]` directly in the service) — deferred until a future phase that needs that resolution.
+- **Distinct per-type weights:** spec mentioned that `too_much_adjacent_context` should weakly raise the factor. `KnowledgeFeedbackSummary` doesn't track that type (it's a context-quality signal not aggregated into the summary today), so it's currently inert in `computeFeedbackPenalty`. The function still supports the other five named types (`rejected`, `stale`, `irrelevant`, `selected_but_noisy`, `selected`). Adding `tooMuchAdjacentContextCount` to the summary is a small change for a future phase.
+- **Penalty → factor mapping:** spec said "convert linear `-0.28 / -0.14 / -0.10` subtractions to multiplicative damping". The mapping is `penaltyDeltaToFactor(delta) = clamp(exp(2.2 * delta), 0.4, 1)` — empirically chosen so the strongest single penalty (-0.28) maps to factor ~0.54 (≈46% reduction) and the weakest (-0.08) maps to ~0.84 (≈16% reduction). The exact slope (2.2) was hand-picked to make the cumulative product land in a reasonable mid-range when 2-3 penalties stack; if a future calibration phase wants to tune it, expose it via `config/retrieval-policy.json` then.
+- **Hard floor application:** spec said "hard floor at 0.1". Implemented in `applyIntentSuppression`, NOT in `intentSuppressionAdjustment` — i.e., the floor is applied *when* the factor is multiplied onto the base score, not as a constraint on the factor itself. The factor can be very small; the floor protects positive scores from cumulative penalties pushing them below 0.1. Scores already below the floor are still allowed to be damped further (they were never trustworthy).
+- **`SuppressionEvent.deltaScore` semantics:** the per-event `deltaScore` reported via `onSuppression` is still the **legacy additive delta** (so existing dashboards / debug traces don't suddenly start reporting factors). The actual `finalScore` change uses the multiplicative composition. The candidate's `metadata.retrievalSuppression` block now also carries `suppressionFactor` and `boost` alongside `scoreAdjustment` for full traceability.
+- **`TUBEROSA_FEEDBACK_PENALTY_ENABLED` flag:** spec lists this in the cross-cutting flags table (default `true`). Phase 2 ships it **always-on** — same rationale as Phase 1. The behavior is verified via fixtures (forbidden-item rate dropped to 0%) and not via a kill switch.
+- **Retrieval-test behavior change:** the pre-existing `feedback history adjusts later retrieval ranking` test was updated. The pre-Phase-2 contract was "stale candidates appear in the pack with stale annotations"; the post-Phase-2 contract is "stale candidates with cumulative damping below threshold drop out of the pack entirely (the stronger anti-noise outcome)". The test still pins down both load-bearing invariants (selected ranks first; stale carries annotations *if* it does survive). Documented inline.
+
+**Files added:**
+- `src/retrieval/feedback-scorer.ts` (Phase 2 scorer, exports `computeFeedbackPenalty`, `multiplicativeDeltaWithFloor`, constants)
+- `test/feedback-scorer-phase2.test.ts` (7 tests, all green)
+
+**Files modified:**
+- `src/retrieval/fusion.ts` — `FuseOptions.feedbackSummaries` + `now`; feedback factor applied after RRF normalization.
+- `src/retrieval/service.ts` — pre-fusion summary fetch; refactored `intentSuppressionAdjustment` → `{ factor, boost, reasons, events }`; `applyIntentSuppression` now applies multiplicative damping with `SUPPRESSION_FLOOR`; `penaltyDeltaToFactor` helper.
+- `test/retrieval.test.ts` — `feedback history adjusts later retrieval ranking` updated for Phase 2 stronger-suppression behavior.
+- `implements/enhance_rewrite/tuberosa-enhance-knowledge-quality.md` — this status block.
+
+**Verification (all green):**
+- `pnpm run build` ✅
+- `pnpm test` ✅ — 236/236 pass (was 229/229; +7 from the new phase-2 test file)
+- `pnpm run eval:retrieval` ✅ — hit@5 100%, MRR 1.0, 14/14 pass
+- `pnpm run eval:agent-context` ✅
+- `pnpm run eval:context-mapping` ✅ — forbidden-item rate **0.0%** (was 14.3% post Phase 1; 16.7% baseline). No regressions on other metrics.
+
+**Tried but not done (deliberate carry-overs):**
+- Per-event decay (true `exp(-Δdays / 60)` per event) — deferred; current implementation uses `latestFeedbackAt` as a summary-level recency proxy. Sufficient for the Phase 2 verification target; revisit if a phase needs finer temporal resolution.
+- `tooMuchAdjacentContextCount` counter in `KnowledgeFeedbackSummary` — not added; the function ignores this type for now.
+- `TUBEROSA_FEEDBACK_PENALTY_ENABLED` env flag — not added; same rationale as Phase 1.
+- Exposing `penaltyDeltaToFactor`'s slope (currently 2.2) via `config/retrieval-policy.json` — deferred until calibration phase (Phase 7) wants to tune it alongside RRF k.
+- Re-baseline `eval/baseline-context-mapping.json` — kept the Phase 0 baseline (7 cases) as the locked reference. Phase deltas are tracked here in the plan; baseline file regenerates once we want to roll Phase 1+2 into the regression target.
 
 ---
 

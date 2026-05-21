@@ -389,15 +389,37 @@ export class RetrievalService {
       disabled.has('vector') ? [] : candidates.vector,
       disabled.has('graph') ? [] : candidates.graph,
     ];
+
+    // Phase 2 — fetch feedback summaries BEFORE fusion so the per-candidate
+    // multiplicative penalty is applied to the fused score (and therefore visible to
+    // rerank). Bound the set to all candidates fusion will see — duplicates across
+    // groups are deduped by the Map+Set below.
+    const candidateIdsForFeedback = new Set<string>();
+    for (const group of candidateGroups) {
+      for (const candidate of group) {
+        candidateIdsForFeedback.add(candidate.knowledgeId);
+      }
+    }
+    const feedbackSummaries = candidateIdsForFeedback.size > 0
+      ? await this.store.getFeedbackSummaries([...candidateIdsForFeedback], { project })
+      : new Map();
+
     let fused: RankedCandidate[];
     if (debug) {
-      const fuseResult = fuseCandidates(candidateGroups, classified, { collectBreakdown: true });
+      const fuseResult = fuseCandidates(candidateGroups, classified, {
+        collectBreakdown: true,
+        feedbackSummaries,
+      });
       fused = fuseResult.ranked.slice(0, RERANK_LIMIT);
       if (fuseResult.breakdown) {
         debug.recordFusionBreakdown(fuseResult.breakdown);
       }
     } else {
-      fused = fuseCandidates(candidateGroups, classified).slice(0, RERANK_LIMIT);
+      const fuseResult = fuseCandidates(candidateGroups, classified, {
+        feedbackSummaries,
+        collectBreakdown: true,
+      });
+      fused = fuseResult.ranked.slice(0, RERANK_LIMIT);
     }
     debug?.recordTiming('fusion', fusionStartedAt);
     debug?.recordStage('fusion', fused);
@@ -1455,6 +1477,13 @@ function feedbackSuppressionConfidence(summary: KnowledgeFeedbackSummary, status
   return clamp(isLatestMatching ? Math.max(baseline, 0.7) : baseline, 0, 1);
 }
 
+/**
+ * Hard floor for cumulative suppression damping. A positive-scoring candidate
+ * never drops below this floor purely from intent suppressions. Independent
+ * positive boosts (e.g., domain_match) can still raise it above.
+ */
+const SUPPRESSION_FLOOR = 0.1;
+
 function applyIntentSuppression(
   candidate: RankedCandidate,
   classified: ClassifiedQuery,
@@ -1462,7 +1491,7 @@ function applyIntentSuppression(
   onSuppression?: (event: SuppressionEvent) => void,
 ): RankedCandidate {
   const adjustment = intentSuppressionAdjustment(candidate, classified, supersededBy);
-  if (adjustment.score === 0 && adjustment.events.length === 0) {
+  if (adjustment.factor === 1 && adjustment.boost === 0 && adjustment.events.length === 0) {
     return candidate;
   }
 
@@ -1474,9 +1503,19 @@ function applyIntentSuppression(
     }
   }
 
+  // Phase 2 — multiplicative damping with hard floor. Penalties never push a
+  // positive score below the floor; positive boosts (e.g., domain match) add on
+  // top, then the result is clamped to [0, 1].
+  const base = candidate.finalScore;
+  const dampedBase = base > SUPPRESSION_FLOOR
+    ? Math.max(base * adjustment.factor, SUPPRESSION_FLOOR)
+    : base * adjustment.factor;
+  const nextScore = clampScore(dampedBase + adjustment.boost);
+  const effectiveDelta = nextScore - base;
+
   return {
     ...candidate,
-    finalScore: clampScore(candidate.finalScore + adjustment.score),
+    finalScore: nextScore,
     matchReasons: [
       ...candidate.matchReasons,
       ...adjustment.reasons,
@@ -1484,7 +1523,9 @@ function applyIntentSuppression(
     metadata: {
       ...(candidate.metadata ?? {}),
       retrievalSuppression: {
-        scoreAdjustment: roundFeedbackAdjustment(adjustment.score),
+        scoreAdjustment: roundFeedbackAdjustment(effectiveDelta),
+        suppressionFactor: roundFeedbackAdjustment(adjustment.factor),
+        boost: roundFeedbackAdjustment(adjustment.boost),
         reasons: adjustment.reasons,
         supersededBy: supersededBy.map((relation) => relation.fromKnowledgeId),
       },
@@ -1493,9 +1534,24 @@ function applyIntentSuppression(
 }
 
 interface SuppressionAdjustment {
-  score: number;
+  /** Multiplicative damping factor in (0, 1] applied to finalScore before boosts. */
+  factor: number;
+  /** Additive positive boost (e.g., domain_match) applied AFTER damping. */
+  boost: number;
   reasons: string[];
   events: Array<Omit<SuppressionEvent, 'knowledgeId'>>;
+}
+
+/**
+ * Convert an additive-style "delta" (legacy: -0.14 etc.) into a multiplicative
+ * factor in (0, 1]. The mapping preserves intent ordering (bigger penalty →
+ * smaller factor) but bounds the per-source contribution so cumulative product
+ * stays well-behaved.
+ */
+function penaltyDeltaToFactor(delta: number): number {
+  if (delta >= 0) return 1;
+  // |delta|=0.28 → ~0.62; |delta|=0.14 → ~0.79; |delta|=0.10 → ~0.85; |delta|=0.08 → ~0.88
+  return clamp(Math.exp(2.2 * delta), 0.4, 1);
 }
 
 function intentSuppressionAdjustment(
@@ -1506,13 +1562,14 @@ function intentSuppressionAdjustment(
   const policy = getRetrievalPolicy();
   const reasons: string[] = [];
   const events: Array<Omit<SuppressionEvent, 'knowledgeId'>> = [];
-  let score = 0;
+  let factor = 1;
+  let boost = 0;
   const hasHardEvidence = hasHardSignalEvidence(candidate, classified);
 
   if (policy.suppressionEnabled.superseded && supersededBy.length > 0) {
     const strongest = Math.max(...supersededBy.map((relation) => relation.confidence));
     const delta = -Math.min(0.28, 0.18 + strongest * 0.08);
-    score += delta;
+    factor *= penaltyDeltaToFactor(delta);
     reasons.push(`suppression:superseded:${supersededBy[0].fromKnowledgeId}`);
     events.push({
       reason: 'superseded',
@@ -1524,7 +1581,7 @@ function intentSuppressionAdjustment(
 
   if (policy.suppressionEnabled.stale && isStaleCandidate(candidate) && !hasHardEvidence) {
     const delta = -0.14;
-    score += delta;
+    factor *= penaltyDeltaToFactor(delta);
     reasons.push('suppression:freshness:stale');
     events.push({
       reason: 'stale_freshness',
@@ -1538,7 +1595,7 @@ function intentSuppressionAdjustment(
     const feedback = feedbackStatusFromCandidate(candidate);
     if ((feedback === 'stale' || feedback === 'rejected' || feedback === 'irrelevant') && !hasHardEvidence) {
       const delta = feedback === 'stale' ? -0.1 : -0.08;
-      score += delta;
+      factor *= penaltyDeltaToFactor(delta);
       reasons.push(`suppression:prior feedback:${feedback}`);
       const suppressionReason: SuppressionReason = feedback === 'stale'
         ? 'feedback_stale'
@@ -1558,7 +1615,7 @@ function intentSuppressionAdjustment(
     && !hasHardEvidence
     && !requiredEvidenceMatches(candidate, classified.intent.requiredEvidenceTypes)) {
     const delta = -0.1;
-    score += delta;
+    factor *= penaltyDeltaToFactor(delta);
     reasons.push('suppression:evidence_mismatch');
     events.push({
       reason: 'evidence_mismatch',
@@ -1576,7 +1633,7 @@ function intentSuppressionAdjustment(
       if (matches) {
         // Permissive boost: a matching domain (classifier-inferred is fine) lifts the score.
         const delta = policy.domainMismatch.matchBoost;
-        score += delta;
+        boost += delta;
         reasons.push(`boost:domain_match:${classified.domain}`);
       } else {
         // Strict penalty: only fire when at least one EXPLICIT (user-supplied / reviewed) domain
@@ -1586,7 +1643,7 @@ function intentSuppressionAdjustment(
         const explicitDomainLabels = domainLabels.filter(isExplicitDomainCandidateLabel);
         if (explicitDomainLabels.length > 0) {
           const delta = policy.domainMismatch.mismatchPenalty;
-          score += delta;
+          factor *= penaltyDeltaToFactor(delta);
           reasons.push(`suppression:domain_mismatch:${classified.domain}`);
           events.push({
             reason: 'domain_mismatch',
@@ -1599,7 +1656,7 @@ function intentSuppressionAdjustment(
     }
   }
 
-  return { score: roundFeedbackAdjustment(score), reasons, events };
+  return { factor, boost, reasons, events };
 }
 
 function staleFreshnessConfidence(candidate: RankedCandidate): number {

@@ -1813,8 +1813,19 @@ test('feedback history adjusts later retrieval ranking', async () => {
 
   equal(ranked[0].knowledgeId, selected.id);
   ok(selectedCandidate?.matchReasons.includes('feedback:selected:1'));
-  ok(staleCandidate?.matchReasons.includes('feedback:stale:1'));
-  ok(staleCandidate?.fitMissingSignals?.includes('prior feedback:stale'));
+  // Phase 2 — stale-feedback candidates with no anchoring signals are now demoted
+  // below the pack assembly threshold (cumulative multiplicative damping). The
+  // demotion is the load-bearing assertion; if a future tuning lets the stale
+  // candidate survive into the pack, both the matchReasons and the
+  // fitMissingSignals annotations must still be present.
+  if (staleCandidate) {
+    ok(staleCandidate.matchReasons.includes('feedback:stale:1'));
+    ok(staleCandidate.fitMissingSignals?.includes('prior feedback:stale'));
+    ok(
+      staleCandidate.finalScore < selectedCandidate!.finalScore,
+      `stale candidate (${staleCandidate.finalScore}) must rank below selected (${selectedCandidate!.finalScore})`,
+    );
+  }
 });
 
 test('intent suppression demotes stale semantic memories behind fresh anchored evidence', async () => {

@@ -2,6 +2,7 @@ import type {
   ClassifiedQuery,
   FusionContribution,
   FusionContributionStage,
+  KnowledgeFeedbackSummary,
   KnowledgeItemType,
   RankedCandidate,
   ScoreBreakdown,
@@ -13,9 +14,12 @@ import {
   effectiveTaskItemTypeBoosts,
   getRetrievalPolicy,
 } from './policy.js';
+import { computeFeedbackPenalty } from './feedback-scorer.js';
 
 export interface FuseOptions {
   collectBreakdown?: boolean;
+  feedbackSummaries?: Map<string, KnowledgeFeedbackSummary>;
+  now?: Date;
 }
 
 export interface FuseResult {
@@ -75,12 +79,19 @@ export function fuseCandidates(
   }
 
   const maxScore = Math.max(...[...byKnowledge.values()].map((candidate) => candidate.fusedScore), 0.0001);
+  const feedbackSummaries = options?.feedbackSummaries;
+  const now = options?.now ?? new Date();
 
   const ranked = [...byKnowledge.values()]
-    .map((candidate) => ({
-      ...candidate,
-      fusedScore: clamp(candidate.fusedScore / maxScore, 0, 1),
-    }))
+    .map((candidate) => {
+      const normalized = clamp(candidate.fusedScore / maxScore, 0, 1);
+      if (!feedbackSummaries) {
+        return { ...candidate, fusedScore: normalized };
+      }
+      const summary = feedbackSummaries.get(candidate.knowledgeId);
+      const factor = computeFeedbackPenalty(summary, now);
+      return { ...candidate, fusedScore: clamp(normalized * factor, 0, 1) };
+    })
     .sort((left, right) => right.fusedScore - left.fusedScore);
 
   if (!breakdown) {
