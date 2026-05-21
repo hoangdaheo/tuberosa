@@ -176,7 +176,8 @@ test('knowledge completeness fixture reaches its minimum score', async () => {
   try {
     const report = await services.evaluator.run(fixture, { mode: 'fixture' });
 
-    equal(report.totalCases, 1);
+    const fixtureCases = fixture.cases.filter((testCase) => !testCase.modes || testCase.modes.includes('fixture'));
+    equal(report.totalCases, fixtureCases.length);
     equal(report.metrics.passRate, 1);
     equal(report.metrics.averageCompleteness, 1);
     equal(report.metrics.averageSourceCoverage, 1);

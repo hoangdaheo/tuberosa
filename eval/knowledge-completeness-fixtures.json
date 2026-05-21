@@ -15,27 +15,12 @@
         "taxonomy": "code_reference"
       },
       "labels": [
-        {
-          "type": "domain",
-          "value": "retrieval",
-          "weight": 1
-        },
-        {
-          "type": "file",
-          "value": "src/retrieval/fusion.ts",
-          "weight": 1
-        },
-        {
-          "type": "symbol",
-          "value": "fuseCandidates",
-          "weight": 1
-        }
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "file", "value": "src/retrieval/fusion.ts", "weight": 1 },
+        { "type": "symbol", "value": "fuseCandidates", "weight": 1 }
       ],
       "references": [
-        {
-          "type": "file",
-          "uri": "src/retrieval/fusion.ts"
-        }
+        { "type": "file", "uri": "src/retrieval/fusion.ts" }
       ]
     },
     {
@@ -51,27 +36,12 @@
         "taxonomy": "code_reference"
       },
       "labels": [
-        {
-          "type": "domain",
-          "value": "retrieval",
-          "weight": 1
-        },
-        {
-          "type": "file",
-          "value": "src/retrieval/context-pack.ts",
-          "weight": 1
-        },
-        {
-          "type": "symbol",
-          "value": "assembleContextPack",
-          "weight": 1
-        }
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "file", "value": "src/retrieval/context-pack.ts", "weight": 1 },
+        { "type": "symbol", "value": "assembleContextPack", "weight": 1 }
       ],
       "references": [
-        {
-          "type": "file",
-          "uri": "src/retrieval/context-pack.ts"
-        }
+        { "type": "file", "uri": "src/retrieval/context-pack.ts" }
       ]
     },
     {
@@ -87,31 +57,13 @@
         "taxonomy": "workflow"
       },
       "labels": [
-        {
-          "type": "file",
-          "value": "scripts/benchmark.ts",
-          "weight": 1
-        },
-        {
-          "type": "file",
-          "value": "scripts/eval-knowledge-completeness.ts",
-          "weight": 1
-        },
-        {
-          "type": "task_type",
-          "value": "implementation",
-          "weight": 0.9
-        }
+        { "type": "file", "value": "scripts/benchmark.ts", "weight": 1 },
+        { "type": "file", "value": "scripts/eval-knowledge-completeness.ts", "weight": 1 },
+        { "type": "task_type", "value": "implementation", "weight": 0.9 }
       ],
       "references": [
-        {
-          "type": "file",
-          "uri": "scripts/benchmark.ts"
-        },
-        {
-          "type": "file",
-          "uri": "scripts/eval-knowledge-completeness.ts"
-        }
+        { "type": "file", "uri": "scripts/benchmark.ts" },
+        { "type": "file", "uri": "scripts/eval-knowledge-completeness.ts" }
       ]
     },
     {
@@ -121,34 +73,207 @@
       "itemType": "workflow",
       "title": "Own backup schedulers",
       "summary": "Storage operations memory for backup scheduler ownership.",
-      "content": "Own backup schedulers in src/operations/backup-service.ts and verify backup retention policies. This storage workflow is noisy for retrieval fusion and reranking implementation tasks.",
+      "content": "Own backup schedulers in src/operations/backup-service.ts and verify backup retention policies. This storage workflow covers Postgres backup cadence, restore drills, and snapshot rotation.",
       "trustLevel": 95,
       "labels": [
-        {
-          "type": "domain",
-          "value": "storage",
-          "weight": 1
-        },
-        {
-          "type": "file",
-          "value": "src/operations/backup-service.ts",
-          "weight": 1
-        }
+        { "type": "domain", "value": "storage", "weight": 1 },
+        { "type": "file", "value": "src/operations/backup-service.ts", "weight": 1 }
       ],
       "references": [
-        {
-          "type": "file",
-          "uri": "src/operations/backup-service.ts"
-        }
+        { "type": "file", "uri": "src/operations/backup-service.ts" }
+      ]
+    },
+    {
+      "evalId": "retrieval-classifier-code",
+      "sourceType": "file",
+      "sourceUri": "src/retrieval/classifier.ts",
+      "itemType": "code_ref",
+      "title": "Retrieval query classifier",
+      "summary": "classifyQuery extracts files, symbols, errors, technologies, business areas, and domain from the user prompt.",
+      "content": "src/retrieval/classifier.ts owns classifyQuery and labelsFromClassification. classifyQuery infers taskType, files, symbols, errors, technologies, businessAreas, and the inferred domain that drives downstream fusion and context-fit scoring.",
+      "trustLevel": 88,
+      "metadata": {
+        "taxonomy": "code_reference"
+      },
+      "labels": [
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "file", "value": "src/retrieval/classifier.ts", "weight": 1 },
+        { "type": "symbol", "value": "classifyQuery", "weight": 1 },
+        { "type": "task_type", "value": "implementation", "weight": 0.9 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/retrieval/classifier.ts" }
+      ]
+    },
+    {
+      "evalId": "retrieval-context-fit-code",
+      "sourceType": "file",
+      "sourceUri": "src/retrieval/context-fit.ts",
+      "itemType": "code_ref",
+      "title": "ContextFitEvaluator",
+      "summary": "ContextFitEvaluator scores per-candidate fit, aggregate context fit status, and missing signals.",
+      "content": "src/retrieval/context-fit.ts defines ContextFitEvaluator which scores file, symbol, error, technology, businessArea coverage plus trust, freshness, domain, and safety adjustments. READY_THRESHOLD and NEEDS_CONFIRMATION_THRESHOLD control fitStatus transitions.",
+      "trustLevel": 90,
+      "metadata": {
+        "taxonomy": "code_reference"
+      },
+      "labels": [
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "file", "value": "src/retrieval/context-fit.ts", "weight": 1 },
+        { "type": "symbol", "value": "ContextFitEvaluator", "weight": 1 },
+        { "type": "task_type", "value": "review", "weight": 0.85 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/retrieval/context-fit.ts" }
+      ]
+    },
+    {
+      "evalId": "retrieval-policy-code",
+      "sourceType": "file",
+      "sourceUri": "src/retrieval/policy.ts",
+      "itemType": "code_ref",
+      "title": "Retrieval policy",
+      "summary": "getRetrievalPolicy returns source weights, hard-signal boosts, freshness windows, and task profiles for fusion.",
+      "content": "src/retrieval/policy.ts holds DEFAULT_POLICY and getRetrievalPolicy. It centralizes sourceWeights, hardSignalBoost, taskItemTypeBoosts, freshness windows per itemType, coverage profiles, and graph hop weights.",
+      "trustLevel": 87,
+      "metadata": {
+        "taxonomy": "code_reference"
+      },
+      "labels": [
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "file", "value": "src/retrieval/policy.ts", "weight": 1 },
+        { "type": "symbol", "value": "getRetrievalPolicy", "weight": 1 },
+        { "type": "task_type", "value": "refactor", "weight": 0.85 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/retrieval/policy.ts" }
+      ]
+    },
+    {
+      "evalId": "bugfix-classifier-tub-042",
+      "sourceType": "memory",
+      "sourceUri": "memory://bugfix-tub-042-classifier",
+      "itemType": "bugfix",
+      "title": "TUB-042 classifier taskType regression",
+      "summary": "TUB-042 was fixed by tightening inferTaskType in src/retrieval/classifier.ts so refactor prompts no longer fall through to implementation.",
+      "content": "When TUB-042 appears, check classifyQuery in src/retrieval/classifier.ts. The recent fix tightened inferTaskType so refactor prompts no longer fall through to implementation. Verify with the retrieval eval fixture before merging.",
+      "trustLevel": 92,
+      "freshnessAt": "2026-04-15",
+      "metadata": {
+        "taxonomy": "incident_lesson"
+      },
+      "labels": [
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "task_type", "value": "debugging", "weight": 0.95 },
+        { "type": "error", "value": "TUB-042", "weight": 1 },
+        { "type": "file", "value": "src/retrieval/classifier.ts", "weight": 1 },
+        { "type": "symbol", "value": "classifyQuery", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/retrieval/classifier.ts" }
+      ]
+    },
+    {
+      "evalId": "bugfix-classifier-tub-042-stale",
+      "sourceType": "memory",
+      "sourceUri": "memory://bugfix-tub-042-stale",
+      "itemType": "bugfix",
+      "title": "Superseded emoji-prompt workaround",
+      "summary": "Older workaround that special-cased emoji prompts in an unrelated parser. Superseded years ago.",
+      "content": "Historical emoji-prompt workaround in a long-removed parser. Predates the current classifier and the 2026 inferTaskType fix. Listed only to keep the audit trail.",
+      "trustLevel": 60,
+      "freshnessAt": "2022-08-01",
+      "metadata": {
+        "taxonomy": "incident_lesson",
+        "stale": true,
+        "supersededBy": "bugfix-classifier-tub-042"
+      },
+      "labels": [
+        { "type": "domain", "value": "ingestion", "weight": 0.5 },
+        { "type": "task_type", "value": "debugging", "weight": 0.6 }
+      ],
+      "references": []
+    },
+    {
+      "evalId": "rule-retrieval-eval-discipline",
+      "sourceType": "manual",
+      "sourceUri": "manual://rule/retrieval-eval-discipline",
+      "itemType": "rule",
+      "title": "Do not adjust eval thresholds to make tests pass",
+      "summary": "Retrieval eval expectations must remain green; fix the logic, not the fixture.",
+      "content": "Retrieval improvements require eval coverage first. Do not adjust thresholds in eval/retrieval-fixtures.json or context-fit READY_THRESHOLD to make tests pass. Fix the underlying classifier, fusion, or context-fit logic so the fixture passes by signal, not by lowered bars.",
+      "trustLevel": 95,
+      "labels": [
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "task_type", "value": "review", "weight": 0.9 },
+        { "type": "task_type", "value": "refactor", "weight": 0.7 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/retrieval/context-fit.ts" },
+        { "type": "file", "uri": "eval/retrieval-fixtures.json" }
+      ]
+    },
+    {
+      "evalId": "spec-retrieval-eval-coverage",
+      "sourceType": "file",
+      "sourceUri": "eval/retrieval-fixtures.json",
+      "itemType": "spec",
+      "title": "Retrieval eval coverage spec",
+      "summary": "Spec for expanding eval/retrieval-fixtures.json with new task-type scenarios and stale-suppression cases.",
+      "content": "Plan expansions to eval/retrieval-fixtures.json: add task-type-specific cases, stale-suppression assertions, domain mismatch suppression, and exploration-without-hard-signals coverage. Each new case must specify expectedKnowledgeIds, unexpectedKnowledgeIds, expectedContextFitStatus, and minContextFitScore.",
+      "trustLevel": 88,
+      "labels": [
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "file", "value": "eval/retrieval-fixtures.json", "weight": 1 },
+        { "type": "task_type", "value": "planning", "weight": 0.9 }
+      ],
+      "references": [
+        { "type": "file", "uri": "eval/retrieval-fixtures.json" }
+      ]
+    },
+    {
+      "evalId": "wiki-retrieval-overview",
+      "sourceType": "wiki",
+      "sourceUri": "docs/retrieval/overview.md",
+      "itemType": "wiki",
+      "title": "Retrieval pipeline overview tour",
+      "summary": "Retrieval pipeline overview tour describing how the pipeline ranks knowledge for the agent context pack across classify, fuse, rerank, and fit stages.",
+      "content": "Retrieval pipeline overview tour. The pipeline ranks knowledge for the agent context pack by first classifying the prompt, then running lexical, vector, metadata, memory, and graph candidate searches in parallel, then fusing them with weighted reciprocal-rank, then reranking, then scoring context fit, then assembling the context pack. retrieval-pipeline-overview-tour anchors this document.",
+      "trustLevel": 90,
+      "labels": [
+        { "type": "domain", "value": "retrieval", "weight": 1 },
+        { "type": "file", "value": "src/retrieval/service.ts", "weight": 1 },
+        { "type": "symbol", "value": "RetrievalService", "weight": 1 },
+        { "type": "task_type", "value": "exploration", "weight": 0.95 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/retrieval/service.ts" }
+      ]
+    },
+    {
+      "evalId": "wiki-auth-flow",
+      "sourceType": "wiki",
+      "sourceUri": "docs/auth/overview.md",
+      "itemType": "wiki",
+      "title": "Auth login OAuth flow",
+      "summary": "Auth login uses OAuth bearer tokens with rotating refresh tokens.",
+      "content": "The auth login flow uses OAuth bearer tokens. Login returns an access token and a rotating refresh token. Token refresh invalidates the previous refresh token and stores the replacement before returning to the client.",
+      "trustLevel": 88,
+      "labels": [
+        { "type": "domain", "value": "auth", "weight": 1 },
+        { "type": "business_area", "value": "auth", "weight": 1 },
+        { "type": "business_area", "value": "login", "weight": 1 },
+        { "type": "task_type", "value": "exploration", "weight": 0.8 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/auth/overview.md" }
       ]
     }
   ],
   "cases": [
     {
       "id": "retrieval-completeness-fixture",
-      "modes": [
-        "fixture"
-      ],
+      "modes": ["fixture"],
       "prompt": "Implement retrieval fusion/reranking completeness benchmark in src/retrieval/fusion.ts, src/retrieval/context-pack.ts, and scripts/benchmark.ts.",
       "taskType": "implementation",
       "files": [
@@ -168,9 +293,7 @@
             "exact file",
             "exact symbol"
           ],
-          "sourceRefs": [
-            "src/retrieval/fusion.ts"
-          ]
+          "sourceRefs": ["src/retrieval/fusion.ts"]
         },
         {
           "id": "context-pack-orientation",
@@ -182,9 +305,7 @@
             "directTaskEvidence",
             "usefulnessReason"
           ],
-          "sourceRefs": [
-            "src/retrieval/context-pack.ts"
-          ]
+          "sourceRefs": ["src/retrieval/context-pack.ts"]
         },
         {
           "id": "benchmark-fixture-live-split",
@@ -196,52 +317,226 @@
             "fixture mode",
             "live mode"
           ],
-          "sourceRefs": [
-            "scripts/benchmark.ts"
-          ]
+          "sourceRefs": ["scripts/benchmark.ts"]
         }
       ],
       "requiredSources": [
-        {
-          "type": "file",
-          "value": "src/retrieval/fusion.ts"
-        },
-        {
-          "type": "file",
-          "value": "src/retrieval/context-pack.ts"
-        },
-        {
-          "type": "file",
-          "value": "scripts/benchmark.ts"
-        },
-        {
-          "type": "symbol",
-          "value": "fuseCandidates"
-        },
-        {
-          "type": "symbol",
-          "value": "assembleContextPack"
-        },
-        {
-          "type": "label",
-          "labelType": "domain",
-          "value": "retrieval"
-        }
+        { "type": "file", "value": "src/retrieval/fusion.ts" },
+        { "type": "file", "value": "src/retrieval/context-pack.ts" },
+        { "type": "file", "value": "scripts/benchmark.ts" },
+        { "type": "symbol", "value": "fuseCandidates" },
+        { "type": "symbol", "value": "assembleContextPack" },
+        { "type": "label", "labelType": "domain", "value": "retrieval" }
       ],
       "forbiddenItems": [
+        { "type": "title", "value": "Own backup schedulers" },
+        { "type": "label", "labelType": "domain", "value": "storage" },
+        { "type": "ref", "value": "src/operations/backup-service.ts" }
+      ],
+      "minCompleteness": 1,
+      "minSourceCoverage": 1,
+      "maxNoiseRate": 0,
+      "minKnowledgeGainScore": 95
+    },
+    {
+      "id": "matching-debugging-stale-suppression",
+      "modes": ["fixture"],
+      "prompt": "Debug TUB-042 failure in src/retrieval/classifier.ts where classifyQuery picks the wrong taskType.",
+      "taskType": "debugging",
+      "files": ["src/retrieval/classifier.ts"],
+      "symbols": ["classifyQuery"],
+      "errors": ["TUB-042"],
+      "requiredFacts": [
         {
-          "type": "title",
-          "value": "Own backup schedulers"
-        },
-        {
-          "type": "label",
-          "labelType": "domain",
-          "value": "storage"
-        },
-        {
-          "type": "ref",
-          "value": "src/operations/backup-service.ts"
+          "id": "tub-042-recent-fix",
+          "description": "Recent fix narrative for TUB-042 references inferTaskType in classifyQuery.",
+          "weight": 2,
+          "terms": ["TUB-042", "inferTaskType"],
+          "sourceRefs": ["src/retrieval/classifier.ts"]
         }
+      ],
+      "requiredSources": [
+        { "type": "file", "value": "src/retrieval/classifier.ts" },
+        { "type": "symbol", "value": "classifyQuery" },
+        { "type": "label", "labelType": "error", "value": "TUB-042" }
+      ],
+      "forbiddenItems": [
+        { "type": "title", "value": "Superseded emoji-prompt workaround" },
+        { "type": "id", "value": "bugfix-classifier-tub-042-stale" },
+        { "type": "title", "value": "Own backup schedulers" },
+        { "type": "title", "value": "Auth login OAuth flow" }
+      ],
+      "minCompleteness": 1,
+      "minSourceCoverage": 1,
+      "maxNoiseRate": 0,
+      "minKnowledgeGainScore": 95
+    },
+    {
+      "id": "matching-implementation-domain-inference",
+      "modes": ["fixture"],
+      "prompt": "Implement domain inference in src/retrieval/classifier.ts classifyQuery so retrieval task types route correctly.",
+      "taskType": "implementation",
+      "files": ["src/retrieval/classifier.ts"],
+      "symbols": ["classifyQuery"],
+      "requiredFacts": [
+        {
+          "id": "classifier-domain-signal",
+          "description": "Implementation evidence covers classifyQuery's domain inference.",
+          "weight": 2,
+          "terms": ["classifyQuery", "domain"],
+          "sourceRefs": ["src/retrieval/classifier.ts"]
+        }
+      ],
+      "requiredSources": [
+        { "type": "file", "value": "src/retrieval/classifier.ts" },
+        { "type": "symbol", "value": "classifyQuery" },
+        { "type": "label", "labelType": "domain", "value": "retrieval" }
+      ],
+      "forbiddenItems": [
+        { "type": "title", "value": "Own backup schedulers" },
+        { "type": "title", "value": "Auth login OAuth flow" }
+      ],
+      "minCompleteness": 1,
+      "minSourceCoverage": 1,
+      "maxNoiseRate": 0,
+      "minKnowledgeGainScore": 95
+    },
+    {
+      "id": "matching-refactor-policy-table",
+      "modes": ["fixture"],
+      "prompt": "Refactor getRetrievalPolicy in src/retrieval/policy.ts to load source weights from a calibrated table.",
+      "taskType": "refactor",
+      "files": ["src/retrieval/policy.ts"],
+      "symbols": ["getRetrievalPolicy"],
+      "requiredFacts": [
+        {
+          "id": "policy-source-weights",
+          "description": "Refactor evidence covers sourceWeights and hardSignalBoost ownership in retrieval policy.",
+          "weight": 2,
+          "terms": ["getRetrievalPolicy", "sourceWeights"],
+          "sourceRefs": ["src/retrieval/policy.ts"]
+        }
+      ],
+      "requiredSources": [
+        { "type": "file", "value": "src/retrieval/policy.ts" },
+        { "type": "symbol", "value": "getRetrievalPolicy" },
+        { "type": "label", "labelType": "domain", "value": "retrieval" }
+      ],
+      "forbiddenItems": [
+        { "type": "title", "value": "Own backup schedulers" },
+        { "type": "title", "value": "Auth login OAuth flow" }
+      ],
+      "minCompleteness": 1,
+      "minSourceCoverage": 1,
+      "maxNoiseRate": 0,
+      "minKnowledgeGainScore": 95
+    },
+    {
+      "id": "matching-review-context-fit-threshold",
+      "modes": ["fixture"],
+      "prompt": "Review a change to src/retrieval/context-fit.ts ContextFitEvaluator that lowers the READY_THRESHOLD.",
+      "taskType": "review",
+      "files": ["src/retrieval/context-fit.ts"],
+      "symbols": ["ContextFitEvaluator"],
+      "requiredFacts": [
+        {
+          "id": "context-fit-review",
+          "description": "Review evidence covers ContextFitEvaluator and the threshold discipline rule.",
+          "weight": 2,
+          "terms": ["ContextFitEvaluator", "READY_THRESHOLD"],
+          "sourceRefs": ["src/retrieval/context-fit.ts"]
+        }
+      ],
+      "requiredSources": [
+        { "type": "file", "value": "src/retrieval/context-fit.ts" },
+        { "type": "symbol", "value": "ContextFitEvaluator" },
+        { "type": "label", "labelType": "domain", "value": "retrieval" }
+      ],
+      "forbiddenItems": [
+        { "type": "title", "value": "Own backup schedulers" },
+        { "type": "title", "value": "Auth login OAuth flow" }
+      ],
+      "minCompleteness": 1,
+      "minSourceCoverage": 1,
+      "maxNoiseRate": 0,
+      "minKnowledgeGainScore": 95
+    },
+    {
+      "id": "matching-planning-eval-coverage",
+      "modes": ["fixture"],
+      "prompt": "Plan the next coverage expansion of eval/retrieval-fixtures.json across task types.",
+      "taskType": "planning",
+      "files": ["eval/retrieval-fixtures.json"],
+      "requiredFacts": [
+        {
+          "id": "eval-coverage-spec",
+          "description": "Planning evidence covers expanding retrieval-fixtures.json across task types.",
+          "weight": 2,
+          "terms": ["eval", "retrieval-fixtures", "task-type"],
+          "sourceRefs": ["eval/retrieval-fixtures.json"]
+        }
+      ],
+      "requiredSources": [
+        { "type": "file", "value": "eval/retrieval-fixtures.json" },
+        { "type": "label", "labelType": "domain", "value": "retrieval" }
+      ],
+      "forbiddenItems": [
+        { "type": "title", "value": "Own backup schedulers" },
+        { "type": "title", "value": "Auth login OAuth flow" }
+      ],
+      "minCompleteness": 1,
+      "minSourceCoverage": 1,
+      "maxNoiseRate": 0,
+      "minKnowledgeGainScore": 95
+    },
+    {
+      "id": "matching-exploration-pipeline-tour",
+      "modes": ["fixture"],
+      "prompt": "explore the retrieval pipeline overview tour and how it ranks knowledge for the agent context pack.",
+      "taskType": "exploration",
+      "comment": "Soft-signal exploration: no files or symbols extractable from the prompt, so the retriever leans on lexical + label coverage. A small amount of adjacent noise is tolerated.",
+      "requiredFacts": [
+        {
+          "id": "pipeline-overview",
+          "description": "Exploration evidence describes the classify-fuse-rerank-fit pipeline.",
+          "weight": 2,
+          "terms": ["retrieval pipeline overview tour", "ranks knowledge"]
+        }
+      ],
+      "requiredSources": [
+        { "type": "knowledge", "value": "wiki-retrieval-overview" },
+        { "type": "label", "labelType": "domain", "value": "retrieval" }
+      ],
+      "forbiddenItems": [
+        { "type": "title", "value": "Auth login OAuth flow" },
+        { "type": "label", "labelType": "domain", "value": "auth" }
+      ],
+      "minCompleteness": 1,
+      "minSourceCoverage": 1,
+      "maxNoiseRate": 0.25,
+      "minKnowledgeGainScore": 85
+    },
+    {
+      "id": "matching-domain-mismatch-auth",
+      "modes": ["fixture"],
+      "prompt": "Explain the auth login OAuth refresh token flow.",
+      "taskType": "exploration",
+      "requiredFacts": [
+        {
+          "id": "auth-oauth-flow",
+          "description": "Auth exploration evidence covers OAuth bearer tokens and rotating refresh tokens.",
+          "weight": 2,
+          "terms": ["OAuth", "refresh token"]
+        }
+      ],
+      "requiredSources": [
+        { "type": "label", "labelType": "domain", "value": "auth" },
+        { "type": "label", "labelType": "business_area", "value": "auth" }
+      ],
+      "forbiddenItems": [
+        { "type": "label", "labelType": "domain", "value": "retrieval" },
+        { "type": "label", "labelType": "domain", "value": "storage" },
+        { "type": "title", "value": "Own backup schedulers" }
       ],
       "minCompleteness": 1,
       "minSourceCoverage": 1,
@@ -250,9 +545,7 @@
     },
     {
       "id": "retrieval-completeness-live",
-      "modes": [
-        "live"
-      ],
+      "modes": ["live"],
       "prompt": "Implement retrieval fusion/reranking work in src/retrieval/fusion.ts and src/retrieval/context-pack.ts.",
       "project": "tuberosa",
       "taskType": "implementation",
@@ -265,73 +558,30 @@
           "id": "live-fusion-source",
           "description": "Live retrieval should surface fusion/reranking source evidence.",
           "weight": 2,
-          "terms": [
-            "fuseCandidates",
-            "matchReasons"
-          ],
-          "sourceRefs": [
-            "src/retrieval/fusion.ts"
-          ]
+          "terms": ["fuseCandidates", "matchReasons"],
+          "sourceRefs": ["src/retrieval/fusion.ts"]
         },
         {
           "id": "live-context-pack-source",
           "description": "Live retrieval should surface context pack assembly evidence.",
           "weight": 2,
-          "terms": [
-            "assembleContextPack",
-            "directTaskEvidence"
-          ],
-          "sourceRefs": [
-            "src/retrieval/context-pack.ts"
-          ]
+          "terms": ["assembleContextPack", "directTaskEvidence"],
+          "sourceRefs": ["src/retrieval/context-pack.ts"]
         }
       ],
       "requiredSources": [
-        {
-          "type": "file",
-          "value": "src/retrieval/fusion.ts"
-        },
-        {
-          "type": "file",
-          "value": "src/retrieval/context-pack.ts"
-        },
-        {
-          "type": "symbol",
-          "value": "fuseCandidates"
-        },
-        {
-          "type": "symbol",
-          "value": "assembleContextPack"
-        },
-        {
-          "type": "label",
-          "labelType": "domain",
-          "value": "retrieval"
-        }
+        { "type": "file", "value": "src/retrieval/fusion.ts" },
+        { "type": "file", "value": "src/retrieval/context-pack.ts" },
+        { "type": "symbol", "value": "fuseCandidates" },
+        { "type": "symbol", "value": "assembleContextPack" },
+        { "type": "label", "labelType": "domain", "value": "retrieval" }
       ],
       "forbiddenItems": [
-        {
-          "type": "title",
-          "value": "Own backup schedulers"
-        },
-        {
-          "type": "title",
-          "value": "Debounce physical mirror"
-        },
-        {
-          "type": "title",
-          "value": "Run migrations"
-        },
-        {
-          "type": "label",
-          "labelType": "domain",
-          "value": "storage"
-        },
-        {
-          "type": "label",
-          "labelType": "domain",
-          "value": "operations"
-        }
+        { "type": "title", "value": "Own backup schedulers" },
+        { "type": "title", "value": "Debounce physical mirror" },
+        { "type": "title", "value": "Run migrations" },
+        { "type": "label", "labelType": "domain", "value": "storage" },
+        { "type": "label", "labelType": "domain", "value": "operations" }
       ],
       "minCompleteness": 0.75,
       "minSourceCoverage": 0.75,
