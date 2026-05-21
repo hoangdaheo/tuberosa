@@ -667,6 +667,11 @@
     {
       "id": "symbol-paywall-modal",
       "prompt": "Update the React PaywallSelectionModal in src/components/paywall-selection-modal.tsx for the newsletter paywall flow.",
+      "taxon": "nl_to_code",
+      "expectedEntities": {
+        "files": ["src/components/paywall-selection-modal.tsx"],
+        "symbols": ["PaywallSelectionModal"]
+      },
       "expectedKnowledgeIds": [
         "paywall-modal"
       ],
@@ -700,6 +705,11 @@
     {
       "id": "prior-error-recovery",
       "prompt": "Fix TS-999 in src/components/paywall-selection-modal.tsx around PaywallSelectionModal because selected product ids reset after save.",
+      "taxon": "hybrid",
+      "expectedEntities": {
+        "files": ["src/components/paywall-selection-modal.tsx"],
+        "symbols": ["PaywallSelectionModal"]
+      },
       "expectedKnowledgeIds": [
         "paywall-ts999-fix"
       ],
@@ -731,6 +741,10 @@
     {
       "id": "selected-feedback-paywall",
       "prompt": "Which prior PaywallSelectionModal fix should guide TS-999 selected product id work?",
+      "taxon": "hybrid",
+      "expectedEntities": {
+        "symbols": ["PaywallSelectionModal"]
+      },
       "expectedKnowledgeIds": [
         "paywall-ts999-fix"
       ],
@@ -760,6 +774,10 @@
     {
       "id": "stale-auth-rejection",
       "prompt": "Explain the current auth flow and token refresh behavior.",
+      "taxon": "text_to_text_doc",
+      "expectedEntities": {
+        "files": ["docs/auth/current.md"]
+      },
       "expectedKnowledgeIds": [
         "current-auth-flow"
       ],
@@ -784,6 +802,8 @@
     {
       "id": "reflection-workflow",
       "prompt": "How should reflection memories be approved before becoming searchable?",
+      "taxon": "text_to_text_doc",
+      "expectedEntities": {},
       "expectedKnowledgeIds": [
         "reflection-review-memory"
       ],
@@ -802,6 +822,10 @@
       "id": "continuation-handoff",
       "prompt": "Continue the current Phase 8 context hardening work from the roadmap.",
       "project": "newsletter-app",
+      "taxon": "hybrid",
+      "expectedEntities": {
+        "files": ["handoff.md", "docs/AGENT_CONTEXT_ROADMAP.md"]
+      },
       "expectedKnowledgeIds": [
         "phase-handoff-context"
       ],
@@ -826,6 +850,10 @@
     {
       "id": "stale-semantic-memory",
       "prompt": "Update src/storage/migrations.ts schema_migrations lock handling.",
+      "taxon": "code_to_code",
+      "expectedEntities": {
+        "files": ["src/storage/migrations.ts"]
+      },
       "expectedKnowledgeIds": [
         "current-migration-lock"
       ],
@@ -852,6 +880,10 @@
         "docs/deployment/runbook.md"
       ],
       "taskType": "implementation",
+      "taxon": "text_to_text_doc",
+      "expectedEntities": {
+        "files": ["docs/deployment/runbook.md"]
+      },
       "expectedKnowledgeIds": [
         "current-deploy-runbook"
       ],
@@ -877,6 +909,10 @@
         "docs/api/rate-limit.md"
       ],
       "taskType": "planning",
+      "taxon": "text_to_text_doc",
+      "expectedEntities": {
+        "files": ["docs/api/rate-limit.md"]
+      },
       "expectedKnowledgeIds": [
         "current-rate-limit-policy"
       ],
@@ -897,6 +933,11 @@
     {
       "id": "missing-context-insufficient",
       "prompt": "Find docs/email/sender-identity.md SenderIdentityPolicy onboarding steps.",
+      "taxon": "nl_to_code",
+      "expectedEntities": {
+        "files": ["docs/email/sender-identity.md"],
+        "symbols": ["SenderIdentityPolicy"]
+      },
       "expectedContextFitStatus": "insufficient",
       "expectedClassification": {
         "files": [
@@ -910,6 +951,11 @@
     {
       "id": "graph-expanded-media-policy",
       "prompt": "Update src/api/media-upload.ts MediaUploadHandler request checks.",
+      "taxon": "code_to_code",
+      "expectedEntities": {
+        "files": ["src/api/media-upload.ts"],
+        "symbols": ["MediaUploadHandler"]
+      },
       "expectedKnowledgeIds": [
         "media-upload-entrypoint"
       ],
@@ -936,6 +982,11 @@
     {
       "id": "code-ref-file-label-surfaces",
       "prompt": "Fix the SenderQueue retry logic in src/email/sender-queue.ts.",
+      "taxon": "nl_to_code",
+      "expectedEntities": {
+        "files": ["src/email/sender-queue.ts"],
+        "symbols": ["SenderQueue"]
+      },
       "expectedKnowledgeIds": [
         "sender-queue-code-ref"
       ],
@@ -959,6 +1010,11 @@
     {
       "id": "precise-label-beats-broad-noise",
       "prompt": "Refactor src/email/sender-queue.ts SenderQueue for better retry backoff.",
+      "taxon": "nl_to_code",
+      "expectedEntities": {
+        "files": ["src/email/sender-queue.ts"],
+        "symbols": ["SenderQueue"]
+      },
       "expectedKnowledgeIds": [
         "sender-queue-code-ref"
       ],
@@ -981,6 +1037,11 @@
     {
       "id": "domain-scope-suppresses-off-domain",
       "prompt": "Update the SenderQueue retry policy in src/email/sender-queue.ts.",
+      "taxon": "nl_to_code",
+      "expectedEntities": {
+        "files": ["src/email/sender-queue.ts"],
+        "symbols": ["SenderQueue"]
+      },
       "expectedKnowledgeIds": [
         "sender-queue-code-ref"
       ],

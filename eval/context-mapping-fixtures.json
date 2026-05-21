@@ -1,0 +1,401 @@
+{
+  "name": "context mapping baseline",
+  "project": "newsletter-app",
+  "knowledge": [
+    {
+      "evalId": "paywall-modal",
+      "sourceType": "file",
+      "sourceUri": "src/components/paywall-selection-modal.tsx",
+      "itemType": "code_ref",
+      "title": "Paywall selection modal",
+      "summary": "React modal used by the newsletter composer to choose paywall products.",
+      "content": "PaywallSelectionModal renders the newsletter paywall picker. It keeps selected product ids stable while editors move between composer steps. The component lives in src/components/paywall-selection-modal.tsx and owns the product selection UI for the paywall workflow.",
+      "trustLevel": 82,
+      "labels": [
+        { "type": "business_area", "value": "newsletter", "weight": 1 },
+        { "type": "business_area", "value": "paywall", "weight": 1 },
+        { "type": "technology", "value": "react", "weight": 0.8 },
+        { "type": "file", "value": "src/components/paywall-selection-modal.tsx", "weight": 1 },
+        { "type": "symbol", "value": "PaywallSelectionModal", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }
+      ]
+    },
+    {
+      "evalId": "paywall-ts999-fix",
+      "sourceType": "memory",
+      "sourceUri": "memory://paywall-ts999",
+      "itemType": "bugfix",
+      "title": "TS-999 PaywallSelectionModal fix",
+      "summary": "TS-999 was fixed by preserving selected product ids through the save transition.",
+      "content": "When TS-999 appears in PaywallSelectionModal, check the selected product ids reducer before changing the modal props. The previous fix kept ids stable across save and preview transitions in src/components/paywall-selection-modal.tsx.",
+      "trustLevel": 92,
+      "labels": [
+        { "type": "business_area", "value": "paywall", "weight": 1 },
+        { "type": "task_type", "value": "debugging", "weight": 0.9 },
+        { "type": "error", "value": "TS-999", "weight": 1 },
+        { "type": "file", "value": "src/components/paywall-selection-modal.tsx", "weight": 1 },
+        { "type": "symbol", "value": "PaywallSelectionModal", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }
+      ]
+    },
+    {
+      "evalId": "current-auth-flow",
+      "sourceType": "wiki",
+      "sourceUri": "docs/auth/current.md",
+      "itemType": "wiki",
+      "title": "Current auth flow",
+      "summary": "Auth uses OAuth bearer tokens with refresh token rotation.",
+      "content": "The current auth flow uses OAuth bearer tokens. Login returns an access token and a rotating refresh token. Token refresh invalidates the previous refresh token and stores the replacement before returning to the client.",
+      "trustLevel": 88,
+      "labels": [
+        { "type": "business_area", "value": "auth", "weight": 1 },
+        { "type": "file", "value": "docs/auth/current.md", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/auth/current.md" }
+      ]
+    },
+    {
+      "evalId": "legacy-auth-flow",
+      "sourceType": "wiki",
+      "sourceUri": "docs/auth/legacy.md",
+      "itemType": "wiki",
+      "title": "Legacy auth flow",
+      "summary": "Outdated auth notes that mention session cookies.",
+      "content": "Legacy auth flow used server-side session cookies and did not rotate refresh tokens. This note is stale and should not be selected when the old knowledge id is rejected.",
+      "trustLevel": 25,
+      "freshnessAt": "2024-01-01T00:00:00.000Z",
+      "labels": [
+        { "type": "business_area", "value": "auth", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/auth/legacy.md" }
+      ]
+    },
+    {
+      "evalId": "media-upload-entrypoint",
+      "sourceType": "file",
+      "sourceUri": "src/api/media-upload.ts",
+      "itemType": "code_ref",
+      "title": "Media upload API entrypoint",
+      "summary": "MediaUploadHandler performs request checks in src/api/media-upload.ts.",
+      "content": "MediaUploadHandler lives in src/api/media-upload.ts. It performs request checks and depends on the image intake policy for accepted upload constraints.",
+      "trustLevel": 86,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "labels": [
+        { "type": "file", "value": "src/api/media-upload.ts", "weight": 1 },
+        { "type": "symbol", "value": "MediaUploadHandler", "weight": 1 },
+        { "type": "business_area", "value": "content", "weight": 0.8 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/api/media-upload.ts" }
+      ]
+    },
+    {
+      "evalId": "image-intake-policy",
+      "sourceType": "wiki",
+      "sourceUri": "docs/media/image-intake-policy.md",
+      "itemType": "wiki",
+      "title": "Image intake policy",
+      "summary": "Accepted upload constraints for media images.",
+      "content": "Accepted media intake allows PNG and JPEG only, caps payloads at 5 MB, strips EXIF metadata, and rejects unknown MIME types before storage.",
+      "trustLevel": 90,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "labels": [
+        { "type": "file", "value": "docs/media/image-intake-policy.md", "weight": 1 },
+        { "type": "business_area", "value": "content", "weight": 0.8 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/media/image-intake-policy.md" }
+      ]
+    },
+    {
+      "evalId": "current-deploy-runbook",
+      "sourceType": "wiki",
+      "sourceUri": "docs/deployment/runbook.md",
+      "itemType": "workflow",
+      "title": "Current deployment runbook",
+      "summary": "Use rolling deployment with health checks for all newsletter services.",
+      "content": "Deploy newsletter services using rolling deployment with health check gates. The current workflow requires passing all health checks before proceeding to the next instance. Use the runbook in docs/deployment/runbook.md.",
+      "trustLevel": 90,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "labels": [
+        { "type": "file", "value": "docs/deployment/runbook.md", "weight": 1 },
+        { "type": "workflow_stage", "value": "deployment", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/deployment/runbook.md" }
+      ]
+    },
+    {
+      "evalId": "legacy-deploy-runbook",
+      "sourceType": "wiki",
+      "sourceUri": "docs/deployment/legacy-runbook.md",
+      "itemType": "workflow",
+      "title": "Legacy deployment runbook",
+      "summary": "Old blue-green deployment workflow for newsletter services.",
+      "content": "Deploy newsletter services using blue-green deployment. Switch traffic after the new environment passes smoke tests. This runbook is superseded by the rolling deployment workflow. See docs/deployment/legacy-runbook.md.",
+      "trustLevel": 80,
+      "freshnessAt": "2024-01-01T00:00:00.000Z",
+      "labels": [
+        { "type": "file", "value": "docs/deployment/legacy-runbook.md", "weight": 1 },
+        { "type": "workflow_stage", "value": "deployment", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/deployment/legacy-runbook.md" }
+      ]
+    },
+    {
+      "evalId": "current-rate-limit-policy",
+      "sourceType": "wiki",
+      "sourceUri": "docs/api/rate-limit.md",
+      "itemType": "wiki",
+      "title": "Current API rate limit policy",
+      "summary": "API rate limits use token bucket at 1000 requests per hour per client.",
+      "content": "The current rate limit policy applies a token bucket algorithm at 1000 requests per hour per API client. Rate limit state lives in Redis. See docs/api/rate-limit.md.",
+      "trustLevel": 88,
+      "freshnessAt": "2026-05-18T00:00:00.000Z",
+      "labels": [
+        { "type": "file", "value": "docs/api/rate-limit.md", "weight": 1 },
+        { "type": "business_area", "value": "api", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/api/rate-limit.md" }
+      ]
+    },
+    {
+      "evalId": "legacy-rate-limit-policy",
+      "sourceType": "wiki",
+      "sourceUri": "docs/api/legacy-rate-limit.md",
+      "itemType": "wiki",
+      "title": "Legacy API rate limit policy",
+      "summary": "Old API rate limits used fixed window at 100 requests per minute.",
+      "content": "The old rate limit policy applied a fixed window of 100 requests per minute. This approach is now deprecated. Use the token bucket policy instead. See the legacy docs in docs/api/legacy-rate-limit.md.",
+      "trustLevel": 35,
+      "freshnessAt": "2023-01-01T00:00:00.000Z",
+      "labels": [
+        { "type": "file", "value": "docs/api/legacy-rate-limit.md", "weight": 1 },
+        { "type": "business_area", "value": "api", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "docs/api/legacy-rate-limit.md" }
+      ]
+    },
+    {
+      "evalId": "sender-queue-code-ref",
+      "sourceType": "file",
+      "sourceUri": "src/email/sender-queue.ts",
+      "itemType": "code_ref",
+      "title": "sender-queue.ts",
+      "summary": "Email sender queue implementation.",
+      "content": "SenderQueue handles queuing and dispatching of outbound email jobs in src/email/sender-queue.ts. Retries on transient failures with exponential backoff.",
+      "trustLevel": 80,
+      "labels": [
+        { "type": "file", "value": "src/email/sender-queue.ts", "weight": 1 },
+        { "type": "symbol", "value": "SenderQueue", "weight": 1 },
+        { "type": "domain", "value": "email", "weight": 1 }
+      ],
+      "references": [
+        { "type": "file", "uri": "src/email/sender-queue.ts" }
+      ]
+    },
+    {
+      "evalId": "ops-noisy-with-symbol",
+      "sourceType": "memory",
+      "sourceUri": "memory://ops-sender-queue",
+      "itemType": "workflow",
+      "title": "Ops dashboard mentions SenderQueue retry counts",
+      "summary": "Ops dashboards surface SenderQueue retry counts during deploy windows.",
+      "content": "When ops deploys email workers, the SenderQueue retry counts spike. Operators watch the dashboard and pause deploys if retries exceed thresholds. This is an ops runbook item, not implementation guidance for the email module.",
+      "trustLevel": 70,
+      "labels": [
+        { "type": "business_area", "value": "operations", "weight": 1 },
+        { "type": "domain", "value": "operations", "weight": 1 },
+        { "type": "symbol", "value": "SenderQueue", "weight": 1 }
+      ]
+    }
+  ],
+  "distractors": [
+    {
+      "evalId": "distractor-paywall-blogpost",
+      "sourceType": "memory",
+      "sourceUri": "memory://distractor-paywall-blog",
+      "itemType": "memory",
+      "title": "Paywall industry trends blog snippet",
+      "summary": "General commentary about paywall pricing in the industry.",
+      "content": "Many publishers experimented with paywalls and metered access during 2023. This memory talks about industry trends, not about PaywallSelectionModal or the React component for the newsletter composer.",
+      "trustLevel": 40,
+      "labels": [
+        { "type": "business_area", "value": "paywall", "weight": 1 }
+      ]
+    },
+    {
+      "evalId": "distractor-session-cookies-overview",
+      "sourceType": "memory",
+      "sourceUri": "memory://distractor-session-cookies",
+      "itemType": "memory",
+      "title": "How session cookies work in general",
+      "summary": "An overview of session cookies as a general web concept.",
+      "content": "Session cookies are a web mechanism used to identify a returning user. This is a generic explanation and does not describe the current auth flow with OAuth bearer tokens.",
+      "trustLevel": 30,
+      "labels": [
+        { "type": "business_area", "value": "auth", "weight": 1 }
+      ]
+    },
+    {
+      "evalId": "distractor-deploy-philosophy",
+      "sourceType": "memory",
+      "sourceUri": "memory://distractor-deploy-philosophy",
+      "itemType": "memory",
+      "title": "Deployment philosophy musings",
+      "summary": "Opinion piece about how teams should think about deployment.",
+      "content": "A long-form musing about deployment philosophy: blue-green, canary, rolling, feature flags. Not actionable for any current newsletter service runbook. Generic enough to look related under semantic similarity but should not surface as evidence.",
+      "trustLevel": 35,
+      "labels": [
+        { "type": "workflow_stage", "value": "deployment", "weight": 1 }
+      ]
+    }
+  ],
+  "feedbackEvents": [
+    {
+      "feedbackType": "selected",
+      "prompt": "Fix TS-999 PaywallSelectionModal selected product ids reset after save.",
+      "reason": "Prior bugfix was useful evidence."
+    },
+    {
+      "feedbackType": "stale",
+      "knowledgeIds": [
+        "legacy-auth-flow"
+      ],
+      "reason": "Legacy auth notes should not outrank current token rotation guidance."
+    }
+  ],
+  "relations": [
+    {
+      "fromEvalId": "current-deploy-runbook",
+      "relationType": "supersedes",
+      "targetKind": "knowledge",
+      "toEvalId": "legacy-deploy-runbook",
+      "confidence": 0.9
+    },
+    {
+      "fromEvalId": "current-rate-limit-policy",
+      "relationType": "supersedes",
+      "targetKind": "knowledge",
+      "toEvalId": "legacy-rate-limit-policy",
+      "confidence": 0.9
+    },
+    {
+      "fromEvalId": "media-upload-entrypoint",
+      "relationType": "depends_on",
+      "targetKind": "knowledge",
+      "toEvalId": "image-intake-policy",
+      "confidence": 0.95
+    }
+  ],
+  "cases": [
+    {
+      "id": "paywall-modal-implementation",
+      "prompt": "Update the React PaywallSelectionModal in src/components/paywall-selection-modal.tsx for the newsletter paywall flow.",
+      "taxon": "nl_to_code",
+      "taskType": "implementation",
+      "expectedRelevantKnowledgeIds": ["paywall-modal"],
+      "directEvidenceKnowledgeIds": ["paywall-modal"],
+      "forbiddenKnowledgeIds": ["legacy-auth-flow"],
+      "noiseDistractorIds": ["distractor-paywall-blogpost"],
+      "expectedEntities": {
+        "files": ["src/components/paywall-selection-modal.tsx"],
+        "symbols": ["PaywallSelectionModal"]
+      },
+      "expectedFitStatus": "ready"
+    },
+    {
+      "id": "paywall-ts999-debugging",
+      "prompt": "Fix TS-999 in src/components/paywall-selection-modal.tsx around PaywallSelectionModal because selected product ids reset after save.",
+      "taxon": "hybrid",
+      "taskType": "debugging",
+      "expectedRelevantKnowledgeIds": ["paywall-ts999-fix", "paywall-modal"],
+      "directEvidenceKnowledgeIds": ["paywall-ts999-fix"],
+      "adjacentEvidenceKnowledgeIds": ["paywall-modal"],
+      "forbiddenKnowledgeIds": ["legacy-auth-flow"],
+      "noiseDistractorIds": ["distractor-paywall-blogpost"],
+      "expectedEntities": {
+        "files": ["src/components/paywall-selection-modal.tsx"],
+        "symbols": ["PaywallSelectionModal"]
+      },
+      "expectedFitStatus": "ready"
+    },
+    {
+      "id": "auth-flow-doc-lookup",
+      "prompt": "Explain the current auth flow and token refresh behavior.",
+      "taxon": "text_to_text_doc",
+      "expectedRelevantKnowledgeIds": ["current-auth-flow"],
+      "directEvidenceKnowledgeIds": ["current-auth-flow"],
+      "forbiddenKnowledgeIds": ["legacy-auth-flow"],
+      "noiseDistractorIds": ["distractor-session-cookies-overview"],
+      "expectedEntities": {
+        "files": ["docs/auth/current.md"]
+      },
+      "expectedFitStatus": "needs_confirmation"
+    },
+    {
+      "id": "media-upload-code-to-code",
+      "prompt": "Update src/api/media-upload.ts MediaUploadHandler request checks before storing the file.",
+      "taxon": "code_to_code",
+      "taskType": "implementation",
+      "expectedRelevantKnowledgeIds": ["media-upload-entrypoint", "image-intake-policy"],
+      "directEvidenceKnowledgeIds": ["media-upload-entrypoint"],
+      "adjacentEvidenceKnowledgeIds": ["image-intake-policy"],
+      "expectedEntities": {
+        "files": ["src/api/media-upload.ts"],
+        "symbols": ["MediaUploadHandler"]
+      },
+      "expectedFitStatus": "ready"
+    },
+    {
+      "id": "deploy-runbook-current",
+      "prompt": "What is the current deployment runbook for newsletter services?",
+      "taxon": "text_to_text_doc",
+      "files": ["docs/deployment/runbook.md"],
+      "expectedRelevantKnowledgeIds": ["current-deploy-runbook"],
+      "directEvidenceKnowledgeIds": ["current-deploy-runbook"],
+      "forbiddenKnowledgeIds": ["legacy-deploy-runbook"],
+      "noiseDistractorIds": ["distractor-deploy-philosophy"],
+      "expectedEntities": {
+        "files": ["docs/deployment/runbook.md"]
+      },
+      "expectedFitStatus": "ready"
+    },
+    {
+      "id": "rate-limit-policy-current",
+      "prompt": "What is the current API rate limit policy?",
+      "taxon": "text_to_text_doc",
+      "files": ["docs/api/rate-limit.md"],
+      "expectedRelevantKnowledgeIds": ["current-rate-limit-policy"],
+      "directEvidenceKnowledgeIds": ["current-rate-limit-policy"],
+      "forbiddenKnowledgeIds": ["legacy-rate-limit-policy"],
+      "expectedEntities": {
+        "files": ["docs/api/rate-limit.md"]
+      },
+      "expectedFitStatus": "ready"
+    },
+    {
+      "id": "sender-queue-refactor",
+      "prompt": "Refactor src/email/sender-queue.ts SenderQueue for better retry backoff.",
+      "taxon": "nl_to_code",
+      "taskType": "refactor",
+      "expectedRelevantKnowledgeIds": ["sender-queue-code-ref"],
+      "directEvidenceKnowledgeIds": ["sender-queue-code-ref"],
+      "forbiddenKnowledgeIds": ["ops-noisy-with-symbol"],
+      "expectedEntities": {
+        "files": ["src/email/sender-queue.ts"],
+        "symbols": ["SenderQueue"]
+      },
+      "expectedFitStatus": "ready"
+    }
+  ]
+}

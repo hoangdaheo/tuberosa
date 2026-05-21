@@ -1,0 +1,61 @@
+{
+  "fixtureName": "context mapping baseline",
+  "project": "newsletter-app",
+  "recordedAt": "2026-05-21T15:35:42.301Z",
+  "topK": 5,
+  "metrics": {
+    "contextPrecisionAtK": 0.2571,
+    "contextRecall": 1,
+    "contextEntitiesRecall": 1,
+    "noiseSensitivity": 0.7143,
+    "directEvidencePlacement": 1,
+    "fitCalibration": 1,
+    "forbiddenItemRate": 0.1667,
+    "perTaxon": [
+      {
+        "taxon": "nl_to_code",
+        "caseCount": 2,
+        "contextPrecisionAtK": 0.2,
+        "contextRecall": 1,
+        "contextEntitiesRecall": 1,
+        "noiseSensitivity": 0.5,
+        "directEvidencePlacement": 1,
+        "fitCalibration": 1,
+        "forbiddenItemRate": 0
+      },
+      {
+        "taxon": "code_to_code",
+        "caseCount": 1,
+        "contextPrecisionAtK": 0.4,
+        "contextRecall": 1,
+        "contextEntitiesRecall": 1,
+        "noiseSensitivity": 1,
+        "directEvidencePlacement": 1,
+        "fitCalibration": 1,
+        "forbiddenItemRate": null
+      },
+      {
+        "taxon": "text_to_text_doc",
+        "caseCount": 3,
+        "contextPrecisionAtK": 0.2,
+        "contextRecall": 1,
+        "contextEntitiesRecall": 1,
+        "noiseSensitivity": 0.6667,
+        "directEvidencePlacement": 1,
+        "fitCalibration": 1,
+        "forbiddenItemRate": 0.3333
+      },
+      {
+        "taxon": "hybrid",
+        "caseCount": 1,
+        "contextPrecisionAtK": 0.4,
+        "contextRecall": 1,
+        "contextEntitiesRecall": 1,
+        "noiseSensitivity": 1,
+        "directEvidencePlacement": 1,
+        "fitCalibration": 1,
+        "forbiddenItemRate": 0
+      }
+    ]
+  }
+}

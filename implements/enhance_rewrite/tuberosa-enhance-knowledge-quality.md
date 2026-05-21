@@ -55,21 +55,59 @@ Each phase **adds the regression fixture before** writing the fix, so the test g
 
 **Why first:** every later phase claims to improve quality. We need metrics that can prove or disprove that, beyond the 14-case fixture.
 
-**Changes:**
-- New fixture: `eval/context-mapping-fixtures.json` — knowledge (approved/stale/duplicate/distractor), worktree (current/changed/missing files), sessions (selected/rejected history), relations (supersedes/depends_on/mentions_file/resolves_error), prompts, and **golden** (expected selected IDs, forbidden IDs, direct evidence IDs, adjacent evidence IDs, expected fitStatus, expected startup action).
-- New evaluator: `src/evaluation/context-mapping-evaluator.ts` — computes:
-  - **Context Precision @ k** — fraction of retrieved chunks in golden's expected-relevant set (deterministic, Ragas-style but no LLM).
-  - **Context Recall** — fraction of golden's expected set actually retrieved.
-  - **Context Entities Recall** — fraction of golden's expected files+symbols appearing in the assembled pack.
-  - **Noise Sensitivity** — inject N pre-defined distractor chunks per case; fitStatus must degrade to `needs_confirmation` and forbidden IDs must stay out.
-  - **Direct-evidence placement rate** — fraction of golden's direct-evidence IDs landing in the `essential` bucket (not just top-k).
-  - **Fit calibration** — diagonal of (expected fitStatus × actual fitStatus) confusion matrix.
-  - **Forbidden-item rate** — false positives that should have been rejected.
-  - **CoIR-style task taxonomy** — tag each case `nl_to_code | code_to_code | text_to_text_doc | hybrid`; report metrics per taxon.
-- New script: `scripts/eval-context-mapping.ts` and npm script `pnpm run eval:context-mapping` with failure thresholds in CI.
-- Extend `eval/retrieval-fixtures.json`: every existing case gets a `taxon` field and an `expectedEntities` list.
+**Status: ✅ DONE (2026-05-21)**
 
-**Verification:** new script runs, prints metrics, exits non-zero if thresholds breached. Baseline numbers checked in to `eval/baseline-context-mapping.json` so subsequent phases can prove deltas.
+**Implemented:**
+- ✅ New fixture: `eval/context-mapping-fixtures.json` — 12 approved knowledge items + 3 distractors + 2 feedback events + 3 relations + 7 cases spanning all four taxons.
+- ✅ New evaluator: `src/evaluation/context-mapping-evaluator.ts` — computes Context Precision @ k, Context Recall, Context Entities Recall, Noise Sensitivity, Direct-evidence Placement, Fit Calibration, Forbidden-item Rate, plus CoIR-style per-taxon breakdowns. Deterministic — no LLM calls, hash provider only.
+- ✅ New fixture loader: `src/evaluation/context-mapping-fixture-loader.ts` — parallel to the existing retrieval-fixtures loader; validates the taxon enum.
+- ✅ New script: `scripts/eval-context-mapping.ts` and npm script `pnpm run eval:context-mapping` with `--write-baseline` plus six threshold flags (`--fail-under-precision`, `--fail-under-recall`, `--fail-under-entities-recall`, `--fail-under-noise-sensitivity`, `--fail-under-fit-calibration`, `--fail-over-forbidden-rate`).
+- ✅ Extended `eval/retrieval-fixtures.json`: every existing case now has `taxon` + `expectedEntities` fields.
+- ✅ Baseline captured: `eval/baseline-context-mapping.json` — current hash-provider numbers are now the reference for every subsequent phase.
+
+**Baseline numbers (2026-05-21, hash provider):**
+
+| Metric | All cases | nl_to_code | code_to_code | text_to_text_doc | hybrid |
+|---|---|---|---|---|---|
+| Context Precision @ 5 | 25.7% | 20% | 40% | 20% | 40% |
+| Context Recall | 100% | 100% | 100% | 100% | 100% |
+| Context Entities Recall | 100% | 100% | 100% | 100% | 100% |
+| Noise Sensitivity | 71.4% | 50% | 100% | 66.7% | 100% |
+| Direct-evidence Placement | 100% | 100% | 100% | 100% | 100% |
+| Fit Calibration | 100% | 100% | 100% | 100% | 100% |
+| Forbidden-item Rate | 16.7% | 0% | n/a | 33.3% | 0% |
+
+**What this confirms about the current state:** precision and noise resistance are the weakest dimensions today. Adjacent-but-unrelated workflow docs (`current-deploy-runbook`, `current-rate-limit-policy`) flood the top-5 even when the query is about something else; semantically-similar distractors leak into top-5 on 28.6% of cases; one legacy item (`legacy-deploy-runbook`) bubbles up alongside its supersession. These are precisely the failure modes Phases 1, 2, 4, and 5 will attack.
+
+**Deviations from the original Phase 0 spec (recorded here so they aren't lost):**
+- **Worktree field in the fixture schema:** the spec listed `worktree` as a top-level fixture field (current/changed/missing files). It is **omitted from this iteration** because the worktree provider doesn't land until Phase 5 and parsing fields no producer consumes invites schema drift. When Phase 5 ships, add the field to `ContextMappingFixture` + loader + evaluator alongside the worktree-precedence metric.
+- **Noise-sensitivity implementation:** spec said "inject N distractor chunks per case; fitStatus must degrade to `needs_confirmation`". Implemented as a **single-pass case evaluation** where distractors are seeded once into the store, and the metric measures whether they leak into top-K. FitStatus degradation under noise is **not** measured per-case yet — adding a second-pass run with a noise-amplified prompt was deferred to keep the runner offline-fast (one pass per case, no re-seeding). Re-evaluate once Phase 3 ships the structured `fitDiagnostics`.
+- **`taxon` + `expectedEntities` on `RetrievalEvalCase` type:** the JSON fields are present on every case in `eval/retrieval-fixtures.json`, but the existing `RetrievalEvalCase` TypeScript type and `fixture-loader.ts` were **deliberately not extended**. They're documentation-only data, ready for the phase that actually consumes them (Phase 1 for the classifier hygiene work; Phase 5 for worktree). The legacy loader silently ignores unknown JSON fields, so `pnpm run eval:retrieval` stays green without churn.
+- **CoIR taxonomy coverage:** only 7 cases across 4 taxons in this fixture (2/1/3/1). Sufficient for baseline measurement but thin. When Phase 1 lands (classifier verb hygiene + domain labels) and we want stronger per-taxon signal, expand to ~16 cases (4 per taxon) so per-taxon deltas are meaningful.
+
+**Files added:**
+- `src/evaluation/context-mapping-evaluator.ts` (~420 lines)
+- `src/evaluation/context-mapping-fixture-loader.ts` (~175 lines)
+- `scripts/eval-context-mapping.ts` (~230 lines)
+- `eval/context-mapping-fixtures.json` (7 cases)
+- `eval/baseline-context-mapping.json` (locked baseline metrics)
+
+**Files modified:**
+- `package.json` — added `eval:context-mapping` script.
+- `eval/retrieval-fixtures.json` — added `taxon` + `expectedEntities` on every case (data-only, no type/loader changes).
+- `implements/enhance_rewrite/tuberosa-enhance-knowledge-quality.md` — this status block.
+
+**Verification (all green):**
+- `pnpm run build` ✅
+- `pnpm test` ✅ — 224/224 pass
+- `pnpm run eval:retrieval` ✅ — hit@5 100%, MRR 1.0, all classification rates 100%
+- `pnpm run eval:agent-context` ✅
+- `pnpm run eval:context-mapping` ✅ — runs, prints metrics, writes baseline
+
+**Tried but not done (deliberate carry-overs):**
+- A "noise variant" second pass per case to measure fitStatus degradation under injected distractors — deferred until Phase 3's `fitDiagnostics` block lands so the assertion has structured signal to bind to.
+- Extending `RetrievalEvalCase` to type-check `taxon`/`expectedEntities` — deferred to the first phase that consumes the fields programmatically (likely Phase 1).
+- The `--fail-*` threshold flags exist but are **not wired into CI yet**; the baseline file is the regression reference. Wire thresholds once Phase 1's targets are agreed on.
 
 ---
 
