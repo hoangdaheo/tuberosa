@@ -36,6 +36,33 @@ export interface GraphHopWeights {
   depth2?: number;
 }
 
+/**
+ * Phase 3 — weights for the context-fit composite score. The four contributors must
+ * sum to ~1; the evaluator clamps the result to [0,1] so small drift is tolerated.
+ */
+export interface ContextFitWeights {
+  /** Weight on the top candidate's per-candidate fit score. */
+  top1: number;
+  /** Weight on the average of the top-3 per-candidate fit scores. */
+  top3Avg: number;
+  /** Weight on the aggregate signal coverage (file/symbol/error/etc.). */
+  coverage: number;
+  /** Weight on the worktree-match score (populated in Phase 5; always 0 until then). */
+  worktreeMatch: number;
+}
+
+/** Phase 3 — score thresholds bucketing fit into ready / needs_confirmation / insufficient. */
+export interface ContextFitThresholds {
+  ready: number;
+  needsConfirmation: number;
+}
+
+/** Phase 3 — config block for the context-fit composite. */
+export interface ContextFitConfig {
+  weights: ContextFitWeights;
+  thresholds: ContextFitThresholds;
+}
+
 export interface RetrievalPolicy {
   useFreshnessMap: boolean;
   freshnessGlobal: FreshnessWindow;
@@ -89,6 +116,9 @@ export interface RetrievalPolicy {
   relationKindMultipliers: Partial<Record<KnowledgeRelationType, number>>;
   /** Phase 4 — max graph hops (1 = current behaviour; 2 = enable depth-2 expansion). */
   graphMaxHops: 1 | 2;
+
+  /** Phase 3 — composite weights and thresholds for the context-fit aggregator. */
+  contextFit: ContextFitConfig;
 
   /**
    * Phase 4 — optional metadata from `scripts/calibrate-fusion.ts`. Not consumed by retrieval directly,
@@ -208,6 +238,11 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     derived_from_session: 0.9,
   },
   graphMaxHops: 1,
+
+  contextFit: {
+    weights: { top1: 0.55, top3Avg: 0.2, coverage: 0.15, worktreeMatch: 0.1 },
+    thresholds: { ready: 0.72, needsConfirmation: 0.45 },
+  },
 };
 
 let cachedPolicy: RetrievalPolicy | null = null;
@@ -279,6 +314,10 @@ function mergePolicy(base: RetrievalPolicy, override: Partial<RetrievalPolicy>):
     coverageProfiles: { ...base.coverageProfiles, ...(override.coverageProfiles ?? {}) },
     graphHopWeights: { ...base.graphHopWeights, ...(override.graphHopWeights ?? {}) },
     relationKindMultipliers: { ...base.relationKindMultipliers, ...(override.relationKindMultipliers ?? {}) },
+    contextFit: {
+      weights: { ...base.contextFit.weights, ...(override.contextFit?.weights ?? {}) },
+      thresholds: { ...base.contextFit.thresholds, ...(override.contextFit?.thresholds ?? {}) },
+    },
     calibration: override.calibration ?? base.calibration,
   };
 }
@@ -328,6 +367,11 @@ export function coverageProfileFor(policy: RetrievalPolicy, taskType: TaskType):
     technology: override.technology ?? policy.coverageGlobal.technology,
     businessArea: override.businessArea ?? policy.coverageGlobal.businessArea,
   };
+}
+
+/** Phase 3 — accessor for the context-fit weights/thresholds. */
+export function contextFitConfigFor(policy: RetrievalPolicy): ContextFitConfig {
+  return policy.contextFit;
 }
 
 /** Phase 4 — composite graph-hop multiplier for a single relation traversal. */

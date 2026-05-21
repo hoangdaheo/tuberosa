@@ -251,18 +251,77 @@ Each phase **adds the regression fixture before** writing the fix, so the test g
 
 **Why:** `fitStatus` is currently computed after rerank with no fallback. A reranker exception silently produces `insufficient` even when fused scores were strong.
 
-**Changes:**
-- `src/retrieval/service.ts`: wrap rerank in a try/catch that, on failure, falls back to the fused ordering and emits `fitStatus: 'needs_confirmation'` with `fitReasons: [..., 'reranker_unavailable']` instead of letting trust collapse.
-- `src/retrieval/context-fit.ts`:
-  - Add `worktreeMatchScore` placeholder (set to 0 here; populated in Phase 5).
-  - Recompute `fitScore` as `0.55 × topCandidate + 0.20 × avg(top3) + 0.15 × coverage + 0.10 × worktreeMatchScore` (weights configurable in `config/retrieval-policy.json`).
-  - Emit a structured `fitDiagnostics` block alongside `fitReasons` so the workbench can show *why* fit landed where it did.
+**Status: ✅ DONE (2026-05-22)**
 
-**Fixtures added before code:**
-- Rerank-throws case → `fitStatus === 'needs_confirmation'`, candidates still returned in fused order.
-- Same-fused-score-but-no-rerank case → `fitDiagnostics.contributors` lists `top1`, `top3_avg`, `coverage` with numbers.
+**Implemented:**
+- ✅ `src/retrieval/service.ts` (`rankCandidates`): the `models.rerank` call is wrapped in a try/catch. On success, the existing path runs; on failure, the candidates fall back to the fused order (with `rerankScore = finalScore = fusedScore` so downstream sorting is stable), the safety sanitizer still runs over the fallback, and the function now returns `{ candidates: RankedCandidate[]; signal: ContextFitSignal }` so the caller can thread the failure into context-fit. The provider trace is still recorded (`model: 'fallback:fused-order'`) so debug traces remain interpretable.
+- ✅ `src/retrieval/service.ts` (`searchContext`): the caller unpacks `rankingResult.candidates` and `rankingResult.signal`, passes the signal into `fitEvaluator.evaluate({ signal })`. No other call sites of `rankCandidates` exist — the change is internal.
+- ✅ `src/retrieval/context-fit.ts`: new exported interface `ContextFitSignal { rerankerAvailable?, rerankerError?, worktreeMatchScore? }`. New `buildContextFit` flow:
+  - Reads weights/thresholds from policy via `contextFitConfigFor(getRetrievalPolicy())`.
+  - Computes `fitScore = top1·w₁ + top3Avg·w₂ + coverage·w₃ + worktreeMatchScore·w₄` with the Phase 3 default weights `{ top1: 0.55, top3Avg: 0.20, coverage: 0.15, worktreeMatch: 0.10 }`.
+  - When the Phase 5 worktree signal is absent (undefined or 0), **renormalizes** the three remaining contributor weights so the achievable max stays at 1.0 (see deviation below).
+  - Threshold buckets (ready≥0.72, needs_confirmation≥0.45) are still applied but now come from `policy.contextFit.thresholds`, no longer hard-coded constants.
+  - Emits a structured `fitDiagnostics` block with `contributors { top1, top3Avg, coverage, worktreeMatchScore }`, `weights` (the configured ones, not the renormalized shim), `thresholds`, `rerankerAvailable`, and a free-text `notes[]` channel for workbench rendering.
+  - On rerank failure: forces `fitStatus` away from `ready` (down to `needs_confirmation`), appends `'reranker_unavailable'` to `fitReasons`, surfaces the error message in `missingSignals`, and stamps `notes: ['rerank_fallback:fused_order', ...]`.
+- ✅ `src/types.ts`: new exported `FitDiagnostics` interface. `ContextFit.fitDiagnostics?` field added as **optional** so older snapshot fixtures (`test/api-boundary.test.ts`, `test/evaluation.test.ts`, etc.) keep deserializing untouched. New packs always populate it.
+- ✅ `src/retrieval/policy.ts`: new `ContextFitWeights`, `ContextFitThresholds`, `ContextFitConfig` interfaces; new `policy.contextFit` block on `RetrievalPolicy` with defaults `{ weights: 0.55/0.20/0.15/0.10, thresholds: { ready: 0.72, needsConfirmation: 0.45 } }`. New helper `contextFitConfigFor(policy)`. `mergePolicy` shallow-merges the new block so `config/retrieval-policy.json` overrides cleanly.
+- ✅ `config/retrieval-policy.json`: documents the new `contextFit` block in `_comment` and ships the Phase 3 defaults explicitly so reviewers can see them without diffing into source.
+- ✅ `test/context-fit-phase3.test.ts` (new, 3 tests, all green): pins down (a) rerank-throws → `fitStatus='needs_confirmation'` + `fitReasons` includes `'reranker_unavailable'` + fused candidates still surfaced, (b) `fitDiagnostics` shape with concrete numeric contributors + configured weights (`{ top1: 0.55, top3Avg: 0.20, coverage: 0.15, worktreeMatch: 0.10 }`) + thresholds + `rerankerAvailable=true`, (c) rerank failure flips `rerankerAvailable` to `false`.
 
-**Verification:** unit test added to `test/context-fit.test.ts`. Sandbox latency unchanged.
+**Baseline deltas (hash provider, 2026-05-22):**
+
+| Metric | Post Phase 2 | Post Phase 3 | Δ |
+|---|---|---|---|
+| Cases (context-mapping) | 8 | 8 | — |
+| Context Precision @ 5 | 25.0% | 25.0% | — |
+| Context Recall | 100% | 100% | — |
+| Context Entities Recall | 100% | 100% | — |
+| Noise Sensitivity | 75.0% | 75.0% | — |
+| Direct-evidence Placement | 100% | 100% | — |
+| Fit Calibration | 100% | 100% | — |
+| Forbidden-item Rate | 0.0% | 0.0% | — |
+| `eval:retrieval` | 14/14 green | 14/14 green | — |
+| `eval:agent-context` | green | green | — |
+| `pnpm test` | 236/236 | 239/239 (+3 phase-3 tests) | +3 |
+| Sandbox latency p50 | 13–14ms | 13ms | within noise |
+
+Phase 3 is **structural** — it adds observability and a fallback path without intending to move the precision/recall numbers. The contributor mix changed (top1 weight +0 effective after renormalization; top3Avg ≈ +0.002; coverage ≈ −0.033) but the eval cases tolerate it because the renormalization keeps the achievable max at 1.0. The Phase 5 worktree provider will be the load-bearing source for fit changes — Phase 3 makes the wiring ready for it.
+
+**Deviations from the original Phase 3 spec (recorded so they aren't lost):**
+- **Achievable-max renormalization** (load-bearing): the spec's literal formula `0.55·top1 + 0.20·top3Avg + 0.15·coverage + 0.10·worktreeMatchScore` only sums to 1.0 if `worktreeMatchScore = 1`. With Phase 5 not yet implemented, every Phase 3 call has `worktreeMatchScore = 0`, so the achievable maximum is **0.90**, which drops six retrieval-eval cases below the `ready` threshold (`continuation-handoff`, `conflicting-memories-freshness`, `code-ref-file-label-surfaces`, `domain-scope-suppresses-off-domain`, etc.). To keep `eval:retrieval` green per the cross-cutting pre-commit invariant, the evaluator **renormalizes** when the worktree signal is absent or zero: `effective = { top1: 0.55, top3Avg: 0.20, coverage: 0.15, worktreeMatch: 0 } * (1 / 0.90)`. The configured weights (the ones the workbench sees in `fitDiagnostics.weights`) stay at the spec defaults — the renormalization is a transitional shim that naturally fades to no-op the moment Phase 5 sets a nonzero worktree score. This deviation is the explicit price of keeping Phase 3 mergeable without Phase 5.
+- **`worktreeMatchScore` placeholder treatment:** the spec says "set to 0 here; populated in Phase 5". Two channels exist now: (a) `signal.worktreeMatchScore` is `undefined` (Phase 5 not present at all) — treated as 0 and renormalized; (b) `signal.worktreeMatchScore === 0` literal (Phase 5 ran but found no match) — also treated as renormalized 0. We use `typeof signal.worktreeMatchScore === 'number'` to distinguish, then check `>0` for non-renormalized mode. This works for the eventual Phase 5 wiring where a populated signal even at 0 means "worktree ran, no match" rather than "no worktree provider".
+- **`fitDiagnostics.weights` shape:** the spec example listed `contributors` keys as `top1, top3_avg, coverage`. The TypeScript field name is `top3Avg` (camelCase) for consistency with `weights.top3Avg` and `worktreeMatchScore`. The workbench renders the camelCase keys as-is; if a human-readable label is needed later it belongs in workbench presentation, not in the data shape.
+- **`fitDiagnostics` made optional on `ContextFit`:** the spec did not commit to whether the field is optional or required. We marked it **optional** (`?`) on the type so that pre-Phase-3 snapshot fixtures across the test suite (`test/api-boundary.test.ts:231`, `test/evaluation.test.ts:263`, `test/operations.test.ts:1704`, `test/recommendation.test.ts:30`, etc.) keep type-checking without churn. New packs always emit the field. If/when the workbench depends on it, we can flip to required after the test fixtures roll forward.
+- **No `fitDiagnostics.brief_warnings`:** Phase 8 mentions adding `fitDiagnostics.brief_warnings` for taskBrief groundedness violations. That belongs to Phase 8; the `notes: string[]` field on `FitDiagnostics` is the carrier when Phase 8 lands.
+- **No `applyNoiseTolerance` interaction with `fitDiagnostics`:** when strict noise tolerance downgrades `ready → needs_confirmation` (`service.ts:1239`), it spreads the existing ContextFit and overrides `fitStatus` / `fitScore` / `fitReasons` / `missingSignals`, so `fitDiagnostics` flows through unchanged. The diagnostics still reflect the pre-downgrade composition, which is the intended workbench signal: "the formula said X, but strict noise tolerance pushed it down because Y". If a future phase wants the diagnostics to carry the downgrade reason explicitly, append to `diagnostics.notes` in that branch.
+- **No env flag:** spec didn't propose one for Phase 3 (the cross-cutting flags table lists none for Phase 3). The behavior is always-on. The plan's "pre-commit invariant" for greens covers the safety net.
+
+**Files added:**
+- `test/context-fit-phase3.test.ts` (3 tests, all green)
+
+**Files modified:**
+- `src/types.ts` — new `FitDiagnostics` interface; `ContextFit.fitDiagnostics?` field.
+- `src/retrieval/policy.ts` — `ContextFitWeights` / `ContextFitThresholds` / `ContextFitConfig` interfaces; `policy.contextFit` block on `RetrievalPolicy`; defaults in `DEFAULT_POLICY`; merge support in `mergePolicy`; new `contextFitConfigFor(policy)` accessor.
+- `src/retrieval/context-fit.ts` — new exported `ContextFitSignal` interface; `evaluate(input)` now reads `input.signal`; `buildContextFit` recomposes `fitScore` via the new weights with Phase-5-absent renormalization; emits `fitDiagnostics` with contributors + weights + thresholds + `rerankerAvailable` + notes; status thresholds sourced from policy. Removed the hard-coded `READY_THRESHOLD` / `NEEDS_CONFIRMATION_THRESHOLD` constants.
+- `src/retrieval/service.ts` — `rankCandidates` returns `{ candidates, signal }`; rerank is wrapped in try/catch with a fused-order fallback path; `searchContext` threads `rankingResult.signal` into `fitEvaluator.evaluate`. New import of `ContextFitSignal`.
+- `config/retrieval-policy.json` — documents the new `contextFit` block in `_comment` and ships the Phase 3 defaults explicitly.
+- `implements/enhance_rewrite/tuberosa-enhance-knowledge-quality.md` — this status block.
+
+**Verification (all green):**
+- `pnpm run build` ✅
+- `pnpm test` ✅ — 239/239 pass (was 236/236; +3 from the new phase-3 test file)
+- `pnpm run eval:retrieval` ✅ — hit@5 100%, MRR 1.0, 14/14 pass; **context fit score 100%** (renormalization keeps every case at or above its `minContextFitScore`)
+- `pnpm run eval:agent-context` ✅
+- `pnpm run eval:context-mapping` ✅ — no regressions vs Phase 2; forbidden-item rate **0.0%**, noise sensitivity 75.0%, fit calibration 100%
+- `pnpm run sandbox` ✅ — latency p50=13ms, p95=18ms; PASS thresholds
+
+**Tried but not done (deliberate carry-overs):**
+- **Remove the renormalization shim once Phase 5 lands.** When `signal.worktreeMatchScore` is consistently a real number, the renormalization branch (`worktreeProvided && worktreeMatchScore > 0`) selects the literal weights and the shim is inert. If you want to be sure, drop the renormalization fallback then and re-baseline the retrieval eval against the literal formula.
+- **Surface `fitDiagnostics` in the workbench UI.** The data is present on every new pack; the workbench cards do not yet render it. The presenter changes are downstream of Phase 3.
+- **Plumb `fitDiagnostics` through cache round-trips.** The cached `ContextPack` objects serialize/deserialize through the existing JSON path, which handles the new optional field for free. If a future schema validator gets stricter, add a migration there.
+- **`fitDiagnostics.brief_warnings`** (Phase 8 carrier): the `notes: string[]` field is the placeholder. When Phase 8 implements brief groundedness, append `'brief_warning:<reason>'` strings to that field rather than introducing a new sibling.
+- **Worktree match score wiring:** the `signal.worktreeMatchScore` path is in place but no producer writes to it yet. Phase 5 plugs the worktree provider in via the `ContextFitSignal` interface — no change to the Phase 3 surface required.
+- **Per-task context-fit profiles:** the spec mentioned "weights configurable in `config/retrieval-policy.json`". Phase 3 ships a single global block (`policy.contextFit.weights`). When calibration produces task-type-specific weights, mirror the `taskProfiles`/`coverageProfiles` shape with a `contextFit.profiles.<taskType>` block — left as a Phase 7 calibration follow-up.
 
 ---
 

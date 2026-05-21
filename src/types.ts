@@ -483,11 +483,41 @@ export type ContextEvidenceStrength = 'strong' | 'moderate' | 'weak';
 
 export type ContextFitStatus = 'ready' | 'needs_confirmation' | 'insufficient';
 
+/**
+ * Phase 3 — structured why-block for the workbench. Optional so older consumers of
+ * ContextFit (snapshots, archived packs) keep deserializing; new packs always emit it.
+ */
+export interface FitDiagnostics {
+  contributors: {
+    top1: number;
+    top3Avg: number;
+    coverage: number;
+    /** Phase 3 placeholder, populated by the Phase 5 worktree provider. Always 0 until then. */
+    worktreeMatchScore: number;
+  };
+  weights: {
+    top1: number;
+    top3Avg: number;
+    coverage: number;
+    worktreeMatch: number;
+  };
+  thresholds: {
+    ready: number;
+    needsConfirmation: number;
+  };
+  /** False when the rerank stage threw and the service fell back to fused order. */
+  rerankerAvailable: boolean;
+  /** Non-fatal observations the workbench can surface verbatim. */
+  notes: string[];
+}
+
 export interface ContextFit {
   fitStatus: ContextFitStatus;
   fitScore: number;
   fitReasons: string[];
   missingSignals: string[];
+  /** Phase 3 — structured contributors / weights / thresholds. Optional for backward compat. */
+  fitDiagnostics?: FitDiagnostics;
 }
 
 export interface ActionableMissingSignals {

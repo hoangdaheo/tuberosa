@@ -1,14 +1,25 @@
-import type { ClassifiedQuery, ContextFit, RankedCandidate, TaskType } from '../types.js';
+import type { ClassifiedQuery, ContextFit, FitDiagnostics, RankedCandidate, TaskType } from '../types.js';
 import { clamp, metadataString, normalizeLabel, sameSignal } from '../util/text.js';
 import { candidateText } from './candidate-helpers.js';
 import { hasDomainMismatch } from './classifier.js';
-import { coverageProfileFor, freshnessWindowFor, getRetrievalPolicy } from './policy.js';
+import { contextFitConfigFor, coverageProfileFor, freshnessWindowFor, getRetrievalPolicy } from './policy.js';
 
 const TOP_CANDIDATE_LIMIT = 6;
-const READY_THRESHOLD = 0.72;
-const NEEDS_CONFIRMATION_THRESHOLD = 0.45;
 const CURRENT_FRESHNESS_BONUS = 0.05;
 const AGING_PENALTY = -0.04;
+
+/**
+ * Phase 3 — optional signal flowing in from the retrieval service describing whether
+ * the reranker ran successfully. When `rerankerAvailable: false`, the evaluator
+ * downgrades the fit status to `needs_confirmation` and records the reason, instead
+ * of letting trust collapse silently.
+ */
+export interface ContextFitSignal {
+  rerankerAvailable?: boolean;
+  rerankerError?: string;
+  /** Phase 5 placeholder — when populated, scores the worktree contribution in [0,1]. */
+  worktreeMatchScore?: number;
+}
 
 interface ContextFitEvaluationInput {
   project?: string;
@@ -16,6 +27,7 @@ interface ContextFitEvaluationInput {
   candidates: RankedCandidate[];
   rejectedKnowledgeIds?: string[];
   now?: Date;
+  signal?: ContextFitSignal;
 }
 
 interface ContextFitEvaluation {
@@ -122,24 +134,82 @@ export class ContextFitEvaluator {
 }
 
 function buildContextFit(input: ContextFitEvaluationInput, candidates: RankedCandidate[]): ContextFit {
+  const fitConfig = contextFitConfigFor(getRetrievalPolicy());
+  const baseWeights = fitConfig.weights;
+  const thresholds = fitConfig.thresholds;
+  const signal = input.signal ?? {};
+  const rerankerAvailable = signal.rerankerAvailable !== false;
+  // Phase 3 — placeholder until the Phase 5 worktree provider lands.
+  const worktreeProvided = typeof signal.worktreeMatchScore === 'number';
+  const worktreeMatchScore = clamp(signal.worktreeMatchScore ?? 0, 0, 1);
+
+  // Phase 3 deviation — when the Phase 5 worktree signal is absent (`worktreeMatchScore`
+  // undefined or 0), redistribute the worktreeMatch weight proportionally across the
+  // three remaining contributors so the achievable maximum stays at 1.0 and the
+  // existing thresholds (ready=0.72 etc.) keep their meaning. Once Phase 5 starts
+  // emitting nonzero worktree scores, the redistribution naturally fades to no-op.
+  const effectiveWeights = (() => {
+    if (worktreeProvided && worktreeMatchScore > 0) {
+      return baseWeights;
+    }
+    const remainder = baseWeights.top1 + baseWeights.top3Avg + baseWeights.coverage;
+    if (remainder <= 0) {
+      return baseWeights;
+    }
+    const scale = 1 / remainder;
+    return {
+      top1: baseWeights.top1 * scale,
+      top3Avg: baseWeights.top3Avg * scale,
+      coverage: baseWeights.coverage * scale,
+      worktreeMatch: 0,
+    };
+  })();
+
   if (candidates.length === 0) {
+    const diagnostics: FitDiagnostics = {
+      contributors: { top1: 0, top3Avg: 0, coverage: 0, worktreeMatchScore },
+      weights: { ...baseWeights },
+      thresholds: { ...thresholds },
+      rerankerAvailable,
+      notes: rerankerAvailable ? [] : ['rerank_fallback:fused_order'],
+    };
     return {
       fitStatus: 'insufficient',
       fitScore: 0,
-      fitReasons: [],
-      missingSignals: ['no retrieval candidates matched the query'],
+      fitReasons: rerankerAvailable ? [] : ['reranker_unavailable'],
+      missingSignals: rerankerAvailable
+        ? ['no retrieval candidates matched the query']
+        : ['no retrieval candidates matched the query', 'rerank stage threw — using fused ordering'],
+      fitDiagnostics: diagnostics,
     };
   }
 
   const topCandidates = candidates.slice(0, TOP_CANDIDATE_LIMIT);
   const coverage = aggregateCoverage(input, topCandidates);
-  const topScore = topCandidates[0]?.fitScore ?? 0;
-  const averageTopScore = average(topCandidates.slice(0, 3).map((candidate) => candidate.fitScore ?? 0));
-  let fitScore = roundScore(clamp(topScore * 0.58 + averageTopScore * 0.22 + coverage.score * 0.2, 0, 1));
+  const top1 = clamp(topCandidates[0]?.fitScore ?? 0, 0, 1);
+  const top3Avg = clamp(
+    average(topCandidates.slice(0, 3).map((candidate) => candidate.fitScore ?? 0)),
+    0,
+    1,
+  );
+  const coverageScore = clamp(coverage.score, 0, 1);
+
+  // Phase 3 — recomposed score: 0.55*top1 + 0.20*top3Avg + 0.15*coverage + 0.10*worktreeMatch.
+  // (When Phase 5's worktreeMatchScore is absent, effectiveWeights renormalize over the
+  // remaining contributors so the achievable max stays at 1.0.)
+  let fitScore = roundScore(clamp(
+    top1 * effectiveWeights.top1
+      + top3Avg * effectiveWeights.top3Avg
+      + coverageScore * effectiveWeights.coverage
+      + worktreeMatchScore * effectiveWeights.worktreeMatch,
+    0,
+    1,
+  ));
+
   const missingSignals = [...coverage.missingSignals];
 
   if (!coverage.hasHardSignals) {
-    fitScore = Math.min(fitScore, READY_THRESHOLD - 0.01);
+    fitScore = Math.min(fitScore, thresholds.ready - 0.01);
     missingSignals.push('no concrete file, symbol, or error signal was supplied');
   }
 
@@ -148,22 +218,55 @@ function buildContextFit(input: ContextFitEvaluationInput, candidates: RankedCan
   }
 
   if (coverage.hasCriticalMiss) {
-    fitScore = Math.min(fitScore, NEEDS_CONFIRMATION_THRESHOLD - 0.01);
+    fitScore = Math.min(fitScore, thresholds.needsConfirmation - 0.01);
   }
 
-  const fitStatus = statusForScore(fitScore);
+  let fitStatus = statusForScore(fitScore, thresholds);
+  const reasons: string[] = [`top candidate:${topCandidates[0].title}`, ...coverage.reasons];
+  const notes: string[] = [];
+
+  // Phase 3 — rerank fallback: never advertise "ready" if the reranker silently fell back.
+  // The fused ordering may be acceptable, but the agent should confirm before trusting it.
+  if (!rerankerAvailable) {
+    if (fitStatus === 'ready') {
+      fitStatus = 'needs_confirmation';
+    }
+    reasons.push('reranker_unavailable');
+    const detail = signal.rerankerError
+      ? `rerank stage threw — using fused ordering (${signal.rerankerError})`
+      : 'rerank stage threw — using fused ordering';
+    missingSignals.push(detail);
+    notes.push('rerank_fallback:fused_order');
+    if (signal.rerankerError) {
+      notes.push(`rerank_error:${signal.rerankerError}`);
+    }
+  }
+
+  const diagnostics: FitDiagnostics = {
+    contributors: {
+      top1: roundScore(top1),
+      top3Avg: roundScore(top3Avg),
+      coverage: roundScore(coverageScore),
+      worktreeMatchScore: roundScore(worktreeMatchScore),
+    },
+    // Report the *configured* weights (not the renormalized ones) so the workbench can
+    // show the policy contract; the renormalization is a transitional Phase-3-pre-Phase-5
+    // shim documented in the plan.
+    weights: { ...baseWeights },
+    thresholds: { ...thresholds },
+    rerankerAvailable,
+    notes,
+  };
 
   return {
     fitStatus,
     fitScore,
-    fitReasons: unique([
-      `top candidate:${topCandidates[0].title}`,
-      ...coverage.reasons,
-    ]),
+    fitReasons: unique(reasons),
     missingSignals: unique([
       ...missingSignals,
       ...(fitStatus === 'ready' ? [] : topCandidates[0].fitMissingSignals ?? []),
     ]),
+    fitDiagnostics: diagnostics,
   };
 }
 
@@ -507,12 +610,15 @@ function feedbackAdjustment(
   return 0;
 }
 
-function statusForScore(score: number): ContextFit['fitStatus'] {
-  if (score >= READY_THRESHOLD) {
+function statusForScore(
+  score: number,
+  thresholds: { ready: number; needsConfirmation: number },
+): ContextFit['fitStatus'] {
+  if (score >= thresholds.ready) {
     return 'ready';
   }
 
-  if (score >= NEEDS_CONFIRMATION_THRESHOLD) {
+  if (score >= thresholds.needsConfirmation) {
     return 'needs_confirmation';
   }
 

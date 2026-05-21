@@ -49,7 +49,7 @@ import {
 } from './context-pack.js';
 import { classifyQuery, hasDomainMismatch } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
-import { ContextFitEvaluator } from './context-fit.js';
+import { ContextFitEvaluator, type ContextFitSignal } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
 import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint } from './policy.js';
 
@@ -144,7 +144,7 @@ export class RetrievalService {
       debug,
     );
     const candidates = await this.findCandidates(normalized, rewriteResult.classified, project, debug);
-    const rankedCandidates = await this.rankCandidates(
+    const rankingResult = await this.rankCandidates(
       normalized.prompt,
       candidates,
       rewriteResult.classified,
@@ -152,12 +152,14 @@ export class RetrievalService {
       debug,
       normalized.disabledSources,
     );
+    const rankedCandidates = rankingResult.candidates;
     const fitStartedAt = Date.now();
     const fitEvaluation = this.fitEvaluator.evaluate({
       project,
       classified: rewriteResult.classified,
       candidates: rankedCandidates,
       rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
+      signal: rankingResult.signal,
     });
     const contextFit = applyNoiseTolerance(
       fitEvaluation.contextFit,
@@ -379,7 +381,7 @@ export class RetrievalService {
     project?: string,
     debug?: RetrievalDebugBuilder,
     disabledSources?: CandidateSource[],
-  ): Promise<RankedCandidate[]> {
+  ): Promise<{ candidates: RankedCandidate[]; signal: ContextFitSignal }> {
     const fusionStartedAt = Date.now();
     const disabled = new Set<CandidateSource>(disabledSources ?? []);
     const candidateGroups: SearchCandidate[][] = [
@@ -424,25 +426,50 @@ export class RetrievalService {
     debug?.recordTiming('fusion', fusionStartedAt);
     debug?.recordStage('fusion', fused);
 
-    const rerankResult = await timed(
-      'rerank',
-      this.models.rerank({ prompt, classified, candidates: fused }),
-      debug,
-    );
-    debug?.recordProviderRerank({
-      model: rerankResult.model,
-      inputKnowledgeIds: fused.map((candidate) => candidate.knowledgeId),
-      decisions: rerankResult.decisions,
-    });
-    if (debug) {
-      debug.recordRerankScores(rerankResult.candidates);
+    // Phase 3 — wrap rerank in try/catch. On failure, fall back to the fused ordering
+    // (already RRF-normalized + feedback-multiplied) and propagate a structured signal
+    // up to the context-fit evaluator so it can downgrade fitStatus rather than letting
+    // trust silently collapse to 0 when the reranker throws.
+    let reranked: RankedCandidate[];
+    let rerankSignal: ContextFitSignal = { rerankerAvailable: true };
+    try {
+      const rerankResult = await timed(
+        'rerank',
+        this.models.rerank({ prompt, classified, candidates: fused }),
+        debug,
+      );
+      debug?.recordProviderRerank({
+        model: rerankResult.model,
+        inputKnowledgeIds: fused.map((candidate) => candidate.knowledgeId),
+        decisions: rerankResult.decisions,
+      });
+      if (debug) {
+        debug.recordRerankScores(rerankResult.candidates);
+      }
+      reranked = this.safety.sanitizeSearchCandidates(rerankResult.candidates, {
+        onFilterEvent: debug ? (event) => debug.recordFilterEvent(event) : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      rerankSignal = { rerankerAvailable: false, rerankerError: message };
+      const fallbackCandidates = fused.map((candidate) => ({
+        ...candidate,
+        rerankScore: candidate.fusedScore,
+        finalScore: candidate.fusedScore,
+      }));
+      reranked = this.safety.sanitizeSearchCandidates(fallbackCandidates, {
+        onFilterEvent: debug ? (event) => debug.recordFilterEvent(event) : undefined,
+      });
+      debug?.recordProviderRerank({
+        model: 'fallback:fused-order',
+        inputKnowledgeIds: fused.map((candidate) => candidate.knowledgeId),
+        decisions: [],
+      });
     }
-    const reranked = this.safety.sanitizeSearchCandidates(rerankResult.candidates, {
-      onFilterEvent: debug ? (event) => debug.recordFilterEvent(event) : undefined,
-    });
+
     const adjusted = await this.applyRankingAdjustments(reranked, classified, project ?? classified.project, debug);
     debug?.recordStage('rerank', adjusted);
-    return adjusted;
+    return { candidates: adjusted, signal: rerankSignal };
   }
 
   private async applyRankingAdjustments(
