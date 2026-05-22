@@ -18,7 +18,7 @@
 | itemType "memory" catch-all rate | 38.8% |
 | itemType diagonal rate (Phase 3) | 69.4% |
 | label diagonal rate (Phase 3) | 7.7% |
-| latency p50 / p95 / max (ms) | 13 / 18 / 61 |
+| latency p50 / p95 / max (ms) | 12 / 17 / 56 |
 
 ## Per-Tier Selection
 
@@ -51,6 +51,7 @@
 | memory | 0.4062 |
 | vector | 0.5404 |
 | graph | 0.5917 |
+| worktree | 0.0000 |
 
 ## Filter Telemetry
 

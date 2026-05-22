@@ -146,13 +146,17 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
   },
 
   sourceWeights: {
+    // Phase 5 — worktree carries the highest weight because for continuation /
+    // self-edit tasks the on-disk worktree is the truest evidence: durable
+    // memory shouldn't outrank live truth.
+    worktree: 1.3,
     metadata: 1.15,
     graph: 1.1,
     memory: 1.08,
     lexical: 1.0,
     vector: 0.92,
   },
-  hardSignalBoost: { sources: ['metadata', 'lexical', 'graph'], bonus: 0.18 },
+  hardSignalBoost: { sources: ['metadata', 'lexical', 'graph', 'worktree'], bonus: 0.18 },
   hardSignalVectorPenalty: -0.08,
   taskItemTypeBoosts: [
     { taskType: 'debugging', itemTypes: ['bugfix', 'memory', 'workflow'], bonus: 0.16 },
@@ -182,19 +186,19 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
   useTaskProfiles: true,
   taskProfiles: {
     debugging: {
-      sourceWeights: { metadata: 0.06, graph: 0.05, memory: 0.03, vector: -0.04 },
+      sourceWeights: { metadata: 0.06, graph: 0.05, memory: 0.03, vector: -0.04, worktree: 0.05 },
       itemTypeBoosts: [{ itemTypes: ['bugfix', 'memory'], bonus: 0.04 }],
     },
     implementation: {
-      sourceWeights: { metadata: 0.04, lexical: 0.03, vector: -0.02 },
+      sourceWeights: { metadata: 0.04, lexical: 0.03, vector: -0.02, worktree: 0.05 },
       itemTypeBoosts: [{ itemTypes: ['code_ref', 'spec'], bonus: 0.03 }],
     },
     refactor: {
-      sourceWeights: { metadata: 0.04, lexical: 0.03 },
+      sourceWeights: { metadata: 0.04, lexical: 0.03, worktree: 0.05 },
       itemTypeBoosts: [{ itemTypes: ['code_ref', 'rule'], bonus: 0.03 }],
     },
     review: {
-      sourceWeights: { metadata: 0.04, memory: 0.02 },
+      sourceWeights: { metadata: 0.04, memory: 0.02, worktree: 0.03 },
       itemTypeBoosts: [{ itemTypes: ['rule', 'memory'], bonus: 0.03 }],
     },
     planning: {
@@ -202,7 +206,7 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
       itemTypeBoosts: [{ itemTypes: ['spec', 'wiki'], bonus: 0.04 }],
     },
     exploration: {
-      sourceWeights: { vector: 0.04, lexical: 0.03 },
+      sourceWeights: { vector: 0.04, lexical: 0.03, worktree: 0.02 },
       itemTypeBoosts: [{ itemTypes: ['wiki', 'workflow'], bonus: 0.02 }],
     },
     testing: {

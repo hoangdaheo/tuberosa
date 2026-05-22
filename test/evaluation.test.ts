@@ -45,6 +45,9 @@ const config: AppConfig = {
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
   errorLogCaptureClientErrors: false,
+  worktreeEnabled: true,
+  worktreeMaxFiles: 50,
+  worktreeMaxMtimeAgeHours: 72,
 };
 
 test('retrieval evaluation fixture produces passing quality metrics', async () => {

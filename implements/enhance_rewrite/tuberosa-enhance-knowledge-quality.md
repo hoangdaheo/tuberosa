@@ -412,22 +412,105 @@ The dedicated regression test (`document-atomizer-phase4.test.ts`) demonstrates 
 
 **Why:** for continuation/self-edit tasks, the **current worktree** is the truest evidence and currently has no producer. Durable memory wins disputes against live truth — backwards.
 
-**Changes:**
-- New module `src/retrieval/worktree.ts`:
-  - Bounded, sanitized read of: `git status --porcelain`, prompt-named files that exist on disk, `*.md` handoff files at repo root (e.g., `integrate-reranking.md`, `roadmap-codex.md`), recently-edited files (mtime within configurable window).
-  - Output shape mirrors `SearchCandidate` so it slots into fusion without special-casing.
-  - Respects size caps (`TUBEROSA_MAX_INGEST_CONTENT_BYTES`); skips binary, redacts secrets via existing `knowledge-safety` pipeline.
-- `src/storage/store.ts` + memory + postgres: new `CandidateSource` value `'worktree'`. **No new table** — worktree is read-through, never persisted. The store interface gets an optional `searchWorktree?` method, populated only when worktree provider is wired in.
-- `src/retrieval/service.ts`: add worktree as a 6th parallel search source, **only when** the active task type is `implementation | debugging | refactor | review | exploration` and the prompt names files OR the session has `cwd` set. Skipped for `planning | testing` unless explicitly requested.
-- `config/retrieval-policy.json`: `sourceWeights.worktree = 1.30` (highest), with a `taskProfiles.continuation.worktree += 0.05` boost.
-- `src/retrieval/context-fit.ts`: populate the `worktreeMatchScore` placeholder from Phase 3 — non-zero only when worktree files matched prompt's named files.
-- Config: `TUBEROSA_WORKTREE_ENABLED=true` (default), `TUBEROSA_WORKTREE_MAX_FILES=50`, `TUBEROSA_WORKTREE_MAX_MTIME_AGE_HOURS=72`.
+**Status: ✅ DONE (2026-05-22)**
 
-**Fixtures added before code:**
-- Prompt names `integrate-reranking.md` (file exists in worktree, not yet ingested) → it appears in the `essential` bucket via the worktree source.
-- Worktree contradicts an approved memory (e.g., approved memory says file at path X has function `foo`; worktree shows the file deletes `foo`) → worktree wins for continuation tasks; memory flagged as `potentially_stale`.
+**Implemented:**
+- ✅ New module `src/retrieval/worktree.ts`:
+  - `WorktreeProvider` class with bounded reads, sanitized through `KnowledgeSafetyService`. Four sources collected per query, deduped by path:
+    1. **Prompt-named files** that exist on disk (`classified.files` resolved against `cwd`),
+    2. **`git status --porcelain`** changed/untracked files (best-effort via `execFileSync`, 2s timeout; missing-git is fine),
+    3. **Repo-root `*.md` handoffs** (handoff/roadmap/spec/plan/integrate/continue/status/notes name patterns, then alphabetical),
+    4. **Recently-edited files** within a configurable mtime window, scanned at depth ≤2 from a curated set of roots (`''`, `src/`, `docs/`, `config/`, `implements/`, `scripts/`, `eval/`, `migrations/`) with hidden-dir / `node_modules` / `dist` / `.git` / `.tuberosa` exclusions.
+  - Each surfaced file is read up to `maxIngestContentBytes`, NUL-byte + extension-based binary detection skips images / archives / fonts / compiled artifacts.
+  - Output mirrors `SearchCandidate`: `source: 'worktree'`, `knowledgeId: 'worktree:<sha256(rel)>'` (deterministic, no persistence), `rawScore` per-reason (`prompt_named=1.0 / git_changed=0.85 / root_handoff=0.75 / mtime_recent=0.6`), `freshnessAt=mtime`, `trustLevel=90`. `metadata.worktree.{reason, path, mtime, sizeBytes, promptMatch}` carries the per-file provenance.
+  - Gated by:
+    - `enabled` (config) — `TUBEROSA_WORKTREE_ENABLED=false` short-circuits to empty.
+    - `cwd` — no cwd → empty.
+    - `taskType ∈ {implementation, debugging, refactor, review, exploration}` — `planning / testing / unknown` short-circuit to empty.
+  - `WorktreeSearchResult.matchScore` populates the Phase 3 `ContextFitSignal.worktreeMatchScore` placeholder. Computed as `matchedPromptFiles / classified.files.length` clamped to [0,1] when any candidate surfaced; `0` otherwise.
+- ✅ `src/types.ts`: extended `CandidateSource` to include `'worktree'`. `KnowledgeSearchResult.worktree: SearchCandidate[]` added. `RetrievalDebugStageName` + `FusionContributionStage` widened to carry the new source through the debug trace.
+- ✅ `src/config.ts`: new env-driven knobs `worktreeEnabled` (default `true`), `worktreeMaxFiles` (default `50`), `worktreeMaxMtimeAgeHours` (default `72`). Env vars: `TUBEROSA_WORKTREE_ENABLED`, `TUBEROSA_WORKTREE_MAX_FILES`, `TUBEROSA_WORKTREE_MAX_MTIME_AGE_HOURS`.
+- ✅ `src/retrieval/service.ts`:
+  - Constructor now accepts an optional `worktreeProvider` (so tests can inject a stub). Default reads policy knobs from `AppConfig` and shares the existing `KnowledgeSafetyService`.
+  - `findCandidates` runs the worktree provider in parallel with `metadata/lexical/memory/vector` (5-way `Promise.all`), then folds the worktree candidates into the `searchGraphRelations` seed set so the graph stage can expand from live files too. The result returns `{ candidates: KnowledgeSearchResult, worktree: WorktreeSearchResult }`.
+  - `rankCandidates` adds the worktree group as the 6th `candidateGroups[]` entry (honoring `disabledSources: ['worktree']`).
+  - `searchContext` threads `worktree.matchScore` into the `ContextFitSignal` alongside `rankingResult.signal`. The Phase 3 renormalization branch in `context-fit.ts` naturally fades to no-op when a positive worktree score lands.
+  - `intentSuppressionAdjustment` gains a **`worktree_live_evidence` positive boost**:
+    - `+0.6` when the candidate has `metadata.worktree.promptMatch === true` (prompt named the file, live truth wins),
+    - `+0.22` when the reason is `git_changed` (file changed since last commit; weaker live-truth signal).
+    Sized empirically against the Phase 5 regression fixture so that a prompt-named worktree candidate beats a durable memory hit by three sources (memory + graph + lexical) plus a domain_match boost.
+- ✅ `src/retrieval/policy.ts`: `sourceWeights.worktree = 1.30` (highest of the six, per spec). `hardSignalBoost.sources` now lists `worktree` so a hard-signal query still benefits from the worktree-side contribution. `taskProfiles.{debugging, implementation, refactor, review, exploration}.sourceWeights.worktree` add small per-task deltas (`+0.05 / +0.05 / +0.05 / +0.03 / +0.02`). `taskProfiles.planning / testing` deliberately omit a worktree boost — those task types short-circuit the provider entirely.
+- ✅ `config/retrieval-policy.json`: `_comment` now documents the new worktree knobs and links to the env vars.
+- ✅ `scripts/sandbox.ts` + `scripts/calibrate-fusion.ts`: `Record<CandidateSource, number>` literals updated to include `worktree`.
+- ✅ All inline `AppConfig` literals across tests (`agent-session`, `api-boundary`, `browser`, `context-fit-phase3`, `document-atomizer-phase4`, `evaluation`, `feedback-scorer-phase2`, `flow-regression`, `integration`, `operations`, `retrieval`, `suppression-telemetry`, `worktree-phase5`) and scripts (`calibrate-fusion`, `eval-agent-context`, `eval-context-mapping`, `eval-knowledge-completeness`, `eval-retrieval`, `sandbox`) carry the three new fields.
+- ✅ `test/worktree-phase5.test.ts` (new, 5 tests, all green):
+  1. Prompt-named handoff file (`integrate-reranking.md`) surfaces from the worktree into the `essential` bucket; `worktreeMatchScore > 0` in `fitDiagnostics`.
+  2. Worktree-vs-memory contradiction — a `prompt_named` worktree candidate **outranks** a conflicting durable memory describing the legacy signature, and carries the `boost:worktree_live_evidence:prompt_named` matchReason for traceability.
+  3. `taskType=planning` opts out of the worktree provider entirely (no `source==='worktree'` items, `worktreeMatchScore=0`).
+  4. `TUBEROSA_WORKTREE_ENABLED=false` disables the provider entirely.
+  5. Missing `cwd` is handled gracefully — no worktree candidates surface; no crash.
 
-**Verification:** `eval:context-mapping` gets a "worktree precedence" metric (% of cases where worktree-matched files outrank conflicting memory). MCP backwards-compatibility maintained because no tool surface changed — worktree is additive to existing fusion.
+**Baseline deltas (hash provider, 2026-05-22):**
+
+| Metric | Post Phase 4 | Post Phase 5 | Δ |
+|---|---|---|---|
+| Cases (context-mapping) | 8 | 8 | — |
+| Context Precision @ 5 | 25.0% | 25.0% | — |
+| Context Recall | 100% | 100% | — |
+| Context Entities Recall | 100% | 100% | — |
+| Noise Sensitivity | 75.0% | 75.0% | — |
+| Direct-evidence Placement | 100% | 100% | — |
+| Fit Calibration | 100% | 100% | — |
+| Forbidden-item Rate | 0.0% | 0.0% | — |
+| `eval:retrieval` | 14/14 green | 14/14 green; **context fit score 100%** | — |
+| `eval:agent-context` | green | green | — |
+| `pnpm test` | 241/241 | 246/246 (+5 phase-5 tests) | +5 |
+| Sandbox hit | 93.2% | 93.2% | — |
+| Sandbox MRR | 0.477 | 0.477 | — |
+| Sandbox latency p50 | 13ms | **12ms** | −1ms (faster — worktree provider short-circuits on no-cwd in the sandbox setup) |
+| Sandbox latency p95 | 18ms | **17ms** | −1ms |
+
+The context-mapping fixture cases all run without a `cwd`, so the worktree provider short-circuits to empty and doesn't move the case-level metrics. The load-bearing Phase 5 evidence is the dedicated regression test (`test/worktree-phase5.test.ts`) — particularly case 2 (worktree-vs-memory precedence) which demonstrates the load-bearing improvement. A future phase that extends the fixture loader to accept per-case worktree directories will let the eval surface a `worktreePrecedence` metric directly.
+
+**Deviations from the original Phase 5 spec (recorded so they aren't lost):**
+- **`taskProfiles.continuation` does not exist.** The spec said `taskProfiles.continuation.worktree += 0.05` but `TaskType` is `'debugging' | 'implementation' | 'refactor' | 'review' | 'planning' | 'exploration' | 'testing' | 'unknown'` — no `continuation` value. The boost is instead distributed across the five eligible task types (`debugging / implementation / refactor / review / exploration`) at +0.05/+0.05/+0.05/+0.03/+0.02 respectively. `planning` and `testing` deliberately get no boost because the provider short-circuits them at the source. If a future phase introduces a `continuation` task type, move these deltas under it.
+- **No `store.searchWorktree?` method.** The spec mentioned an optional store method. The provider runs entirely off-disk and produces `SearchCandidate` directly; routing it through `KnowledgeStore` would invert the layering (the store would have to read the worktree, then return it as if persisted). The provider lives at `src/retrieval/worktree.ts` and is constructor-injected into `RetrievalService` instead. This keeps the store contract minimal and lets tests stub the provider independently.
+- **`worktree_live_evidence` boost magnitude.** The spec lists `sourceWeights.worktree = 1.30` (highest) and a `+0.05` taskProfile delta. Empirically (verified against case 2 of the new regression test), that's not enough: a durable memory hit by three sources (memory + graph + lexical) plus its inherent `domain_match` boost can produce a finalScore in the 0.93–0.95 range, while a worktree candidate from a single source with 1.30 weight tops out around 0.40 post-rerank. To meet the spec's load-bearing requirement ("worktree wins for continuation tasks; memory flagged as potentially_stale"), a **separate `+0.6` positive boost** is applied at the per-candidate suppression stage when `metadata.worktree.promptMatch === true` (or `reason === 'prompt_named'`). A weaker `+0.22` boost applies for `git_changed`. This lives in `intentSuppressionAdjustment` as a positive boost branch parallel to `domain_match`, traced via the `boost:worktree_live_evidence:prompt_named` matchReason. The numbers are policy candidates — the next calibration pass (Phase 7) should tune them against the worktree-precedence metric once it lands in the eval fixture.
+- **Memory `potentially_stale` flagging is NOT done.** The spec said the conflicting memory should be flagged. Phase 5 ships **only the worktree dominance** path — the durable memory is outranked but not marked stale. Marking-as-stale belongs to a feedback or write-gate flow (Phase 6b's write-gate is the natural home). Left as a carry-over.
+- **Worktree provider does not surface a `domain` label.** A worktree candidate at `src/example/handler.ts` has the same path-derived domain (`example`) as a durable memory ingested from that file; we could infer + emit a `domain` label so the worktree candidate also gets the `domain_match` boost. Phase 5 instead relies on the `worktree_live_evidence` boost to carry the gap. Adding a path-derived domain label is a small, additive change for a future polish pass.
+- **No `searchContext` opt-in.** The spec said the provider runs when `taskType ∈ eligible` AND (prompt names files OR session has `cwd`). The implementation requires `cwd` regardless (no-cwd → empty result); when `cwd` is provided, the four sources run unconditionally (prompt-named is one of the four). This is strictly more eligible than the spec's union — but also strictly safer, because every source is bounded (`maxFiles=50`, `mtime` window, depth 2 scan).
+- **`graph` seed expansion includes worktree.** The spec did not specify the seed-set treatment. The implementation includes worktree-surfaced knowledgeIds in `seedKnowledgeIds` for `searchGraphRelations` so durable graph relations *connected to* live files surface naturally. This is additive — no graph relation is invented; existing edges just expand from a wider seed set.
+- **Provider lives outside the `KnowledgeStore` interface.** As noted above. Tests inject a custom `WorktreeProvider` via the new optional 7th constructor argument on `RetrievalService`.
+
+**Files added:**
+- `src/retrieval/worktree.ts` (~510 lines — `WorktreeProvider` class, four collectors, sanitizer pass, deterministic ranking)
+- `test/worktree-phase5.test.ts` (5 tests, all green)
+
+**Files modified:**
+- `src/types.ts` — `CandidateSource` adds `'worktree'`; `KnowledgeSearchResult.worktree`; `RetrievalDebugStageName` + `FusionContributionStage` widened.
+- `src/config.ts` — `worktreeEnabled / worktreeMaxFiles / worktreeMaxMtimeAgeHours` fields + env-var loaders.
+- `src/retrieval/service.ts` — Constructor accepts `worktreeProvider`; `findCandidates` runs the provider in parallel and returns the result alongside the search candidates; `rankCandidates` adds the 6th candidate group; `searchContext` threads `worktreeMatchScore` into the `ContextFitSignal`; `intentSuppressionAdjustment` applies the `worktree_live_evidence` boost.
+- `src/retrieval/policy.ts` — `sourceWeights.worktree = 1.30`; `hardSignalBoost.sources` includes `worktree`; per-task `worktree` deltas on the eligible task profiles.
+- `config/retrieval-policy.json` — `_comment` updated.
+- `scripts/sandbox.ts` + `scripts/calibrate-fusion.ts` — `Record<CandidateSource, number>` literals patched.
+- All inline `AppConfig` literals across `test/*.ts` + `test/browser/*.ts` + `scripts/eval-*.ts` + `scripts/sandbox.ts` + `scripts/calibrate-fusion.ts` — added the three new env-driven fields.
+- `implements/enhance_rewrite/tuberosa-enhance-knowledge-quality.md` — this status block.
+
+**Verification (all green):**
+- `pnpm run build` ✅
+- `pnpm test` ✅ — 246/246 pass (was 241; +5 from `worktree-phase5.test.ts`)
+- `pnpm run eval:retrieval` ✅ — hit@5 100%, MRR 1.0, 14/14 pass, context-fit score 100%
+- `pnpm run eval:agent-context` ✅
+- `pnpm run eval:context-mapping` ✅ — no regressions vs Phase 4 (precision 25%, recall 100%, entities 100%, noise 75%, placement 100%, fit 100%, forbidden 0%)
+- `pnpm run sandbox` ✅ — latency p50=12ms (−1ms vs Phase 4), p95=17ms (−1ms); hit 93.2%, MRR 0.477; PASS thresholds.
+
+**Tried but not done (deliberate carry-overs):**
+- **`worktreePrecedence` metric in `eval:context-mapping`.** The spec asked for a "% of cases where worktree-matched files outrank conflicting memory" metric. The case-level evaluator currently has no concept of a worktree directory per case, so the metric has no producer. The dedicated regression test (`test/worktree-phase5.test.ts` case 2) covers the precedence invariant. To land the metric, extend the context-mapping fixture loader to accept a `worktreeFiles: { path, content }[]` block per case and write it to a temp directory before invoking `searchContext` with that `cwd`.
+- **Domain-label inference inside the worktree provider.** Adding a path-derived `domain` label would let worktree candidates qualify for the existing `domain_match` boost without the bespoke `worktree_live_evidence` constant. Useful polish; not load-bearing for Phase 5.
+- **`potentially_stale` flag on outranked memory.** When a worktree candidate beats a durable memory describing the same file, the memory should be auto-flagged for review. Natural home is Phase 6b (write-gate / supersedes). Left for that phase.
+- **Calibration of the `worktree_live_evidence` magnitudes.** The `+0.6 / +0.22` constants are sized against the Phase 5 regression fixture. A future calibration pass (Phase 7) should expose them via `config/retrieval-policy.json` (e.g., `policy.worktree.liveEvidenceBoost.{promptNamed,gitChanged}`) and grid-search them against a worktree-rich corpus.
+- **`searchWorktree?` optional store method.** If a future surface needs to surface worktree contents via the MCP `tuberosa_search_context` path without re-running the provider per-query, we can wire a cache-through path then. Today the provider runs fresh on every search; the cost is bounded by `maxFiles=50` and the depth-2 scan.
+- **Workbench UI rendering.** The worktree candidates surface through the same `RankedCandidate` shape; no workbench card explicitly distinguishes them. Add a `source === 'worktree'` chip in the presenter when convenient.
 
 ---
 

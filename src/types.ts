@@ -436,7 +436,7 @@ export interface RerankResult {
   model?: string;
 }
 
-export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph';
+export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph' | 'worktree';
 
 export interface SearchCandidate {
   knowledgeId: string;
@@ -1673,9 +1673,11 @@ export interface KnowledgeSearchResult {
   metadata: SearchCandidate[];
   memory: SearchCandidate[];
   graph: SearchCandidate[];
+  /** Phase 5 — live worktree evidence (changed files, prompt-named files, repo-root handoffs, recently-edited files). Read-through, never persisted. */
+  worktree: SearchCandidate[];
 }
 
-export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'fusion' | 'rerank' | 'fit';
+export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'fusion' | 'rerank' | 'fit';
 
 export type RetrievalDebugTimingName =
   | RetrievalDebugStageName
@@ -1725,7 +1727,7 @@ export interface RetrievalFilterDecision {
   reason: string;
 }
 
-export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph';
+export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree';
 
 export interface FusionContribution {
   source: FusionContributionStage;

@@ -52,6 +52,7 @@ import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator, type ContextFitSignal } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
 import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint } from './policy.js';
+import { WorktreeProvider, type WorktreeSearchResult } from './worktree.js';
 
 const DEFAULT_TOKEN_BUDGET = 4000;
 const SEARCH_LIMIT = 18;
@@ -86,6 +87,8 @@ type NormalizedContextSearchInput = ContextSearchInput & {
 };
 
 export class RetrievalService {
+  private readonly worktreeProvider: WorktreeProvider;
+
   constructor(
     private readonly store: KnowledgeStore,
     private readonly cache: Cache,
@@ -93,7 +96,19 @@ export class RetrievalService {
     private readonly config: AppConfig,
     private readonly safety: KnowledgeSafetyService = new KnowledgeSafetyService(),
     private readonly fitEvaluator: ContextFitEvaluator = new ContextFitEvaluator(),
-  ) {}
+    worktreeProvider?: WorktreeProvider,
+  ) {
+    this.worktreeProvider = worktreeProvider
+      ?? new WorktreeProvider(
+        {
+          enabled: config.worktreeEnabled,
+          maxFiles: config.worktreeMaxFiles,
+          maxMtimeAgeHours: config.worktreeMaxMtimeAgeHours,
+          maxIngestContentBytes: config.maxIngestContentBytes,
+        },
+        safety,
+      );
+  }
 
   async searchContext(input: ContextSearchInput): Promise<ContextPack> {
     const normalized = await this.addContinuationProvenance(
@@ -143,7 +158,12 @@ export class RetrievalService {
       this.createContextQuery(normalized, rewriteResult.classified, fingerprint, project),
       debug,
     );
-    const candidates = await this.findCandidates(normalized, rewriteResult.classified, project, debug);
+    const { candidates, worktree: worktreeResult } = await this.findCandidates(
+      normalized,
+      rewriteResult.classified,
+      project,
+      debug,
+    );
     const rankingResult = await this.rankCandidates(
       normalized.prompt,
       candidates,
@@ -159,7 +179,7 @@ export class RetrievalService {
       classified: rewriteResult.classified,
       candidates: rankedCandidates,
       rejectedKnowledgeIds: normalized.rejectedKnowledgeIds,
-      signal: rankingResult.signal,
+      signal: { ...rankingResult.signal, worktreeMatchScore: worktreeResult.matchScore },
     });
     const contextFit = applyNoiseTolerance(
       fitEvaluation.contextFit,
@@ -316,7 +336,7 @@ export class RetrievalService {
     classified: ClassifiedQuery,
     project?: string,
     debug?: RetrievalDebugBuilder,
-  ): Promise<KnowledgeSearchResult> {
+  ): Promise<{ candidates: KnowledgeSearchResult; worktree: WorktreeSearchResult }> {
     const options: SearchOptions = {
       project,
       limit: SEARCH_LIMIT,
@@ -330,25 +350,43 @@ export class RetrievalService {
     );
     const vectorResults = embedding
       .then((embedding) => timed('vector', this.store.searchVector(embedding, options), debug));
+    const worktreeResults = timed(
+      'worktree',
+      this.worktreeProvider.search({
+        cwd: input.cwd,
+        prompt: input.prompt,
+        classified,
+        taskType: classified.taskType,
+        project,
+        limit: SEARCH_LIMIT,
+        rejectedKnowledgeIds: input.rejectedKnowledgeIds,
+      }),
+      debug,
+    );
 
-    const [metadata, lexical, memory, vector] = await Promise.all([
+    const [metadata, lexical, memory, vector, worktree] = await Promise.all([
       timed('metadata', this.store.searchMetadata(classified, options), debug),
       timed('lexical', this.store.searchLexical(classified, options), debug),
       timed('memory', this.store.searchMemories(classified, options), debug),
       vectorResults,
+      worktreeResults,
     ]);
-    const safeResults = {
+    const safeResults: KnowledgeSearchResult = {
       metadata: this.safety.sanitizeSearchCandidates(metadata),
       lexical: this.safety.sanitizeSearchCandidates(lexical),
       memory: this.safety.sanitizeSearchCandidates(memory),
       vector: this.safety.sanitizeSearchCandidates(vector),
       graph: [] as KnowledgeSearchResult['graph'],
+      // WorktreeProvider already sanitizes through KnowledgeSafetyService; this is a no-op pass
+      // but keeps the data path uniform with the other 4 sources for any future hardening.
+      worktree: this.safety.sanitizeSearchCandidates(worktree.candidates),
     };
     const seedKnowledgeIds = uniqueStrings([
       ...safeResults.metadata,
       ...safeResults.lexical,
       ...safeResults.memory,
       ...safeResults.vector,
+      ...safeResults.worktree,
     ].map((candidate) => candidate.knowledgeId));
     const graph = await timed(
       'graph',
@@ -370,8 +408,9 @@ export class RetrievalService {
     debug?.recordStage('memory', safeResults.memory);
     debug?.recordStage('vector', safeResults.vector);
     debug?.recordStage('graph', safeResults.graph);
+    debug?.recordStage('worktree', safeResults.worktree);
 
-    return safeResults;
+    return { candidates: safeResults, worktree };
   }
 
   private async rankCandidates(
@@ -390,6 +429,7 @@ export class RetrievalService {
       disabled.has('memory') ? [] : candidates.memory,
       disabled.has('vector') ? [] : candidates.vector,
       disabled.has('graph') ? [] : candidates.graph,
+      disabled.has('worktree') ? [] : candidates.worktree,
     ];
 
     // Phase 2 — fetch feedback summaries BEFORE fusion so the per-candidate
@@ -1650,6 +1690,30 @@ function intentSuppressionAdjustment(
       confidence: 0.6,
       evidence: `required evidence types=${classified.intent.requiredEvidenceTypes.join(',') || 'none'}`,
     });
+  }
+
+  // Phase 5 — worktree candidates that match a prompt-named file represent live truth;
+  // give them a strong positive boost so they outrank conflicting durable memory for
+  // continuation / self-edit tasks. RRF fusion otherwise compounds across multiple
+  // memory/graph/lexical contributions and the single-source worktree weight (1.30)
+  // alone cannot beat a memory hit by 3 sources. The boost is sized so that a
+  // prompt-named worktree candidate at a mid-tier fused score reliably outranks a
+  // memory candidate sweeping memory+graph+lexical at the top of the fused list.
+  if (candidate.source === 'worktree') {
+    const worktreeMeta = candidate.metadata?.worktree as { reason?: string; promptMatch?: boolean } | undefined;
+    if (worktreeMeta?.promptMatch || worktreeMeta?.reason === 'prompt_named') {
+      // The boost must overcome (a) the single-source-fusion penalty vs a memory
+      // candidate hit by 3 sources, and (b) the domain_match bonus durable memories
+      // typically already carry. Sized empirically against the Phase 5 regression
+      // fixture; smaller values let multi-source memories win.
+      const delta = 0.6;
+      boost += delta;
+      reasons.push('boost:worktree_live_evidence:prompt_named');
+    } else if (worktreeMeta?.reason === 'git_changed') {
+      const delta = 0.22;
+      boost += delta;
+      reasons.push('boost:worktree_live_evidence:git_changed');
+    }
   }
 
   if (policy.suppressionEnabled.domainMismatch && classified.domain) {

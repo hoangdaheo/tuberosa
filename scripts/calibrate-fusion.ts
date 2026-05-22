@@ -189,7 +189,7 @@ function buildCalibrationOutput(aggregation: Aggregation, seed: number): Calibra
 }
 
 function newSourceMap(): Record<CandidateSource, number> {
-  return { metadata: 0, lexical: 0, vector: 0, memory: 0, graph: 0 };
+  return { metadata: 0, lexical: 0, vector: 0, memory: 0, graph: 0, worktree: 0 };
 }
 
 function roundEntries(map: Record<CandidateSource, number>): Record<CandidateSource, number> {
@@ -325,6 +325,9 @@ const CALIBRATION_CONFIG: AppConfig = {
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
   errorLogCaptureClientErrors: false,
+  worktreeEnabled: true,
+  worktreeMaxFiles: 50,
+  worktreeMaxMtimeAgeHours: 72,
 };
 
 main().catch((error: unknown) => {

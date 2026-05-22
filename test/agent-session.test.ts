@@ -35,6 +35,9 @@ const config: AppConfig = {
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
   errorLogCaptureClientErrors: false,
+  worktreeEnabled: true,
+  worktreeMaxFiles: 50,
+  worktreeMaxMtimeAgeHours: 72,
 };
 
 test('agent sessions start with context, record decisions, retry rejected context, and finish with a reflection draft', async () => {

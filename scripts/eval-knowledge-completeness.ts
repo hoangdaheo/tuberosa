@@ -50,6 +50,9 @@ const defaultConfig: AppConfig = {
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
   errorLogCaptureClientErrors: false,
+  worktreeEnabled: true,
+  worktreeMaxFiles: 50,
+  worktreeMaxMtimeAgeHours: 72,
 };
 
 async function main(): Promise<void> {
