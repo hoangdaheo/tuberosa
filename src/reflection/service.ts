@@ -2,9 +2,11 @@ import { classifyQuery, labelsFromClassification } from '../retrieval/classifier
 import { inferItemType } from '../ingest/item-type-inference.js';
 import type { IngestionService } from '../ingest/service.js';
 import { ValidationError } from '../errors.js';
+import type { ModelProvider } from '../model/provider.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import { recommendDraft, type DraftRecommendation } from './recommendation.js';
+import { computeWriteGate, type WriteGateResult } from './write-gate.js';
 import type {
   LabelInput,
   KnowledgeTaxonomy,
@@ -13,6 +15,7 @@ import type {
   ReflectionDraftInput,
   ReflectionDraftPatchInput,
   ReflectionDraftReviewInput,
+  SearchCandidate,
 } from '../types.js';
 
 export class ReflectionService {
@@ -20,6 +23,8 @@ export class ReflectionService {
     private readonly store: KnowledgeStore,
     private readonly ingestion: IngestionService,
     private readonly safety: KnowledgeSafetyService = new KnowledgeSafetyService(),
+    /** Phase 6b — optional model provider for write-gate cosine. Falls back to candidate rawScore proxy when omitted. */
+    private readonly models?: ModelProvider,
   ) {}
 
   async createDraft(input: ReflectionDraftInput) {
@@ -58,7 +63,29 @@ export class ReflectionService {
       limit: 5,
     });
 
-    return this.store.createReflectionDraft(normalized, duplicates);
+    // Phase 6b — compute the local-heuristic write-gate decision before
+    // persistence so the draft carries the recommendation for evaluateGates
+    // and the workbench. NEVER auto-mutates — only sets metadata.writeGate.
+    const writeGate = await computeWriteGate({
+      draft: {
+        title: normalized.title,
+        summary: normalized.summary,
+        content: normalized.content,
+        labels: normalized.labels ?? [],
+        references: normalized.references ?? [],
+      },
+      candidates: duplicates as SearchCandidate[],
+      models: this.models,
+    });
+    const draftWithGate: ReflectionDraftInput = {
+      ...normalized,
+      metadata: {
+        ...(normalized.metadata ?? {}),
+        writeGate: serializeWriteGate(writeGate),
+      },
+    };
+
+    return this.store.createReflectionDraft(draftWithGate, duplicates);
   }
 
   async approveDraft(id: string) {
@@ -363,6 +390,25 @@ function uniqueReferences(references: ReferenceInput[]): ReferenceInput[] {
     seen.add(key);
     return true;
   });
+}
+
+function serializeWriteGate(gate: WriteGateResult): Record<string, unknown> {
+  return {
+    decision: gate.decision,
+    reason: gate.reason,
+    scores: {
+      cosine: round(gate.scores.cosine),
+      labelOverlap: round(gate.scores.labelOverlap),
+      referenceOverlap: round(gate.scores.referenceOverlap),
+      recencyDays: Number.isFinite(gate.scores.recencyDays) ? round(gate.scores.recencyDays) : null,
+    },
+    evidenceIds: gate.evidenceIds,
+    ...(gate.closestKnowledgeId ? { closestKnowledgeId: gate.closestKnowledgeId } : {}),
+  };
+}
+
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function compactRecord(record: object): Record<string, unknown> {

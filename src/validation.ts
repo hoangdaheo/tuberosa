@@ -360,7 +360,26 @@ export function validateContextSearchInput(value: unknown): ContextSearchInput {
     rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'context search input'),
     bypassCache: readOptionalBoolean(record, 'bypassCache', 'context search input'),
     debug: readOptionalBoolean(record, 'debug', 'context search input'),
+    namespace: readOptionalNamespace(record, 'namespace', 'context search input'),
   };
+}
+
+function readOptionalNamespace(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): ContextSearchInput['namespace'] {
+  const value = record[key];
+  if (value === undefined || value === null) return undefined;
+  const obj = expectObject(value, `${label}.${key}`);
+  const project = readOptionalString(obj, 'project', `${label}.${key}.project`);
+  const kind = readOptionalString(obj, 'kind', `${label}.${key}.kind`);
+  const agent = readOptionalString(obj, 'agent', `${label}.${key}.agent`);
+  const namespace: ContextSearchInput['namespace'] = {};
+  if (project) namespace.project = project;
+  if (kind) namespace.kind = kind;
+  if (agent) namespace.agent = agent;
+  return Object.keys(namespace).length > 0 ? namespace : undefined;
 }
 
 export function validateStartAgentSessionInput(value: unknown): StartAgentSessionInput {

@@ -50,6 +50,12 @@ import type {
 } from '../types.js';
 import { estimateTokens, normalizeLabel, uniqueStrings } from '../util/text.js';
 import { getRetrievalPolicy, graphHopMultiplier } from '../retrieval/policy.js';
+import {
+  deriveNamespace,
+  namespaceMatchesFilter,
+  readNamespaceFromMetadata,
+  writeNamespaceToMetadata,
+} from './knowledge-namespace.js';
 import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 interface MemoryChunk extends ChunkInput {
@@ -75,6 +81,13 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     const now = new Date().toISOString();
     const existing = this.findKnowledgeBySourceUri(input.project, input.sourceUri);
     const id = existing?.id ?? randomUUID();
+    const namespace = deriveNamespace({
+      project: input.project,
+      itemType: input.itemType,
+      metadata: input.metadata,
+      namespace: input.namespace,
+    });
+    const metadataWithNamespace = writeNamespaceToMetadata(input.metadata, namespace);
     const stored: StoredKnowledge = {
       id,
       project: input.project,
@@ -86,12 +99,13 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       summary: input.summary ?? '',
       content: input.content,
       trustLevel: input.trustLevel ?? 50,
-      metadata: input.metadata ?? {},
+      metadata: metadataWithNamespace,
       labels: input.labels ?? [],
       references: input.references ?? [],
       freshnessAt: input.freshnessAt,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
+      namespace,
     };
     this.knowledge.set(id, stored);
     this.knowledgeSourceUris.set(id, input.sourceUri);
@@ -150,6 +164,13 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       return undefined;
     }
 
+    const mergedMetadata = patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata;
+    const namespace = patch.namespace ?? current.namespace ?? deriveNamespace({
+      project: current.project,
+      itemType: current.itemType,
+      metadata: mergedMetadata,
+    });
+    const metadataWithNamespace = writeNamespaceToMetadata(mergedMetadata, namespace);
     const updated: StoredKnowledge = {
       ...current,
       status: patch.status ?? current.status,
@@ -157,10 +178,11 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       summary: patch.summary ?? current.summary,
       trustLevel: patch.trustLevel ?? current.trustLevel,
       freshnessAt: patch.freshnessAt === null ? undefined : patch.freshnessAt ?? current.freshnessAt,
-      metadata: patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
+      metadata: metadataWithNamespace,
       labels: patch.labels ?? current.labels,
       references: patch.references ?? current.references,
       updatedAt: new Date().toISOString(),
+      namespace,
     };
     this.knowledge.set(id, updated);
     if (shouldDropInferredRelationsForStatus(patch.status)) {
@@ -207,18 +229,49 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   async createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation> {
     const from = this.knowledge.get(input.fromKnowledgeId);
     const now = new Date().toISOString();
+    const baseMetadata = input.metadata ?? {};
+    const metadata = typeof baseMetadata.validFrom === 'string'
+      ? baseMetadata
+      : { validFrom: now, ...baseMetadata };
     const relation: KnowledgeRelation = {
       ...input,
       id: randomUUID(),
       project: input.project ?? from?.project,
       confidence: input.confidence ?? 0.7,
       inferred: input.inferred ?? false,
-      metadata: input.metadata ?? {},
+      metadata,
       createdAt: now,
       updatedAt: now,
     };
     this.relations.set(relation.id, relation);
+
+    // Phase 6c — when memory A `supersedes` memory B, mark B's other inferred
+    // outgoing relations as expired so graph expansion does not revive stale
+    // edges from the superseded node. The supersedes relation itself is the
+    // dominant edge and stays valid; only the *other* relations from the
+    // superseded knowledge become invalid.
+    if (relation.relationType === 'supersedes' && relation.targetKnowledgeId) {
+      this.expireRelationsFromKnowledge(relation.targetKnowledgeId, now, relation.id);
+    }
     return relation;
+  }
+
+  private expireRelationsFromKnowledge(
+    knowledgeId: string,
+    expiredAt: string,
+    excludeRelationId?: string,
+  ): void {
+    for (const [id, existing] of this.relations.entries()) {
+      if (id === excludeRelationId) continue;
+      if (existing.fromKnowledgeId !== knowledgeId) continue;
+      if (!existing.inferred) continue;
+      if (typeof existing.metadata?.validUntil === 'string') continue;
+      this.relations.set(id, {
+        ...existing,
+        metadata: { ...(existing.metadata ?? {}), validUntil: expiredAt },
+        updatedAt: expiredAt,
+      });
+    }
   }
 
   async updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined> {
@@ -499,12 +552,22 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     options: SearchOptions & { seedKnowledgeIds?: string[] },
   ): Promise<SearchCandidate[]> {
     const directTargets = graphTargetTerms(classified);
+    // Phase 6d — the upstream seeds (metadata/lexical/memory/vector/worktree)
+    // are each capped at SEARCH_LIMIT, so the union is naturally bounded; the
+    // load-bearing fan-out limit is GRAPH_DEPTH2_CAP on the depth-2 expansion
+    // pass below. The original Phase 6d spec called for a ≤8 cap here too,
+    // but that regressed 3 retrieval-eval confidence thresholds (deviation
+    // documented in the plan file).
     const seedKnowledgeIds = new Set(options.seedKnowledgeIds ?? []);
     const scored = new Map<string, GraphScore>();
     const policy = getRetrievalPolicy();
     const depth2Frontier = new Set<string>();
+    // Phase 6c — evaluate validity once per query so the filter is consistent
+    // across the multi-pass scan below.
+    const validityCutoff = Date.now();
 
     for (const relation of this.relations.values()) {
+      if (isRelationExpired(relation, validityCutoff)) continue;
       const item = this.knowledge.get(relation.fromKnowledgeId);
       if (!item || !this.allowed(item, options) || item.status !== 'approved') {
         continue;
@@ -531,7 +594,11 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     }
 
     if (policy.graphMaxHops >= 2 && depth2Frontier.size > 0) {
+      // Phase 6d — bound depth-2 expansion to GRAPH_DEPTH2_CAP relations.
+      let depth2Count = 0;
       for (const relation of this.relations.values()) {
+        if (depth2Count >= GRAPH_DEPTH2_CAP) break;
+        if (isRelationExpired(relation, validityCutoff)) continue;
         if (!relation.targetKnowledgeId) continue;
         const fromInFrontier = depth2Frontier.has(relation.fromKnowledgeId);
         const toInFrontier = depth2Frontier.has(relation.targetKnowledgeId);
@@ -542,6 +609,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         if (!target || !this.allowed(target, options) || target.status !== 'approved') continue;
         const score = graphHopMultiplier(policy, 'depth2', relation.relationType) * relation.confidence;
         keepBestGraphScore(scored, expandTo, score, relation, 'depth2_expansion');
+        depth2Count += 1;
       }
     }
 
@@ -602,6 +670,13 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       const nextStatus = packStatusForFeedback(input.feedbackType);
       if (pack && nextStatus) {
         pack.status = nextStatus;
+      }
+    }
+    // Phase 6c — when feedback marks specific knowledge IDs as stale, expire
+    // their outgoing inferred relations so graph expansion drops their edges.
+    if (input.feedbackType === 'stale' && input.rejectedKnowledgeIds?.length) {
+      for (const knowledgeId of input.rejectedKnowledgeIds) {
+        this.expireRelationsFromKnowledge(knowledgeId, event.createdAt);
       }
     }
     return event;
@@ -1250,6 +1325,26 @@ function knowledgeMatchesReview(
 
 function withRanks(candidates: SearchCandidate[]): SearchCandidate[] {
   return candidates.map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+}
+
+/**
+ * Phase 6d — cap on the number of depth-2 edges actually expanded per query.
+ * The upstream seed union is naturally bounded by SEARCH_LIMIT (each source
+ * caps at 18), so this is the load-bearing fan-out limit.
+ */
+const GRAPH_DEPTH2_CAP = 16;
+
+/**
+ * Phase 6c — return true when the relation has expired (metadata.validUntil is
+ * a parseable ISO timestamp at or before `nowEpochMs`). Treats absent or
+ * unparseable validUntil as valid — backwards-compatible default.
+ */
+function isRelationExpired(relation: KnowledgeRelation, nowEpochMs: number): boolean {
+  const value = relation.metadata?.validUntil;
+  if (typeof value !== 'string') return false;
+  const expiresAtMs = Date.parse(value);
+  if (Number.isNaN(expiresAtMs)) return false;
+  return expiresAtMs <= nowEpochMs;
 }
 
 interface GraphScore {

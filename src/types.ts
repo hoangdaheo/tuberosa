@@ -280,6 +280,18 @@ export interface ListLearningProposalsOptions {
   limit: number;
 }
 
+/**
+ * Phase 6a — Namespaced memory scope (LangGraph pattern).
+ * Identifies the slot a memory occupies. `project` mirrors `KnowledgeInput.project`;
+ * `kind` is derived from `itemType` when not supplied (e.g. `memory|bugfix|rule` → `reflection`);
+ * `agent` is set only when a memory is written from an agent-session learning path.
+ */
+export interface KnowledgeNamespace {
+  project: string;
+  kind: string;
+  agent?: string;
+}
+
 export interface KnowledgeInput {
   project: string;
   sourceType: string;
@@ -294,6 +306,8 @@ export interface KnowledgeInput {
   references?: ReferenceInput[];
   metadata?: Record<string, unknown>;
   freshnessAt?: string;
+  /** Phase 6a — optional, defaults to {project, kind: kindFromItemType(itemType)}. */
+  namespace?: KnowledgeNamespace;
 }
 
 export interface StoredKnowledge {
@@ -314,6 +328,8 @@ export interface StoredKnowledge {
   freshnessAt?: string;
   createdAt: string;
   updatedAt?: string;
+  /** Phase 6a — populated by the storage layer on read. */
+  namespace?: KnowledgeNamespace;
 }
 
 export type KnowledgeStatus = 'approved' | 'needs_review' | 'archived' | 'blocked';
@@ -346,6 +362,8 @@ export interface KnowledgePatchInput {
   metadata?: Record<string, unknown>;
   labels?: LabelInput[];
   references?: ReferenceInput[];
+  /** Phase 6a — when supplied, overrides the derived namespace. */
+  namespace?: KnowledgeNamespace;
 }
 
 export interface LabelRecord extends LabelInput {
@@ -374,6 +392,13 @@ export interface ContextSearchInput {
    * so per-source contribution can be measured. MUST NOT be exposed in production MCP/HTTP surfaces.
    */
   disabledSources?: CandidateSource[];
+  /**
+   * Phase 6a — optional namespace filter. When `kind` (and/or `agent`) is supplied,
+   * candidates whose stored namespace mismatches are dropped post-fetch.
+   * `project` is honored by the existing `project` field; supplying it here is
+   * redundant but allowed for symmetry with the storage shape.
+   */
+  namespace?: Partial<KnowledgeNamespace>;
 }
 
 export type ContextMode = 'compact' | 'layered';

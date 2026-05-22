@@ -53,6 +53,10 @@ import { ContextFitEvaluator, type ContextFitSignal } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
 import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint } from './policy.js';
 import { WorktreeProvider, type WorktreeSearchResult } from './worktree.js';
+import {
+  namespaceMatchesFilter,
+  readNamespaceFromMetadata,
+} from '../storage/knowledge-namespace.js';
 
 const DEFAULT_TOKEN_BUDGET = 4000;
 const SEARCH_LIMIT = 18;
@@ -371,14 +375,15 @@ export class RetrievalService {
       vectorResults,
       worktreeResults,
     ]);
+    const namespaceFilter = input.namespace;
     const safeResults: KnowledgeSearchResult = {
-      metadata: this.safety.sanitizeSearchCandidates(metadata),
-      lexical: this.safety.sanitizeSearchCandidates(lexical),
-      memory: this.safety.sanitizeSearchCandidates(memory),
-      vector: this.safety.sanitizeSearchCandidates(vector),
+      metadata: applyNamespaceFilter(this.safety.sanitizeSearchCandidates(metadata), namespaceFilter),
+      lexical: applyNamespaceFilter(this.safety.sanitizeSearchCandidates(lexical), namespaceFilter),
+      memory: applyNamespaceFilter(this.safety.sanitizeSearchCandidates(memory), namespaceFilter),
+      vector: applyNamespaceFilter(this.safety.sanitizeSearchCandidates(vector), namespaceFilter),
       graph: [] as KnowledgeSearchResult['graph'],
-      // WorktreeProvider already sanitizes through KnowledgeSafetyService; this is a no-op pass
-      // but keeps the data path uniform with the other 4 sources for any future hardening.
+      // WorktreeProvider already sanitizes through KnowledgeSafetyService; namespace filter
+      // does not apply to worktree (live evidence has no persisted namespace by design).
       worktree: this.safety.sanitizeSearchCandidates(worktree.candidates),
     };
     const seedKnowledgeIds = uniqueStrings([
@@ -394,7 +399,7 @@ export class RetrievalService {
       debug,
     );
     safeResults.graph = enrichGraphCandidates(
-      this.safety.sanitizeSearchCandidates(graph),
+      applyNamespaceFilter(this.safety.sanitizeSearchCandidates(graph), namespaceFilter),
       classified,
       [
         ...safeResults.metadata,
@@ -1225,6 +1230,23 @@ function buildDeepContextItem(
   };
 }
 
+/**
+ * Phase 6a — drop candidates whose persisted namespace mismatches the supplied filter.
+ * Read-side filter; the candidate's `metadata.namespace` is set on upsert by both
+ * stores. Backwards-compatible: a missing filter (the common case) returns the input
+ * untouched.
+ */
+function applyNamespaceFilter(
+  candidates: SearchCandidate[],
+  filter: ContextSearchInput['namespace'] | undefined,
+): SearchCandidate[] {
+  if (!filter || (!filter.kind && !filter.agent && !filter.project)) return candidates;
+  return candidates.filter((candidate) => {
+    const stored = readNamespaceFromMetadata(candidate.metadata);
+    return namespaceMatchesFilter(stored, filter);
+  });
+}
+
 function enrichGraphCandidates(
   graphCandidates: KnowledgeSearchResult['graph'],
   classified: ClassifiedQuery,
@@ -1300,6 +1322,7 @@ function fingerprintSearch(
     queryRewriteModel: rewrite?.model,
     rerankModel: config.openAiRerankModel,
     policyFingerprint: getRetrievalPolicyFingerprint(),
+    namespace: input.namespace ?? null,
   }));
 }
 

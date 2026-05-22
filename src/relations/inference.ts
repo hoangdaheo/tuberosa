@@ -27,6 +27,12 @@ export class KnowledgeRelationInference {
     ];
     const deduped = dedupeRelationSeeds(seeds);
 
+    // Phase 6c — stamp every inferred relation with metadata.validFrom so
+    // graph-expansion can later filter expired edges via validUntil. validFrom
+    // anchors at inference time (effectively the createdAt timestamp the store
+    // will write). validUntil is left unset; it is filled in by createKnowledgeRelation
+    // when a supersedes relation is created or by recordFeedback for stale signals.
+    const inferredAt = new Date().toISOString();
     const baseRelations = deduped.map((seed) => ({
       project: item.project,
       fromKnowledgeId: item.id,
@@ -35,14 +41,17 @@ export class KnowledgeRelationInference {
       targetValue: seed.targetValue,
       confidence: seed.confidence,
       inferred: true,
-      metadata: seed.metadata ?? {},
+      metadata: { validFrom: inferredAt, ...(seed.metadata ?? {}) },
     }));
 
     const astRelations = this.fromAst(item);
     if (astRelations.length === 0) {
       return baseRelations;
     }
-    return mergeRelations(baseRelations, astRelations);
+    return mergeRelations(baseRelations, astRelations).map((relation) => ({
+      ...relation,
+      metadata: ensureValidFromMetadata(relation.metadata, inferredAt),
+    }));
   }
 
   private fromAst(item: StoredKnowledge): KnowledgeRelationInput[] {
@@ -210,6 +219,16 @@ function mergeRelations(
     }
   }
   return [...byKey.values()];
+}
+
+function ensureValidFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+  inferredAt: string,
+): Record<string, unknown> {
+  if (metadata && typeof metadata.validFrom === 'string') {
+    return metadata;
+  }
+  return { validFrom: inferredAt, ...(metadata ?? {}) };
 }
 
 function dedupeRelationSeeds(seeds: RelationSeed[]): RelationSeed[] {

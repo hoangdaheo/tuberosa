@@ -64,8 +64,10 @@ const fullInput = (draft: ReflectionDraft, overrides: Partial<EvaluateGatesInput
 });
 
 test('evaluateGates returns all pass when every signal is healthy', () => {
+  // Phase 6b — write_gate gate added; the base draft has no writeGate metadata
+  // so it passes-with-note (pre-Phase-6b backwards-compat path).
   const gates = evaluateGates(fullInput(baseDraft()));
-  equal(gates.length, 11);
+  equal(gates.length, 12);
   for (const gate of gates) {
     equal(gate.status, 'pass', `expected ${gate.key} to pass: ${gate.message}`);
   }
@@ -178,5 +180,6 @@ test('every GateKey appears exactly once', () => {
     'noisy_feedback',
     'session_outcome',
     'signal_confidence',
+    'write_gate',
   ]);
 });

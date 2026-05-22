@@ -22,7 +22,8 @@ export type GateKey =
   | 'duplicates'
   | 'grounded_references'
   | 'concrete_labels'
-  | 'draft_maturity';
+  | 'draft_maturity'
+  | 'write_gate';
 
 export type GateStatus = 'pass' | 'fail' | 'unknown';
 
@@ -73,6 +74,7 @@ const HARD_GATES: ReadonlySet<GateKey> = new Set([
   'duplicates',
   'grounded_references',
   'signal_confidence',
+  'write_gate',
 ]);
 
 export function evaluateGates(input: EvaluateGatesInput): GateResult[] {
@@ -88,6 +90,7 @@ export function evaluateGates(input: EvaluateGatesInput): GateResult[] {
     gateGroundedReferences(input),
     gateConcreteLabels(input),
     gateDraftMaturity(input),
+    gateWriteGate(input),
   ];
 }
 
@@ -359,6 +362,93 @@ function gateDraftMaturity(input: EvaluateGatesInput): GateResult {
     message: 'Draft is short and may not give a future reader enough context.',
     detail: missing.join('; '),
   };
+}
+
+/**
+ * Phase 6b — surface the local-heuristic write-gate decision (Mem0 pattern,
+ * no LLM) as a synthetic gate. The decision is computed at draft creation
+ * and stored in `draft.metadata.writeGate`; this gate just reads it.
+ *
+ * Status mapping:
+ * - decision='ADD' → pass (new memory is the right move)
+ * - decision='NOOP' → fail (existing memory already covers this)
+ * - decision='UPDATE' → fail (propose merge instead of new entry)
+ * - decision='DELETE' → fail (propose superseding an existing memory)
+ * - decision missing → unknown (no candidates were inspected; gate is not load-bearing)
+ *
+ * Hard severity: NOOP/UPDATE/DELETE block auto-approval, matching the
+ * duplicates / grounded_references / signal_confidence gates.
+ */
+function gateWriteGate(input: EvaluateGatesInput): GateResult {
+  const key: GateKey = 'write_gate';
+  const severity: GateSeverity = 'hard';
+  const writeGate = readWriteGateMetadata(input.draft.metadata);
+  if (!writeGate) {
+    // Backwards-compat: drafts created before Phase 6b have no writeGate
+    // metadata. Treat the absence as a pass-with-note so older drafts are
+    // not regressed into needs-review when the rest of the gates green.
+    return {
+      key,
+      status: 'pass',
+      severity,
+      label: 'Memory write gate',
+      message: 'No write-gate signal recorded on this draft (pre-Phase-6b draft or empty duplicate pool).',
+    };
+  }
+
+  if (writeGate.decision === 'ADD') {
+    return {
+      key,
+      status: 'pass',
+      severity,
+      label: 'Memory write gate',
+      message: 'Draft is sufficiently distinct from existing memories — write-gate recommends adding a new entry.',
+      detail: writeGate.reason,
+    };
+  }
+
+  return {
+    key,
+    status: 'fail',
+    severity,
+    label: 'Memory write gate',
+    message: writeGateFailMessage(writeGate.decision),
+    detail: writeGate.reason,
+  };
+}
+
+function writeGateFailMessage(decision: WriteGateMetadataDecision): string {
+  switch (decision) {
+    case 'NOOP':
+      return 'Write-gate recommends NOOP — an existing memory already covers this lesson.';
+    case 'UPDATE':
+      return 'Write-gate recommends UPDATE — propose merging the new facts into the closest existing memory.';
+    case 'DELETE':
+      return 'Write-gate recommends DELETE — propose superseding the conflicting existing memory.';
+    default:
+      return 'Write-gate flagged this draft for review.';
+  }
+}
+
+type WriteGateMetadataDecision = 'ADD' | 'UPDATE' | 'NOOP' | 'DELETE';
+
+interface WriteGateMetadata {
+  decision: WriteGateMetadataDecision;
+  reason: string;
+  closestKnowledgeId?: string;
+}
+
+function readWriteGateMetadata(metadata: Record<string, unknown>): WriteGateMetadata | undefined {
+  const raw = metadata.writeGate;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const record = raw as Record<string, unknown>;
+  const decision = record.decision;
+  if (decision !== 'ADD' && decision !== 'UPDATE' && decision !== 'NOOP' && decision !== 'DELETE') {
+    return undefined;
+  }
+  const reason = typeof record.reason === 'string' ? record.reason : `Write-gate decision: ${decision}.`;
+  const closestKnowledgeId = typeof record.closestKnowledgeId === 'string' ? record.closestKnowledgeId : undefined;
+  return { decision, reason, closestKnowledgeId };
 }
 
 export function aggregateRecommendation(

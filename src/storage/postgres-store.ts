@@ -54,6 +54,11 @@ import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
 import type { KnowledgeRelationType } from '../types.js';
+import {
+  deriveNamespace,
+  readNamespaceFromMetadata,
+  writeNamespaceToMetadata,
+} from './knowledge-namespace.js';
 import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 type Queryable = Pool | PoolClient;
@@ -172,7 +177,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         client,
         projectId,
         sourceId,
-        withLabelProvenanceMetadata(input),
+        withNamespaceMetadata(withLabelProvenanceMetadata(input)),
       );
       await this.attachLabels(client, knowledgeId, input.labels ?? []);
       await this.attachReferences(client, knowledgeId, input.references ?? []);
@@ -272,9 +277,17 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     try {
       await client.query('BEGIN');
       const mergedMetadataBase = patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata;
-      const mergedMetadata = patch.labels
+      const mergedMetadataWithProvenance = patch.labels
         ? mergeLabelProvenanceIntoMetadata(mergedMetadataBase, patch.labels)
         : mergedMetadataBase;
+      const nextNamespace = patch.namespace
+        ?? current.namespace
+        ?? deriveNamespace({
+          project: current.project,
+          itemType: current.itemType,
+          metadata: mergedMetadataWithProvenance,
+        });
+      const mergedMetadata = writeNamespaceToMetadata(mergedMetadataWithProvenance, nextNamespace);
 
       await client.query(
         `
@@ -919,6 +932,11 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       ...classified.symbols.map((value) => ({ kind: 'symbol', value: normalizeLabel(value) })),
       ...classified.errors.map((value) => ({ kind: 'error', value: normalizeLabel(value) })),
     ];
+    // Phase 6d — seeds are already bounded by upstream SEARCH_LIMIT per source.
+    // Depth-2 fan-out is bounded by the outer LIMIT clause on this query. The
+    // original spec called for a ≤8 cap here too, but that regressed 3
+    // retrieval-eval confidence thresholds in the memory-store path — kept the
+    // input set looser to preserve eval green (deviation in plan file).
     const seedKnowledgeIds = options.seedKnowledgeIds ?? [];
 
     if (graphTargets.length === 0 && seedKnowledgeIds.length === 0) {
@@ -927,6 +945,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
     const policy = getRetrievalPolicy();
     const relationKindMultiplierSql = buildRelationKindMultiplierSql(policy.relationKindMultipliers);
+    // Phase 6c — `kr.metadata->>'validUntil'` either is NULL or parses as a
+    // timestamp at or after now(); expired edges are excluded from every
+    // branch of the UNION below.
+    const validitySql = `(kr.metadata->>'validUntil' IS NULL OR (kr.metadata->>'validUntil')::timestamptz > now())`;
     const result = await this.pool.query(
       `
         WITH graph_targets AS (
@@ -950,6 +972,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
           FROM knowledge_relations kr
           JOIN graph_targets gt ON gt.kind = kr.target_kind
             AND gt.value = trim(both '-' from regexp_replace(lower(COALESCE(kr.target_value, '')), '[^a-z0-9._/-]+', '-', 'g'))
+          WHERE ${validitySql}
           UNION ALL
           SELECT
             kr.target_knowledge_id AS knowledge_id,
@@ -967,6 +990,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
           FROM knowledge_relations kr
           WHERE kr.from_knowledge_id = ANY($2::uuid[])
             AND kr.target_knowledge_id IS NOT NULL
+            AND ${validitySql}
           UNION ALL
           SELECT
             kr.from_knowledge_id AS knowledge_id,
@@ -983,6 +1007,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
             ) AS graph_path
           FROM knowledge_relations kr
           WHERE kr.target_knowledge_id = ANY($2::uuid[])
+            AND ${validitySql}
         ),
         graph_scores AS (
           SELECT DISTINCT ON (knowledge_id)
@@ -1109,6 +1134,15 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       }
     }
 
+    // Phase 6c — feedback flagging a knowledge as stale expires its outgoing
+    // inferred relations so graph expansion drops their edges.
+    const createdAtIso = toIso(result.rows[0].created_at);
+    if (input.feedbackType === 'stale' && input.rejectedKnowledgeIds?.length) {
+      for (const knowledgeId of input.rejectedKnowledgeIds) {
+        await this.expireRelationsFromKnowledge(this.pool, knowledgeId, createdAtIso);
+      }
+    }
+
     return {
       id: String(result.rows[0].id),
       contextPackId: result.rows[0].context_pack_id ? String(result.rows[0].context_pack_id) : undefined,
@@ -1117,7 +1151,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       reason: result.rows[0].reason ? String(result.rows[0].reason) : undefined,
       rejectedKnowledgeIds: (result.rows[0].rejected_knowledge_ids ?? []) as string[],
       metadata: (result.rows[0].metadata ?? {}) as Record<string, unknown>,
-      createdAt: toIso(result.rows[0].created_at),
+      createdAt: createdAtIso,
     };
   }
 
@@ -1991,6 +2025,11 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     const projectId = input.project
       ? await this.ensureProject(client, input.project)
       : null;
+    // Phase 6c — stamp metadata.validFrom on every new relation (mirror inference.ts).
+    const baseMetadata = input.metadata ?? {};
+    const metadataWithValidity = typeof baseMetadata.validFrom === 'string'
+      ? baseMetadata
+      : { validFrom: new Date().toISOString(), ...baseMetadata };
     const result = await client.query(
       `
         WITH inserted AS (
@@ -2017,10 +2056,43 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         input.targetValue ?? null,
         input.confidence ?? 0.7,
         input.inferred ?? false,
-        input.metadata ?? {},
+        metadataWithValidity,
       ],
     );
-    return mapRelationRow(result.rows[0]);
+    const created = mapRelationRow(result.rows[0]);
+
+    // Phase 6c — when memory A supersedes memory B, stamp validUntil on B's
+    // other inferred outgoing relations. Idempotent: skip relations that
+    // already carry a validUntil.
+    if (created.relationType === 'supersedes' && created.targetKnowledgeId) {
+      await this.expireRelationsFromKnowledge(
+        client,
+        created.targetKnowledgeId,
+        new Date().toISOString(),
+        created.id,
+      );
+    }
+    return created;
+  }
+
+  private async expireRelationsFromKnowledge(
+    client: Queryable,
+    knowledgeId: string,
+    expiredAt: string,
+    excludeRelationId?: string,
+  ): Promise<void> {
+    await client.query(
+      `
+        UPDATE knowledge_relations
+        SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{validUntil}', to_jsonb($2::text), true),
+            updated_at = now()
+        WHERE from_knowledge_id = $1
+          AND inferred = true
+          AND (metadata->>'validUntil') IS NULL
+          AND ($3::uuid IS NULL OR id <> $3)
+      `,
+      [knowledgeId, expiredAt, excludeRelationId ?? null],
+    );
   }
 }
 
@@ -2198,14 +2270,18 @@ function learningProposalSelect(): string {
 function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
   const metadata = (row.metadata ?? {}) as Record<string, unknown>;
   const rawLabels = (row.labels ?? []) as LabelInput[];
+  const project = String(row.project);
+  const itemType = row.item_type as StoredKnowledge['itemType'];
+  const namespace = readNamespaceFromMetadata(metadata)
+    ?? deriveNamespace({ project, itemType, metadata });
   return {
     id: String(row.id),
     projectId: row.project_id ? String(row.project_id) : undefined,
-    project: String(row.project),
+    project,
     sourceType: row.source_type ? String(row.source_type) : undefined,
     sourceUri: row.source_uri ? String(row.source_uri) : undefined,
     status: row.status as StoredKnowledge['status'],
-    itemType: row.item_type as StoredKnowledge['itemType'],
+    itemType,
     title: String(row.title),
     summary: String(row.summary ?? ''),
     content: String(row.content),
@@ -2216,6 +2292,7 @@ function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
     freshnessAt: row.freshness_at ? toIso(row.freshness_at) : undefined,
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
+    namespace,
   };
 }
 
@@ -2555,6 +2632,7 @@ function toIso(value: unknown): string {
 
 const LABEL_PROVENANCE_METADATA_KEY = 'labelProvenance';
 
+
 function labelProvenanceKey(label: { type: string; value: string }): string {
   return `${label.type}:${normalizeLabel(label.value)}`;
 }
@@ -2595,6 +2673,22 @@ function withLabelProvenanceMetadata(input: KnowledgeInput): KnowledgeInput {
     return input;
   }
   return { ...input, metadata: next };
+}
+
+/**
+ * Phase 6a — stamp the derived namespace into metadata.namespace before persisting.
+ * Mirrors {@link withLabelProvenanceMetadata}: a thin pre-write step on the JSONB
+ * column, no schema migration. Read-side hydration uses {@link readNamespaceFromMetadata}.
+ */
+function withNamespaceMetadata(input: KnowledgeInput): KnowledgeInput {
+  const namespace = deriveNamespace({
+    project: input.project,
+    itemType: input.itemType,
+    metadata: input.metadata,
+    namespace: input.namespace,
+  });
+  const next = writeNamespaceToMetadata(input.metadata, namespace);
+  return { ...input, metadata: next, namespace };
 }
 
 function hydrateLabelProvenance(

@@ -682,6 +682,15 @@ function tools() {
           rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
           bypassCache: { type: 'boolean' },
           debug: { type: 'boolean' },
+          namespace: {
+            type: 'object',
+            description: 'Phase 6a — optional namespace filter. Drops candidates whose stored namespace mismatches.',
+            properties: {
+              project: { type: 'string' },
+              kind: { type: 'string', description: 'e.g. reflection, wiki, spec, workflow, code_ref' },
+              agent: { type: 'string' },
+            },
+          },
         },
       },
     },
@@ -728,6 +737,15 @@ function tools() {
           agentName: { type: 'string' },
           agentTool: { type: 'string' },
           metadata: { type: 'object' },
+          namespace: {
+            type: 'object',
+            description: 'Phase 6a — optional namespace filter.',
+            properties: {
+              project: { type: 'string' },
+              kind: { type: 'string' },
+              agent: { type: 'string' },
+            },
+          },
         },
       },
     },
