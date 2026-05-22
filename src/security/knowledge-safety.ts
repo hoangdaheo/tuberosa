@@ -43,7 +43,25 @@ interface TextScanResult {
   text: string;
   issues: KnowledgeSafetyIssue[];
   redactionCount: number;
+  /** Phase 9 — names of patterns that actually fired (validator-approved). */
+  firedPatterns: string[];
 }
+
+/** Phase 9 — public summary of a single secret-pattern scan, used by eval:safety. */
+export interface SecretScanResult {
+  redactedText: string;
+  redactionCount: number;
+  firedPatterns: string[];
+  perPattern: Record<string, number>;
+}
+
+export const SECRET_PATTERN_NAMES: readonly string[] = [
+  'pem_private_key',
+  'openai_api_key',
+  'github_token',
+  'aws_access_key',
+  'credential_assignment',
+];
 
 interface SafetyDecision {
   status: KnowledgeSafetyStatus;
@@ -52,33 +70,118 @@ interface SafetyDecision {
   redactionCount: number;
 }
 
+/**
+ * Phase 9 — context passed to per-pattern validators. Allows skipping a regex
+ * match when it lands inside a comment, a TypeScript type annotation, an env
+ * placeholder, or any other surface that the lab fixture says should NOT redact.
+ */
+export interface SecretPatternValidatorContext {
+  fullMatch: string;
+  value: string;
+  matchIndex: number;
+  fullText: string;
+}
+
 interface TextPattern {
+  /** Phase 9 — short stable identifier used by the safety evaluator. */
+  name?: string;
   pattern: RegExp;
   issue: KnowledgeSafetyIssue;
+  /**
+   * Phase 9 — return true to keep the redaction, false to skip and leave the
+   * original text intact. Receives the full match and the captured value group
+   * named `value` (or the full match when no group is present).
+   */
+  validator?: (context: SecretPatternValidatorContext) => boolean;
 }
 
 const SECRET_PATTERNS: TextPattern[] = [
   {
+    name: 'pem_private_key',
     pattern: /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/g,
     issue: { type: 'secret', severity: 'high', message: 'Private key material was redacted.', redacted: true },
   },
   {
+    name: 'openai_api_key',
     pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/g,
     issue: { type: 'secret', severity: 'high', message: 'OpenAI-style API key was redacted.', redacted: true },
   },
   {
+    name: 'github_token',
     pattern: /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g,
     issue: { type: 'secret', severity: 'high', message: 'GitHub token was redacted.', redacted: true },
   },
   {
+    name: 'aws_access_key',
     pattern: /\bAKIA[0-9A-Z]{16}\b/g,
     issue: { type: 'secret', severity: 'high', message: 'AWS access key id was redacted.', redacted: true },
   },
   {
-    pattern: /\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*["']?[^"'\s]{12,}["']?/gi,
+    name: 'credential_assignment',
+    // Phase 9 — keyword may be quoted (JSON-style "password": "..."), and the
+    // value is captured into a named group so the validator can vet it.
+    pattern: /(?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*["']?(?<value>[^"'\s]{12,})["']?/gi,
     issue: { type: 'secret', severity: 'medium', message: 'Credential-like assignment was redacted.', redacted: true },
+    validator: (ctx) => !isCredentialAssignmentFalsePositive(ctx),
   },
 ];
+
+const PLACEHOLDER_REGEXES: readonly RegExp[] = [
+  /^[<{][^>}]*[>}]$/,                                // <foo>, {foo}
+  /^\$\{[^}]*\}$/,                                   // ${foo}
+  /^\{\{[^}]*\}\}$/,                                 // {{foo}}
+  /^(?:your[_-]|my[_-]|test[_-]|dummy[_-]|example[_-]|sample[_-]|fake[_-])/i,
+  /(?:[_-](?:here|placeholder|example|sample|fake|dummy|replace[_-]?me))(?:[_-][a-z0-9]+)?$/i,
+  /^x{8,}$|^\.{8,}$|^-{8,}$|^\*{8,}$/i,              // xxxxxxxx, ........, --------
+  /^[A-Z]+(?:_[A-Z0-9]+)+$/,                         // SHELL_STYLE_ENV (no $ wrapper but clearly a var name)
+  /^\.\.\.$/,
+];
+
+function isLikelyPlaceholder(rawValue: string): boolean {
+  const value = rawValue.replace(/^["']|["']$/g, '').trim();
+  if (value.length === 0) return true;
+  return PLACEHOLDER_REGEXES.some((re) => re.test(value));
+}
+
+function looksLikeTypeAnnotation(rawValue: string): boolean {
+  // Strip surrounding quotes and *trailing* code punctuation that the value
+  // regex happily slurps up (`,`, `;`, `)`, `]`, `}`, `>`). Identifier itself
+  // never contains those, so removing them is safe.
+  const value = rawValue
+    .replace(/^["']|["']$/g, '')
+    .replace(/[,;:)}\]>]+$/g, '')
+    .trim();
+  if (value.length === 0) return false;
+  // PascalCase identifier (or dotted chain) with no digits/punctuation — looks
+  // like a TypeScript type, not a credential.
+  return /^(?:[A-Z][A-Za-z]*)(?:\.[A-Z][A-Za-z]*)*$/.test(value);
+}
+
+function isLowEntropy(rawValue: string): boolean {
+  const value = rawValue.replace(/^["']|["']$/g, '');
+  if (value.length === 0) return true;
+  return new Set(value).size <= 3;
+}
+
+function isCommentContext(fullText: string, matchIndex: number): boolean {
+  const lineStart = fullText.lastIndexOf('\n', matchIndex - 1) + 1;
+  const linePrefix = fullText.slice(lineStart, matchIndex);
+  const trimmed = linePrefix.replace(/^\s+/, '');
+  if (trimmed.startsWith('//') || trimmed.startsWith('#')) return true;
+  // JSDoc / block-comment continuation lines (e.g. ` * @param ...`).
+  if (/^\*\s/.test(trimmed) || trimmed === '*') return true;
+  if (trimmed.startsWith('/*')) return true;
+  return false;
+}
+
+function isCredentialAssignmentFalsePositive(ctx: SecretPatternValidatorContext): boolean {
+  if (isCommentContext(ctx.fullText, ctx.matchIndex)) return true;
+  const value = ctx.value;
+  if (isLikelyPlaceholder(value)) return true;
+  if (looksLikeTypeAnnotation(value)) return true;
+  if (isLowEntropy(value)) return true;
+  return false;
+}
 
 const BLOCK_PATTERNS: TextPattern[] = [
   {
@@ -175,6 +278,25 @@ export class KnowledgeSafetyService {
 
   redactSecrets(value: string): string {
     return redactSecretPatterns(value, this.activePiiPatterns()).text;
+  }
+
+  /**
+   * Phase 9 — exposes per-pattern firing counts for the safety evaluator. The
+   * PII patterns are intentionally excluded here: this method measures the
+   * static `SECRET_PATTERNS` list (the surface the FP/FN fixture targets).
+   */
+  scanForSecrets(value: string): SecretScanResult {
+    const result = redactSecretPatterns(value);
+    const perPattern: Record<string, number> = {};
+    for (const name of result.firedPatterns) {
+      perPattern[name] = (perPattern[name] ?? 0) + 1;
+    }
+    return {
+      redactedText: result.text,
+      redactionCount: result.redactionCount,
+      firedPatterns: Array.from(new Set(result.firedPatterns)),
+      perPattern,
+    };
   }
 
   sanitizeKnowledgeInput(input: KnowledgeInput): KnowledgeInput {
@@ -306,7 +428,7 @@ export class KnowledgeSafetyService {
     const text = redacted.text;
     const classification = this.classifier.classify(text);
     const issues: KnowledgeSafetyIssue[] = uniqueIssues([...redacted.issues, ...classification.issues]);
-    return { text, issues, redactionCount: redacted.redactionCount };
+    return { text, issues, redactionCount: redacted.redactionCount, firedPatterns: redacted.firedPatterns };
   }
 
   private activePiiPatterns(): TextPattern[] {
@@ -331,18 +453,42 @@ function safePolicy(accessor: () => RetrievalPolicy): RetrievalPolicy | undefine
 function redactSecretPatterns(value: string, extraPatterns: TextPattern[] = []): TextScanResult {
   let text = value;
   const issues: KnowledgeSafetyIssue[] = [];
+  const firedPatterns: string[] = [];
   let redactionCount = 0;
   const patterns = extraPatterns.length === 0 ? SECRET_PATTERNS : [...SECRET_PATTERNS, ...extraPatterns];
 
-  for (const { pattern, issue } of patterns) {
-    text = text.replace(pattern, () => {
+  for (const entry of patterns) {
+    const { pattern, issue, validator, name } = entry;
+    const beforeText = text;
+    text = text.replace(pattern, (...args: unknown[]) => {
+      const match = args[0] as string;
+      // The replace callback signature is
+      //   (match, ...captures, offset, string[, groups])
+      // — with named-capture groups the trailing `groups` object is appended
+      // after `string`, so we have to peel from the right.
+      const lastArg = args[args.length - 1];
+      const hasGroups = lastArg !== null && typeof lastArg === 'object';
+      const groups = hasGroups ? (lastArg as Record<string, string | undefined>) : undefined;
+      const offsetIndex = hasGroups ? args.length - 3 : args.length - 2;
+      const rawOffset = args[offsetIndex];
+      const offset = typeof rawOffset === 'number' ? rawOffset : 0;
+      const valueGroup = groups?.value ?? match;
+      if (validator) {
+        const keep = validator({ fullMatch: match, value: valueGroup, matchIndex: offset, fullText: beforeText });
+        if (!keep) {
+          return match;
+        }
+      }
       issues.push(issue);
       redactionCount += 1;
+      if (name) {
+        firedPatterns.push(name);
+      }
       return `[REDACTED:${issue.type}]`;
     });
   }
 
-  return { text, issues: uniqueIssues(issues), redactionCount };
+  return { text, issues: uniqueIssues(issues), redactionCount, firedPatterns };
 }
 
 function decideSafety(scans: TextScanResult[]): SafetyDecision {

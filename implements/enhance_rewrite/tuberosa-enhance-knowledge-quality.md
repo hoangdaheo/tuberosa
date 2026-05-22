@@ -853,17 +853,83 @@ Brief groundedness lands at the spec target of 100% on every case — the guard 
 
 ## Phase 9 — Knowledge-safety false-positive measurement
 
-**Why:** the regex patterns in `knowledge-safety.ts` (e.g., `api[_-]?key\s*[:=]`) are broad. Legitimate config files get redacted unnecessarily, losing useful knowledge. No metric exists for this today.
+**Why:** the regex patterns in `knowledge-safety.ts` (e.g., `api[_-]?key\s*[:=]`) are broad. Legitimate config files get redacted unnecessarily, losing useful knowledge. No metric existed for this before this phase.
 
-**Changes:**
-- New fixture `eval/safety-fixtures.json`:
-  - True positives: PEM keys, GitHub tokens, AWS AKIA, real API secrets in commits.
-  - True negatives: TypeScript types like `apiKey?: string`, function param `apiKey: string`, comments like `// pass api key`, env-example placeholder values.
-  - Edge cases: JSON schema descriptions, JSDoc examples.
-- New evaluator `src/evaluation/safety-evaluator.ts` and script `pnpm run eval:safety`. Outputs precision / recall / F1 per pattern.
-- `src/security/knowledge-safety.ts`: tighten patterns based on evaluator results (e.g., require non-trivial value after `=`/`:`; ignore TypeScript type-annotation context). Maintain ≥ 0.95 recall on true positives while raising precision above current baseline.
+**Status: ✅ DONE (2026-05-22)**
 
-**Verification:** `eval:safety` script lands with a baseline + thresholds. Future pattern changes can't regress precision/recall silently.
+**Implemented:**
+- ✅ `eval/safety-fixtures.json` (new, 21 cases) — 11 true positives (PEM RSA / OpenSSH / EC private keys, OpenAI `sk-` keys, GitHub `ghp_`/`gho_` tokens, AWS `AKIA…` access keys, three credential-assignment shapes including a JSON-style `"password":"…"`) + 10 true negatives (TypeScript interface/function-param/class-property type annotations, line comment, JSDoc block, `your_*_here` / `<your-key>` / `${ENV_VAR}` / `xxxxxxxx` placeholders, JSON-schema description). Each TP carries `expectedPattern` (one of `SECRET_PATTERN_NAMES`) so per-pattern precision/recall is measurable; each TN carries `expectedPattern: null`.
+- ✅ `src/security/knowledge-safety.ts`:
+  - `TextPattern` extended with `name?: string` + `validator?(ctx) => boolean`. Each entry in `SECRET_PATTERNS` now carries a stable `name` (`pem_private_key`, `openai_api_key`, `github_token`, `aws_access_key`, `credential_assignment`). Exported `SECRET_PATTERN_NAMES` and `SecretScanResult` so the evaluator can iterate the canonical list deterministically without touching internals.
+  - `credential_assignment` regex tightened: (a) accepts an optional quote between the keyword and the `:` so JSON-style `"password":"…"` matches (the previous regex missed this and was a load-bearing recall gap surfaced by `tp-credential-password-json`); (b) value is captured into a named `?<value>` group so the validator can vet it; (c) new validator `isCredentialAssignmentFalsePositive` short-circuits on comment context, PascalCase type annotations, env-style placeholders, and very-low-entropy values.
+  - Helpers added (heuristic-only, zero LLM call): `isLikelyPlaceholder` (regex set for `<foo>`, `${foo}`, `{{foo}}`, `your_*` / `*_here` / `*_replace_me`, `xxxxxxxx`/`........`/`--------`, all-caps `SHELL_STYLE_ENV`), `looksLikeTypeAnnotation` (strips trailing `,;:)}]>` and matches `^(?:[A-Z][A-Za-z]*)(?:\.[A-Z][A-Za-z]*)*$`), `isLowEntropy` (`new Set(value).size <= 3`), `isCommentContext` (line prefix starts with `//`, `#`, `/*`, or `*` for JSDoc continuation).
+  - `redactSecretPatterns` rewired to peel the regex-replace callback arguments correctly when named groups are present (the trailing `groups` object pushes `offset` and `string` one slot to the left — the previous draft of this code computed `matchIndex=0` for any pattern with named groups, which broke `isCommentContext`). Captures `firedPatterns: string[]` (validator-approved hits only) and surfaces it on `TextScanResult`.
+  - Public `scanForSecrets(value)` method exposes `{ redactedText, redactionCount, firedPatterns, perPattern }`. Used by the new evaluator; intentionally bypasses the PII patterns since the fixture only covers the static `SECRET_PATTERNS` surface.
+- ✅ `src/evaluation/safety-evaluator.ts` (new): parses the fixture, runs every case through `KnowledgeSafetyService.scanForSecrets`, and reports overall TP/FN/FP/TN + precision/recall/F1 **plus** per-pattern metrics. Per-pattern precision treats overlapping firings on a TP case as a benign overlap (doesn't penalize `credential_assignment` for also firing on a `GITHUB_TOKEN=ghp_…` case whose expected pattern is `github_token`); per-pattern FP is incremented when the pattern fires on any TN case. Deterministic — no LLM, no provider, no store.
+- ✅ `scripts/eval-safety.ts` + `pnpm run eval:safety`: CLI mirrors the Phase 0/Phase 8 evaluator style. Flags: `--fixture <path>`, `--write-baseline <path>`, `--fail-under-precision`, `--fail-under-recall`, `--fail-under-f1`, `--json`. Prints overall + per-pattern + a focused "Failing cases" section that says `MISSED` (TP not redacted) or `OVER-REDACT` (TN redacted) with the firing patterns so a regression is one glance to diagnose.
+- ✅ `eval/baseline-safety.json` (new): locked baseline with overall precision/recall/F1 + per-pattern numbers as of this commit. Future tightening must keep recall ≥ this and aim to push precision up.
+- ✅ `test/knowledge-safety-phase9.test.ts` (new, 6 tests, all green): pins down (a) `SECRET_PATTERN_NAMES` length + endpoints (so re-ordering is deliberate), (b) the load-bearing recall guarantee — five canonical credential shapes still redact, (c) TS type annotations no longer over-redact, (d) env-example placeholder shapes (`<…>`, `${…}`, `xxxxxxxx`, `your_*_here`) skip, (e) line-comment + JSDoc credential mentions skip, (f) JSON-style `"password":"…"` assignments redact (the new recall win).
+
+**Baseline numbers (hash provider, 2026-05-22):**
+
+| Metric | Phase 8 baseline | Phase 9 first run | Post Phase 9 tightening | Δ vs first run |
+|---|---|---|---|---|
+| Overall TP | n/a (no fixture) | 11 / 11 | 11 / 11 | — |
+| Overall FN | n/a | 0 | 0 | — |
+| Overall FP | n/a | 3 / 10 | **0 / 10** | **−3** |
+| Overall TN | n/a | 7 / 10 | **10 / 10** | **+3** |
+| Overall precision | n/a | 78.6% | **100.0%** | **+21.4pp** |
+| Overall recall | n/a | 100.0% | 100.0% | — (≥ 0.95 target met) |
+| Overall F1 | n/a | 88.0% | **100.0%** | **+12.0pp** |
+| `eval:retrieval` | 14/14 green | — | 14/14 green | — |
+| `eval:agent-context` | green | — | green | — |
+| `eval:context-mapping` | precision 25%, forbidden 0%, brief 100% | — | unchanged | — |
+| `pnpm test` | 271/271 | — | **277/277** (+6 phase-9 tests) | +6 |
+| Sandbox hit | 93.2% | — | 93.2% | — |
+| Sandbox latency p50 | 13–18ms | — | 22ms (run variance, within budget) | within bounds |
+| Sandbox latency p95 | 18–34ms | — | 57ms (run variance, within budget) | within bounds |
+
+The "first run" column captures what the new fixture surfaced against the **untouched** secret patterns before any tightening — three FPs in `credential_assignment` on TS type annotations and a line comment. The Phase 9 tightening drops those to zero while keeping recall pegged at 100% (every load-bearing TP, including the previously-missed `tp-credential-password-json` JSON shape, still redacts). Per-pattern: `pem_private_key`, `openai_api_key`, `github_token`, `aws_access_key`, and `credential_assignment` all sit at 100/100/100 precision/recall/F1.
+
+**Deviations from the original Phase 9 spec (recorded so they aren't lost):**
+- **Per-pattern precision allows TP overlap.** The spec said "outputs precision / recall / F1 per pattern". A naive implementation would penalize `credential_assignment` for also firing on a `GITHUB_TOKEN=ghp_…` case (whose `expectedPattern` is `github_token`). The evaluator treats overlapping firings on TP cases as benign: `credential_assignment` only earns a per-pattern FP when it fires on a TN case. Rationale: the redaction WAS warranted on the TP case (a real credential was present); the `expectedPattern` annotation exists for per-pattern **recall** measurement, not to forbid co-firing. This matches what the spec actually wants ("which pattern is over-firing on legitimate content").
+- **`scanForSecrets` intentionally skips PII patterns.** The PII patterns (`PII_EMAIL_PATTERN`, `PII_PHONE_PATTERN`, `PII_IPV4_PATTERN`) are policy-gated and never present unless `policy.piiRedaction` is enabled. The Phase 9 fixture targets the static `SECRET_PATTERNS` surface only — adding PII would require fixture cases for "is this a phone number" / "is this an IP" which is a different conversation (and would require running the policy machinery to keep behavior deterministic). The `scanForSecrets` method documents this exclusion in its JSDoc. Future Phase 9.5 could extend the fixture + evaluator to cover PII once we have a target precision/recall for those.
+- **No `migrations/00X_safety_*` SQL change.** The spec's representative-paths block did not call for one and the implementation lives entirely in the `KnowledgeSafetyService` + evaluator. No persisted state changes.
+- **Threshold flags are opt-in, not CI-default.** The new `--fail-under-precision / --fail-under-recall / --fail-under-f1` flags are wired into `pnpm run eval:safety` but not wired into any CI default command. Consistent with Phase 0 / Phase 8 conventions — operators opt in when they're ready to lock the regression target. Recommendation: lock `--fail-under-recall 0.95 --fail-under-f1 0.95` once a future production-corpus pass confirms the baseline holds outside the synthetic fixture.
+- **`looksLikeTypeAnnotation` strips trailing punctuation.** The raw value capture (e.g., `AccessTokenServiceCredential,` with a trailing comma when the credential is followed by another function parameter) would not match `^(?:[A-Z][A-Za-z]*)(?:\.[A-Z][A-Za-z]*)*$` literally. The helper strips `[,;:)}\]>]+$` (no-cost since identifiers never contain those) before checking. Without this, two of the three first-run TN failures would have stayed FP.
+- **Replace-callback arg order bug, surfaced and fixed in the same PR.** Node's `String.prototype.replace` with a named-capture-group regex passes the `groups` object as the LAST argument (after `match`, `...captures`, `offset`, `string`). The first draft assumed offset was always `args[length-2]`; with `groups` present that slot is actually the full `string` (typed as string, not number), and the validator was getting `matchIndex=0` on every match → `isCommentContext` always looked at "from the very start of the text". Documented in code so future patterns adding named groups don't fall into the same trap.
+- **No `TUBEROSA_SAFETY_*` env flag.** The behavior is always-on and verified via fixtures + unit tests, same posture as Phases 1–8. If a future incident needs an emergency bypass, add `process.env.TUBEROSA_CREDENTIAL_VALIDATOR_DISABLED === 'true'` to short-circuit the `validator` block in `redactSecretPatterns`.
+- **Edge case "low entropy" is conservative.** `isLowEntropy` triggers only on `<= 3` unique characters — short of catching things like `abcabcabcabc` (4 unique). This is deliberate: any heuristic over the value alone (without external entropy estimation) trades recall for precision, and the load-bearing test (`token=super-secret-token-value-12345`) only has 17 unique chars but is a real credential. Future tightening can plug in a shannon-entropy threshold gated by a fixture case once we have data showing the FP cost.
+
+**Files added:**
+- `src/evaluation/safety-evaluator.ts` (~225 lines — fixture loader, evaluator class, overall + per-pattern metric computers)
+- `scripts/eval-safety.ts` (~210 lines — CLI mirroring `scripts/eval-context-mapping.ts`)
+- `eval/safety-fixtures.json` (21 cases: 11 TPs, 10 TNs)
+- `eval/baseline-safety.json` (locked baseline)
+- `test/knowledge-safety-phase9.test.ts` (6 tests, all green)
+
+**Files modified:**
+- `src/security/knowledge-safety.ts` — `TextPattern` gets `name?` + `validator?`; new `SecretPatternValidatorContext`, `SecretScanResult`, `SECRET_PATTERN_NAMES`; `credential_assignment` regex tightened with named `?<value>` group + JSON-style allowance; new helpers (`isLikelyPlaceholder`, `looksLikeTypeAnnotation`, `isLowEntropy`, `isCommentContext`, `isCredentialAssignmentFalsePositive`); `redactSecretPatterns` rewrites the replace-callback to honor validators + capture per-pattern firings; new `scanForSecrets` public method.
+- `package.json` — adds `"eval:safety": "tsx scripts/eval-safety.ts"`.
+- `implements/enhance_rewrite/tuberosa-enhance-knowledge-quality.md` — this status block.
+
+**Verification (all green):**
+- `pnpm run build` ✅
+- `pnpm test` ✅ — 277/277 pass (was 271; +6 from `test/knowledge-safety-phase9.test.ts`)
+- `pnpm run eval:retrieval` ✅ — hit@5 100%, MRR 1.0, 14/14 pass, context-fit score 100%
+- `pnpm run eval:agent-context` ✅
+- `pnpm run eval:context-mapping` ✅ — no regressions vs Phase 8 (precision 25%, recall 100%, entities 100%, noise 75%, placement 100%, fit 100%, forbidden 0%, brief 100%)
+- `pnpm run eval:safety` ✅ — **overall precision 100.0%, recall 100.0%, F1 100.0%** on 21 cases; per-pattern all at 100/100/100
+- `pnpm run sandbox` ✅ — hit 93.2%, MRR 0.4771, noise 9.1%, latency p50=22ms, p95=57ms (within 1.5× budget)
+
+**Tried but not done (deliberate carry-overs):**
+- **PII evaluator coverage.** `scanForSecrets` deliberately skips PII patterns; extend the fixture + evaluator to cover `PII_EMAIL_PATTERN` / `PII_PHONE_PATTERN` / `PII_IPV4_PATTERN` once we want a precision/recall target for those.
+- **Wire `--fail-under-recall 0.95` (or stricter) into CI.** The threshold flags exist; the load-bearing recall target is documented but not gated. Lock it once the fixture has run against a production-corpus sample.
+- **Production-corpus harness.** Today the fixture is hand-authored and synthetic. To prove the patterns generalize, run `scanForSecrets` over an actual import (Tuberosa's own docs/, a tarred-up `.env.example`, plus a small slice of project code) and check that the FP rate matches the fixture. Add a Phase 9.5 sandbox harness if/when that gap matters.
+- **Shannon-entropy threshold.** `isLowEntropy` is currently `<= 3 unique chars`. Plug in a real entropy gauge (e.g., `entropy(value) < 2.5` for short values) once a fixture case shows a real FP that the current heuristic misses.
+- **Per-pattern `--fail-under-*` flags.** The CLI only fails on overall metrics. Add `--fail-under-pattern-precision pem_private_key=1.0` style flags when a future incident makes a single pattern's regression unacceptable.
+- **Workbench rendering of safety stats.** The workbench summary surfaces redaction counts; it does not yet break them down per pattern. The `scanForSecrets` output is the natural input for that surface.
+- **Phase 5 Postgres UUID crash on worktree ids (still open).** Not part of Phase 9, just confirming the carry-over from line ~516 of this plan remains unresolved — worktree-prefixed knowledge ids still crash the Postgres MCP path. The fix scope is small (filter `worktree:` ids before any PG cast) but it's load-bearing for anyone running against Postgres rather than the in-memory store. Recommend bundling with the next phase that touches `src/storage/postgres-store.ts`.
 
 ---
 

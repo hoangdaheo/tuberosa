@@ -37,6 +37,7 @@
     "eval:knowledge-completeness": "tsx scripts/eval-knowledge-completeness.ts",
     "eval:agent-context": "tsx scripts/eval-agent-context.ts",
     "eval:context-mapping": "tsx scripts/eval-context-mapping.ts",
+    "eval:safety": "tsx scripts/eval-safety.ts",
     "sandbox": "tsx scripts/sandbox.ts",
     "sandbox:ablate": "tsx scripts/sandbox.ts --ablate",
     "calibrate-fusion": "tsx scripts/calibrate-fusion.ts",

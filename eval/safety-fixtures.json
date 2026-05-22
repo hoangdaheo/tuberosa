@@ -1,0 +1,153 @@
+{
+  "name": "Tuberosa Phase 9 — knowledge-safety FP/FN fixture",
+  "description": "Measures precision / recall / F1 of src/security/knowledge-safety.ts secret patterns. True positives must redact; true negatives must NOT redact. Cases are atomic — one secret pattern per case — so per-pattern metrics roll up cleanly. The expectedPattern matches the `name` field exported on each TextPattern in knowledge-safety.ts.",
+  "cases": [
+    {
+      "id": "tp-pem-rsa-private-key",
+      "kind": "true_positive",
+      "category": "pem_private_key",
+      "expectedPattern": "pem_private_key",
+      "text": "Stored creds (rotate quarterly):\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAvKKbAxYz9JmF1ZqRpD8nXKLpFwYsRtZyN4WqJ8tPbVcG2nHJ\nQ7sM4cVtY9bX2Rk8WqLpFwY6RtZyN4WqJ8tPbVcG2nHJQ7sM4cVtY9bX2Rk8Wq==\n-----END RSA PRIVATE KEY-----\n"
+    },
+    {
+      "id": "tp-pem-openssh-private-key",
+      "kind": "true_positive",
+      "category": "pem_private_key",
+      "expectedPattern": "pem_private_key",
+      "text": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz\nc2gtZWQyNTUxOQAAACBKpJqL9V6Y4FwYsRtZyN4WqJ8tPbVcG2nHJQ7sM4cVtY8=\n-----END OPENSSH PRIVATE KEY-----"
+    },
+    {
+      "id": "tp-pem-ec-private-key",
+      "kind": "true_positive",
+      "category": "pem_private_key",
+      "expectedPattern": "pem_private_key",
+      "text": "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIBuxXJtZyN4WqJ8tPbVcG2nHJQ7sM4cVtY9bX2Rk8WqLpoAoGCCqGSM49\nAwEHoUQDQgAE5fS6XJtZyN4WqJ8tPbVcG2nHJQ7sM4cVtY9bX2Rk8WqLpFwY6RtZ\n-----END EC PRIVATE KEY-----"
+    },
+    {
+      "id": "tp-openai-key-sk-proj",
+      "kind": "true_positive",
+      "category": "openai_api_key",
+      "expectedPattern": "openai_api_key",
+      "text": "config.openaiKey = 'sk-proj-abc123DEF456ghiJKL789mnoPQR012stuVWX'"
+    },
+    {
+      "id": "tp-openai-key-sk-legacy",
+      "kind": "true_positive",
+      "category": "openai_api_key",
+      "expectedPattern": "openai_api_key",
+      "text": "echo sk-Bd0NfMzQpR3tY7vX2hL5cKgWa9bP4Eq8sJ6uT1mZ"
+    },
+    {
+      "id": "tp-github-pat-classic",
+      "kind": "true_positive",
+      "category": "github_token",
+      "expectedPattern": "github_token",
+      "text": "GITHUB_TOKEN=ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    },
+    {
+      "id": "tp-github-oauth-token",
+      "kind": "true_positive",
+      "category": "github_token",
+      "expectedPattern": "github_token",
+      "text": "Authorization: token gho_0123456789AbCdEfGhIjKlMnOpQrStUvWxYz"
+    },
+    {
+      "id": "tp-aws-access-key-id",
+      "kind": "true_positive",
+      "category": "aws_access_key",
+      "expectedPattern": "aws_access_key",
+      "text": "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    },
+    {
+      "id": "tp-credential-quoted-mixed-entropy",
+      "kind": "true_positive",
+      "category": "credential_assignment",
+      "expectedPattern": "credential_assignment",
+      "text": "const config = { api_key: \"rXC8eVj4kY2pQ7mL9zN3sT5uA1bD\" };"
+    },
+    {
+      "id": "tp-credential-unquoted-token",
+      "kind": "true_positive",
+      "category": "credential_assignment",
+      "expectedPattern": "credential_assignment",
+      "text": "token=kg83Hd09Xp2Fb47NmZqAcVe5Tr1Uw"
+    },
+    {
+      "id": "tp-credential-password-json",
+      "kind": "true_positive",
+      "category": "credential_assignment",
+      "expectedPattern": "credential_assignment",
+      "text": "{\"username\":\"svc\",\"password\":\"k2P9xQ5mL7nB3vT8wY1aC4dE\"}"
+    },
+    {
+      "id": "tn-ts-interface-optional-types",
+      "kind": "true_negative",
+      "category": "ts_type_annotation",
+      "expectedPattern": null,
+      "text": "interface ServiceConfig { apiKey?: string; secretToken?: string; password?: string; }"
+    },
+    {
+      "id": "tn-ts-function-param-named-type",
+      "kind": "true_negative",
+      "category": "ts_type_annotation",
+      "expectedPattern": null,
+      "text": "function login(password: AccessTokenServiceCredential, apiKey: ServiceAuthCredentialProvider) { return null; }"
+    },
+    {
+      "id": "tn-ts-class-property-pascal-type",
+      "kind": "true_negative",
+      "category": "ts_type_annotation",
+      "expectedPattern": null,
+      "text": "class AuthClient { apiKey: AccessTokenServiceCredential; private secret: BearerTokenCredential; }"
+    },
+    {
+      "id": "tn-line-comment-credential-mention",
+      "kind": "true_negative",
+      "category": "code_comment",
+      "expectedPattern": null,
+      "text": "// TODO: pass api_key = realValueHereXYZ from config to the auth provider"
+    },
+    {
+      "id": "tn-jsdoc-block-param-type",
+      "kind": "true_negative",
+      "category": "jsdoc",
+      "expectedPattern": null,
+      "text": "/**\n * Authenticate against the upstream service.\n *\n * @param apiKey: ServiceAuthCredentialProvider the credential provider implementation\n * @param password: BearerTokenCredentialProvider the bearer-token credential provider\n */"
+    },
+    {
+      "id": "tn-env-example-your-here-replace",
+      "kind": "true_negative",
+      "category": "env_example",
+      "expectedPattern": null,
+      "text": "# .env.example — replace placeholders with real secrets before running\nAPI_KEY=your_api_key_here_replace_me\nPASSWORD=your_password_placeholder"
+    },
+    {
+      "id": "tn-env-example-angle-bracket",
+      "kind": "true_negative",
+      "category": "env_example",
+      "expectedPattern": null,
+      "text": "API_KEY=<your-openai-api-key>"
+    },
+    {
+      "id": "tn-env-example-shell-var",
+      "kind": "true_negative",
+      "category": "env_example",
+      "expectedPattern": null,
+      "text": "password=${DB_PASSWORD}"
+    },
+    {
+      "id": "tn-env-example-xxx-placeholder",
+      "kind": "true_negative",
+      "category": "env_example",
+      "expectedPattern": null,
+      "text": "token=xxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "id": "tn-json-schema-description",
+      "kind": "true_negative",
+      "category": "json_schema",
+      "expectedPattern": null,
+      "text": "{ \"apiKey\": { \"type\": \"string\", \"description\": \"The API key used to authenticate against the upstream service.\" } }"
+    }
+  ]
+}

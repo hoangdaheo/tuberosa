@@ -1,0 +1,61 @@
+{
+  "fixtureName": "Tuberosa Phase 9 — knowledge-safety FP/FN fixture",
+  "recordedAt": "2026-05-22T07:38:41.638Z",
+  "totalCases": 21,
+  "overall": {
+    "truePositives": 11,
+    "falsePositives": 0,
+    "trueNegatives": 10,
+    "falseNegatives": 0,
+    "precision": 1,
+    "recall": 1,
+    "f1": 1
+  },
+  "perPattern": [
+    {
+      "name": "pem_private_key",
+      "truePositives": 3,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    },
+    {
+      "name": "openai_api_key",
+      "truePositives": 2,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    },
+    {
+      "name": "github_token",
+      "truePositives": 2,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    },
+    {
+      "name": "aws_access_key",
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    },
+    {
+      "name": "credential_assignment",
+      "truePositives": 3,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    }
+  ]
+}
