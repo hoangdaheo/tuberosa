@@ -24,6 +24,8 @@ interface CliOptions {
   failUnderFitCalibration?: number;
   failUnderEntitiesRecall?: number;
   failOverForbiddenRate?: number;
+  /** Phase 8 — minimum acceptable briefGroundedness (default off; CI can set 1.0). */
+  failUnderBriefGroundedness?: number;
   writeBaseline?: string;
   help: boolean;
 }
@@ -179,6 +181,12 @@ function parseArgs(args: string[]): CliOptions {
       continue;
     }
 
+    if (arg === '--fail-under-brief-groundedness') {
+      options.failUnderBriefGroundedness = readRate(readOptionValue(args, index, arg), arg);
+      index += 1;
+      continue;
+    }
+
     throw new Error(`Unknown option: ${arg}\n\n${usage()}`);
   }
 
@@ -229,6 +237,7 @@ function printMetrics(metrics: ContextMappingMetrics, topK: number): void {
   console.log(`  direct-evidence placement: ${formatRate(metrics.directEvidencePlacement)}`);
   console.log(`  fit calibration:          ${formatRate(metrics.fitCalibration)}`);
   console.log(`  forbidden-item rate:      ${formatRate(metrics.forbiddenItemRate)}`);
+  console.log(`  brief groundedness:       ${formatRate(metrics.briefGroundedness)}`);
 
   if (metrics.perTaxon.length > 0) {
     console.log('');
@@ -236,7 +245,7 @@ function printMetrics(metrics: ContextMappingMetrics, topK: number): void {
     for (const row of metrics.perTaxon) {
       console.log(`  ${row.taxon} (${row.caseCount} cases)`);
       console.log(`    precision@${topK}: ${formatRate(row.contextPrecisionAtK)}  recall: ${formatRate(row.contextRecall)}  entities: ${formatRate(row.contextEntitiesRecall)}`);
-      console.log(`    noise: ${formatRate(row.noiseSensitivity)}  placement: ${formatRate(row.directEvidencePlacement)}  fit: ${formatRate(row.fitCalibration)}  forbidden: ${formatRate(row.forbiddenItemRate)}`);
+      console.log(`    noise: ${formatRate(row.noiseSensitivity)}  placement: ${formatRate(row.directEvidencePlacement)}  fit: ${formatRate(row.fitCalibration)}  forbidden: ${formatRate(row.forbiddenItemRate)}  briefGrounded: ${formatRate(row.briefGroundedness)}`);
     }
   }
 }
@@ -285,6 +294,9 @@ function shouldFail(report: ContextMappingReport, options: CliOptions): boolean 
   if (options.failOverForbiddenRate !== undefined && metrics.forbiddenItemRate !== null && metrics.forbiddenItemRate > options.failOverForbiddenRate) {
     failures.push(`forbiddenItemRate ${metrics.forbiddenItemRate} > ${options.failOverForbiddenRate}`);
   }
+  if (options.failUnderBriefGroundedness !== undefined && metrics.briefGroundedness !== null && metrics.briefGroundedness < options.failUnderBriefGroundedness) {
+    failures.push(`briefGroundedness ${metrics.briefGroundedness} < ${options.failUnderBriefGroundedness}`);
+  }
 
   if (failures.length > 0) {
     console.error(`\nThreshold violations: ${failures.join('; ')}`);
@@ -312,6 +324,7 @@ function usage(): string {
     '  --fail-under-noise-sensitivity <0-1>  Exit non-zero when noise sensitivity drops below the threshold',
     '  --fail-under-fit-calibration <0-1>    Exit non-zero when fit calibration drops below the threshold',
     '  --fail-over-forbidden-rate <0-1>      Exit non-zero when forbidden-item rate rises above the threshold',
+    '  --fail-under-brief-groundedness <0-1> Exit non-zero when brief groundedness drops below the threshold',
     '  --json                                Print the full JSON report',
     '  -h, --help                            Show this help',
   ].join('\n');

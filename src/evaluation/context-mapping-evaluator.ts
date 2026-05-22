@@ -1,6 +1,7 @@
 import type {
   ContextFitStatus,
   ContextPack,
+  ContextPackActionItem,
   ContextSearchInput,
   FeedbackInput,
   KnowledgeInput,
@@ -144,6 +145,12 @@ export interface ContextMappingCaseResult {
   forbiddenLeakageCount: number;
   distractorLeakageCount: number;
   noiseSensitivity: number | null;
+  /**
+   * Phase 8 — % of taskBrief.actionItems that pass the brief-groundedness invariant.
+   * `null` when the case has no grounding-eligible actions (only policy-only items).
+   * Target: 1.0 post-guard. Tracks regressions in the brief-groundedness pipeline.
+   */
+  briefGroundedness: number | null;
 
   topKnowledgeIds: string[];
   essentialKnowledgeIds: string[];
@@ -151,6 +158,8 @@ export interface ContextMappingCaseResult {
   directEvidenceKnowledgeIds: string[];
   forbiddenKnowledgeIds: string[];
   missingEntities: string[];
+  /** Phase 8 — brief-groundedness warnings surfaced via fitDiagnostics.notes. */
+  briefWarnings: string[];
 }
 
 export interface ContextMappingTaxonMetrics {
@@ -163,6 +172,7 @@ export interface ContextMappingTaxonMetrics {
   directEvidencePlacement: number | null;
   fitCalibration: number | null;
   forbiddenItemRate: number | null;
+  briefGroundedness: number | null;
 }
 
 export interface ContextMappingMetrics {
@@ -173,6 +183,7 @@ export interface ContextMappingMetrics {
   directEvidencePlacement: number | null;
   fitCalibration: number | null;
   forbiddenItemRate: number | null;
+  briefGroundedness: number | null;
   perTaxon: ContextMappingTaxonMetrics[];
 }
 
@@ -405,6 +416,14 @@ export class ContextMappingEvaluator {
       ? true
       : fitStatus === testCase.expectedFitStatus;
 
+    // Phase 8 — brief groundedness: every grounding-eligible action item in the assembled
+    // brief must carry a non-empty evidenceIds list resolving to a pack candidate (or to
+    // the action's own targetId for self-grounded review targets). Policy-only actions are
+    // exempt. Target: 1.0 post-guard.
+    const { score: briefGroundedness } = evaluateBriefGroundedness(pack, allItems);
+    const briefWarnings = collectBriefWarnings(pack);
+    const briefOk = briefGroundedness === null || briefGroundedness === 1;
+
     // Pass criteria for the case overall — used for human-readable PASS/FAIL.
     // A case passes when all *declared* expectations are satisfied. We don't
     // fail a case for an undeclared expectation.
@@ -414,7 +433,7 @@ export class ContextMappingEvaluator {
     const noLeak = forbiddenLeakageCount === 0;
     const noDistractor = distractorLeakageCount === 0 || noiseDistractors.size === 0;
     const entityOk = contextEntitiesRecall === null || contextEntitiesRecall === 1;
-    const passed = precisionOk && recallOk && placementOk && noLeak && noDistractor && entityOk && fitStatusPassed;
+    const passed = precisionOk && recallOk && placementOk && noLeak && noDistractor && entityOk && fitStatusPassed && briefOk;
 
     return {
       id: testCase.id,
@@ -431,12 +450,14 @@ export class ContextMappingEvaluator {
       forbiddenLeakageCount,
       distractorLeakageCount,
       noiseSensitivity,
+      briefGroundedness,
       topKnowledgeIds: toEvalIds(index, topItems.map((item) => item.knowledgeId)),
       essentialKnowledgeIds: toEvalIds(index, essentialItems.map((item) => item.knowledgeId)),
       expectedRelevantKnowledgeIds: toEvalIds(index, [...expectedRelevant]),
       directEvidenceKnowledgeIds: toEvalIds(index, [...directEvidence]),
       forbiddenKnowledgeIds: toEvalIds(index, [...forbidden]),
       missingEntities,
+      briefWarnings,
     };
   }
 }
@@ -459,6 +480,7 @@ function buildMetrics(cases: ContextMappingCaseResult[]): ContextMappingMetrics 
     directEvidencePlacement: average(cases.map((testCase) => testCase.directEvidencePlacement)),
     fitCalibration: average(fitCalibrationCases(cases)),
     forbiddenItemRate: forbiddenItemRate(cases),
+    briefGroundedness: average(cases.map((testCase) => testCase.briefGroundedness)),
     perTaxon,
   };
 }
@@ -478,7 +500,58 @@ function buildTaxonMetrics(
     directEvidencePlacement: average(cases.map((testCase) => testCase.directEvidencePlacement)),
     fitCalibration: average(fitCalibrationCases(cases)),
     forbiddenItemRate: forbiddenItemRate(cases),
+    briefGroundedness: average(cases.map((testCase) => testCase.briefGroundedness)),
   };
+}
+
+// Phase 8 — policy-only actions that are exempt from the groundedness guard. Keep in sync
+// with the same set in `src/retrieval/context-pack.ts`.
+const POLICY_ONLY_ACTIONS = new Set(['run_verification', 'ask_clarification', 'inspect_shortlist']);
+
+function evaluateBriefGroundedness(
+  pack: ContextPack,
+  allItems: RankedCandidate[],
+): { score: number | null; failingActions: string[] } {
+  const actionItems = pack.taskBrief?.actionItems ?? [];
+  const eligible = actionItems.filter((action) => !POLICY_ONLY_ACTIONS.has(action.action));
+  if (eligible.length === 0) {
+    return { score: null, failingActions: [] };
+  }
+
+  const packIds = new Set(allItems.map((item) => item.knowledgeId));
+  const failingActions: string[] = [];
+  let grounded = 0;
+
+  for (const action of eligible) {
+    if (isActionGrounded(action, packIds)) {
+      grounded += 1;
+    } else {
+      failingActions.push(`${action.action}:${action.targetPath ?? action.targetTitle ?? action.label}`);
+    }
+  }
+
+  return {
+    score: round(grounded / eligible.length),
+    failingActions,
+  };
+}
+
+function isActionGrounded(action: ContextPackActionItem, packIds: Set<string>): boolean {
+  if (POLICY_ONLY_ACTIONS.has(action.action)) {
+    return true;
+  }
+  const evidenceIds = action.evidenceIds ?? [];
+  if (evidenceIds.length === 0) {
+    return false;
+  }
+  // Either every evidence id points to a pack candidate, or it points to the action's own
+  // `targetId` (self-grounded review target — workbench resolves via the id directly).
+  return evidenceIds.every((id) => packIds.has(id) || id === action.targetId);
+}
+
+function collectBriefWarnings(pack: ContextPack): string[] {
+  const notes = pack.contextFit?.fitDiagnostics?.notes ?? [];
+  return notes.filter((note) => note.startsWith('brief_warning:'));
 }
 
 function fitCalibrationCases(cases: ContextMappingCaseResult[]): Array<number | null> {

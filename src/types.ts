@@ -593,6 +593,13 @@ export interface ContextReviewTarget {
   title: string;
   recommendedAction: string;
   reason: string;
+  /**
+   * Phase 8 — knowledge IDs in the assembled pack that ground this review target.
+   * When the target's `id` matches a `RankedCandidate.knowledgeId` in the pack, that
+   * candidate id is recorded here. Empty when the target is self-grounded by its
+   * `id` alone (workbench navigates via targetId).
+   */
+  evidenceIds?: string[];
 }
 
 export interface ContextPackActionItem {
@@ -606,6 +613,14 @@ export interface ContextPackActionItem {
   targetPath?: string;
   command?: string;
   reason?: string;
+  /**
+   * Phase 8 — knowledge IDs in the assembled pack that ground this action.
+   * Populated for grounding-eligible actions (`read_file`, `review_target`,
+   * `inspect_review_target`). Policy-only actions (`run_verification`,
+   * `ask_clarification`, `inspect_shortlist`) leave this field absent — they are
+   * system recommendations, not knowledge-grounded.
+   */
+  evidenceIds?: string[];
 }
 
 export interface ContextPackTaskBrief {

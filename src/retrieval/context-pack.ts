@@ -10,6 +10,7 @@ import type {
   ContextPackOrientation,
   ContextPackTaskBrief,
   ContextReviewTarget,
+  FitDiagnostics,
   RankedCandidate,
   TaskBriefMode,
 } from '../types.js';
@@ -77,6 +78,12 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
   const confidence = clamp(topScore * 0.56 + input.classified.confidence * 0.16 + density * 0.08 + fitScore * 0.2, 0, 0.99);
   const orientation = buildOrientation(input, selected, actionableMissingSignals);
 
+  // Phase 8 — tag review targets with evidenceIds tied to pack candidates (when present).
+  const reviewTargets = tagReviewTargetsWithEvidence(input.reviewTargets ?? [], selected);
+
+  const briefBuild = buildTaskBrief({ ...input, reviewTargets }, selected, orientation);
+  const contextFit = mergeBriefWarningsIntoContextFit(input.contextFit, briefBuild.warnings);
+
   return {
     id: randomUUID(),
     queryId: input.queryId,
@@ -85,9 +92,9 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     confidence,
     status: 'proposed',
     classified: input.classified,
-    contextFit: input.contextFit,
+    contextFit,
     orientation,
-    taskBrief: buildTaskBrief(input, selected, orientation),
+    taskBrief: briefBuild.taskBrief,
     actionableMissingSignals,
     sections: [
       { name: 'essential', items: sanitizeItems(essential), tokenEstimate: sumTokens(essential) },
@@ -97,6 +104,76 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
     createdAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Phase 8 — merge brief-groundedness warnings into the pack's ContextFit by appending them
+ * to `fitDiagnostics.notes` (as instructed by the Phase 3 carry-over: the `notes` array is
+ * the carrier for taskBrief warnings, prefixed with `brief_warning:`).
+ *
+ * Returns a fresh ContextFit so the caller's input is never mutated.
+ */
+function mergeBriefWarningsIntoContextFit(
+  contextFit: ContextFit | undefined,
+  warnings: string[],
+): ContextFit | undefined {
+  if (!contextFit) {
+    if (warnings.length === 0) {
+      return undefined;
+    }
+    // No contextFit was passed in but we have warnings to surface — synthesize a
+    // minimal diagnostics block so the warnings aren't lost.
+    return {
+      fitStatus: 'insufficient',
+      fitScore: 0,
+      fitReasons: [],
+      missingSignals: [],
+      fitDiagnostics: {
+        contributors: { top1: 0, top3Avg: 0, coverage: 0, worktreeMatchScore: 0 },
+        weights: { top1: 0.55, top3Avg: 0.2, coverage: 0.15, worktreeMatch: 0.1 },
+        thresholds: { ready: 0.72, needsConfirmation: 0.45 },
+        rerankerAvailable: true,
+        notes: [...warnings],
+      },
+    };
+  }
+
+  if (warnings.length === 0) {
+    return contextFit;
+  }
+
+  const baseDiagnostics: FitDiagnostics | undefined = contextFit.fitDiagnostics;
+  const diagnostics: FitDiagnostics = baseDiagnostics
+    ? { ...baseDiagnostics, notes: [...baseDiagnostics.notes, ...warnings] }
+    : {
+      contributors: { top1: 0, top3Avg: 0, coverage: 0, worktreeMatchScore: 0 },
+      weights: { top1: 0.55, top3Avg: 0.2, coverage: 0.15, worktreeMatch: 0.1 },
+      thresholds: { ready: 0.72, needsConfirmation: 0.45 },
+      rerankerAvailable: true,
+      notes: [...warnings],
+    };
+  return { ...contextFit, fitDiagnostics: diagnostics };
+}
+
+/**
+ * Phase 8 — when a review target's `id` matches a pack candidate's `knowledgeId`, record
+ * that candidate id under `evidenceIds`. Otherwise leave the field absent — the workbench
+ * still resolves the target via its own `id`, but no pack candidate currently grounds it.
+ */
+function tagReviewTargetsWithEvidence(
+  reviewTargets: ContextReviewTarget[],
+  selected: RankedCandidate[],
+): ContextReviewTarget[] {
+  if (reviewTargets.length === 0) {
+    return reviewTargets;
+  }
+  const idSet = new Set(selected.map((candidate) => candidate.knowledgeId));
+  return reviewTargets.map((target) => {
+    if (idSet.has(target.id)) {
+      return { ...target, evidenceIds: [target.id] };
+    }
+    return target;
+  });
 }
 
 function filterAcceptedCandidates(input: AssembleContextPackInput): RankedCandidate[] {
@@ -577,11 +654,16 @@ function buildOrientation(
   };
 }
 
+interface TaskBriefBuildResult {
+  taskBrief: ContextPackTaskBrief;
+  warnings: string[];
+}
+
 function buildTaskBrief(
   input: AssembleContextPackInput,
   selected: RankedCandidate[],
   orientation: ContextPackOrientation,
-): ContextPackTaskBrief {
+): TaskBriefBuildResult {
   const mode = taskBriefModeFor(input.classified);
   const reviewTargets = input.reviewTargets ?? [];
   const directEvidenceKnowledgeIds = selected
@@ -591,22 +673,40 @@ function buildTaskBrief(
     .filter((candidate) => candidate.evidenceCategory === 'adjacentContext')
     .map((candidate) => candidate.knowledgeId);
 
-  return {
-    mode,
-    goal: taskBriefGoal(input.classified, mode),
-    actionItems: buildActionItems({
-      input,
-      selected,
-      orientation,
-      reviewTargets,
-      mode,
-    }),
+  const { actionItems, warnings } = buildActionItems({
+    input,
+    selected,
+    orientation,
     reviewTargets,
-    directEvidenceKnowledgeIds,
-    adjacentKnowledgeIds,
-    omittedReviewTargetCount: input.omittedReviewTargetCount ?? 0,
+    mode,
+  });
+
+  return {
+    taskBrief: {
+      mode,
+      goal: taskBriefGoal(input.classified, mode),
+      actionItems,
+      reviewTargets,
+      directEvidenceKnowledgeIds,
+      adjacentKnowledgeIds,
+      omittedReviewTargetCount: input.omittedReviewTargetCount ?? 0,
+    },
+    warnings,
   };
 }
+
+interface BuildActionItemsResult {
+  actionItems: ContextPackActionItem[];
+  warnings: string[];
+}
+
+/**
+ * Phase 8 — `run_verification`, `ask_clarification`, and `inspect_shortlist` are policy /
+ * system recommendations rather than knowledge-grounded actions. They are exempt from the
+ * brief-groundedness guard: the workbench surfaces them as-is, and they never carry
+ * `evidenceIds`.
+ */
+const POLICY_ONLY_ACTIONS = new Set(['run_verification', 'ask_clarification', 'inspect_shortlist']);
 
 function buildActionItems(input: {
   input: AssembleContextPackInput;
@@ -614,12 +714,12 @@ function buildActionItems(input: {
   orientation: ContextPackOrientation;
   reviewTargets: ContextReviewTarget[];
   mode: TaskBriefMode;
-}): ContextPackActionItem[] {
-  const actions: ContextPackActionItem[] = [];
+}): BuildActionItemsResult {
+  const candidate: ContextPackActionItem[] = [];
   const explicitObjectHints = new Set(input.input.classified.intent.objectHints ?? []);
 
-  for (const target of input.reviewTargets.filter((target) => explicitObjectHints.has(target.id)).slice(0, 4)) {
-    actions.push({
+  for (const target of input.reviewTargets.filter((t) => explicitObjectHints.has(t.id)).slice(0, 4)) {
+    candidate.push({
       priority: 1,
       action: 'review_target',
       label: `Review ${target.title}`,
@@ -632,7 +732,7 @@ function buildActionItems(input: {
   }
 
   for (const file of input.orientation.recommendedFiles.slice(0, 3)) {
-    actions.push({
+    candidate.push({
       priority: 2,
       action: 'read_file',
       label: `Read ${file.path}`,
@@ -646,7 +746,7 @@ function buildActionItems(input: {
     .filter((target) => !explicitObjectHints.has(target.id))
     .slice(0, isReviewQueueMode(input.mode) ? 5 : 2);
   for (const target of queuedTargets) {
-    actions.push({
+    candidate.push({
       priority: 3,
       action: 'inspect_review_target',
       label: `Inspect ${target.title}`,
@@ -659,7 +759,7 @@ function buildActionItems(input: {
   }
 
   for (const command of input.orientation.verificationCommands.slice(0, 2)) {
-    actions.push({
+    candidate.push({
       priority: 4,
       action: 'run_verification',
       label: command,
@@ -670,7 +770,7 @@ function buildActionItems(input: {
   }
 
   if (input.input.contextFit?.fitStatus === 'insufficient') {
-    actions.push({
+    candidate.push({
       priority: 5,
       action: 'ask_clarification',
       label: 'Clarify missing context before relying on this pack',
@@ -679,8 +779,21 @@ function buildActionItems(input: {
     });
   }
 
-  if (actions.length === 0) {
-    actions.push({
+  // Phase 8 — apply the groundedness guard. Walk every candidate action and either keep it
+  // with evidenceIds set, or drop it with a structured warning recorded.
+  const warnings: string[] = [];
+  const kept: ContextPackActionItem[] = [];
+  for (const item of candidate) {
+    const decision = groundActionItem(item, input.selected);
+    if (decision.keep) {
+      kept.push(decision.item);
+    } else {
+      warnings.push(decision.warning);
+    }
+  }
+
+  if (kept.length === 0) {
+    kept.push({
       priority: 5,
       action: 'inspect_shortlist',
       label: 'Inspect the returned shortlist before working',
@@ -688,9 +801,139 @@ function buildActionItems(input: {
     });
   }
 
-  return actions
-    .sort((left, right) => left.priority - right.priority || left.label.localeCompare(right.label))
-    .slice(0, 10);
+  return {
+    actionItems: kept
+      .sort((left, right) => left.priority - right.priority || left.label.localeCompare(right.label))
+      .slice(0, 10),
+    warnings,
+  };
+}
+
+type GroundActionDecision =
+  | { keep: true; item: ContextPackActionItem }
+  | { keep: false; warning: string };
+
+/**
+ * Phase 8 — decide whether to keep an action and (if kept) attach evidenceIds.
+ *
+ * Behavior by action kind:
+ *  - `read_file`: must be backed by ≥1 pack candidate that lists the file in its labels or
+ *    references. If none → drop (ungrounded). If some but none share a non-trivial token
+ *    with the action's keywords → drop (zero overlap).
+ *  - `review_target` / `inspect_review_target`: when the target's `id` matches a pack
+ *    candidate's `knowledgeId`, that candidate must share ≥1 token with the action's
+ *    keywords (else drop, zero overlap). Otherwise the action is kept and self-grounded
+ *    via `targetId` — `evidenceIds` is set to `[target.id]` to signal the navigation
+ *    pointer even when no pack candidate matches.
+ *  - Policy-only actions (`run_verification`, `ask_clarification`, `inspect_shortlist`):
+ *    kept verbatim; never carry `evidenceIds`.
+ */
+function groundActionItem(item: ContextPackActionItem, selected: RankedCandidate[]): GroundActionDecision {
+  if (POLICY_ONLY_ACTIONS.has(item.action)) {
+    return { keep: true, item };
+  }
+
+  const keywords = actionKeywords(item);
+
+  if (item.action === 'read_file' && item.targetPath) {
+    const fileMatches = matchingFileCandidates(item.targetPath, selected);
+    if (fileMatches.length === 0) {
+      return {
+        keep: false,
+        warning: `brief_warning:dropped_ungrounded_action:read_file:${item.targetPath}`,
+      };
+    }
+    const overlapping = fileMatches.filter((cand) => hasTokenOverlap(keywords, cand));
+    if (overlapping.length === 0) {
+      return {
+        keep: false,
+        warning: `brief_warning:dropped_zero_overlap_action:read_file:${item.targetPath}`,
+      };
+    }
+    return {
+      keep: true,
+      item: { ...item, evidenceIds: uniqueStrings(overlapping.map((c) => c.knowledgeId)) },
+    };
+  }
+
+  if (item.action === 'review_target' || item.action === 'inspect_review_target') {
+    if (!item.targetId) {
+      return { keep: true, item };
+    }
+    const matched = selected.find((cand) => cand.knowledgeId === item.targetId);
+    if (matched) {
+      if (!hasTokenOverlap(keywords, matched)) {
+        return {
+          keep: false,
+          warning: `brief_warning:dropped_zero_overlap_action:${item.action}:${item.targetTitle ?? item.targetId}`,
+        };
+      }
+      return { keep: true, item: { ...item, evidenceIds: [item.targetId] } };
+    }
+    // No candidate match — the review target is self-grounded via its own id.
+    return { keep: true, item: { ...item, evidenceIds: [item.targetId] } };
+  }
+
+  // Unknown action kinds — keep verbatim. New action types should register their grounding
+  // here explicitly.
+  return { keep: true, item };
+}
+
+function matchingFileCandidates(path: string, selected: RankedCandidate[]): RankedCandidate[] {
+  return selected.filter((candidate) =>
+    candidate.labels.some((label) => label.type === 'file' && label.value === path)
+    || candidate.references.some((reference) => reference.type === 'file' && reference.uri === path),
+  );
+}
+
+const ACTION_TOKEN_MIN_LENGTH = 3;
+const ACTION_TOKEN_STOP_WORDS = new Set([
+  'read', 'review', 'inspect', 'run', 'verify', 'check', 'clarify', 'fix', 'add',
+  'the', 'and', 'for', 'with', 'this', 'that', 'into', 'from', 'has', 'any',
+  'all', 'are', 'was', 'were', 'before', 'after', 'next', 'pending', 'review_target',
+  'inspect_review_target', 'read_file', 'context', 'pack',
+]);
+
+/**
+ * Phase 8 — tokenize action-facing strings (label / targetTitle / targetPath / reason) into
+ * a deduplicated lowercase set, filtering trivial tokens and a tiny stop-list of common
+ * verbs/connectors. The set is used for the response-relevancy-style token overlap check.
+ */
+function actionKeywords(item: ContextPackActionItem): Set<string> {
+  const parts: string[] = [];
+  if (item.label) parts.push(item.label);
+  if (item.targetTitle) parts.push(item.targetTitle);
+  if (item.targetPath) parts.push(item.targetPath);
+  if (item.command) parts.push(item.command);
+  if (item.reason) parts.push(item.reason);
+  return tokenizeForOverlap(parts.join(' '));
+}
+
+function tokenizeForOverlap(text: string): Set<string> {
+  const tokens = new Set<string>();
+  for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length < ACTION_TOKEN_MIN_LENGTH) continue;
+    if (ACTION_TOKEN_STOP_WORDS.has(raw)) continue;
+    tokens.add(raw);
+  }
+  return tokens;
+}
+
+function candidateOverlapText(candidate: RankedCandidate): string {
+  const labelText = candidate.labels.map((label) => label.value).join(' ');
+  const refText = candidate.references.map((reference) => reference.uri).join(' ');
+  return `${candidate.title} ${candidate.summary} ${candidate.content} ${candidate.contextualContent} ${labelText} ${refText}`;
+}
+
+function hasTokenOverlap(actionTokens: Set<string>, candidate: RankedCandidate): boolean {
+  if (actionTokens.size === 0) {
+    return true; // graceful fallback — no keywords to compare
+  }
+  const candTokens = tokenizeForOverlap(candidateOverlapText(candidate));
+  for (const token of actionTokens) {
+    if (candTokens.has(token)) return true;
+  }
+  return false;
 }
 
 function taskBriefModeFor(classified: ClassifiedQuery): TaskBriefMode {
