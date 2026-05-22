@@ -55,7 +55,7 @@ const config: AppConfig = {
 };
 
 function ingestionFor(store: MemoryKnowledgeStore) {
-  return new IngestionService(store, new HashModelProvider());
+  return new IngestionService(store, new HashModelProvider(1536));
 }
 
 // ============================================================================
@@ -147,7 +147,7 @@ test('Phase 6a: searchContext namespace filter drops mismatched candidates', asy
     content: 'Spec content describing paywall retry policy and backoff parameters.',
   });
 
-  const retrieval = new RetrievalService(store, new MemoryCache(), new HashModelProvider(), config);
+  const retrieval = new RetrievalService(store, new MemoryCache(), new HashModelProvider(1536), config);
   const wide = await retrieval.searchContext({ prompt: 'paywall retry policy', project: 'demo' });
   const wideTitles = wide.sections.flatMap((s) => s.items.map((i) => i.title));
   ok(wideTitles.some((t) => t.includes('Reflection')));
@@ -275,7 +275,7 @@ test('Phase 6c: searchGraphRelations skips expired relations', async () => {
     });
   }
 
-  const retrieval = new RetrievalService(store, new MemoryCache(), new HashModelProvider(), config);
+  const retrieval = new RetrievalService(store, new MemoryCache(), new HashModelProvider(1536), config);
   const pack = await retrieval.searchContext({
     prompt: 'paywall retry',
     project: 'demo',

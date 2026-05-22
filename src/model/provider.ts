@@ -147,19 +147,42 @@ class OpenAiModelProvider implements ModelProvider {
       return undefined;
     }
 
-    const response = await fetchOpenAiJson(
-      this.config,
-      this.config.openAiRewriteModel,
-      [
+    // Phase 7 — when `mode === 'diverse_angle'`, ask the rewriter for multiple
+    // task-perspective variants (how/where/what depends/what changes) populating
+    // exactTerms for OR-style FTS expansion. Otherwise use the legacy paraphrase
+    // prompt for backwards compatibility.
+    const useDiverseAngle = input.mode === 'diverse_angle';
+    const systemPrompt = useDiverseAngle
+      ? [
+        'Rewrite retrieval queries for a local project knowledge broker as 3-5 diverse-angle search variants.',
+        'Each variant frames the same topic from a different task perspective:',
+        '  - how does X work (mechanism / call graph),',
+        '  - where is X used (call sites / consumers),',
+        '  - what depends on X (downstream impact),',
+        '  - what changes X (writers / mutators),',
+        '  - when does X run (lifecycle / triggers).',
+        'Return compact JSON only.',
+        'Populate `exactTerms` with the per-angle variant phrases (one per angle, concrete and unambiguous).',
+        'Populate `lexicalQuery` with the union of concrete signal terms (file paths, symbols, errors, technologies) — comma- or space-separated.',
+        'Preserve exact file paths, symbols, errors, technologies, and domain terms verbatim — never paraphrase them.',
+        'Do not add facts that are not supported by the prompt or existing classification.',
+      ].join(' ')
+      : [
         'Rewrite retrieval queries for a local project knowledge broker.',
         'Return compact JSON only.',
         'Preserve exact file paths, symbols, errors, technologies, and domain terms.',
         'Do not add facts that are not supported by the prompt or existing classification.',
-      ].join(' '),
+      ].join(' ');
+
+    const response = await fetchOpenAiJson(
+      this.config,
+      this.config.openAiRewriteModel,
+      systemPrompt,
       'query_rewrite',
       queryRewriteSchema(),
       {
         prompt: input.prompt,
+        mode: input.mode ?? 'paraphrase',
         classified: {
           taskType: input.classified.taskType,
           files: input.classified.files,

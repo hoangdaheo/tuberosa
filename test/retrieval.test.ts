@@ -8,6 +8,11 @@ import { ReflectionService } from '../src/reflection/service.js';
 import { classifyQuery } from '../src/retrieval/classifier.js';
 import { assembleContextPack } from '../src/retrieval/context-pack.js';
 import { ContextFitEvaluator } from '../src/retrieval/context-fit.js';
+import {
+  DEFAULT_POLICY,
+  resetRetrievalPolicyCache,
+  setRetrievalPolicy,
+} from '../src/retrieval/policy.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import type {
@@ -1214,6 +1219,15 @@ test('retrieval debug trace exposes source stages without persisting verbose out
 });
 
 test('provider query rewrite expands search input and debug decisions', async () => {
+  // Phase 7 — this test covers the rewrite-expansion plumbing in isolation
+  // (when a provider returns a rewrite, it is applied to lexicalQuery/exactTerms
+  // and surfaces in the debug trace). Phase 7 introduced gated rewrite, which
+  // would otherwise skip this rewrite call because the probe is confident on a
+  // single seeded item. Disable gating for this test only; Phase 7's own
+  // regression suite (`test/phase7.test.ts`) exercises the gating decisions.
+  const policy = JSON.parse(JSON.stringify(DEFAULT_POLICY)) as typeof DEFAULT_POLICY;
+  policy.queryRewrite.gated = false;
+  setRetrievalPolicy(policy);
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new RewritingHashModelProvider(1536, {
@@ -1257,6 +1271,7 @@ test('provider query rewrite expands search input and debug decisions', async ()
 
   const stored = await retrieval.getContextPack(pack.id);
   equal(stored?.debug, undefined);
+  resetRetrievalPolicyCache();
 });
 
 test('provider rerank can reorder fused candidates and records debug decisions', async () => {

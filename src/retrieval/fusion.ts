@@ -13,6 +13,7 @@ import {
   effectiveSourceWeight,
   effectiveTaskItemTypeBoosts,
   getRetrievalPolicy,
+  rrfKFor,
 } from './policy.js';
 import { computeFeedbackPenalty } from './feedback-scorer.js';
 
@@ -43,12 +44,15 @@ export function fuseCandidates(
 ): RankedCandidate[] | FuseResult {
   const byKnowledge = new Map<string, RankedCandidate>();
   const breakdown = options?.collectBreakdown ? new Map<string, ScoreBreakdown>() : undefined;
+  // Phase 7 — RRF divisor `(k + rank)`. Resolve once per fusion call so a single
+  // task type produces a deterministic curve across all candidates.
+  const rrfK = rrfKFor(getRetrievalPolicy(), classified.taskType);
 
   for (const group of groups) {
     for (const candidate of group) {
       const existing = byKnowledge.get(candidate.knowledgeId);
       const sourceBoost = sourceWeight(candidate, classified);
-      const contribution = sourceBoost / (60 + Math.max(1, candidate.rank));
+      const contribution = sourceBoost / (rrfK + Math.max(1, candidate.rank));
 
       if (breakdown) {
         const entry = breakdown.get(candidate.knowledgeId) ?? createBreakdown(candidate.knowledgeId);

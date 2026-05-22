@@ -63,6 +63,36 @@ export interface ContextFitConfig {
   thresholds: ContextFitThresholds;
 }
 
+/**
+ * Phase 7 — Reciprocal Rank Fusion knobs. The divisor `(k + rank)` controls
+ * how sharply top-rank candidates dominate the fused score: smaller k → sharper
+ * (top-rank advantage compounds), larger k → smoother (gentler decay). Per-task
+ * overrides let calibration sharpen for debugging (exact-error matches must win)
+ * and smooth for planning (broader spec/wiki coverage matters more).
+ */
+export interface RrfConfig {
+  /** Default RRF k applied when no per-task override exists. */
+  k: number;
+  /** Per-task overrides. Missing entries fall back to `k`. */
+  kByTaskType?: Partial<Record<TaskType, number>>;
+}
+
+/**
+ * Phase 7 — Gated query rewrite. The probe runs a fast lexical+vector top-K pass
+ * to gauge baseline retrieval confidence; if the probe's top1 fused score is at
+ * least `probeConfidenceThreshold`, the costly `models.rewriteQuery` call is
+ * skipped. The 2026 Dell production paper showed unconditional rewrite costs
+ * latency for near-zero gain post-reranker — gate it on confidence instead.
+ */
+export interface QueryRewriteConfig {
+  /** When true, skip rewrite if the probe pass returns confident retrieval. */
+  gated: boolean;
+  /** Probe top1 fused score >= this → skip rewrite. */
+  probeConfidenceThreshold: number;
+  /** Top-K bound for the probe-only lexical+vector pass. */
+  probeSearchLimit: number;
+}
+
 export interface RetrievalPolicy {
   useFreshnessMap: boolean;
   freshnessGlobal: FreshnessWindow;
@@ -119,6 +149,12 @@ export interface RetrievalPolicy {
 
   /** Phase 3 — composite weights and thresholds for the context-fit aggregator. */
   contextFit: ContextFitConfig;
+
+  /** Phase 7 — tunable RRF divisor and per-task overrides. */
+  rrf: RrfConfig;
+
+  /** Phase 7 — gated query rewrite knobs. */
+  queryRewrite: QueryRewriteConfig;
 
   /**
    * Phase 4 — optional metadata from `scripts/calibrate-fusion.ts`. Not consumed by retrieval directly,
@@ -247,6 +283,22 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     weights: { top1: 0.55, top3Avg: 0.2, coverage: 0.15, worktreeMatch: 0.1 },
     thresholds: { ready: 0.72, needsConfirmation: 0.45 },
   },
+
+  rrf: {
+    // Phase 7 — Ship with a uniform global k = 60 (matches pre-Phase-7 behavior
+    // exactly). Per-task overrides land via `scripts/calibrate-fusion.ts` so
+    // they're grounded in real fixture deltas, not hand-picked. The plan's
+    // example values (debugging: 30 / planning: 80) live in `config/retrieval-policy.json`
+    // documentation and in the unit tests, not in the shipping DEFAULT_POLICY.
+    k: 60,
+    kByTaskType: {},
+  },
+
+  queryRewrite: {
+    gated: true,
+    probeConfidenceThreshold: 0.65,
+    probeSearchLimit: 5,
+  },
 };
 
 let cachedPolicy: RetrievalPolicy | null = null;
@@ -322,6 +374,11 @@ function mergePolicy(base: RetrievalPolicy, override: Partial<RetrievalPolicy>):
       weights: { ...base.contextFit.weights, ...(override.contextFit?.weights ?? {}) },
       thresholds: { ...base.contextFit.thresholds, ...(override.contextFit?.thresholds ?? {}) },
     },
+    rrf: {
+      k: override.rrf?.k ?? base.rrf.k,
+      kByTaskType: { ...(base.rrf.kByTaskType ?? {}), ...(override.rrf?.kByTaskType ?? {}) },
+    },
+    queryRewrite: { ...base.queryRewrite, ...(override.queryRewrite ?? {}) },
     calibration: override.calibration ?? base.calibration,
   };
 }
@@ -376,6 +433,15 @@ export function coverageProfileFor(policy: RetrievalPolicy, taskType: TaskType):
 /** Phase 3 — accessor for the context-fit weights/thresholds. */
 export function contextFitConfigFor(policy: RetrievalPolicy): ContextFitConfig {
   return policy.contextFit;
+}
+
+/** Phase 7 — resolve the effective RRF k for a given task type, falling back to the global default. */
+export function rrfKFor(policy: RetrievalPolicy, taskType: TaskType): number {
+  const override = policy.rrf.kByTaskType?.[taskType];
+  if (typeof override === 'number' && Number.isFinite(override) && override > 0) {
+    return override;
+  }
+  return policy.rrf.k;
 }
 
 /** Phase 4 — composite graph-hop multiplier for a single relation traversal. */

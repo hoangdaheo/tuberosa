@@ -99,17 +99,29 @@ export class RetrievalDebugBuilder {
     originalLexicalQuery: string;
     rewrite?: QueryRewriteResult;
     addedExactTerms: string[];
+    /** Phase 7 — gating + probe metadata. Recorded even when the rewrite was skipped. */
+    gated?: boolean;
+    probeConfidence?: number;
+    probeThreshold?: number;
+    skipped?: 'probe_confident';
   }): void {
-    if (!input.rewrite) {
+    // Phase 7 — also persist the gating decision when the rewrite was skipped
+    // (no rewrite payload, but the gate ran). That signal is load-bearing for
+    // debugging "why did the rewrite not fire on this query".
+    if (!input.rewrite && !input.gated) {
       return;
     }
 
     this.queryRewrite = {
       originalLexicalQuery: input.originalLexicalQuery,
-      rewrittenLexicalQuery: input.rewrite.lexicalQuery,
+      rewrittenLexicalQuery: input.rewrite?.lexicalQuery ?? input.originalLexicalQuery,
       addedExactTerms: input.addedExactTerms,
-      reasons: input.rewrite.reasons ?? [],
-      model: input.rewrite.model,
+      reasons: input.rewrite?.reasons ?? [],
+      model: input.rewrite?.model,
+      gated: input.gated,
+      probeConfidence: input.probeConfidence,
+      probeThreshold: input.probeThreshold,
+      skipped: input.skipped,
     };
   }
 

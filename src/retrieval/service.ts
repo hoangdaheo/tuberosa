@@ -52,6 +52,7 @@ import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator, type ContextFitSignal } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
 import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint } from './policy.js';
+import type { QueryRewriteConfig } from './policy.js';
 import { WorktreeProvider, type WorktreeSearchResult } from './worktree.js';
 import {
   namespaceMatchesFilter,
@@ -122,8 +123,47 @@ export class RetrievalService {
     const classificationStartedAt = Date.now();
     const classified = classifyQuery(normalized);
     const classificationElapsedMs = Date.now() - classificationStartedAt;
+    // Phase 7 — gated query rewrite. Run a fast lexical+vector probe pass to
+    // gauge baseline retrieval confidence; if the strongest rawScore across
+    // lexical/vector top-K clears the policy threshold, skip
+    // `models.rewriteQuery` entirely. The 2026 Dell production paper showed
+    // unconditional rewrite costs latency for near-zero gain post-reranker.
+    // When rewrite does fire, request the diverse-angle variant
+    // (task-perspective rewrites populate exactTerms for OR-style FTS expansion).
+    //
+    // Performance: the embedding computed for the probe vector pass is reused
+    // by `findCandidates` so gated searches still embed only once. This keeps
+    // probe overhead bounded to one extra lexical + vector store lookup with a
+    // small `probeSearchLimit` cap.
+    const rewriteConfig = getRetrievalPolicy().queryRewrite;
+    const probeProject = normalized.project ?? classified.project;
+    let probeConfidence: number | undefined;
+    let probeElapsedMs = 0;
+    let rewriteSkippedReason: 'probe_confident' | undefined;
+    let probeEmbedding: number[] | undefined;
+    if (rewriteConfig.gated) {
+      const probeStartedAt = Date.now();
+      const probeResult = await this.computeRewriteProbeConfidence(
+        normalized,
+        classified,
+        probeProject,
+        rewriteConfig,
+      );
+      probeConfidence = probeResult.confidence;
+      probeEmbedding = probeResult.embedding;
+      probeElapsedMs = Date.now() - probeStartedAt;
+      if (probeConfidence >= rewriteConfig.probeConfidenceThreshold) {
+        rewriteSkippedReason = 'probe_confident';
+      }
+    }
     const rewriteStartedAt = Date.now();
-    const rewrite = await this.models.rewriteQuery({ prompt: normalized.prompt, classified });
+    const rewrite = rewriteSkippedReason
+      ? undefined
+      : await this.models.rewriteQuery({
+        prompt: normalized.prompt,
+        classified,
+        mode: rewriteConfig.gated ? 'diverse_angle' : 'paraphrase',
+      });
     const rewriteElapsedMs = Date.now() - rewriteStartedAt;
     const rewriteResult = applyQueryRewrite(classified, rewrite, this.safety);
     const fingerprint = fingerprintSearch(normalized, rewriteResult.classified, this.config, rewrite);
@@ -141,11 +181,18 @@ export class RetrievalService {
       })
       : undefined;
     debug?.recordElapsed('classification', classificationElapsedMs);
+    if (probeElapsedMs > 0) {
+      debug?.recordElapsed('rewriteProbe', probeElapsedMs);
+    }
     debug?.recordElapsed('rewrite', rewriteElapsedMs);
     debug?.recordQueryRewrite({
       originalLexicalQuery: classified.lexicalQuery,
       rewrite: rewriteResult.rewrite,
       addedExactTerms: rewriteResult.addedExactTerms,
+      gated: rewriteConfig.gated,
+      probeConfidence,
+      probeThreshold: rewriteConfig.gated ? rewriteConfig.probeConfidenceThreshold : undefined,
+      skipped: rewriteSkippedReason,
     });
 
     const shouldResolveReviewTargets = shouldResolveReviewTargetsFor(rewriteResult.classified);
@@ -167,6 +214,11 @@ export class RetrievalService {
       rewriteResult.classified,
       project,
       debug,
+      // Phase 7 — Reuse the probe's embedding to avoid a second embed call when
+      // the rewrite didn't change the lexicalQuery. If applyQueryRewrite added
+      // new exactTerms, the lexicalQuery is different and the embedding must be
+      // recomputed; otherwise the probe embedding is identical.
+      rewriteResult.addedExactTerms.length === 0 ? probeEmbedding : undefined,
     );
     const rankingResult = await this.rankCandidates(
       normalized.prompt,
@@ -335,11 +387,75 @@ export class RetrievalService {
     });
   }
 
+  /**
+   * Phase 7 — Gated rewrite probe. Runs a fast lexical+vector top-K pass and
+   * fuses just those two sources to estimate baseline retrieval confidence.
+   * Top1 fused score is returned to the gate decision in `searchContext`.
+   *
+   * Deliberately scoped: no graph, memory, worktree, or rerank — we want a
+   * cheap signal that approximates "do we already have a strong direct hit
+   * lexically or semantically?" If yes, the costly `models.rewriteQuery`
+   * call is skipped.
+   */
+  private async computeRewriteProbeConfidence(
+    input: NormalizedContextSearchInput,
+    classified: ClassifiedQuery,
+    project: string | undefined,
+    config: QueryRewriteConfig,
+  ): Promise<{ confidence: number; embedding?: number[] }> {
+    const limit = Math.max(1, Math.floor(config.probeSearchLimit));
+    const options: SearchOptions = {
+      project,
+      limit,
+      rejectedKnowledgeIds: input.rejectedKnowledgeIds,
+    };
+    let lexical: SearchCandidate[] = [];
+    let vector: SearchCandidate[] = [];
+    let embedding: number[] | undefined;
+    try {
+      // Embed once; reuse the vector for `searchVector` here AND in
+      // `findCandidates` (returned to the caller). This keeps the gated path
+      // at one embed call per search rather than two.
+      embedding = await this.models.embed(`${classified.lexicalQuery}\n\n${input.prompt}`);
+      const [lexicalResult, vectorResult] = await Promise.all([
+        this.store.searchLexical(classified, options),
+        this.store.searchVector(embedding, options).catch(() => [] as SearchCandidate[]),
+      ]);
+      lexical = lexicalResult;
+      vector = vectorResult;
+    } catch {
+      // Probe is best-effort: if either lookup throws, treat the probe as
+      // unconfident and let the rewrite path run as before.
+      return { confidence: 0, embedding };
+    }
+    const safeLexical = this.safety.sanitizeSearchCandidates(lexical);
+    const safeVector = this.safety.sanitizeSearchCandidates(vector);
+    if (safeLexical.length === 0 && safeVector.length === 0) {
+      return { confidence: 0, embedding };
+    }
+    // Phase 7 deviation from the literal spec ("top1.fusedScore"):
+    // `fuseCandidates` normalizes the top-ranked candidate to 1.0 (relative
+    // ranking), so reading the post-fusion top1 score always returns 1.0 when
+    // any candidate exists — that would gate every search. Instead, read the
+    // strongest raw match across the lexical + vector top-K, which is what the
+    // 0.65 threshold actually wants to capture: "is there a direct hit in
+    // either source whose rawScore (FTS rank-decay or cosine) clears the bar?"
+    let best = 0;
+    for (const candidate of safeLexical) {
+      if (candidate.rawScore > best) best = candidate.rawScore;
+    }
+    for (const candidate of safeVector) {
+      if (candidate.rawScore > best) best = candidate.rawScore;
+    }
+    return { confidence: best, embedding };
+  }
+
   private async findCandidates(
     input: NormalizedContextSearchInput,
     classified: ClassifiedQuery,
     project?: string,
     debug?: RetrievalDebugBuilder,
+    precomputedEmbedding?: number[],
   ): Promise<{ candidates: KnowledgeSearchResult; worktree: WorktreeSearchResult }> {
     const options: SearchOptions = {
       project,
@@ -347,11 +463,15 @@ export class RetrievalService {
       rejectedKnowledgeIds: input.rejectedKnowledgeIds,
     };
 
-    const embedding = timed(
-      'embedding',
-      this.models.embed(`${classified.lexicalQuery}\n\n${input.prompt}`),
-      debug,
-    );
+    // Phase 7 — when the gated rewrite probe pre-computed an embedding for the
+    // same lexicalQuery, reuse it rather than embedding twice per search.
+    const embedding = precomputedEmbedding
+      ? Promise.resolve(precomputedEmbedding)
+      : timed(
+        'embedding',
+        this.models.embed(`${classified.lexicalQuery}\n\n${input.prompt}`),
+        debug,
+      );
     const vectorResults = embedding
       .then((embedding) => timed('vector', this.store.searchVector(embedding, options), debug));
     const worktreeResults = timed(

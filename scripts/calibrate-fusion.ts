@@ -5,8 +5,8 @@ import { generateSandboxFixture, type SandboxFixture, type SandboxKnowledge } fr
 import { buildSandboxPrompts, type SandboxPrompt } from '../eval/sandbox/prompts.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
-import { DEFAULT_POLICY } from '../src/retrieval/policy.js';
-import type { RetrievalPolicy, TaskFusionProfile } from '../src/retrieval/policy.js';
+import { DEFAULT_POLICY, resetRetrievalPolicyCache, setRetrievalPolicy } from '../src/retrieval/policy.js';
+import type { RetrievalPolicy, RrfConfig, TaskFusionProfile } from '../src/retrieval/policy.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import type { AppConfig } from '../src/config.js';
@@ -24,8 +24,25 @@ interface CalibrationOutput {
   seed: number;
   globalContribution: Record<CandidateSource, number>;
   perTaskContribution: Partial<Record<TaskType, Record<CandidateSource, number>>>;
+  /** Phase 7 — best RRF k per task type, plus the picked global k. */
+  rrfCalibration: {
+    candidateKs: number[];
+    globalHits: Record<number, number>;
+    perTaskHits: Partial<Record<TaskType, Record<number, number>>>;
+    selectedGlobalK: number;
+    selectedPerTaskK: Partial<Record<TaskType, number>>;
+  };
   patch: Partial<RetrievalPolicy>;
 }
+
+/**
+ * Phase 7 — RRF k candidates for grid search. Range chosen to cover both ends
+ * of the practical curve:
+ *   - 30 (sharper / top-rank dominates) for exact-match tasks like debugging.
+ *   - 60 (default, balanced).
+ *   - 120 (smoothest) where multi-source aggregation should outweigh rank.
+ */
+const RRF_K_CANDIDATES: readonly number[] = [30, 45, 60, 80, 120];
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
@@ -36,8 +53,8 @@ async function main(): Promise<void> {
 
   const fixture = generateSandboxFixture(options.seed);
   const prompts = buildSandboxPrompts(fixture).prompts;
-  const aggregation = await runCalibration(fixture, prompts);
-  const calibration = buildCalibrationOutput(aggregation, options.seed);
+  const full = await runCalibration(fixture, prompts);
+  const calibration = buildCalibrationOutput(full.contributions, full.rrf, options.seed);
 
   if (options.dryRun) {
     console.log(JSON.stringify(calibration, null, 2));
@@ -48,14 +65,114 @@ async function main(): Promise<void> {
   printSummary(calibration);
 }
 
-async function runCalibration(fixture: SandboxFixture, prompts: SandboxPrompt[]) {
+interface FullAggregation {
+  contributions: Aggregation;
+  rrf: RrfCalibrationResult;
+}
+
+async function runCalibration(fixture: SandboxFixture, prompts: SandboxPrompt[]): Promise<FullAggregation> {
   const { ingestion, retrieval, store, cache } = createServices();
   try {
     const idMap = await ingestFixture(fixture, ingestion);
-    return await aggregateContributions(prompts, idMap, fixture, retrieval);
+    const contributions = await aggregateContributions(prompts, idMap, fixture, retrieval);
+    // Phase 7 — RRF k grid search. Runs after weight aggregation so the
+    // contribution pass uses the default global k (no per-task overrides),
+    // then the k pass sweeps the candidate set with empty kByTaskType.
+    const rrf = await calibrateRrfK(prompts, idMap, retrieval);
+    return { contributions, rrf };
   } finally {
+    resetRetrievalPolicyCache();
     await Promise.allSettled([store.close(), cache.close()]);
   }
+}
+
+interface RrfCalibrationResult {
+  globalHits: Map<number, number>;
+  perTaskHits: Map<TaskType, Map<number, number>>;
+  selectedGlobalK: number;
+  selectedPerTaskK: Map<TaskType, number>;
+}
+
+async function calibrateRrfK(
+  prompts: SandboxPrompt[],
+  idMap: Map<string, string>,
+  retrieval: RetrievalService,
+): Promise<RrfCalibrationResult> {
+  const globalHits = new Map<number, number>();
+  const perTaskHits = new Map<TaskType, Map<number, number>>();
+  for (const k of RRF_K_CANDIDATES) {
+    const policy = JSON.parse(JSON.stringify(DEFAULT_POLICY)) as RetrievalPolicy;
+    policy.rrf.k = k;
+    policy.rrf.kByTaskType = {};
+    setRetrievalPolicy(policy);
+    let totalHits = 0;
+    for (const prompt of prompts) {
+      const expectedIds = new Set(
+        [...prompt.expectedSelectedSandboxIds]
+          .map((sandboxId) => idMap.get(sandboxId))
+          .filter((id): id is string => Boolean(id)),
+      );
+      if (expectedIds.size === 0) continue;
+      const pack = await retrieval.searchContext({
+        prompt: prompt.prompt,
+        project: prompt.project,
+        files: prompt.files,
+        symbols: prompt.symbols,
+        errors: prompt.errors,
+        taskType: prompt.taskType,
+        noiseTolerance: 'strict',
+        contextMode: 'compact',
+        bypassCache: true,
+      });
+      const surfacedIds = pack.sections
+        .flatMap((section) => section.items)
+        .slice(0, 5)
+        .map((item) => item.knowledgeId);
+      const hit = surfacedIds.some((id) => expectedIds.has(id));
+      if (hit) {
+        totalHits += 1;
+        const taskMap = perTaskHits.get(prompt.taskType) ?? new Map<number, number>();
+        taskMap.set(k, (taskMap.get(k) ?? 0) + 1);
+        perTaskHits.set(prompt.taskType, taskMap);
+      } else {
+        // Make sure the task map for this task type exists with an entry for `k`
+        // even on miss, so all (taskType, k) cells are comparable.
+        const taskMap = perTaskHits.get(prompt.taskType) ?? new Map<number, number>();
+        taskMap.set(k, taskMap.get(k) ?? 0);
+        perTaskHits.set(prompt.taskType, taskMap);
+      }
+    }
+    globalHits.set(k, totalHits);
+  }
+  resetRetrievalPolicyCache();
+
+  // Pick the k with the highest hit count; ties go to the default k=60 to keep
+  // shipped behavior stable when calibration is indeterminate.
+  const selectedGlobalK = selectBestK(globalHits);
+
+  const selectedPerTaskK = new Map<TaskType, number>();
+  for (const [taskType, hitsMap] of perTaskHits) {
+    const best = selectBestK(hitsMap);
+    // Only emit a per-task override if it differs from the global default —
+    // shipping unnecessary overrides bloats the patch and obscures real signal.
+    if (best !== selectedGlobalK) {
+      selectedPerTaskK.set(taskType, best);
+    }
+  }
+
+  return { globalHits, perTaskHits, selectedGlobalK, selectedPerTaskK };
+}
+
+function selectBestK(hits: Map<number, number>): number {
+  let bestK = DEFAULT_POLICY.rrf.k;
+  let bestHits = hits.get(bestK) ?? -1;
+  for (const [k, count] of hits) {
+    if (count > bestHits) {
+      bestK = k;
+      bestHits = count;
+    }
+  }
+  return bestK;
 }
 
 function createServices() {
@@ -149,7 +266,11 @@ async function aggregateContributions(
   return { global, perTask };
 }
 
-function buildCalibrationOutput(aggregation: Aggregation, seed: number): CalibrationOutput {
+function buildCalibrationOutput(
+  aggregation: Aggregation,
+  rrf: RrfCalibrationResult,
+  seed: number,
+): CalibrationOutput {
   const globalWeights = toBoundedWeights(aggregation.global, DEFAULT_POLICY.sourceWeights);
   const taskProfiles: Partial<Record<TaskType, TaskFusionProfile>> = {};
   for (const [taskType, contributions] of aggregation.perTask) {
@@ -171,14 +292,36 @@ function buildCalibrationOutput(aggregation: Aggregation, seed: number): Calibra
     perTaskOutput[taskType] = roundEntries(contributions);
   }
 
+  const rrfConfig: RrfConfig = {
+    k: rrf.selectedGlobalK,
+    kByTaskType: Object.fromEntries(rrf.selectedPerTaskK) as Partial<Record<TaskType, number>>,
+  };
+
+  const globalHitsObject: Record<number, number> = {};
+  for (const [k, hits] of rrf.globalHits) globalHitsObject[k] = hits;
+  const perTaskHitsObject: Partial<Record<TaskType, Record<number, number>>> = {};
+  for (const [taskType, hitsMap] of rrf.perTaskHits) {
+    const entry: Record<number, number> = {};
+    for (const [k, hits] of hitsMap) entry[k] = hits;
+    perTaskHitsObject[taskType] = entry;
+  }
+
   return {
     calibratedAt: new Date().toISOString(),
     seed,
     globalContribution: roundEntries(aggregation.global),
     perTaskContribution: perTaskOutput,
+    rrfCalibration: {
+      candidateKs: [...RRF_K_CANDIDATES],
+      globalHits: globalHitsObject,
+      perTaskHits: perTaskHitsObject,
+      selectedGlobalK: rrf.selectedGlobalK,
+      selectedPerTaskK: Object.fromEntries(rrf.selectedPerTaskK) as Partial<Record<TaskType, number>>,
+    },
     patch: {
       sourceWeights: globalWeights,
       taskProfiles,
+      rrf: rrfConfig,
       calibration: {
         calibratedAt: new Date().toISOString(),
         seed,
@@ -261,6 +404,20 @@ function printSummary(calibration: CalibrationOutput): void {
   }
   const taskCount = Object.keys(calibration.perTaskContribution).length;
   console.log(`Per-task profiles emitted: ${taskCount}`);
+  console.log('RRF k grid search:');
+  for (const [k, hits] of Object.entries(calibration.rrfCalibration.globalHits)) {
+    console.log(`  k=${k.padStart(3)}  hits=${hits}`);
+  }
+  console.log(`Selected global k: ${calibration.rrfCalibration.selectedGlobalK}`);
+  const perTaskKeys = Object.keys(calibration.rrfCalibration.selectedPerTaskK);
+  if (perTaskKeys.length === 0) {
+    console.log('Per-task k overrides: none (global k wins for every task type)');
+  } else {
+    console.log('Per-task k overrides:');
+    for (const [taskType, k] of Object.entries(calibration.rrfCalibration.selectedPerTaskK)) {
+      console.log(`  ${taskType.padEnd(14)} k=${k}`);
+    }
+  }
 }
 
 function parseArgs(args: string[]): CliOptions {

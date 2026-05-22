@@ -434,6 +434,14 @@ export interface RetrievalIntent {
 export interface QueryRewriteInput {
   prompt: string;
   classified: ClassifiedQuery;
+  /**
+   * Phase 7 — preferred rewrite mode. `paraphrase` is the legacy single-rewrite
+   * default. `diverse_angle` asks the rewriter for multiple task-perspective
+   * variants ("how does X work" / "where is X used" / "what depends on X") that
+   * populate `exactTerms` for OR-style FTS expansion. Providers MAY ignore the
+   * mode hint; the consumer treats it as advisory.
+   */
+  mode?: 'paraphrase' | 'diverse_angle';
 }
 
 export interface QueryRewriteResult {
@@ -1708,6 +1716,7 @@ export type RetrievalDebugTimingName =
   | RetrievalDebugStageName
   | 'classification'
   | 'rewrite'
+  | 'rewriteProbe'
   | 'embedding'
   | 'contextQuery'
   | 'assembly'
@@ -1834,6 +1843,14 @@ export interface RetrievalDebugTrace {
     addedExactTerms: string[];
     reasons: string[];
     model?: string;
+    /** Phase 7 — true when the rewrite path ran through the gated probe. */
+    gated?: boolean;
+    /** Phase 7 — probe pass's top1 fused score (0..1). Undefined when gated=false. */
+    probeConfidence?: number;
+    /** Phase 7 — probe threshold the call was compared against. */
+    probeThreshold?: number;
+    /** Phase 7 — set when the rewrite call was skipped (e.g. `probe_confident`). */
+    skipped?: 'probe_confident';
   };
   providerRerank?: {
     model?: string;
