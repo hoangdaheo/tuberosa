@@ -263,6 +263,102 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
   }
 });
 
+test('Postgres store silently filters Phase-5 worktree synthetic ids from uuid casts', async (t) => {
+  const available = await postgresAvailable();
+  if (!available.ok) {
+    t.skip(available.reason);
+    return;
+  }
+
+  const migrationPool = new Pool({ connectionString: POSTGRES_URL, connectionTimeoutMillis: 1000 });
+  await runMigrations(migrationPool);
+  await migrationPool.end();
+
+  const store = new PostgresKnowledgeStore(POSTGRES_URL);
+  const models = new HashModelProvider(1536);
+  const ingestion = new IngestionService(store, models);
+  const project = `integration-worktree-${randomUUID()}`;
+
+  try {
+    const ingested = await ingestion.ingestKnowledge({
+      project,
+      sourceType: 'file',
+      sourceUri: 'src/example/handler.ts',
+      title: 'Example handler',
+      itemType: 'code_ref',
+      content: 'export function exampleHandler() { return 1; }',
+      summary: 'Example handler used by the worktree filter regression test.',
+    });
+    const realId = ingested.id;
+    const syntheticIds = [
+      'worktree:55b28bc18b0b90f0e29867867a847cd282c11da02ade7768e1044003b428fca4',
+      'worktree:0000000000000000000000000000000000000000000000000000000000000000',
+    ];
+
+    // Mixed inputs must NOT crash. The real id surfaces; synthetic ids drop.
+    const feedbackSummaries = await store.getFeedbackSummaries(
+      [realId, ...syntheticIds],
+      { project },
+    );
+    ok(!feedbackSummaries.has(syntheticIds[0]), 'worktree synthetic id leaked into feedback summary map');
+
+    const chunks = await store.listKnowledgeChunks([realId, ...syntheticIds]);
+    ok(chunks.length > 0, 'real knowledge id should still surface chunks');
+    ok(
+      chunks.every((chunk) => chunk.knowledgeId === realId),
+      'no chunk should be returned for a synthetic worktree id',
+    );
+
+    // Pure-synthetic input returns empty without throwing.
+    const emptyFeedback = await store.getFeedbackSummaries(syntheticIds, { project });
+    equal(emptyFeedback.size, 0);
+    const emptyChunks = await store.listKnowledgeChunks(syntheticIds);
+    deepEqual(emptyChunks, []);
+
+    // getKnowledge on a synthetic id returns undefined (was crashing on the uuid cast).
+    equal(await store.getKnowledge(syntheticIds[0]), undefined);
+
+    // Search methods accept rejectedKnowledgeIds with synthetic entries without crashing.
+    await store.searchLexical(
+      {
+        project,
+        taskType: 'unknown',
+        confidence: 0.5,
+        files: [],
+        symbols: [],
+        errors: [],
+        technologies: [],
+        businessAreas: [],
+        exactTerms: [],
+        lexicalQuery: 'example',
+        intent: {
+          taskGoal: 'test',
+          workflowStage: 'unknown',
+          taskBriefMode: 'review',
+          impliedFiles: [],
+          impliedSymbols: [],
+          impliedDomains: [],
+          objectHints: [],
+          recentSessionReferences: [],
+          requiredEvidenceTypes: [],
+          uncertaintyReasons: [],
+        },
+      },
+      { project, rejectedKnowledgeIds: syntheticIds, limit: 5 },
+    );
+
+    // recordFeedback must not crash when rejectedKnowledgeIds is purely synthetic.
+    await store.recordFeedback({
+      project,
+      feedbackType: 'rejected',
+      rejectedKnowledgeIds: syntheticIds,
+      reason: 'worktree synthetic id regression test',
+    });
+  } finally {
+    await store.close();
+  }
+});
+
 test('Postgres migrations serialize concurrent runners', async (t) => {
   const available = await postgresAvailable();
   if (!available.ok) {

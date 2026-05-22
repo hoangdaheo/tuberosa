@@ -15,10 +15,10 @@
 | stale suppression | 100.0% |
 | duplicate suppression | 100.0% |
 | adversarial block rate | 100.0% |
-| itemType "memory" catch-all rate | 38.7% |
-| itemType diagonal rate (Phase 3) | 69.5% |
+| itemType "memory" catch-all rate | 39.0% |
+| itemType diagonal rate (Phase 3) | 69.4% |
 | label diagonal rate (Phase 3) | 7.7% |
-| latency p50 / p95 / max (ms) | 17 / 25 / 26 |
+| latency p50 / p95 / max (ms) | 22 / 43 / 85 |
 
 ## Per-Tier Selection
 
@@ -26,8 +26,8 @@
 | --- | --- | --- | --- | --- |
 | A | 217 | 36 | 0 | 0 |
 | B | 9 | 0 | 72 | 76 |
-| C | 179 | 4 | 4 | 4 |
-| D | 51 | 4 | 4 | 4 |
+| C | 182 | 4 | 4 | 4 |
+| D | 53 | 4 | 4 | 4 |
 | E | 6 | 0 | 8 | 8 |
 | F | 0 | 0 | 0 | 0 |
 
@@ -35,8 +35,8 @@
 
 | itemType | selected | expected | correct | precision | recall |
 | --- | --- | --- | --- | --- | --- |
-| memory | 179 | 7 | 7 | 3.9% | 100.0% |
-| workflow | 166 | 9 | 8 | 4.8% | 88.9% |
+| memory | 182 | 7 | 7 | 3.8% | 100.0% |
+| workflow | 168 | 9 | 8 | 4.8% | 88.9% |
 | code_ref | 28 | 12 | 8 | 28.6% | 66.7% |
 | wiki | 28 | 2 | 2 | 7.1% | 100.0% |
 | bugfix | 31 | 6 | 6 | 19.4% | 100.0% |

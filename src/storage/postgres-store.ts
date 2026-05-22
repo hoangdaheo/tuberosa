@@ -63,6 +63,21 @@ import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './st
 
 type Queryable = Pool | PoolClient;
 
+// Phase 5 follow-up: Postgres uuid[] casts crash on synthetic knowledge ids such as
+// the Phase-5 worktree provider's `worktree:<sha256>` ids (live-evidence only, never
+// persisted). Every method that takes a knowledge id from outside the store filters
+// through this predicate before the id reaches a `::uuid` / `::uuid[]` cast — the
+// MemoryKnowledgeStore is permissive (returns empty for unknown ids), so this brings
+// Postgres in line.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isPersistedKnowledgeId(value: unknown): value is string {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+function filterPersistedKnowledgeIds(ids: readonly string[] | undefined): string[] {
+  if (!ids || ids.length === 0) return [];
+  return ids.filter(isPersistedKnowledgeId);
+}
+
 interface BackupTableDefinition {
   name: BackupTableName;
   columns: string[];
@@ -256,6 +271,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getKnowledge(id: string): Promise<StoredKnowledge | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${knowledgeSelect()}
@@ -367,6 +383,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]> {
+    // Phase 5 follow-up: filter synthetic ids (e.g. worktree:<sha>) so a caller that
+    // walks worktree candidates into listKnowledgeRelations does not crash the uuid cast.
+    if (options.fromKnowledgeId && !isPersistedKnowledgeId(options.fromKnowledgeId)) return [];
+    if (options.targetKnowledgeId && !isPersistedKnowledgeId(options.targetKnowledgeId)) return [];
     const result = await this.pool.query(
       `
         ${relationSelect()}
@@ -684,6 +704,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listLearningProposals(options: ListLearningProposalsOptions): Promise<LearningProposal[]> {
+    // Phase 5 follow-up: a synthetic worktree id passed via affectedKnowledgeId would
+    // crash the uuid cast — return [] early since no learning proposal can reference
+    // a non-persisted candidate.
+    if (options.affectedKnowledgeId && !isPersistedKnowledgeId(options.affectedKnowledgeId)) return [];
     const result = await this.pool.query(
       `
         ${learningProposalSelect()}
@@ -774,7 +798,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listKnowledgeChunks(knowledgeIds: string[]): Promise<KnowledgeChunkRecord[]> {
-    if (knowledgeIds.length === 0) {
+    const ids = filterPersistedKnowledgeIds(knowledgeIds);
+    if (ids.length === 0) {
       return [];
     }
 
@@ -786,13 +811,14 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         WHERE knowledge_id = ANY($1::uuid[])
         ORDER BY array_position($1::uuid[], knowledge_id), chunk_index
       `,
-      [knowledgeIds],
+      [ids],
     );
 
     return result.rows.map(mapKnowledgeChunkRow);
   }
 
   async searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {
+    const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
     const result = await this.pool.query(
       `
         WITH q AS (SELECT websearch_to_tsquery('english', $1) AS query)
@@ -805,13 +831,14 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         ORDER BY raw_score DESC
         LIMIT $4
       `,
-      [classified.lexicalQuery || classified.exactTerms.join(' '), options.project ?? null, options.rejectedKnowledgeIds ?? [], options.limit],
+      [classified.lexicalQuery || classified.exactTerms.join(' '), options.project ?? null, rejectedIds, options.limit],
     );
 
     return result.rows.map((row, index) => mapCandidateRow(row, index));
   }
 
   async searchVector(embedding: number[], options: SearchOptions): Promise<SearchCandidate[]> {
+    const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
     const result = await this.pool.query(
       `
         ${candidateSelect('vector', 'GREATEST(0, 1 - (kc.embedding <=> $1::vector))')}
@@ -822,7 +849,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         ORDER BY kc.embedding <=> $1::vector ASC
         LIMIT $4
       `,
-      [vectorLiteral(embedding), options.project ?? null, options.rejectedKnowledgeIds ?? [], options.limit],
+      [vectorLiteral(embedding), options.project ?? null, rejectedIds, options.limit],
     );
 
     return result.rows.map((row, index) => mapCandidateRow(row, index));
@@ -850,6 +877,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
 
     const likes = allTerms.map((term) => `%${term.toLowerCase()}%`);
+    const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
 
     const result = await this.pool.query(
       `
@@ -887,13 +915,14 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         ORDER BY raw_score DESC, ki.trust_level DESC, ki.updated_at DESC
         LIMIT $5
       `,
-      [likes, preciseTerms, options.project ?? null, options.rejectedKnowledgeIds ?? [], options.limit, allTerms],
+      [likes, preciseTerms, options.project ?? null, rejectedIds, options.limit, allTerms],
     );
 
     return result.rows.map((row, index) => mapCandidateRow(row, index));
   }
 
   async searchMemories(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {
+    const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
     const result = await this.pool.query(
       `
         WITH q AS (SELECT websearch_to_tsquery('english', $1) AS query)
@@ -914,7 +943,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       [
         classified.lexicalQuery || classified.exactTerms.join(' '),
         options.project ?? null,
-        options.rejectedKnowledgeIds ?? [],
+        rejectedIds,
         options.limit,
         `%${classified.lexicalQuery.toLowerCase()}%`,
       ],
@@ -937,7 +966,9 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     // original spec called for a ≤8 cap here too, but that regressed 3
     // retrieval-eval confidence thresholds in the memory-store path — kept the
     // input set looser to preserve eval green (deviation in plan file).
-    const seedKnowledgeIds = options.seedKnowledgeIds ?? [];
+    // Phase 5 follow-up: also strip synthetic worktree ids before the uuid[] cast.
+    const seedKnowledgeIds = filterPersistedKnowledgeIds(options.seedKnowledgeIds);
+    const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
 
     if (graphTargets.length === 0 && seedKnowledgeIds.length === 0) {
       return [];
@@ -1030,7 +1061,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         JSON.stringify(graphTargets),
         seedKnowledgeIds,
         options.project ?? null,
-        options.rejectedKnowledgeIds ?? [],
+        rejectedIds,
         options.limit,
         policy.graphHopWeights.target,
         policy.graphHopWeights.seed,
@@ -1104,6 +1135,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async recordFeedback(input: FeedbackInput): Promise<FeedbackEvent> {
     const projectId = input.project ? await this.projectIdByName(this.pool, input.project) : null;
+    // Phase 5 follow-up: feedback_events.rejected_knowledge_ids is uuid[]; synthetic
+    // ids (e.g. worktree:<sha>) would crash the cast. Drop them — worktree candidates
+    // are recomputed per query and cannot be persistently rejected.
+    const persistedRejectedIds = filterPersistedKnowledgeIds(input.rejectedKnowledgeIds);
     const result = await this.pool.query(
       `
         INSERT INTO feedback_events (
@@ -1118,7 +1153,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         projectId,
         input.feedbackType,
         input.reason ?? null,
-        input.rejectedKnowledgeIds ?? [],
+        persistedRejectedIds,
         input.metadata ?? {},
       ],
     );
@@ -1137,8 +1172,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     // Phase 6c — feedback flagging a knowledge as stale expires its outgoing
     // inferred relations so graph expansion drops their edges.
     const createdAtIso = toIso(result.rows[0].created_at);
-    if (input.feedbackType === 'stale' && input.rejectedKnowledgeIds?.length) {
-      for (const knowledgeId of input.rejectedKnowledgeIds) {
+    if (input.feedbackType === 'stale' && persistedRejectedIds.length) {
+      for (const knowledgeId of persistedRejectedIds) {
         await this.expireRelationsFromKnowledge(this.pool, knowledgeId, createdAtIso);
       }
     }
@@ -1188,7 +1223,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     knowledgeIds: string[],
     options: { project?: string } = {},
   ): Promise<Map<string, KnowledgeFeedbackSummary>> {
-    if (knowledgeIds.length === 0) {
+    const ids = filterPersistedKnowledgeIds(knowledgeIds);
+    if (ids.length === 0) {
       return new Map();
     }
 
@@ -1243,7 +1279,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         WHERE rf.knowledge_id = ANY($1::uuid[])
         GROUP BY rf.knowledge_id
       `,
-      [knowledgeIds, options.project ?? null],
+      [ids, options.project ?? null],
     );
 
     return new Map(result.rows.map((row) => {
@@ -1350,7 +1386,9 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         input.contextPackId ?? null,
         input.feedbackType,
         input.reason ?? null,
-        input.rejectedKnowledgeIds ?? [],
+        // Phase 5 follow-up: agent_context_decisions.rejected_knowledge_ids is uuid[];
+        // synthetic worktree ids cannot be persisted and would crash the cast.
+        filterPersistedKnowledgeIds(input.rejectedKnowledgeIds),
         input.retryContextPackId ?? null,
         input.metadata ?? {},
       ],
