@@ -10,6 +10,7 @@ import { ErrorLogInsightService } from '../src/error-log/insights.js';
 import { ErrorLogService } from '../src/error-log/service.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { IngestionService } from '../src/ingest/service.js';
+import { MaintenanceService } from '../src/maintenance/service.js';
 import { handleMcpRequest } from '../src/mcp/server.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { OperationsService } from '../src/operations/service.js';
@@ -260,6 +261,7 @@ function createTestServices(): AppServices {
   const operations = new OperationsService(store, ingestion);
   const errorLogs = new ErrorLogService({ rootDir: config.errorLogDir, safety });
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
+  const maintenance = new MaintenanceService(store);
 
   return {
     config,
@@ -274,6 +276,7 @@ function createTestServices(): AppServices {
     operations,
     errorLogs,
     errorLogInsights,
+    maintenance,
     async close() {
       await Promise.allSettled([cache.close(), store.close()]);
     },

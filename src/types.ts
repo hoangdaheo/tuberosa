@@ -281,6 +281,85 @@ export interface ListLearningProposalsOptions {
 }
 
 /**
+ * Phase 10 — Preview-first maintenance.
+ * Categories of curation work the local-heuristic maintenance scanner can
+ * propose. Apply is always reviewer-gated; no kind ever auto-mutates.
+ */
+export type MaintenanceItemKind =
+  | 'duplicate_memory'
+  | 'stale_relation'
+  | 'superseded_reflection'
+  | 'weak_label';
+
+export interface MaintenanceItemLabel {
+  type: LabelType;
+  value: string;
+}
+
+export interface MaintenanceItem {
+  /** Stable id within the batch. Used by apply to pick which items to mutate. */
+  id: string;
+  kind: MaintenanceItemKind;
+  reason: string;
+  project?: string;
+  /** Target identifiers, populated per kind. */
+  knowledgeId?: string;
+  relationId?: string;
+  reflectionDraftId?: string;
+  label?: MaintenanceItemLabel;
+  /** Closest related knowledge (e.g. write-gate's closestKnowledgeId for supersedes). */
+  closestKnowledgeId?: string;
+  /** Free-form ids the reviewer can inspect to verify the proposal. */
+  evidence?: string[];
+}
+
+export type MaintenanceCounts = Record<MaintenanceItemKind, number>;
+
+export interface MaintenanceBatch {
+  id: string;
+  generatedAt: string;
+  project?: string;
+  items: MaintenanceItem[];
+  counts: MaintenanceCounts;
+  /** True when item count was clamped to the requested limit (more remain). */
+  truncated: boolean;
+  /** Total items observed before the limit clamp. */
+  totalDetected: number;
+}
+
+export interface MaintenanceProposeInput {
+  project?: string;
+  kinds?: MaintenanceItemKind[];
+  limit?: number;
+}
+
+export interface MaintenanceApplyInput {
+  batchId?: string;
+  items?: MaintenanceItem[];
+  approvedItemIds?: string[];
+  reviewer?: string;
+  reviewerNote?: string;
+}
+
+export type MaintenanceApplyOutcome = 'applied' | 'noop' | 'skipped' | 'failed';
+
+export interface MaintenanceApplyResultItem {
+  itemId: string;
+  kind: MaintenanceItemKind;
+  status: MaintenanceApplyOutcome;
+  message?: string;
+}
+
+export interface MaintenanceApplyResult {
+  batchId?: string;
+  appliedAt: string;
+  appliedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  results: MaintenanceApplyResultItem[];
+}
+
+/**
  * Phase 6a — Namespaced memory scope (LangGraph pattern).
  * Identifies the slot a memory occupies. `project` mirrors `KnowledgeInput.project`;
  * `kind` is derived from `itemType` when not supplied (e.g. `memory|bugfix|rule` → `reflection`);
@@ -1571,6 +1650,7 @@ export type WorkbenchRecommendedActionTarget =
   | 'knowledge_conflicts'
   | 'error_logs'
   | 'agent_sessions'
+  | 'pending_maintenance'
   | 'none';
 
 export interface WorkbenchRecommendedAction {
@@ -1595,7 +1675,30 @@ export type WorkbenchSummaryCounts = {
   riskyAutoMemories: number;
   openErrorLogs: number;
   backupCount: number;
+  /** Phase 10 — total items the preview-first maintenance scanner currently surfaces. */
+  pendingMaintenance: number;
 };
+
+export interface WorkbenchMaintenanceItemSummary {
+  id: string;
+  kind: MaintenanceItemKind;
+  reason: string;
+  project?: string;
+  knowledgeId?: string;
+  relationId?: string;
+  reflectionDraftId?: string;
+  label?: MaintenanceItemLabel;
+  closestKnowledgeId?: string;
+}
+
+export interface WorkbenchMaintenancePreview {
+  batchId: string;
+  generatedAt: string;
+  counts: MaintenanceCounts;
+  totalDetected: number;
+  truncated: boolean;
+  items: WorkbenchMaintenanceItemSummary[];
+}
 
 export type WorkbenchSummaryCountKey = keyof WorkbenchSummaryCounts;
 
@@ -1618,6 +1721,8 @@ export interface WorkbenchSummary {
   openConflicts: WorkbenchKnowledgeConflictSummary[];
   riskyAutoMemories: WorkbenchKnowledgeSummary[];
   openErrorLogs: WorkbenchErrorLogCollection;
+  /** Phase 10 — preview of preview-first maintenance proposals. */
+  pendingMaintenance: WorkbenchMaintenancePreview;
   recommendedActions: WorkbenchRecommendedAction[];
 }
 

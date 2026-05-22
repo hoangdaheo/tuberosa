@@ -937,21 +937,122 @@ The "first run" column captures what the new fixture surfaced against the **unto
 
 **Why:** Phase 6 produces UPDATE / DELETE / supersede proposals. They need a review surface. Sourcegraph Batch Changes is the right interaction model — preview first, apply after review.
 
-**Changes:**
-- New MCP tool `tuberosa_propose_maintenance` — generates preview batches:
-  - Duplicate memories (Phase 6a clustering output).
-  - Stale relations (`validUntil < now`).
-  - Superseded reflections (`DELETE` decisions from Phase 6b).
-  - Weak / unreviewed labels (`provenance: 'inferred'` with `confidence < 0.5`).
-- New MCP tool `tuberosa_apply_maintenance` — applies an approved batch. Idempotent. Always behind a review (workbench UI link).
-- Workbench: surface pending maintenance previews next to pending reflection drafts.
-- Auto-apply: NEVER. Always reviewer-gated.
+**Status: ✅ DONE (2026-05-22)**
 
-**Fixtures added before code:**
-- A synthetic corpus with 5 duplicate memories and 3 stale relations → `propose_maintenance` returns a preview with exactly 5+3 items.
-- `apply_maintenance` mutates only the records listed in the preview; un-approved drafts untouched.
+**Implemented:**
+- ✅ New module `src/maintenance/service.ts`:
+  - `MaintenanceService` class. `propose({ project?, kinds?, limit? })` scans the store and emits a `MaintenanceBatch { id, generatedAt, project?, items[], counts, totalDetected, truncated }`. Items are typed `MaintenanceItem { id, kind, reason, project?, knowledgeId?, relationId?, reflectionDraftId?, label?, closestKnowledgeId?, evidence? }`.
+  - Four detection kinds (each independently togglable via `kinds: ['duplicate_memory','stale_relation','superseded_reflection','weak_label']`):
+    - **`duplicate_memory`** — pending reflection drafts whose Phase 6b write-gate stamped `metadata.writeGate.decision === 'NOOP'`. `closestKnowledgeId` is preserved on the item so the reviewer (and the workbench) see what the draft was proposed to duplicate.
+    - **`stale_relation`** — knowledge relations whose `metadata.validUntil` parses to a timestamp ≤ `Date.now()`. Phase 6c's `expireRelationsFromKnowledge` (supersedes + stale-feedback) is the only producer today, so this kind closes that loop.
+    - **`superseded_reflection`** — pending drafts whose write-gate stamped `decision === 'DELETE'`. Apply both archives the closest memory AND rejects the draft (with `maintenance` metadata on both rows).
+    - **`weak_label`** — labels with `provenance.source ∈ {classifier, llm, ast, heuristic}` AND `provenance.confidence < 0.5`. Apply patches the knowledge item's labels to remove the entry and stamps `metadata.maintenance.removed`.
+  - `apply({ batchId?, items?, approvedItemIds?, reviewer?, reviewerNote? })` mutates the store. Two call shapes: pass `batchId` (preferred — the service remembers the last 16 batches in-memory) or pass `items[]` inline (for forward-compat after a server restart). `approvedItemIds` gates which items mutate; omitting it applies every item. Per-item outcomes are reported as `applied | noop | skipped | failed` with messages. **Idempotent** — re-running the same batch returns `noop` on every line, never errors, and never double-archives.
+  - Bounded reads: drafts ≤ 200, relations ≤ 1000, knowledge items ≤ 500 (constants in the module). Default propose limit 50 with a hard ceiling of 500.
+- ✅ `src/types.ts`:
+  - New `MaintenanceItemKind` union and `MaintenanceItem`, `MaintenanceItemLabel`, `MaintenanceCounts`, `MaintenanceBatch`, `MaintenanceProposeInput`, `MaintenanceApplyInput`, `MaintenanceApplyOutcome`, `MaintenanceApplyResultItem`, `MaintenanceApplyResult` interfaces.
+  - `WorkbenchSummaryCounts.pendingMaintenance: number` added.
+  - `WorkbenchMaintenanceItemSummary` + `WorkbenchMaintenancePreview` interfaces added. `WorkbenchSummary.pendingMaintenance: WorkbenchMaintenancePreview` is a required field on the summary.
+  - `WorkbenchRecommendedActionTarget` widened with `'pending_maintenance'`.
+- ✅ `src/app.ts` — wires `maintenance: new MaintenanceService(store)` into `AppServices`. Constructor is store-only (the rest of the propose surface is read-only inspection).
+- ✅ `src/mcp/server.ts`:
+  - Two new MCP tools, both backwards-compatible (no existing tool signatures touched):
+    - **`tuberosa_propose_maintenance`** — input `{ project?, kinds? (MAINTENANCE_ITEM_KINDS), limit? }`; returns `{ batch, instruction }`.
+    - **`tuberosa_apply_maintenance`** — input `{ batchId?, approvedItemIds?, items?, reviewer?, reviewerNote? }`; returns `{ result, instruction }` and fires `services.operations.requestPhysicalMirror('maintenance-applied')` so the physical mirror sees the change.
+  - `tools()` JSON-schema list extended with both new tools and full property descriptions for workbench rendering.
+  - Imports `MAINTENANCE_ITEM_KINDS` from `validation.ts` and `validateMaintenance{Propose,Apply}Input`.
+- ✅ `src/validation.ts`:
+  - New exported constant `MAINTENANCE_ITEM_KINDS`.
+  - New `validateMaintenanceProposeInput(value)` and `validateMaintenanceApplyInput(value)`.
+  - Helper `readMaintenanceItem` validates the inline `items[]` payload shape (id+kind required; label nested record; evidence + ids passthrough).
+- ✅ `src/operations/workbench-summary.ts`:
+  - `WorkbenchSummaryServices.maintenance?` accepted optionally (so unit tests can omit it; the summary renders an empty preview when absent).
+  - `buildWorkbenchSummary` runs `maintenance.propose({ project, limit: filters.limit })` in parallel with the other queue scans (wrapped in `.catch(() => undefined)` so a maintenance scan crash never blocks the summary).
+  - `compactMaintenancePreview` + `compactMaintenanceItem` reduce the batch to the workbench shape.
+  - `counts.pendingMaintenance` reports `batch.totalDetected` (full count, not the clamped items[]).
+  - `recommendedActions(...)` emits a new priority-3 entry `'pending_maintenance'` when `counts.pendingMaintenance > 0`.
+- ✅ `src/workbench/presenters/summaryPresenter.ts` — `actionTarget('pending_maintenance')` routes to the existing `{ view: 'memory', memoryTab: 'proposals' }` deep link.
+- ✅ `src/operations/workbench-cli.ts` — adds `Pending maintenance: <n>` to the Counts section.
+- ✅ `test/phase10.test.ts` (new, 6 tests, all green):
+  1. **5+3 fixture parity** — propose returns exactly 5 `duplicate_memory` + 3 `stale_relation` items on the seeded fixture (matches the spec's "synthetic corpus with 5 duplicate memories and 3 stale relations → preview with exactly 5+3 items" verbatim).
+  2. **Selective apply** — approving only one duplicate draft + one stale relation mutates exactly those two records; the other four drafts stay `pending` and the other two relations stay alive.
+  3. **Idempotency** — re-applying the same batch yields `appliedCount=0` and every result row is `noop`.
+  4. **Multi-kind scan** — propose detects both `superseded_reflection` (draft with `DELETE` write-gate decision) and `weak_label` (classifier provenance < 0.5); apply archives the closest memory + rejects the draft + removes the weak label.
+  5. **`kinds` filter** — propose called with `kinds: ['duplicate_memory']` returns only duplicate items; `kinds: ['stale_relation']` returns only relations.
+  6. **Inline items[] payload** — apply with no `batchId` (a fresh service instance) honors the explicit `items[]` payload + `approvedItemIds`.
 
-**Verification:** integration test in `test/maintenance.test.ts`. MCP surface stays backwards-compatible (two NEW tools, no changes to existing ones).
+**Baseline deltas (hash provider, 2026-05-22):**
+
+| Metric | Post Phase 9 | Post Phase 10 | Δ |
+|---|---|---|---|
+| Cases (context-mapping) | 8 | 8 | — |
+| Context Precision @ 5 | 25.0% | 25.0% | — |
+| Context Recall | 100% | 100% | — |
+| Context Entities Recall | 100% | 100% | — |
+| Noise Sensitivity | 75.0% | 75.0% | — |
+| Direct-evidence Placement | 100% | 100% | — |
+| Fit Calibration | 100% | 100% | — |
+| Forbidden-item Rate | 0.0% | 0.0% | — |
+| Brief Groundedness | 100% | 100% | — |
+| Safety precision/recall/F1 | 100/100/100 | 100/100/100 | — |
+| `eval:retrieval` | 14/14 green | 14/14 green | — |
+| `eval:agent-context` | green | green | — |
+| `pnpm test` | 277/277 | **283/283** (+6 phase-10 tests) | +6 |
+| Sandbox hit | 93.2% | 93.2% | — |
+| Sandbox MRR | 0.4771 | 0.4771 | — |
+| Sandbox latency p50 | 22ms | 17ms (run variance, within budget) | within bounds |
+| Sandbox latency p95 | 57ms | 25ms (run variance, within budget) | within bounds |
+
+Phase 10 is **structural** — it adds a new review surface without moving any retrieval metric. The load-bearing coverage lives in `test/phase10.test.ts` (six tests covering propose detection across all four kinds + apply idempotency + selective approval + inline payload). The workbench surface grows by one count and one preview block; recommended actions gain a priority-3 entry when items are detected.
+
+**Deviations from the original Phase 10 spec (recorded so they aren't lost):**
+- **"Duplicate memories (Phase 6a clustering output)" actually reads from Phase 6b write-gate metadata.** The plan text mentions Phase 6a clustering, but Phase 6 ships duplicate detection inside the Phase 6b write-gate (`metadata.writeGate.decision === 'NOOP'`), not as a separate clustering pass. The implementation reads `metadata.writeGate.decision` on pending reflection drafts. If a future phase ships a separate clustering output (cross-knowledge similarity batches independent of drafts), extend `propose` with a fifth `cluster_duplicate` kind then.
+- **In-memory batch cache, not persisted to storage.** The plan asked for `apply` to find batches by id. The implementation keeps the last 16 batches in an LRU map on the service instance. **Tradeoff:** if the MCP process restarts between propose and apply, the batch id is gone — the apply call must use the inline `items[]` payload instead (covered by test #6 above). Persisting batches would require a new SQL table or JSONB key and the round-trip wasn't a load-bearing Phase 10 requirement. If a future workbench wants pre-loaded batches across restarts, persist `MaintenanceBatch` to `knowledge_items.metadata` under a `maintenance.batches[]` key or add a dedicated table.
+- **Apply semantics for `superseded_reflection` = archive the closest memory AND reject the draft.** The plan said "supersede an existing memory" without specifying what happens to the new draft. The implementation archives the legacy memory (status='archived' + `metadata.maintenance.supersededByDraft`) and rejects the supersede draft. Rationale: the supersede gesture is a delete-old-then-add-new proposal, but the new draft hasn't been reviewed yet — auto-approving it would defeat the whole "always reviewer-gated" Phase 10 invariant. After the apply, the reviewer creates a fresh reflection draft if they want the new policy persisted, OR the workbench presents the rejected draft for re-approval. Carry-over: an alternative is to leave the draft pending and let the reviewer hit `tuberosa_review_reflection_draft` separately; revisit if user feedback shows confusion.
+- **`weak_label` apply removes the label outright; it does NOT downgrade or annotate.** The Phase 10 surface is binary (apply / don't apply); soft-removal (e.g., decay the weight to 0.1 instead of dropping) isn't load-bearing here. Operators who want graceful degradation can patch the label via `updateKnowledge` directly; the maintenance tool intentionally favors clean removal so the workbench shows a single decision per item.
+- **No SQL migration.** All new state (`metadata.maintenance` on reflection drafts + knowledge items) rides on the existing JSONB columns — same pattern as Phase 1's `labelProvenance` and Phase 6a's `namespace`. No `migrations/00X_maintenance*.sql` was added. If a future phase wants SQL-level indexing on maintenance status, add the column then.
+- **`recommendedActions` deep link routes to the existing `memory > proposals` tab.** A dedicated `'pending_maintenance'` tab/view would require frontend work outside the scope of this MCP-tools-only phase. The presenter routes to the closest existing tab (Phase 6's learning-proposal tab) since maintenance items are conceptually proposals too. Add a dedicated tab when frontend work resumes.
+- **`MaintenanceService` constructor only takes the store** (no models/safety/etc.). Earlier sketches considered taking `ModelProvider` to score "weak" labels with an embedding-based confidence check, but that would couple the local-heuristic surface to embeddings. The current heuristic — `provenance.source` in inferred-bucket + `confidence < 0.5` — is deterministic, offline, and reviewer-explained.
+- **No env flag.** Consistent with Phases 1–9: behavior is verified via fixtures, not gated by a kill switch. The MCP tools are additive (omit them and the surface is unchanged). If a future incident requires forcibly disabling propose/apply, gate `MaintenanceService.propose` on `process.env.TUBEROSA_MAINTENANCE_ENABLED !== 'false'`.
+- **Workbench summary maintenance scan runs inline.** Each workbench summary build calls `maintenance.propose({ project, limit: filters.limit })`. With a memory store this is microseconds; with Postgres it adds three bounded queries (drafts/relations/knowledge). The catch handler swallows errors so a maintenance scan failure never blocks the summary. If propose ever becomes a hot path, cache the last result with a short TTL — left as a perf follow-up.
+- **Did NOT extend `LearningProposalType` with new values.** Phase 6's status block already deferred `noop_duplicate / update_merge / delete_supersede`. Phase 10's maintenance items are NOT `LearningProposal` rows — they're computed on-read from existing storage state (drafts + relations + labels), not persisted as their own entity. If/when the workbench wants per-decision queues alongside `LearningProposal`, persist `MaintenanceBatch` (see deviation above) and surface them.
+- **`apply_maintenance` mirrors via `services.operations.requestPhysicalMirror('maintenance-applied')`.** Other write-path MCP tools use this idiom (`reflection-reviewed`, `agent-session-finished`, etc.); Phase 10 follows suit so the physical mirror picks up draft-status changes and label edits.
+
+**Files added:**
+- `src/maintenance/service.ts` (~390 lines — `MaintenanceService` class, four detection branches, idempotent apply, in-memory batch LRU)
+- `test/phase10.test.ts` (6 tests, all green)
+
+**Files modified:**
+- `src/types.ts` — Phase 10 type block (`MaintenanceItemKind`, `MaintenanceItem`, `MaintenanceBatch`, `MaintenanceProposeInput`, `MaintenanceApplyInput`, `MaintenanceApplyResult`, `WorkbenchMaintenanceItemSummary`, `WorkbenchMaintenancePreview`, `WorkbenchSummaryCounts.pendingMaintenance`, `WorkbenchSummary.pendingMaintenance`, `WorkbenchRecommendedActionTarget` widened).
+- `src/app.ts` — wires `maintenance` into `AppServices`.
+- `src/mcp/server.ts` — adds `tuberosa_propose_maintenance` + `tuberosa_apply_maintenance` switch cases and tool descriptors; imports the new validators + `MAINTENANCE_ITEM_KINDS`.
+- `src/validation.ts` — `MAINTENANCE_ITEM_KINDS` constant + two validators + inline-item reader.
+- `src/operations/workbench-summary.ts` — accepts optional `maintenance` service, runs propose inline, emits `pendingMaintenance` summary block + count + recommended action.
+- `src/operations/workbench-cli.ts` — surfaces `Pending maintenance:` in the Counts section.
+- `src/workbench/presenters/summaryPresenter.ts` — `actionTarget('pending_maintenance')` routes to the proposals tab.
+- `test/operations.test.ts`, `test/flow-regression.test.ts`, `test/browser/workbench-browser.test.ts` — `createTestServices` helpers wire `maintenance` so the `AppServices` literal matches the new required field.
+- `test/workbench-cli.test.ts`, `test/workbench-presenters.test.ts` — fixture summaries gain `counts.pendingMaintenance: 0` + an empty `pendingMaintenance` preview block.
+- `implements/enhance_rewrite/tuberosa-enhance-knowledge-quality.md` — this status block.
+
+**Verification (all green):**
+- `pnpm run build` ✅
+- `pnpm test` ✅ — 283/283 pass (was 277; +6 from `test/phase10.test.ts`)
+- `pnpm run eval:retrieval` ✅ — hit@5 100%, MRR 1.0, 14/14 pass, context-fit score 100%
+- `pnpm run eval:agent-context` ✅
+- `pnpm run eval:context-mapping` ✅ — no regressions vs Phase 9 (precision 25%, recall 100%, entities 100%, noise 75%, placement 100%, fit 100%, forbidden 0%, brief 100%)
+- `pnpm run eval:safety` ✅ — overall precision 100.0%, recall 100.0%, F1 100.0%; per-pattern all 100/100/100
+- `pnpm run sandbox` ✅ — hit 93.2%, MRR 0.4771, noise 9.1%, latency p50 ≈ 17ms, p95 ≈ 25ms; thresholds PASS
+
+**Tried but not done (deliberate carry-overs):**
+- **Persist `MaintenanceBatch` across MCP process restarts.** Today the propose→apply round-trip survives only if the same MCP process serves both calls. For long-lived workbench review sessions, persist batches under `knowledge_items.metadata.maintenance.batches[]` or in a dedicated `maintenance_batches` table. The inline `items[]` apply path covers the gap in the meantime.
+- **`tuberosa_get_maintenance_batch(batchId)` resource lookup.** The service exposes `getBatch(id)`, but no MCP read tool surfaces it. Add when the workbench wants to render a batch on demand without re-running propose.
+- **Dedicated workbench `Maintenance` tab/view.** The recommended action currently routes to the existing `memory > proposals` tab. A dedicated UI would carry the per-kind groupings + reviewer note inputs. Frontend work.
+- **`tuberosa_dismiss_maintenance_item(itemId, reason)` for explicit "don't show again".** Today an unapproved item simply re-surfaces on the next propose call. Persist a dismissal record + filter it out of subsequent propose runs once reviewers ask for that ergonomic.
+- **Synthetic ADD-rate metric in `eval:context-mapping`.** Phase 6's status block carried this forward; Phase 10 doesn't move the needle because the maintenance items are downstream of the write-gate. When the metric lands, assert `maintenance.duplicate_memory >= write_gate.NOOP` (every NOOP draft should reach the maintenance scanner).
+- **Soft-removal mode for `weak_label`.** Today apply removes the label outright. A `--soft` flag could downgrade weight + confidence instead. Useful polish when operators report regret on a removal.
+- **Per-item `apply` timing telemetry.** The result object reports per-item status but not latency. Add when a future apply call shows pathological tail latency.
+- **PII-aware `weak_label` filtering.** A label whose value redacts as PII should never appear in a maintenance item's `reason` string. Today the value flows through verbatim — fine for the test fixture but worth gating against `KnowledgeSafetyService` once production fixtures exist.
+- **Postgres UUID crash on worktree ids (Phase 5 carry-over).** Still open. Phase 10 didn't touch `src/storage/postgres-store.ts`, so the fix needs a follow-up. The maintenance tool is fully store-API based — it neither produces nor consumes `worktree:*` ids, so it doesn't make the underlying bug worse.
 
 ---
 

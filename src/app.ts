@@ -5,6 +5,7 @@ import { loadConfig, type AppConfig } from './config.js';
 import { ErrorLogInsightService } from './error-log/insights.js';
 import { ErrorLogService } from './error-log/service.js';
 import { IngestionService } from './ingest/service.js';
+import { MaintenanceService } from './maintenance/service.js';
 import { createModelProvider, type ModelProvider } from './model/provider.js';
 import { OperationsService } from './operations/service.js';
 import { ReflectionService } from './reflection/service.js';
@@ -27,6 +28,7 @@ export interface AppServices {
   reflection: ReflectionService;
   agentSessions: AgentSessionService;
   operations: OperationsService;
+  maintenance: MaintenanceService;
   close(): Promise<void>;
 }
 
@@ -55,6 +57,7 @@ export async function createAppServices(): Promise<AppServices> {
   const reflection = new ReflectionService(store, ingestion, safety);
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
   const agentSessions = new AgentSessionService(store, retrieval, reflection);
+  const maintenance = new MaintenanceService(store);
   const operations = new OperationsService(store, ingestion, {
     backupDir: config.backupDir,
     storeKind: config.store,
@@ -95,6 +98,7 @@ export async function createAppServices(): Promise<AppServices> {
     reflection,
     agentSessions,
     operations,
+    maintenance,
     async close() {
       await Promise.allSettled([operations.close(), cache.close(), store.close()]);
     },

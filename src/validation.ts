@@ -29,6 +29,11 @@ import type {
   LearningProposalPatchInput,
   LearningProposalType,
   LearningReviewStatus,
+  MaintenanceApplyInput,
+  MaintenanceItem,
+  MaintenanceItemKind,
+  MaintenanceItemLabel,
+  MaintenanceProposeInput,
   KnowledgeRelationInput,
   KnowledgeRelationPatchInput,
   KnowledgeRelationTargetKind,
@@ -321,6 +326,92 @@ export function validateLearningProposalPatchInput(value: unknown): LearningProp
   return {
     status: readOptionalEnum(record, 'status', LEARNING_REVIEW_STATUSES, 'learning proposal patch input'),
     metadata: readOptionalObject(record, 'metadata', 'learning proposal patch input'),
+  };
+}
+
+export const MAINTENANCE_ITEM_KINDS = [
+  'duplicate_memory',
+  'stale_relation',
+  'superseded_reflection',
+  'weak_label',
+] as const satisfies readonly MaintenanceItemKind[];
+
+export function validateMaintenanceProposeInput(value: unknown): MaintenanceProposeInput {
+  const record = expectObject(value, 'maintenance propose input');
+  const kindsRaw = record.kinds;
+  const kinds = kindsRaw === undefined
+    ? undefined
+    : readMaintenanceKinds(kindsRaw, 'maintenance propose input.kinds');
+  return {
+    project: readOptionalString(record, 'project', 'maintenance propose input'),
+    kinds,
+    limit: readOptionalPositiveNumber(record, 'limit', 'maintenance propose input'),
+  };
+}
+
+export function validateMaintenanceApplyInput(value: unknown): MaintenanceApplyInput {
+  const record = expectObject(value, 'maintenance apply input');
+  const items = record.items === undefined
+    ? undefined
+    : readMaintenanceItems(record.items, 'maintenance apply input.items');
+  return {
+    batchId: readOptionalString(record, 'batchId', 'maintenance apply input'),
+    items,
+    approvedItemIds: readOptionalStringArray(record, 'approvedItemIds', 'maintenance apply input'),
+    reviewer: readOptionalString(record, 'reviewer', 'maintenance apply input'),
+    reviewerNote: readOptionalString(record, 'reviewerNote', 'maintenance apply input'),
+  };
+}
+
+function readMaintenanceKinds(value: unknown, path: string): MaintenanceItemKind[] {
+  if (!Array.isArray(value)) {
+    throw validationIssue(path, 'must be an array.');
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || !MAINTENANCE_ITEM_KINDS.includes(entry as MaintenanceItemKind)) {
+      throw validationIssue(`${path}[${index}]`, `must be one of: ${MAINTENANCE_ITEM_KINDS.join(', ')}.`);
+    }
+    return entry as MaintenanceItemKind;
+  });
+}
+
+function readMaintenanceItems(value: unknown, path: string): MaintenanceItem[] {
+  if (!Array.isArray(value)) {
+    throw validationIssue(path, 'must be an array.');
+  }
+  return value.map((entry, index) => readMaintenanceItem(entry, `${path}[${index}]`));
+}
+
+function readMaintenanceItem(value: unknown, path: string): MaintenanceItem {
+  const record = expectObject(value, path);
+  const kindRaw = record.kind;
+  if (typeof kindRaw !== 'string' || !MAINTENANCE_ITEM_KINDS.includes(kindRaw as MaintenanceItemKind)) {
+    throw validationIssue(`${path}.kind`, `must be one of: ${MAINTENANCE_ITEM_KINDS.join(', ')}.`);
+  }
+  const labelValue = record.label;
+  let label: MaintenanceItemLabel | undefined;
+  if (labelValue !== undefined && labelValue !== null) {
+    const labelRecord = expectObject(labelValue, `${path}.label`);
+    label = {
+      type: readRequiredEnum(labelRecord, 'type', LABEL_TYPES, `${path}.label`),
+      value: readRequiredString(labelRecord, 'value', `${path}.label`),
+    };
+  }
+  const evidenceRaw = record.evidence;
+  const evidence = evidenceRaw === undefined
+    ? undefined
+    : readOptionalStringArray(record, 'evidence', path);
+  return {
+    id: readRequiredString(record, 'id', path),
+    kind: kindRaw as MaintenanceItemKind,
+    reason: readOptionalString(record, 'reason', path) ?? '',
+    project: readOptionalString(record, 'project', path),
+    knowledgeId: readOptionalString(record, 'knowledgeId', path),
+    relationId: readOptionalString(record, 'relationId', path),
+    reflectionDraftId: readOptionalString(record, 'reflectionDraftId', path),
+    label,
+    closestKnowledgeId: readOptionalString(record, 'closestKnowledgeId', path),
+    evidence,
   };
 }
 

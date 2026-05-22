@@ -11,6 +11,7 @@ import {
   CONTEXT_QUALITY_FEEDBACK_TYPES,
   FEEDBACK_TYPES,
   KNOWLEDGE_ITEM_TYPES,
+  MAINTENANCE_ITEM_KINDS,
   REFLECTION_DRAFT_STATUSES,
   TASK_TYPES,
   TRIGGER_TYPES,
@@ -28,6 +29,8 @@ import {
   validateErrorLogInput,
   validateErrorLogListInput,
   validateErrorLogPatchInput,
+  validateMaintenanceApplyInput,
+  validateMaintenanceProposeInput,
   validateRecordAgentContextDecisionInput,
   validateReflectionDraftIdArguments,
   validateReflectionDraftInput,
@@ -334,6 +337,27 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       return toolJson({
         ...result,
         instruction: 'Note appended. Use this for post-finish corrections, optionally with a context-quality feedbackType.',
+      });
+    }
+
+    case 'tuberosa_propose_maintenance': {
+      const batch = await services.maintenance.propose(validateMaintenanceProposeInput(args));
+      return toolJson({
+        batch,
+        instruction: batch.items.length > 0
+          ? 'Review the proposed maintenance items. Apply with tuberosa_apply_maintenance using batchId plus approvedItemIds — never auto-applied.'
+          : 'No pending maintenance was detected for the current filters.',
+      });
+    }
+
+    case 'tuberosa_apply_maintenance': {
+      const result = await services.maintenance.apply(validateMaintenanceApplyInput(args));
+      services.operations.requestPhysicalMirror('maintenance-applied');
+      return toolJson({
+        result,
+        instruction: result.appliedCount > 0
+          ? 'Maintenance applied. Inspect results[] for per-item outcomes; reruns are idempotent.'
+          : 'No maintenance items were applied. Confirm batchId or approvedItemIds and try again.',
       });
     }
 
@@ -960,6 +984,64 @@ function tools() {
         properties: {
           project: { type: 'string' },
           limit: { type: 'number' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_propose_maintenance',
+      title: 'Propose Tuberosa Maintenance',
+      description: 'Phase 10 — Generate a preview batch of duplicate memories, stale relations, superseded reflections, and weak inferred labels. Reviewer-gated; never auto-applied.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          kinds: {
+            type: 'array',
+            items: { type: 'string', enum: [...MAINTENANCE_ITEM_KINDS] },
+            description: 'Restrict scanning to specific maintenance kinds. Defaults to all four.',
+          },
+          limit: { type: 'number', description: 'Maximum number of items in the returned batch. Defaults to 50.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_apply_maintenance',
+      title: 'Apply Tuberosa Maintenance',
+      description: 'Phase 10 — Apply an approved maintenance batch. Pass batchId (preferred) or an explicit items[] payload; approvedItemIds gates which items mutate. Idempotent.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          batchId: { type: 'string', description: 'Id returned by tuberosa_propose_maintenance.' },
+          approvedItemIds: { type: 'array', items: { type: 'string' }, description: 'Maintenance item ids to actually apply. Omit to apply every item in the batch.' },
+          items: {
+            type: 'array',
+            description: 'Maintenance items to apply when batchId is unavailable (e.g., after a server restart).',
+            items: {
+              type: 'object',
+              required: ['id', 'kind'],
+              properties: {
+                id: { type: 'string' },
+                kind: { type: 'string', enum: [...MAINTENANCE_ITEM_KINDS] },
+                reason: { type: 'string' },
+                project: { type: 'string' },
+                knowledgeId: { type: 'string' },
+                relationId: { type: 'string' },
+                reflectionDraftId: { type: 'string' },
+                closestKnowledgeId: { type: 'string' },
+                evidence: { type: 'array', items: { type: 'string' } },
+                label: {
+                  type: 'object',
+                  required: ['type', 'value'],
+                  properties: {
+                    type: { type: 'string' },
+                    value: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          reviewer: { type: 'string' },
+          reviewerNote: { type: 'string' },
         },
       },
     },

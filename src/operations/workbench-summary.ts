@@ -1,11 +1,14 @@
 import type { AppConfig } from '../config.js';
 import type { ErrorLogInsightService } from '../error-log/insights.js';
+import type { MaintenanceService } from '../maintenance/service.js';
 import type {
   CollectErrorLogsOptions,
   BackupStatus,
   ContextQualityReport,
   ErrorLogCollection,
   ErrorLogSummary,
+  MaintenanceBatch,
+  MaintenanceItem,
   ReferenceInput,
   WorkbenchBackupStatus,
   WorkbenchContextQualityReport,
@@ -16,6 +19,8 @@ import type {
   WorkbenchKnowledgeGapSummary,
   WorkbenchKnowledgeSummary,
   WorkbenchLearningProposalSummary,
+  WorkbenchMaintenanceItemSummary,
+  WorkbenchMaintenancePreview,
   WorkbenchReflectionDraftSummary,
   WorkbenchRecommendedAction,
   WorkbenchSessionSummary,
@@ -45,6 +50,8 @@ export interface WorkbenchSummaryServices {
     | 'listKnowledge'
   >;
   errorLogInsights: Pick<ErrorLogInsightService, 'collect'>;
+  /** Phase 10 — optional maintenance scanner. Workbench renders an empty preview when omitted. */
+  maintenance?: Pick<MaintenanceService, 'propose'>;
 }
 
 export async function buildWorkbenchSummary(
@@ -58,6 +65,10 @@ export async function buildWorkbenchSummary(
   const project = filters.project;
   const listLimit = Math.max(filters.limit, COUNT_LIMIT);
 
+  const maintenancePromise: Promise<MaintenanceBatch | undefined> = services.maintenance
+    ? services.maintenance.propose({ project, limit: filters.limit }).catch(() => undefined)
+    : Promise.resolve(undefined);
+
   const [
     backupStatus,
     sessionCandidates,
@@ -69,6 +80,7 @@ export async function buildWorkbenchSummary(
     autoMemoryCandidates,
     riskyAutoMemoryCandidates,
     openErrorLogs,
+    maintenanceBatch,
   ] = await Promise.all([
     services.operations.getBackupStatus(),
     services.operations.listAgentSessions({ project, limit: listLimit }),
@@ -80,6 +92,7 @@ export async function buildWorkbenchSummary(
     services.operations.listKnowledge({ project, review: 'auto_memory', limit: listLimit }),
     services.operations.listKnowledge({ project, review: 'risky_auto_memory', limit: listLimit }),
     services.errorLogInsights.collect(openErrorLogOptions(project, filters.limit)),
+    maintenancePromise,
   ]);
 
   const recentSessions = sessionCandidates.slice(0, filters.limit).map(compactSession);
@@ -91,6 +104,7 @@ export async function buildWorkbenchSummary(
   const riskyAutoMemories = riskyAutoMemoryCandidates.slice(0, filters.limit).map(compactKnowledge);
   const openErrorLogSummary = compactErrorLogs(openErrorLogs);
   const backupStatusSummary = compactBackupStatus(backupStatus);
+  const pendingMaintenance = compactMaintenancePreview(maintenanceBatch, filters.limit);
   const activeSessions = sessionCandidates.filter((session) => session.status === 'active').length;
   const counts: WorkbenchSummaryCounts = {
     recentSessions: sessionCandidates.length,
@@ -105,6 +119,7 @@ export async function buildWorkbenchSummary(
     riskyAutoMemories: riskyAutoMemoryCandidates.length,
     openErrorLogs: openErrorLogs.totalMatched,
     backupCount: backupStatus.backupCount,
+    pendingMaintenance: pendingMaintenance.totalDetected,
   };
   const countMetadata = buildCountMetadata({
     sessionCandidates,
@@ -139,6 +154,7 @@ export async function buildWorkbenchSummary(
     openConflicts,
     riskyAutoMemories,
     openErrorLogs: openErrorLogSummary,
+    pendingMaintenance,
     recommendedActions: recommendedActions({
       counts,
       backupStatus,
@@ -151,6 +167,44 @@ export async function buildWorkbenchSummary(
       riskyAutoMemories,
       project,
     }),
+  };
+}
+
+function compactMaintenancePreview(
+  batch: MaintenanceBatch | undefined,
+  limit: number,
+): WorkbenchMaintenancePreview {
+  if (!batch) {
+    return {
+      batchId: '',
+      generatedAt: new Date().toISOString(),
+      counts: { duplicate_memory: 0, stale_relation: 0, superseded_reflection: 0, weak_label: 0 },
+      totalDetected: 0,
+      truncated: false,
+      items: [],
+    };
+  }
+  return {
+    batchId: batch.id,
+    generatedAt: batch.generatedAt,
+    counts: batch.counts,
+    totalDetected: batch.totalDetected,
+    truncated: batch.truncated,
+    items: batch.items.slice(0, limit).map(compactMaintenanceItem),
+  };
+}
+
+function compactMaintenanceItem(item: MaintenanceItem): WorkbenchMaintenanceItemSummary {
+  return {
+    id: item.id,
+    kind: item.kind,
+    reason: shortText(item.reason),
+    project: item.project,
+    knowledgeId: item.knowledgeId,
+    relationId: item.relationId,
+    reflectionDraftId: item.reflectionDraftId,
+    label: item.label,
+    closestKnowledgeId: item.closestKnowledgeId,
   };
 }
 
@@ -278,6 +332,17 @@ function recommendedActions(input: {
       count: input.counts.activeSessions,
       href: endpointWithQuery('/agent-sessions', { ...projectQuery, status: 'active' }),
       reason: 'Finished sessions with decisions provide the best audit trail for future agents.',
+    });
+  }
+
+  if (input.counts.pendingMaintenance > 0) {
+    actions.push({
+      priority: 3,
+      target: 'pending_maintenance',
+      label: 'Apply or dismiss pending maintenance',
+      count: input.counts.pendingMaintenance,
+      href: endpointWithQuery('/operations/maintenance', { ...projectQuery }),
+      reason: 'Duplicate memories, stale relations, supersedes, and weak labels are surfaced as a previewable batch.',
     });
   }
 

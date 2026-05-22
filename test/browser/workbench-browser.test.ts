@@ -13,6 +13,7 @@ import { ErrorLogInsightService } from '../../src/error-log/insights.js';
 import { ErrorLogService } from '../../src/error-log/service.js';
 import { createHttpServer } from '../../src/http/server.js';
 import { IngestionService } from '../../src/ingest/service.js';
+import { MaintenanceService } from '../../src/maintenance/service.js';
 import { HashModelProvider } from '../../src/model/provider.js';
 import { OperationsService } from '../../src/operations/service.js';
 import { ReflectionService } from '../../src/reflection/service.js';
@@ -273,6 +274,7 @@ function createBrowserServices(backupDir: string, errorLogDir: string): AppServi
   });
   const errorLogs = new ErrorLogService({ rootDir: errorLogDir });
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
+  const maintenance = new MaintenanceService(store);
 
   return {
     config: localConfig,
@@ -286,6 +288,7 @@ function createBrowserServices(backupDir: string, errorLogDir: string): AppServi
     operations,
     errorLogs,
     errorLogInsights,
+    maintenance,
     safety: {} as AppServices['safety'],
     async close() {
       await Promise.allSettled([operations.close(), cache.close(), store.close()]);

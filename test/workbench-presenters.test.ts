@@ -80,6 +80,7 @@ function makeSummary(overrides: Partial<WorkbenchSummary> = {}): WorkbenchSummar
       riskyAutoMemories: 1,
       openErrorLogs: 1,
       backupCount: 0,
+      pendingMaintenance: 0,
     },
     countMetadata: { scanLimit: 100, capped: {} },
     recentSessions: [{ id: 'session-1', prompt: 'Try the workbench', status: 'finished', outcome: 'completed', reflectionDraftCount: 0, createdAt: now }],
@@ -136,6 +137,14 @@ function makeSummary(overrides: Partial<WorkbenchSummary> = {}): WorkbenchSummar
         fingerprint: 'test-browser',
         references: [],
       }],
+    },
+    pendingMaintenance: {
+      batchId: '',
+      generatedAt: now,
+      counts: { duplicate_memory: 0, stale_relation: 0, superseded_reflection: 0, weak_label: 0 },
+      totalDetected: 0,
+      truncated: false,
+      items: [],
     },
     recommendedActions: [
       { priority: 1, target: 'context_quality', label: 'Review context-quality feedback', count: 1, reason: 'Noisy context.' },

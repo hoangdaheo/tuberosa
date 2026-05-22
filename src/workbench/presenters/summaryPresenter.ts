@@ -104,6 +104,8 @@ export function actionTarget(target: WorkbenchRecommendedActionTarget): SummaryR
       return { view: 'memory', memoryTab: 'errors' };
     case 'agent_sessions':
       return 'session';
+    case 'pending_maintenance':
+      return { view: 'memory', memoryTab: 'proposals' };
     case 'backup_health':
     case 'none':
       return 'overview';

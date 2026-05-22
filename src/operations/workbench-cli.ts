@@ -110,6 +110,7 @@ export function formatWorkbenchSummary(
     `Open gaps/proposals/conflicts: ${formatCount(summary, 'openGaps')}/${formatCount(summary, 'openProposals')}/${formatCount(summary, 'openConflicts')}`,
     `Auto memories: ${formatCount(summary, 'autoMemories')}; risky=${formatCount(summary, 'riskyAutoMemories')}`,
     `Open error logs: ${formatCount(summary, 'openErrorLogs')}`,
+    `Pending maintenance: ${formatCount(summary, 'pendingMaintenance')}`,
     '',
     '## Recommended Actions',
     ...formatRecommendedActions(summary.recommendedActions, options.apiBase),
