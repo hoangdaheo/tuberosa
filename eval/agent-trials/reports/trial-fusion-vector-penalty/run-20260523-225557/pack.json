@@ -1,0 +1,124 @@
+{
+  "id": "synthesized-pack-trial-fusion-vector-penalty",
+  "queryId": null,
+  "_note": "SYNTHESIZED. Tuberosa MCP is broken (P0 worktree UUID leak); this pack is hand-built from real file content to represent what Tuberosa would plausibly return for this query. Intentionally includes one noise item and one contradictory/stale item to exercise the debater.",
+  "prompt": "Verify that when a search has hard signals (files/symbols/errors), the vector source is correctly down-weighted by hardSignalVectorPenalty in fusion. Explain why this is right.",
+  "project": "tuberosa",
+  "confidence": 0.78,
+  "classified": {
+    "project": "tuberosa",
+    "taskType": "exploration",
+    "files": ["src/retrieval/fusion.ts", "src/retrieval/policy.ts"],
+    "symbols": ["hardSignalVectorPenalty", "sourceWeight", "fuseCandidates"],
+    "errors": [],
+    "technologies": ["typescript"],
+    "businessAreas": [],
+    "exactTerms": ["hardSignalVectorPenalty", "sourceWeight", "fuseCandidates"],
+    "lexicalQuery": "hardSignalVectorPenalty fusion source weight vector",
+    "confidence": 0.74
+  },
+  "contextFit": {
+    "fitStatus": "ready",
+    "fitScore": 0.74,
+    "fitReasons": ["strong retrieval rank", "file:src/retrieval/fusion.ts", "symbol:hardSignalVectorPenalty"],
+    "missingSignals": []
+  },
+  "orientation": {
+    "inferredTask": "exploration",
+    "recommendedFiles": ["src/retrieval/fusion.ts", "src/retrieval/policy.ts"],
+    "likelySurfaces": ["fuseCandidates", "sourceWeight"],
+    "verificationCommands": ["pnpm test test/fusion-profiles.test.ts"],
+    "notes": "Vector penalty is applied inside sourceWeight() when hard signals exist."
+  },
+  "taskBrief": {
+    "mode": "exploration",
+    "goal": "Trace where hardSignalVectorPenalty applies and confirm against policy values.",
+    "actions": [
+      "Open src/retrieval/fusion.ts and locate sourceWeight()",
+      "Cross-check with DEFAULT_POLICY in src/retrieval/policy.ts",
+      "Verify the policy value is -0.08"
+    ]
+  },
+  "sections": {
+    "essential": [
+      {
+        "knowledgeId": "k-fusion-source-weight",
+        "section": "essential",
+        "title": "fusion.ts sourceWeight applies vector penalty under hard signals",
+        "summary": "When the classified query carries files/symbols/errors, fusion adds hardSignalBoost to listed sources and subtracts hardSignalVectorPenalty from vector candidates.",
+        "content": "function sourceWeight(candidate: SearchCandidate, classified: ClassifiedQuery): number {\n  const policy = getRetrievalPolicy();\n  let weight = effectiveSourceWeight(policy, candidate.source, classified.taskType);\n  const hasHardSignal = classified.files.length || classified.symbols.length || classified.errors.length;\n  if (hasHardSignal) {\n    if (policy.hardSignalBoost.sources.includes(candidate.source)) {\n      weight += policy.hardSignalBoost.bonus;\n    }\n    if (candidate.source === 'vector') {\n      weight += policy.hardSignalVectorPenalty;\n    }\n  }\n  ...\n}",
+        "references": [{"type": "file", "uri": "src/retrieval/fusion.ts", "line": 141}],
+        "itemType": "code_ref",
+        "matchReasons": ["lexical match", "symbol:hardSignalVectorPenalty", "file:src/retrieval/fusion.ts"],
+        "finalScore": 0.86,
+        "fitScore": 0.81,
+        "evidenceCategory": "directTaskEvidence",
+        "evidenceStrength": "strong"
+      },
+      {
+        "knowledgeId": "k-policy-default",
+        "section": "essential",
+        "title": "DEFAULT_POLICY values for source weights and hard-signal penalties",
+        "summary": "DEFAULT_POLICY in policy.ts declares sourceWeights and hardSignalVectorPenalty = -0.08.",
+        "content": "sourceWeights: { worktree: 1.3, metadata: 1.15, graph: 1.1, memory: 1.08, lexical: 1.0, vector: 0.92 },\nhardSignalBoost: { sources: ['metadata', 'lexical', 'graph', 'worktree'], bonus: 0.18 },\nhardSignalVectorPenalty: -0.08,",
+        "references": [{"type": "file", "uri": "src/retrieval/policy.ts", "line": 184}],
+        "itemType": "code_ref",
+        "matchReasons": ["lexical match", "file:src/retrieval/policy.ts", "symbol:hardSignalVectorPenalty"],
+        "finalScore": 0.83,
+        "fitScore": 0.78,
+        "evidenceCategory": "directTaskEvidence",
+        "evidenceStrength": "strong"
+      }
+    ],
+    "supporting": [
+      {
+        "knowledgeId": "k-flow-logic-fusion",
+        "section": "supporting",
+        "title": "FLOW_LOGIC.md — Fusion stage rationale",
+        "summary": "Fusion weights metadata strongest, vector below exact matches when files/symbols/errors are present.",
+        "content": "Fusion combines stage results by knowledge id. Applies source weights: metadata strongest, reference reserved, memory, lexical, vector. Weighted below exact metadata and lexical matches when files, symbols, or errors are present.",
+        "references": [{"type": "file", "uri": "docs/FLOW_LOGIC.md", "line": 173}],
+        "itemType": "wiki",
+        "matchReasons": ["lexical match", "doc reference"],
+        "finalScore": 0.68,
+        "fitScore": 0.62,
+        "evidenceCategory": "workflowGuidance",
+        "evidenceStrength": "moderate"
+      }
+    ],
+    "optional": [
+      {
+        "knowledgeId": "k-paywall-modal-noise",
+        "section": "optional",
+        "title": "Paywall selection modal",
+        "summary": "React modal used by the newsletter composer to choose paywall products.",
+        "content": "PaywallSelectionModal renders the newsletter paywall picker. It keeps selected product ids stable while editors move between composer steps.",
+        "references": [{"type": "file", "uri": "src/components/paywall-selection-modal.tsx"}],
+        "itemType": "code_ref",
+        "matchReasons": ["vector match"],
+        "finalScore": 0.41,
+        "fitScore": 0.18,
+        "evidenceCategory": "adjacentContext",
+        "evidenceStrength": "weak",
+        "_synthesizer_note": "DELIBERATE NOISE: from newsletter-app fixture, unrelated to fusion. Worker should grade this 'noise'."
+      },
+      {
+        "knowledgeId": "k-old-stale-fusion-memory",
+        "section": "optional",
+        "title": "Old memory: 'vector search is the strongest signal in Tuberosa'",
+        "summary": "Pre-2025 memory claiming vector is the top-weighted source.",
+        "content": "Vector search is the strongest signal in Tuberosa retrieval; metadata and lexical only serve as tie-breakers. Always prefer the top vector hit.",
+        "references": [{"type": "memory", "uri": "memory://legacy-fusion-2024"}],
+        "itemType": "memory",
+        "matchReasons": ["memory match"],
+        "finalScore": 0.39,
+        "fitScore": 0.12,
+        "evidenceCategory": "priorLessons",
+        "evidenceStrength": "weak",
+        "_synthesizer_note": "DELIBERATE CONTRADICTION: this contradicts the actual policy (vector=0.92 is the WEAKEST, not strongest). Tuberosa should have suppressed via freshness/feedback; it didn't. Worker + debater should detect this."
+      }
+    ]
+  },
+  "rejectedKnowledgeIds": [],
+  "createdAt": "2026-05-23T22:55:57Z"
+}

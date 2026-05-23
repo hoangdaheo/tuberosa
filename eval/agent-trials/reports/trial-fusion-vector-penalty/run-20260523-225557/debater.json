@@ -1,0 +1,260 @@
+{
+  "pack_fact_check": [
+    {
+      "itemId": "k-fusion-source-weight",
+      "title": "fusion.ts sourceWeight applies vector penalty under hard signals",
+      "verdict": "partially_verified",
+      "claims_checked": [
+        {
+          "claim": "File src/retrieval/fusion.ts exists",
+          "method": "read",
+          "result": "match"
+        },
+        {
+          "claim": "sourceWeight() function defined at line 141",
+          "method": "read",
+          "result": "match"
+        },
+        {
+          "claim": "Snippet body matches fusion.ts lines 141-153 verbatim",
+          "method": "read",
+          "result": "match"
+        },
+        {
+          "claim": "Snippet uses '...' ellipsis to truncate, omitting lines 155-164 which apply effectiveTaskItemTypeBoosts and labelConfidenceMultiplier — those are part of sourceWeight() and material to a full explanation",
+          "method": "read",
+          "result": "mismatch"
+        },
+        {
+          "claim": "Pack implies sourceWeight starts from policy.sourceWeights[source]; in truth it uses effectiveSourceWeight() (line 143) which additively layers a task-profile delta on top — pack obscures the taskProfile contribution",
+          "method": "read",
+          "result": "mismatch"
+        }
+      ]
+    },
+    {
+      "itemId": "k-policy-default",
+      "title": "DEFAULT_POLICY values for source weights and hard-signal penalties",
+      "verdict": "partially_verified",
+      "claims_checked": [
+        {
+          "claim": "File src/retrieval/policy.ts exists",
+          "method": "read",
+          "result": "match"
+        },
+        {
+          "claim": "sourceWeights block at lines 184-194 matches snippet (worktree:1.3, metadata:1.15, graph:1.1, memory:1.08, lexical:1.0, vector:0.92)",
+          "method": "read",
+          "result": "match"
+        },
+        {
+          "claim": "hardSignalBoost sources/bonus and hardSignalVectorPenalty values at lines 195-196 match",
+          "method": "read",
+          "result": "match"
+        },
+        {
+          "claim": "Cited line 184 — that line is the opening of the sourceWeights block, but the cited content also includes lines 195-196 which are 11 lines away; the single line citation is misleading for a multi-block snippet",
+          "method": "read",
+          "result": "mismatch"
+        },
+        {
+          "claim": "Pack omits taskProfiles block (lines 222-253) including the exploration profile that adds +0.04 to vector — relevant because the classified taskType for this query is 'exploration' and the actual effective vector weight under hard signals would be 0.92 + 0.04 - 0.08 = 0.88, not the 0.84 the child later asserts",
+          "method": "read",
+          "result": "absent"
+        }
+      ]
+    },
+    {
+      "itemId": "k-flow-logic-fusion",
+      "title": "FLOW_LOGIC.md — Fusion stage rationale",
+      "verdict": "partially_verified",
+      "claims_checked": [
+        {
+          "claim": "File docs/FLOW_LOGIC.md exists",
+          "method": "read",
+          "result": "match"
+        },
+        {
+          "claim": "Cited line 173 — the actual 'Fusion:' header is on line 172; the body begins at line 174. Line 173 is the blank line after the header. Off-by-one or by-two depending on convention",
+          "method": "read",
+          "result": "mismatch"
+        },
+        {
+          "claim": "Content quote stitches two non-adjacent paragraphs: 'Weighted below exact metadata and lexical matches when files, symbols, or errors are present' is from line 170 (Vector search section), NOT from the Fusion section. The pack presents synthesized/paraphrased text as if it were one block",
+          "method": "grep",
+          "result": "mismatch"
+        },
+        {
+          "claim": "Substance is consistent with code: docs do say metadata strongest and vector last",
+          "method": "read",
+          "result": "match"
+        }
+      ]
+    },
+    {
+      "itemId": "k-paywall-modal-noise",
+      "title": "Paywall selection modal",
+      "verdict": "contradicted_by_code",
+      "claims_checked": [
+        {
+          "claim": "File src/components/paywall-selection-modal.tsx exists",
+          "method": "run",
+          "result": "absent"
+        },
+        {
+          "claim": "Path does not exist anywhere in tuberosa repo (find returned nothing)",
+          "method": "run",
+          "result": "absent"
+        },
+        {
+          "claim": "Item has zero relevance to fusion/policy/retrieval — pure topical drift",
+          "method": "grep",
+          "result": "absent"
+        }
+      ]
+    },
+    {
+      "itemId": "k-old-stale-fusion-memory",
+      "title": "Old memory: 'vector search is the strongest signal in Tuberosa'",
+      "verdict": "contradicted_by_code",
+      "claims_checked": [
+        {
+          "claim": "Memory asserts vector is strongest signal",
+          "method": "read",
+          "result": "match"
+        },
+        {
+          "claim": "Cross-check against policy.ts line 184-194: vector=0.92 is the LOWEST weight, worktree=1.3 is the highest",
+          "method": "read",
+          "result": "mismatch"
+        },
+        {
+          "claim": "Under hard signals (the very topic of the query) vector is additionally penalized by -0.08; opposite of memory's claim",
+          "method": "read",
+          "result": "mismatch"
+        },
+        {
+          "claim": "Pack labels itemType 'memory' but provides no provenance, freshness timestamp, or supersession marker that should have triggered suppression",
+          "method": "read",
+          "result": "absent"
+        }
+      ]
+    }
+  ],
+  "inter_pack_contradictions": [
+    {
+      "leftItemId": "k-old-stale-fusion-memory",
+      "rightItemId": "k-policy-default",
+      "claim_left": "Vector search is the strongest signal in Tuberosa retrieval; metadata and lexical only serve as tie-breakers.",
+      "claim_right": "sourceWeights vector=0.92 (lowest); hardSignalVectorPenalty=-0.08 (further down-weights vector under hard signals)",
+      "actual_truth": "policy.ts is the authoritative on-disk policy. Vector is the WEAKEST source weight (0.92 vs worktree 1.3, metadata 1.15) and is further penalized under hard signals. The memory item is wrong.",
+      "severity": "high"
+    },
+    {
+      "leftItemId": "k-old-stale-fusion-memory",
+      "rightItemId": "k-fusion-source-weight",
+      "claim_left": "Always prefer the top vector hit.",
+      "claim_right": "if (candidate.source === 'vector') { weight += policy.hardSignalVectorPenalty; } — implementation actively de-prioritizes vector when files/symbols/errors are present",
+      "actual_truth": "Implementation explicitly de-emphasizes vector under hard signals; the memory's prescription is inverted relative to the live code.",
+      "severity": "high"
+    },
+    {
+      "leftItemId": "k-old-stale-fusion-memory",
+      "rightItemId": "k-flow-logic-fusion",
+      "claim_left": "Vector search is the strongest signal in Tuberosa retrieval",
+      "claim_right": "Applies source weights: metadata strongest ... vector (last in ordered list)",
+      "actual_truth": "Docs and code agree vector is last. Memory contradicts both.",
+      "severity": "high"
+    }
+  ],
+  "child_fact_check": [
+    {
+      "step": 1,
+      "claim": "Pack lists k-fusion-source-weight and k-policy-default as essential, with two noise/contradictory items in optional",
+      "cited_as": "pack:synthesized-pack-trial-fusion-vector-penalty",
+      "verdict": "supported",
+      "evidence": "Pack JSON sections.essential[] contains those two ids; sections.optional[] contains the two flagged items. Verified directly."
+    },
+    {
+      "step": 2,
+      "claim": "Lines 141-153 implement: if hasHardSignal, add hardSignalBoost.bonus to listed sources and add hardSignalVectorPenalty (-0.08) for vector candidates. Pack snippet matches exactly.",
+      "cited_as": "file:/home/nash/tuberosa/src/retrieval/fusion.ts",
+      "verdict": "supported",
+      "evidence": "Lines 141-153 of fusion.ts match the pack snippet verbatim. Confirmed."
+    },
+    {
+      "step": 3,
+      "claim": "sourceWeights vector=0.92 (weakest), worktree=1.3 (strongest); hardSignalBoost.bonus=0.18 on ['metadata','lexical','graph','worktree']; hardSignalVectorPenalty=-0.08",
+      "cited_as": "file:/home/nash/tuberosa/src/retrieval/policy.ts",
+      "verdict": "supported",
+      "evidence": "policy.ts lines 184-196 confirmed. However the child stops here and never picks up the taskProfiles layer (lines 222-253) — see counter-context below."
+    },
+    {
+      "step": 4,
+      "claim": "Doc states 'metadata strongest ... vector' and 'Weighted below exact metadata and lexical matches when files, symbols, or errors are present' — consistent with the code.",
+      "cited_as": "file:/home/nash/tuberosa/docs/FLOW_LOGIC.md",
+      "verdict": "supported",
+      "evidence": "Confirmed in docs/FLOW_LOGIC.md lines 170, 174-180. Note: the two quoted fragments are from non-adjacent paragraphs (Vector search section vs. Fusion section) — child accepted the pack's stitched quote without flagging it."
+    },
+    {
+      "step": 5,
+      "claim": "Item claims 'vector search is the strongest signal in Tuberosa' but policy.ts shows vector=0.92 is the WEAKEST source weight. The memory directly contradicts the code on disk.",
+      "cited_as": "file:/home/nash/tuberosa/src/retrieval/policy.ts",
+      "verdict": "supported",
+      "evidence": "Correct identification of the contradiction. Child handled this well."
+    },
+    {
+      "step": 6,
+      "claim": "PaywallSelectionModal is from a newsletter app and has no relationship to retrieval fusion — pure topical drift via vector match.",
+      "cited_as": "pack:k-paywall-modal-noise",
+      "verdict": "supported",
+      "evidence": "Confirmed — the file does not exist in the tuberosa repo. Correct noise classification, though child did not verify the file is missing on disk (which would have strengthened the verdict)."
+    },
+    {
+      "step": 0,
+      "claim": "answer field: 'while still keeping vector in the candidate pool (weight 0.92 - 0.08 = 0.84) for cases where no exact match exists'",
+      "cited_as": "file:src/retrieval/policy.ts:184-196",
+      "verdict": "unsupported",
+      "evidence": "Math ignores taskProfiles. For the classified taskType 'exploration' (which the pack itself declares in classified.taskType), policy.ts line 244-247 adds +0.04 to vector via effectiveSourceWeight. The true effective vector weight under hard signals + exploration is 0.92 + 0.04 - 0.08 = 0.88, not 0.84. The child also did not explain that the additive delta layer (effectiveSourceWeight, line 394) sits between the base sourceWeights and the hard-signal penalty."
+    },
+    {
+      "step": 0,
+      "claim": "answer field: 'The asymmetric design (boost the precise sources AND penalize vector) widens the gap'",
+      "cited_as": "UNCITED",
+      "verdict": "supported",
+      "evidence": "Reasonable inference from the code, but not a citation — it is the child's own architectural commentary. Not a hallucination, but should be acknowledged as commentary rather than evidence."
+    }
+  ],
+  "counter_context": {
+    "missed_facts": [
+      "taskProfiles layer in policy.ts (lines 222-253) — the exploration profile adds +0.04 to vector, materially changing the arithmetic the child presents. This is a first-class part of how the effective vector weight is computed.",
+      "effectiveSourceWeight() definition at policy.ts line 394 — this is the function actually called inside sourceWeight() (fusion.ts line 143), not a direct lookup of policy.sourceWeights[source]. The child's narrative collapses this layer.",
+      "RRF combination formula in fusion.ts line 55: contribution = sourceBoost / (rrfK + max(1, rank)). The penalty is multiplied through a rank-based divisor, so the magnitude of -0.08 depends on rank position — relevant to 'why is this design correct'.",
+      "test/fusion-profiles.test.ts — the verification command the pack itself recommended (orientation.verificationCommands). Neither pack content nor child output references what that test actually asserts.",
+      "policy.suppressionEnabled (lines 210-216) — explicitly enables stale/feedback/superseded/evidenceMismatch suppression. The fact that the contradictory memory slipped through optional despite this is the most interesting failure to surface, but it appears nowhere in pack or child."
+    ],
+    "alternative_queries_tried": [
+      "grep -n 'hardSignalVectorPenalty\\|hardSignalBoost' src/retrieval/*.ts — found 8 hits across policy.ts and fusion.ts; confirms the feature is localized to these two files",
+      "grep -n 'fuseCandidates' src/retrieval/fusion.ts — found 3 overload signatures at lines 31/35/40 (not in pack)",
+      "find test -name '*fusion*' — found test/fusion-profiles.test.ts (matches the pack's verificationCommands suggestion but its content was not surfaced)"
+    ],
+    "should_have_been_essential": [
+      "policy.ts taskProfiles.exploration block (lines 244-247) — directly relevant to the arithmetic for THIS query, since classified.taskType='exploration'",
+      "policy.ts effectiveSourceWeight() at line 394 — the function that wires base weights to task profiles; the actual entry point that sourceWeight() uses",
+      "fusion.ts fuseCandidates() RRF math (lines 51-55) — shows how sourceBoost combines with rank divisor; required to explain why -0.08 is the 'right' magnitude rather than arbitrary",
+      "test/fusion-profiles.test.ts — the pack's own recommended verification command; should at minimum have appeared as supporting"
+    ]
+  },
+  "tuberosa_failure_modes": [
+    "stale_memory_not_suppressed: k-old-stale-fusion-memory contradicts the live policy.ts but was kept in optional rather than rejected; suppressionEnabled.stale=true and .superseded=true should have caught this",
+    "noise_in_optional_section: k-paywall-modal-noise has zero domain overlap and references a path that does not exist in the repo; domainMismatch suppression (enabled=true, penalty=-0.3) should have dropped it",
+    "contradiction_undetected_at_retrieval: pack contains two items that directly contradict each other (k-policy-default vs k-old-stale-fusion-memory) and no inter-item contradiction flag was raised",
+    "stitched_quote_passed_as_verbatim: k-flow-logic-fusion content concatenates fragments from two non-adjacent paragraphs (line 170 + lines 174-180) but presents them as a single quoted block with a single line citation (line 173)",
+    "off_by_two_line_citation: k-flow-logic-fusion cites line 173 but actual content starts at line 174 (line 173 is blank); k-policy-default cites line 184 but the snippet spans 184-196",
+    "missing_taskProfile_layer: pack omits taskProfiles entirely, which causes the child to publish incorrect arithmetic (0.92 - 0.08 = 0.84) when the actual exploration-task effective weight is 0.88",
+    "truncated_essential_snippet: k-fusion-source-weight uses '...' to elide lines 155-162 of sourceWeight() which apply task-itemType boosts — these are part of the same function and relevant to its full behavior",
+    "verification_command_not_grounded: orientation.verificationCommands recommends a test file but its contents/assertions are never surfaced in any pack item",
+    "unverified_file_reference: k-paywall-modal-noise.references[0].uri points to a non-existent file with no warning"
+  ],
+  "verdict": "tuberosa_partially_correct"
+}

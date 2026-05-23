@@ -1,0 +1,30 @@
+{
+  "solution": {
+    "summary": "Traced hardSignalVectorPenalty through fusion.ts and policy.ts. Confirmed the pack's essential items match the on-disk code exactly, and explained why down-weighting vector under hard signals is the correct design.",
+    "changedFiles": [],
+    "diff": "",
+    "answer": "When the classified query carries hard signals (files, symbols, or errors), fusion.ts sourceWeight() adds policy.hardSignalBoost.bonus (+0.18) to metadata/lexical/graph/worktree and adds policy.hardSignalVectorPenalty (-0.08) to vector candidates [file:src/retrieval/fusion.ts:141-153] [file:src/retrieval/policy.ts:195-196]. This is correct because hard signals are exact-string evidence: the user has named a real file path, symbol, or error string, so deterministic sources (metadata labels, FTS, graph relations, on-disk worktree) are far more likely to surface the right knowledge than semantic embedding similarity, which is prone to retrieving topically-adjacent but lexically-incorrect chunks. The asymmetric design (boost the precise sources AND penalize vector) widens the gap so a near-miss vector neighbor cannot outrank an exact lexical/metadata hit purely on rank position, while still keeping vector in the candidate pool (weight 0.92 - 0.08 = 0.84) for cases where no exact match exists [file:src/retrieval/policy.ts:184-196]. Without hard signals the penalty is skipped, preserving vector's recall advantage for vague exploratory queries."
+  },
+  "reasoning_trace": [
+    {"step": 1, "action": "Read the synthesized pack to identify essential vs noise items", "fact_used": "Pack lists k-fusion-source-weight and k-policy-default as essential, with two noise/contradictory items in optional", "citation": "pack:synthesized-pack-trial-fusion-vector-penalty"},
+    {"step": 2, "action": "Verified fusion.ts sourceWeight implementation against pack content", "fact_used": "Lines 141-153 implement: if hasHardSignal, add hardSignalBoost.bonus to listed sources and add hardSignalVectorPenalty (-0.08) for vector candidates. Pack snippet matches exactly.", "citation": "file:/home/nash/tuberosa/src/retrieval/fusion.ts"},
+    {"step": 3, "action": "Verified DEFAULT_POLICY values in policy.ts", "fact_used": "sourceWeights vector=0.92 (weakest), worktree=1.3 (strongest); hardSignalBoost.bonus=0.18 on ['metadata','lexical','graph','worktree']; hardSignalVectorPenalty=-0.08", "citation": "file:/home/nash/tuberosa/src/retrieval/policy.ts"},
+    {"step": 4, "action": "Cross-checked FLOW_LOGIC.md narrative for the supporting pack item", "fact_used": "Doc states 'metadata strongest ... vector' and 'Weighted below exact metadata and lexical matches when files, symbols, or errors are present' — consistent with the code.", "citation": "file:/home/nash/tuberosa/docs/FLOW_LOGIC.md"},
+    {"step": 5, "action": "Identified the contradictory optional item k-old-stale-fusion-memory", "fact_used": "Item claims 'vector search is the strongest signal in Tuberosa' but policy.ts shows vector=0.92 is the WEAKEST source weight. The memory directly contradicts the code on disk.", "citation": "file:/home/nash/tuberosa/src/retrieval/policy.ts"},
+    {"step": 6, "action": "Identified noise item k-paywall-modal-noise", "fact_used": "PaywallSelectionModal is from a newsletter app and has no relationship to retrieval fusion — pure topical drift via vector match.", "citation": "pack:k-paywall-modal-noise"}
+  ],
+  "pack_utility": [
+    {"itemId": "k-fusion-source-weight", "section": "essential", "verdict": "useful", "evidence": "The content snippet 'if (candidate.source === \\'vector\\') { weight += policy.hardSignalVectorPenalty; }' is verbatim from src/retrieval/fusion.ts lines 150-152 and was the core evidence for the answer. Pointed me directly at line 141."},
+    {"itemId": "k-policy-default", "section": "essential", "verdict": "useful", "evidence": "The exact policy values (vector: 0.92, hardSignalVectorPenalty: -0.08, hardSignalBoost bonus: 0.18 on metadata/lexical/graph/worktree) are needed to explain magnitude and asymmetry. Verified verbatim against policy.ts lines 184-196."},
+    {"itemId": "k-flow-logic-fusion", "section": "supporting", "verdict": "useful", "evidence": "Provides the design-intent narrative ('weighted below exact metadata and lexical matches when files, symbols, or errors are present') that grounds the 'why this is correct' part of the answer rather than just the mechanics. Verified at docs/FLOW_LOGIC.md."},
+    {"itemId": "k-paywall-modal-noise", "section": "optional", "verdict": "noise", "evidence": "PaywallSelectionModal is a newsletter composer modal unrelated to retrieval, fusion, or scoring. Match reason 'vector match' is exactly the kind of topical-drift false positive the hardSignalVectorPenalty itself is designed to suppress — ironic and useless here."},
+    {"itemId": "k-old-stale-fusion-memory", "section": "optional", "verdict": "contradictory", "evidence": "Claims 'Vector search is the strongest signal in Tuberosa retrieval; metadata and lexical only serve as tie-breakers. Always prefer the top vector hit.' This is the exact opposite of DEFAULT_POLICY in policy.ts where vector=0.92 is the lowest sourceWeight and is further penalized by -0.08 under hard signals. Should have been suppressed by freshness/feedback intent-suppression but slipped through."}
+  ],
+  "self_assessment": {
+    "pack_sufficient": true,
+    "missing_context": [],
+    "would_have_helped": [],
+    "confidence": 0.95
+  },
+  "halt_reason": "completed"
+}
