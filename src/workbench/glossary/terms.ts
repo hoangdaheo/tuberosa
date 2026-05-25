@@ -37,7 +37,12 @@ export type TermKey =
   | 'error_log'
   | 'workbench'
   | 'duplicate_candidate'
-  | 'grounded_reference';
+  | 'grounded_reference'
+  | 'startup_brief'
+  | 'read_first'
+  | 'worktree_evidence'
+  | 'research_trace'
+  | 'maintenance_preview';
 
 export interface GlossaryTerm {
   label: string;
@@ -292,6 +297,40 @@ export const TERMS: Record<TermKey, GlossaryTerm> = {
     category: 'review',
     short: 'A non-conversation reference — file, URL, or commit — that verifies the lesson.',
     long: 'A draft with only conversation references cannot be cross-checked. A grounded reference (file:src/foo.ts, commit:abc123, url:…) points at a verifiable source. The learning gate requires at least one.',
+  },
+  startup_brief: {
+    label: 'Startup brief',
+    category: 'pack',
+    short: 'A proceed/confirm/clarify verdict plus the files an agent should read first.',
+    long: 'Shipped with each context pack, the startup brief tells an agent whether to proceed, confirm with the user, or clarify the request. It lists read-first files (worktree or memory), direct vs adjacent evidence, missing signals, risky areas, and verification commands.',
+    seeAlso: ['read_first', 'worktree_evidence', 'context_fit'],
+  },
+  read_first: {
+    label: 'Read first',
+    category: 'pack',
+    short: 'The handful of files an agent should read before doing anything else.',
+    long: 'Composed from worktree evidence (handoff, plans, recently changed files) and approved memory. Read-first entries are tagged by source so the reviewer can tell which were inferred from the working tree vs prior lessons.',
+    seeAlso: ['worktree_evidence', 'startup_brief'],
+  },
+  worktree_evidence: {
+    label: 'Worktree evidence',
+    category: 'retrieval',
+    short: 'Bounded signals collected from the agent\'s working directory.',
+    long: 'A retrieval source that scans the current worktree for prompt-named files, git-changed files, handoff/plan files, and recently modified files. Returns path + first heading + byte count + status — never raw file bodies, and never secrets.',
+    seeAlso: ['startup_brief'],
+  },
+  research_trace: {
+    label: 'Research trace',
+    category: 'session',
+    short: 'A compact thought/action/observation/decision log of how an agent worked the task.',
+    long: 'On finish-session, an agent may send (or Tuberosa auto-derives) a ≤12-step trace summarising the investigation: decisions made, actions taken, observations recorded. The trace is stored on the session and on any resulting reflection draft so reviewers can audit how a lesson was learned.',
+    seeAlso: ['agent_session', 'reflection_draft'],
+  },
+  maintenance_preview: {
+    label: 'Maintenance preview',
+    category: 'review',
+    short: 'Preview-first cleanup proposals: duplicate memories, stale relations, weak labels, supersessions.',
+    long: 'The maintenance scanner proposes safe edits — archive duplicates, drop stale relations, supersede reflections, demote weak labels. Each item ships with a risk class (low/medium/high). Items are not auto-applied unless the reviewer explicitly opts in, and only the lowest-risk additive kinds may auto-apply.',
   },
 };
 

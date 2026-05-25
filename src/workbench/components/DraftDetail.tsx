@@ -7,6 +7,8 @@ import { GlossaryTerm } from './GlossaryTerm.js';
 import { Markdown } from './Markdown.js';
 import { Pill } from './Pill.js';
 import { RecommendationPanel } from './RecommendationPanel.js';
+import { ResearchTracePanel } from '../views/ResearchTracePanel.js';
+import { extractResearchTrace } from '../presenters/researchTracePresenter.js';
 
 interface Props {
   draftId: string;
@@ -89,6 +91,11 @@ export function DraftDetail({ draftId, rawDraft, view, onReviewed }: Props) {
             ))}</ul>}
         </div>
       </div>
+
+      {(() => {
+        const trace = extractResearchTrace(rawDraft.metadata);
+        return trace ? <ResearchTracePanel trace={trace} /> : null;
+      })()}
 
       {view.duplicates.length > 0 && (
         <>

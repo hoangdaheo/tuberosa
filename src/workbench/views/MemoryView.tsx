@@ -9,6 +9,7 @@ import { DraftDetail } from '../components/DraftDetail.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Pill } from '../components/Pill.js';
 import { GlossaryTerm } from '../components/GlossaryTerm.js';
+import { MemoryMaintenanceTab } from './MemoryMaintenanceTab.js';
 import type { MemoryTabName } from '../state/store.js';
 import type {
   DraftRecommendation,
@@ -44,6 +45,7 @@ export function MemoryView({ summary, project, limit, refresh, activeTab }: Prop
           <TabButton current={activeTab} value="conflicts" label="Conflicts" count={summary?.counts.openConflicts} />
           <TabButton current={activeTab} value="risky" label="Risky memories" count={summary?.counts.riskyAutoMemories} />
           <TabButton current={activeTab} value="errors" label="Error logs" count={summary?.counts.openErrorLogs} />
+          <TabButton current={activeTab} value="maintenance" label="Maintenance" count={summary?.counts.pendingMaintenance} />
         </nav>
       </div>
 
@@ -54,6 +56,7 @@ export function MemoryView({ summary, project, limit, refresh, activeTab }: Prop
       {activeTab === 'conflicts' && <ConflictsTab summary={summary} refresh={refresh} />}
       {activeTab === 'risky' && <RiskyTab summary={summary} refresh={refresh} />}
       {activeTab === 'errors' && <ErrorLogsTab summary={summary} refresh={refresh} />}
+      {activeTab === 'maintenance' && <MemoryMaintenanceTab project={project} refresh={refresh} />}
     </section>
   );
 }

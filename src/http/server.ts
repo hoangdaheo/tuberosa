@@ -33,6 +33,8 @@ import {
   validateLearningProposalPatchInput,
   validateLearningProposalTypeQuery,
   validateLearningReviewStatusQuery,
+  validateMaintenanceApplyInput,
+  validateMaintenanceProposeInput,
   validateRecordAgentContextDecisionInput,
   validateReflectionDraftPatchInput,
   validateReflectionDraftInput,
@@ -518,6 +520,28 @@ function createRoutes(): HttpRoute[] {
       method: 'GET',
       match: exactPath('/operations/workbench/summary'),
       handle: ({ services, url }) => buildWorkbenchSummary(services, readWorkbenchSummaryOptions(url)),
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/maintenance/preview'),
+      handle: async ({ services, request }) => {
+        const body = validateMaintenanceProposeInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+        );
+        return services.maintenance.propose(body);
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/maintenance/apply'),
+      handle: async ({ services, request }) => {
+        const body = validateMaintenanceApplyInput(
+          await readJsonBody(request, services.config.maxRequestBytes),
+        );
+        const result = await services.maintenance.apply(body);
+        services.operations.requestPhysicalMirror('maintenance-applied');
+        return result;
+      },
     },
     {
       method: 'GET',
