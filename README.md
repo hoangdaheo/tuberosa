@@ -87,41 +87,27 @@ Stop the stack: `docker compose down` (add `-v` to wipe Postgres data).
 
 ## How it works
 
-The request path:
+When an agent asks Tuberosa for context, the request walks through a short pipeline. Each step has one job:
 
-```
-1. Agent calls tuberosa_search_context (MCP) or POST /context/search (HTTP).
-2. classifyQuery extracts: project, taskType, files, symbols, errors,
-                          technologies, business areas, exact terms, lexical query.
-3. Gated query rewrite (Phase 7):
-     - Probe pass embeds the prompt once and runs a small lexical + vector
-       lookup to score baseline retrieval confidence.
-     - If probeConfidence ≥ probeConfidenceThreshold, skip models.rewriteQuery
-       entirely (rewriteSkippedReason="probe_confident").
-     - Otherwise call rewriteQuery in diverse_angle mode; applyQueryRewrite
-       merges task-perspective rewrites into exactTerms for OR-style FTS.
-     - The probe embedding is reused by findCandidates so a gated search
-       still embeds only once.
-4. In parallel (findCandidates):
-     - searchMetadata  (labels, refs, title, summary)
-     - searchLexical   (Postgres FTS or in-memory token match)
-     - searchVector    (pgvector cosine similarity)
-     - searchMemories  (approved memory/workflow/rule/bugfix)
-   Then graph relation expansion seeded from those hits.
-5. fuseCandidates  — weighted reciprocal-rank fusion across all five lists.
-6. Rerank          — deterministic hash reranker (default) or OpenAI/Ollama.
-7. Ranking adjusts — feedback deltas + stale/superseded/evidence-mismatch penalties.
-8. context-fit     — emits ready | needs_confirmation | insufficient + missing
-                     signals; applyNoiseTolerance further demotes weak hits
-                     when noiseTolerance="strict".
-9. assemble        — split into essential / supporting / optional within tokenBudget.
-10. (layered mode) — expand selected ids into deepContext from full chunks.
+| # | Step | What it does |
+|---|---|---|
+| 1 | **Receive** | Agent calls `tuberosa_search_context` (MCP) or `POST /context/search` (HTTP). |
+| 2 | **Classify** | Read the prompt and pull out the useful signals: project, task type, files, symbols, error codes, technologies, business areas, exact terms. |
+| 3 | **Rewrite (only if needed)** | Run a quick probe search first. If the top results already look strong, skip the rewrite. Otherwise ask the model for a better-angled query and reuse the probe's embedding so we never embed twice. |
+| 4 | **Search in parallel** | Look in four places at once — labels & refs, full-text search, vector similarity, and approved memories — then expand through the knowledge graph from the best hits. |
+| 5 | **Fuse** | Merge all five result lists into one ranking (weighted reciprocal-rank fusion). |
+| 6 | **Rerank** | Re-order the top slice with a reranker (hash by default, or OpenAI / Ollama). |
+| 7 | **Adjust** | Boost items that got positive feedback before; penalize anything marked stale, superseded, or evidence-mismatched. |
+| 8 | **Check fit** | Decide if the shortlist is `ready`, `needs_confirmation`, or `insufficient`, and list any missing signals. `noiseTolerance="strict"` drops weak items here. |
+| 9 | **Assemble** | Split the survivors into `essential` / `supporting` / `optional` so they fit the token budget. |
+| 10 | **(Layered mode) Deep context** | Expand the chosen items into full chunks, up to `deepContextBudget`. |
 
-Both `bypassCache: true` and `debug: true` on the search input skip the Redis
-context-pack cache (`debug` also emits per-stage candidates and timings).
-```
+Two flags change the path:
 
-The hybrid design matters because **exact symbols, file paths, and error codes carry as much signal as semantic similarity** in code work.
+- `"bypassCache": true` — skip the Redis pack cache and re-run the pipeline.
+- `"debug": true` — also skip the cache, plus return per-stage candidates and timings.
+
+**Why hybrid?** In code work, an exact symbol name, file path, or error code is just as strong a signal as semantic similarity. Tuberosa weights both instead of picking one.
 
 ### A minimal end-to-end example
 
