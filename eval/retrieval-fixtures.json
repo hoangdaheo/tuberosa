@@ -1062,6 +1062,46 @@
           "SenderQueue"
         ]
       }
+    },
+    {
+      "id": "prompt-verb-analyze-no-symbol",
+      "prompt": "Analyze the retrieval pipeline for noisy memories.",
+      "taxon": "classification",
+      "expectedClassification": {
+        "symbols": []
+      }
+    },
+    {
+      "id": "prompt-verb-answer-no-symbol",
+      "prompt": "Answer how the rerank fallback works.",
+      "taxon": "classification",
+      "expectedClassification": {
+        "symbols": []
+      }
+    },
+    {
+      "id": "prompt-verb-investigate-no-symbol",
+      "prompt": "Investigate stale graph relations before approval.",
+      "taxon": "classification",
+      "expectedClassification": {
+        "symbols": []
+      }
+    },
+    {
+      "id": "prompt-verb-audit-no-symbol",
+      "prompt": "Audit the context pack for adjacent noise.",
+      "taxon": "classification",
+      "expectedClassification": {
+        "symbols": []
+      }
+    },
+    {
+      "id": "prompt-verb-review-no-symbol",
+      "prompt": "Review reflection memories before saving.",
+      "taxon": "classification",
+      "expectedClassification": {
+        "symbols": []
+      }
     }
   ],
   "relations": [

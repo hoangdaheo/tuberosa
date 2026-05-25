@@ -459,7 +459,7 @@ function arrayCheck(
   expected: string[] | undefined,
   actual: string[],
 ): RetrievalEvalClassificationCheck | undefined {
-  if (!expected || expected.length === 0) {
+  if (expected === undefined) {
     return undefined;
   }
 
@@ -467,7 +467,7 @@ function arrayCheck(
     field,
     expected,
     actual,
-    passed: containsAll(actual, expected),
+    passed: expected.length === 0 ? actual.length === 0 : containsAll(actual, expected),
   };
 }
 

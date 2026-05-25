@@ -76,6 +76,44 @@ test('retrieval evaluation fixture produces passing quality metrics', async () =
   ok(report.cases.every((testCase) => testCase.passed), failedCases(report));
 });
 
+test('retrieval evaluation treats explicit empty classification arrays as exact expectations', async () => {
+  const pack = contextPack([]);
+  pack.classified = {
+    ...pack.classified,
+    files: [],
+    symbols: ['Analyze'],
+    exactTerms: ['Analyze'],
+    lexicalQuery: 'Analyze',
+  };
+  const evaluator = new RetrievalEvaluator(
+    {
+      async ingestKnowledge() {
+        throw new Error('fixture should not ingest knowledge');
+      },
+    },
+    {
+      async searchContext() {
+        return pack;
+      },
+    },
+  );
+
+  const report = await evaluator.run({
+    name: 'empty classification assertion',
+    project: 'tuberosa',
+    knowledge: [],
+    cases: [{
+      id: 'empty-symbols',
+      prompt: 'Analyze retrieval behavior.',
+      expectedClassification: { symbols: [] },
+    }],
+  });
+
+  equal(report.cases[0].passed, false);
+  equal(report.cases[0].classificationChecks[0]?.field, 'symbols');
+  equal(report.cases[0].classificationChecks[0]?.passed, false);
+});
+
 test('knowledge completeness fixture parser validates required evidence', () => {
   const fixture = parseKnowledgeCompletenessFixture({
     name: 'parser fixture',

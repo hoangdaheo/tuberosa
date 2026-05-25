@@ -36,6 +36,19 @@ test('user-supplied symbols via the symbols: input bypass stopwording', () => {
   );
 });
 
+test('classifier prompt-verb stopwording only applies to the first sentence', () => {
+  const classified = classifyQuery({
+    prompt: 'Review the auth flow. Then inspect the Investigate helper.',
+    cwd: '/home/nash/tuberosa',
+  });
+
+  ok(
+    classified.symbols.includes('Investigate'),
+    'verb-like symbol names outside the first sentence should still classify as symbols',
+  );
+  equal(classified.symbols.includes('Review'), false);
+});
+
 test('classifier emits domain as first-class label when files imply a src/X/ domain', () => {
   const classified = classifyQuery({
     prompt: 'Tighten the dedup logic in src/retrieval/fusion.ts.',

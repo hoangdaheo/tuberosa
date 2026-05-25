@@ -469,9 +469,10 @@ function extractSymbols(prompt: string): string[] {
   const codeSpans = [...prompt.matchAll(/`([^`]+)`/g)].map((match) => match[1]).filter((value) => /^[A-Za-z_$][\w$.:#-]+$/.test(value));
   const camelCase = prompt.match(/\b[A-Z][A-Za-z0-9_]*(?:Service|Controller|Repository|Provider|Handler|Store|Model|Schema|Config|Client)\b/g) ?? [];
   const pascalCase = (prompt.match(/\b[A-Z][A-Za-z0-9_]{2,}\b/g) ?? [])
-    .filter((value) => !SYMBOL_STOP_WORDS.has(value) && !isLikelyDocumentIdentifier(value));
+    .filter((value) => !isLikelyDocumentIdentifier(value));
   const functions = [...prompt.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((match) => match[1]);
-  return uniqueStrings([...codeSpans, ...camelCase, ...pascalCase, ...functions]);
+  return uniqueStrings([...codeSpans, ...camelCase, ...pascalCase, ...functions])
+    .filter((value) => !isSymbolStopWord(value, prompt));
 }
 
 function extractUuidHints(prompt: string): string[] {
@@ -774,6 +775,104 @@ const SYMBOL_STOP_WORDS = new Set([
   'Proposing',
   'Proposed',
 ]);
+
+const PROMPT_VERB_STOPWORDS = new Set([
+  'Analyze',
+  'Analyse',
+  'Analyzing',
+  'Analysed',
+  'Analyzed',
+  'Answer',
+  'Answers',
+  'Answering',
+  'Answered',
+  'Audit',
+  'Audits',
+  'Auditing',
+  'Audited',
+  'Build',
+  'Building',
+  'Built',
+  'Check',
+  'Continue',
+  'Create',
+  'Debug',
+  'Describe',
+  'Document',
+  'Documents',
+  'Documenting',
+  'Documented',
+  'Ensure',
+  'Ensures',
+  'Ensuring',
+  'Ensured',
+  'Explain',
+  'Explore',
+  'Find',
+  'Fix',
+  'Fixed',
+  'Fixes',
+  'Fixing',
+  'Implement',
+  'Implementing',
+  'Implementation',
+  'Improve',
+  'Improving',
+  'Improved',
+  'Improvement',
+  'Investigate',
+  'Investigates',
+  'Investigating',
+  'Investigated',
+  'Investigation',
+  'List',
+  'Map',
+  'Maps',
+  'Mapping',
+  'Mapped',
+  'Plan',
+  'Plans',
+  'Planning',
+  'Planned',
+  'Refactor',
+  'Refactoring',
+  'Refactored',
+  'Remove',
+  'Review',
+  'Reviewing',
+  'Reviewed',
+  'Run',
+  'Show',
+  'Search',
+  'Summarize',
+  'Test',
+  'Testing',
+  'Tested',
+  'Trace',
+  'Tracing',
+  'Traced',
+  'Update',
+  'Verify',
+  'Verifying',
+  'Write',
+]);
+
+function isSymbolStopWord(value: string, prompt: string): boolean {
+  if (!SYMBOL_STOP_WORDS.has(value)) {
+    return false;
+  }
+
+  if (PROMPT_VERB_STOPWORDS.has(value) && !firstSentenceContains(prompt, value)) {
+    return false;
+  }
+
+  return true;
+}
+
+function firstSentenceContains(prompt: string, value: string): boolean {
+  const firstSentence = prompt.match(/^[^.!?\n]+/)?.[0] ?? prompt;
+  return new RegExp(`\\b${escapeRegExp(value)}\\b`).test(firstSentence);
+}
 
 function isLikelyDocumentIdentifier(value: string): boolean {
   return /^[A-Z][A-Z0-9_]+$/.test(value) && value.includes('_') && !/\d/.test(value);
