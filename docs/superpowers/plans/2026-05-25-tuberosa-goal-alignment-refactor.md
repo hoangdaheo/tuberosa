@@ -1019,13 +1019,22 @@ git commit -m "test: cover factory/namespace/registry trust-boundary modules"
 
 ---
 
-# Plan 3 — Goal-Aligned Product Features
+# Plan 3 — Goal-Aligned Product Features ✅ COMPLETED 2026-05-25 on `main`
 
 **Goal:** Ship the four features the goal doc and `feedbacks/plan-synthesis.md` describe but the codebase doesn't have: (A) a bounded worktree evidence provider wired into retrieval, (B) a `StartupBrief` with `proceed / confirm / clarify` and read-first files, (C) classifier fix for prompt-verb-as-symbol noise, (D) `ResearchTraceInput` on finish-session. Estimated 5–7 days.
 
 **Prerequisite:** Plan 2 green (especially the parity matrix and CLAUDE.md invariants).
 
 **Verification gate before Plan 4 starts:** `eval:retrieval` and `eval:agent-context` both green; new fixtures `eval/startup-brief-fixtures.json` and `eval/research-trace-fixtures.json` exercise verdict and trace shape.
+
+**Final status:** All 6 tasks shipped on `main`:
+- `fd8f67b` feat(session): add compact research trace on finish (Task 3.6)
+- `f5e6366` feat(retrieval): harden bounded worktree evidence (Task 3.2)
+- `d1c0b21` feat(retrieval): add startup brief verdicts (Tasks 3.1 + 3.3)
+- `013ec50` fix(classifier): scope prompt verb symbol filtering (Task 3.4)
+- `74792c7` fix(retrieval): strict noise downgrades weak confirmation (Task 3.5)
+
+Verification (2026-05-25): build clean, 418/418 unit tests pass, `eval:retrieval` green at hit@5=100%, `eval:agent-context` passes, `eval:startup-brief` 8/8 cases, `eval:knowledge-completeness` all cases ≥90 score. Plan 4 unblocked.
 
 ---
 

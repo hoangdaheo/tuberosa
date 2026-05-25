@@ -196,16 +196,18 @@ test('Phase 10: apply mutates only the records listed in approvedItemIds', async
   ok(!remainingStale.some((relation) => relation.id === staleItem!.relationId));
 });
 
-test('Phase 10: apply is idempotent — re-applying the same batch returns noop outcomes', async () => {
+test('Phase 10: apply is idempotent — re-applying the same batch returns expired outcomes', async () => {
   const fixture = await buildPhase10Fixture();
   const batch = await fixture.maintenance.propose({ project: 'demo' });
 
   const firstRun = await fixture.maintenance.apply({ batchId: batch.id });
   equal(firstRun.appliedCount, batch.items.length, 'first run applies every item');
+  equal(firstRun.expiredCount, 0, 'no items are expired on first apply');
 
   const secondRun = await fixture.maintenance.apply({ batchId: batch.id });
   equal(secondRun.appliedCount, 0, 'second run is fully idempotent');
-  ok(secondRun.results.every((row) => row.status === 'noop'), 'every per-item outcome is noop on re-apply');
+  equal(secondRun.expiredCount, batch.items.length, 'every per-item outcome is expired on re-apply');
+  ok(secondRun.results.every((row) => row.status === 'expired'), 'every per-item outcome is expired on re-apply');
 });
 
 test('Phase 10: propose detects superseded_reflection drafts and weak_label provenance', async () => {
@@ -324,4 +326,83 @@ test('Phase 10: apply supports inline items[] payload (no batch id) for forwards
     limit: 50,
   });
   equal(remainingStale.length, 0, 'every stale relation deleted via inline payload path');
+});
+
+test('Plan 4.1: every proposed item carries a stable risk class derived from its kind', async () => {
+  const fixture = await buildPhase10Fixture();
+  const batch = await fixture.maintenance.propose({ project: 'demo' });
+
+  for (const item of batch.items) {
+    ok(['low', 'medium', 'high'].includes(item.risk), `${item.kind} risk must be low/medium/high`);
+    if (item.kind === 'duplicate_memory') equal(item.risk, 'low');
+    if (item.kind === 'stale_relation') equal(item.risk, 'medium');
+    if (item.kind === 'weak_label') equal(item.risk, 'low');
+    if (item.kind === 'superseded_reflection') equal(item.risk, 'high');
+  }
+});
+
+test('Plan 4.1 follow-up: proposed items carry structured evidence and a before snapshot', async () => {
+  const fixture = await buildPhase10Fixture();
+  const batch = await fixture.maintenance.propose({ project: 'demo' });
+
+  for (const item of batch.items) {
+    ok(item.evidence && item.evidence.length > 0, `${item.kind} item must carry evidence`);
+    for (const entry of item.evidence!) {
+      ok(
+        ['write_gate', 'relation_expiry', 'label_provenance'].includes(entry.source),
+        `evidence source ${entry.source} must come from a known detector`,
+      );
+      ok(typeof entry.reference === 'string' && entry.reference.length > 0, 'evidence reference must be a non-empty string');
+    }
+  }
+
+  const dup = batch.items.find((item) => item.kind === 'duplicate_memory');
+  ok(dup, 'fixture must include at least one duplicate_memory item');
+  ok(dup!.before, 'duplicate_memory must include a before snapshot');
+  ok(typeof dup!.before!.title === 'string' && dup!.before!.title!.length > 0, 'before.title must be populated from the draft');
+
+  const weak = batch.items.find((item) => item.kind === 'weak_label');
+  if (weak) {
+    ok(weak.before?.labels && weak.before.labels.length > 0, 'weak_label before snapshot must include the labels at propose time');
+  }
+});
+
+test('Plan 4.1: autoApplyLowRisk applies low-risk items and skips higher-risk ones', async () => {
+  const fixture = await buildPhase10Fixture();
+  const batch = await fixture.maintenance.propose({ project: 'demo' });
+
+  // Fixture seeds 5 duplicate_memory (low) + 3 stale_relation (medium).
+  const result = await fixture.maintenance.apply({
+    batchId: batch.id,
+    autoApplyLowRisk: true,
+    reviewer: 'auto',
+  });
+
+  equal(result.appliedCount, 5, 'only low-risk duplicate_memory items apply');
+  const skippedMessages = result.results
+    .filter((row) => row.status === 'skipped')
+    .map((row) => row.message);
+  ok(
+    skippedMessages.every((m) => typeof m === 'string' && m.includes('autoApplyLowRisk')),
+    'medium-risk items must be skipped with autoApplyLowRisk reason',
+  );
+  ok(result.results.every((row) => row.kind !== 'stale_relation' || row.status === 'skipped'));
+});
+
+test('Plan 4.1: autoApplyLowRisk is ignored when approvedItemIds is supplied (explicit reviewer wins)', async () => {
+  const fixture = await buildPhase10Fixture();
+  const batch = await fixture.maintenance.propose({ project: 'demo' });
+  const staleItem = batch.items.find((item) => item.kind === 'stale_relation');
+  ok(staleItem);
+
+  const result = await fixture.maintenance.apply({
+    batchId: batch.id,
+    approvedItemIds: [staleItem!.id],
+    autoApplyLowRisk: true,
+    reviewer: 'tester',
+  });
+
+  equal(result.appliedCount, 1, 'explicit approval applies the medium-risk item even with autoApplyLowRisk');
+  const applied = result.results.find((row) => row.status === 'applied');
+  equal(applied?.itemId, staleItem!.id);
 });

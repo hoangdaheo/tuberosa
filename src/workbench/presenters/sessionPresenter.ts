@@ -1,4 +1,10 @@
-import type { AgentSessionStartResult, ContextPack, ContextPackSection, RankedCandidate } from '../types.js';
+import type {
+  AgentSessionStartResult,
+  ContextPack,
+  ContextPackSection,
+  RankedCandidate,
+  StartupBrief,
+} from '../types.js';
 
 export interface SessionViewModel {
   sessionId: string;
@@ -11,6 +17,7 @@ export interface SessionViewModel {
   recommendedFiles: Array<{ path: string; reason: string }>;
   verificationCommands: string[];
   missingSignals: string[];
+  startupBrief?: StartupBrief;
   essential: EvidenceRow[];
   supporting: EvidenceRow[];
   optional: EvidenceRow[];
@@ -49,6 +56,7 @@ export function presentSessionStart(result: AgentSessionStartResult): SessionVie
     recommendedFiles: pack.orientation?.recommendedFiles ?? [],
     verificationCommands: pack.orientation?.verificationCommands ?? [],
     missingSignals: flattenMissing(pack),
+    startupBrief: pack.startupBrief,
     essential: sectionRows(pack, 'essential'),
     supporting: sectionRows(pack, 'supporting'),
     optional: sectionRows(pack, 'optional'),

@@ -296,10 +296,49 @@ export interface MaintenanceItemLabel {
   value: string;
 }
 
+/**
+ * Risk class derived from the item's kind, exposed so the workbench and any
+ * auto-apply opt-in flag can gate destructive vs. reversible work.
+ *
+ * - `low`: rejects a pending draft or removes a low-confidence inferred label.
+ * - `medium`: deletes a stored relation.
+ * - `high`: archives durable approved knowledge.
+ */
+export type MaintenanceRisk = 'low' | 'medium' | 'high';
+
+/**
+ * Detector that produced a maintenance item. Surfaced on each evidence entry so
+ * the reviewer can tell which scan flagged the target and trace it back to the
+ * relevant code path in `MaintenanceService`.
+ */
+export type MaintenanceEvidenceSource =
+  | 'write_gate'
+  | 'relation_expiry'
+  | 'label_provenance';
+
+export interface MaintenanceEvidence {
+  source: MaintenanceEvidenceSource;
+  reference: string;
+}
+
+/**
+ * A snapshot of the target at propose time. The reviewer sees this in the
+ * workbench without needing a second round-trip — the apply step still
+ * re-reads the live target for the precondition check.
+ */
+export interface MaintenanceBefore {
+  title?: string;
+  summary?: string;
+  labels?: Array<{ type: string; value: string }>;
+  status?: string;
+}
+
 export interface MaintenanceItem {
   /** Stable id within the batch. Used by apply to pick which items to mutate. */
   id: string;
   kind: MaintenanceItemKind;
+  /** Derived from `kind`; reviewer-visible gate for autoApplyLowRisk. */
+  risk: MaintenanceRisk;
   reason: string;
   project?: string;
   /** Target identifiers, populated per kind. */
@@ -309,8 +348,10 @@ export interface MaintenanceItem {
   label?: MaintenanceItemLabel;
   /** Closest related knowledge (e.g. write-gate's closestKnowledgeId for supersedes). */
   closestKnowledgeId?: string;
-  /** Free-form ids the reviewer can inspect to verify the proposal. */
-  evidence?: string[];
+  /** Structured evidence with detector attribution. */
+  evidence?: MaintenanceEvidence[];
+  /** Snapshot of the target at propose time so the reviewer can see what will change. */
+  before?: MaintenanceBefore;
 }
 
 export type MaintenanceCounts = Record<MaintenanceItemKind, number>;
@@ -339,9 +380,26 @@ export interface MaintenanceApplyInput {
   approvedItemIds?: string[];
   reviewer?: string;
   reviewerNote?: string;
+  /**
+   * When true AND `approvedItemIds` is omitted, only items with `risk: 'low'`
+   * are applied. Items with medium/high risk are skipped. Has no effect when
+   * `approvedItemIds` is provided — explicit reviewer approval always wins.
+   */
+  autoApplyLowRisk?: boolean;
 }
 
-export type MaintenanceApplyOutcome = 'applied' | 'noop' | 'skipped' | 'failed';
+/**
+ * Outcome of a single apply step.
+ *
+ * - `applied`: mutation occurred.
+ * - `expired`: re-check found the target already in the desired state
+ *   (idempotent self-replay or an externally applied change since propose).
+ * - `skipped`: not in `approvedItemIds`, or filtered out by `autoApplyLowRisk`.
+ * - `failed`: re-check or mutation threw.
+ * - `noop`: reserved for future kinds with no-op semantics; current paths emit
+ *   `expired` for precondition-changed cases.
+ */
+export type MaintenanceApplyOutcome = 'applied' | 'expired' | 'noop' | 'skipped' | 'failed';
 
 export interface MaintenanceApplyResultItem {
   itemId: string;
@@ -354,7 +412,10 @@ export interface MaintenanceApplyResult {
   batchId?: string;
   appliedAt: string;
   appliedCount: number;
+  /** Includes `expired` and `noop` outcomes as well as explicit skips. */
   skippedCount: number;
+  /** Subset of `skippedCount`: items whose preconditions changed since propose. */
+  expiredCount: number;
   failedCount: number;
   results: MaintenanceApplyResultItem[];
 }
@@ -1729,6 +1790,7 @@ export type WorkbenchSummaryCounts = {
 export interface WorkbenchMaintenanceItemSummary {
   id: string;
   kind: MaintenanceItemKind;
+  risk: MaintenanceRisk;
   reason: string;
   project?: string;
   knowledgeId?: string;

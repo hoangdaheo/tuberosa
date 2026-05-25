@@ -198,6 +198,7 @@ function compactMaintenanceItem(item: MaintenanceItem): WorkbenchMaintenanceItem
   return {
     id: item.id,
     kind: item.kind,
+    risk: item.risk,
     reason: shortText(item.reason),
     project: item.project,
     knowledgeId: item.knowledgeId,

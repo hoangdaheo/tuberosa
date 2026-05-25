@@ -7,6 +7,7 @@ import { GlossaryTerm } from './GlossaryTerm.js';
 import { Markdown } from './Markdown.js';
 import { Pill } from './Pill.js';
 import { RecommendationPanel } from './RecommendationPanel.js';
+import { ResearchTraceFromMetadata } from '../views/ResearchTracePanel.js';
 
 interface Props {
   draftId: string;
@@ -89,6 +90,8 @@ export function DraftDetail({ draftId, rawDraft, view, onReviewed }: Props) {
             ))}</ul>}
         </div>
       </div>
+
+      <ResearchTraceFromMetadata metadata={rawDraft.metadata} />
 
       {view.duplicates.length > 0 && (
         <>

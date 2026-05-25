@@ -116,6 +116,37 @@ export interface ContextPackSection {
   tokenEstimate: number;
 }
 
+export interface StartupBrief {
+  verdict: 'proceed' | 'confirm' | 'clarify';
+  readFirst: Array<{ path: string; reason: string; source: 'worktree' | 'memory' }>;
+  directEvidence: Array<{ knowledgeId?: string; path?: string; reason: string }>;
+  adjacentEvidence: Array<{ knowledgeId: string; reason: string }>;
+  missingSignals: string[];
+  riskyAreas: string[];
+  verificationCommands: string[];
+  requiredContextDecision: string;
+}
+
+export interface ResearchTraceReference {
+  file?: string;
+  symbol?: string;
+  command?: string;
+  knowledgeId?: string;
+}
+
+export interface ResearchTraceStep {
+  kind: 'thought' | 'action' | 'observation' | 'decision';
+  text: string;
+  references?: ResearchTraceReference[];
+}
+
+export interface ResearchTraceSummary {
+  steps: ResearchTraceStep[];
+  outcome: string;
+  derived: boolean;
+  bytes: number;
+}
+
 export interface ContextPack {
   id: string;
   prompt: string;
@@ -124,7 +155,69 @@ export interface ContextPack {
   contextFit?: ContextFit;
   orientation?: ContextPackOrientation;
   taskBrief?: ContextPackTaskBrief;
+  startupBrief?: StartupBrief;
   sections: ContextPackSection[];
+}
+
+export type MaintenanceItemKind =
+  | 'duplicate_memory'
+  | 'stale_relation'
+  | 'superseded_reflection'
+  | 'weak_label';
+
+export type MaintenanceRisk = 'low' | 'medium' | 'high';
+
+export type MaintenanceEvidenceSource = 'write_gate' | 'relation_expiry' | 'label_provenance';
+
+export interface MaintenanceEvidence {
+  source: MaintenanceEvidenceSource;
+  reference: string;
+}
+
+export interface MaintenanceBefore {
+  title?: string;
+  summary?: string;
+  labels?: Array<{ type: string; value: string }>;
+  status?: string;
+}
+
+export interface MaintenanceItem {
+  id: string;
+  kind: MaintenanceItemKind;
+  risk: MaintenanceRisk;
+  reason: string;
+  project?: string;
+  knowledgeId?: string;
+  relationId?: string;
+  reflectionDraftId?: string;
+  label?: { type: string; value: string };
+  closestKnowledgeId?: string;
+  evidence?: MaintenanceEvidence[];
+  before?: MaintenanceBefore;
+}
+
+export type MaintenanceCounts = Record<MaintenanceItemKind, number>;
+
+export interface MaintenanceBatch {
+  id: string;
+  generatedAt: string;
+  project?: string;
+  items: MaintenanceItem[];
+  counts: MaintenanceCounts;
+  truncated: boolean;
+  totalDetected: number;
+}
+
+export type MaintenanceApplyOutcome = 'applied' | 'expired' | 'noop' | 'skipped' | 'failed';
+
+export interface MaintenanceApplyResult {
+  batchId?: string;
+  appliedAt: string;
+  appliedCount: number;
+  skippedCount: number;
+  expiredCount: number;
+  failedCount: number;
+  results: Array<{ itemId: string; kind: MaintenanceItemKind; status: MaintenanceApplyOutcome; message?: string }>;
 }
 
 export interface AgentSession {

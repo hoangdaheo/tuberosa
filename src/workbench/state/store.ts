@@ -21,7 +21,7 @@ export function dismissToast(id: number): void {
 }
 
 export type ViewName = 'overview' | 'catchup' | 'session' | 'quality' | 'memory' | 'guide';
-export type MemoryTabName = 'drafts' | 'knowledge' | 'gaps' | 'proposals' | 'conflicts' | 'risky' | 'errors';
+export type MemoryTabName = 'drafts' | 'knowledge' | 'gaps' | 'proposals' | 'conflicts' | 'risky' | 'errors' | 'maintenance';
 
 export interface WorkbenchRoute {
   view: ViewName;
@@ -75,6 +75,7 @@ function parseMemoryTab(value: string | undefined): MemoryTabName | undefined {
     || value === 'conflicts'
     || value === 'risky'
     || value === 'errors'
+    || value === 'maintenance'
   ) {
     return value;
   }
