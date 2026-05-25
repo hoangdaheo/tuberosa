@@ -179,18 +179,20 @@ export class WorktreeProvider {
         matchedPromptFiles.add(promptMatch);
       }
 
+      const evidenceContent = buildContextualContent(file, content, input.classified);
+      const firstHeading = extractFirstHeading(content);
       const candidate: SearchCandidate = {
         knowledgeId,
         chunkId: undefined,
         title: file.rel,
         summary: summaryFor(file),
-        content,
-        contextualContent: buildContextualContent(file, content),
+        content: evidenceContent,
+        contextualContent: evidenceContent,
         itemType: itemTypeFromPath(file.rel),
         project,
-        labels: labelsFor(project, file),
+        labels: labelsFor(project, file, input.classified),
         references: referencesFor(file),
-        tokenEstimate: estimateTokens(content),
+        tokenEstimate: estimateTokens(evidenceContent),
         // Worktree is live truth — high trust by default. Reviewers can downrank via
         // feedback (caught by the existing feedback path).
         trustLevel: 90,
@@ -204,7 +206,8 @@ export class WorktreeProvider {
             reason: file.reason,
             path: file.rel,
             mtime: file.stat.mtime.toISOString(),
-            sizeBytes: content.length,
+            sizeBytes: file.stat.size,
+            firstHeading,
             promptMatch: Boolean(promptMatch),
           },
         },
@@ -228,16 +231,20 @@ export class WorktreeProvider {
     now: Date;
   }): SelectedFile[] {
     const seen = new Map<string, SelectedFile>();
+    const bucketCounts = new Map<WorktreeReason, number>();
+    const bucketCap = perBucketCap(this.options.maxFiles);
     const tryAdd = (rel: string, reason: WorktreeReason) => {
       if (!rel) return;
       const normalizedRel = rel.replace(/\\/g, '/');
       if (seen.has(normalizedRel)) return;
       if (seen.size >= this.options.maxFiles) return;
+      if ((bucketCounts.get(reason) ?? 0) >= bucketCap) return;
       const abs = resolve(args.cwd, normalizedRel);
       if (!isUnderRoot(abs, args.cwd)) return;
       const stat = safeStat(abs);
       if (!stat || !stat.isFile()) return;
       seen.set(normalizedRel, { abs, rel: normalizedRel, reason, stat });
+      bucketCounts.set(reason, (bucketCounts.get(reason) ?? 0) + 1);
     };
 
     // (1) Prompt-named files take precedence — they are the agent's stated focus.
@@ -297,34 +304,30 @@ function candidatePathsForName(named: string, cwd: string): string[] {
 
 function collectGitStatusPaths(cwd: string): string[] {
   try {
-    const stdout = execFileSync('git', ['-C', cwd, 'status', '--porcelain'], {
+    const stdout = execFileSync('git', ['-C', cwd, 'status', '--porcelain=v1', '-z'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 2_000,
       maxBuffer: 512 * 1024,
     });
     const paths: string[] = [];
-    for (const line of stdout.split('\n')) {
-      if (!line) continue;
-      // Format: XY <path>  OR  XY <orig> -> <renamed>
-      const trimmed = line.slice(3).trim();
-      if (!trimmed) continue;
-      const arrow = trimmed.indexOf(' -> ');
-      const path = arrow >= 0 ? trimmed.slice(arrow + 4) : trimmed;
-      // Strip optional surrounding quotes from `git status` (used for paths with spaces).
-      paths.push(stripGitQuoting(path));
+    const entries = stdout.split('\0').filter(Boolean);
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      if (entry.length < 4) continue;
+      const status = entry.slice(0, 2);
+      const path = entry.slice(3);
+      if (path) {
+        paths.push(path);
+      }
+      if (status.includes('R') || status.includes('C')) {
+        index += 1;
+      }
     }
     return uniqueStrings(paths);
   } catch {
     return [];
   }
-}
-
-function stripGitQuoting(value: string): string {
-  if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
-    return value.slice(1, -1);
-  }
-  return value;
 }
 
 function collectRootHandoffs(cwd: string): string[] {
@@ -462,6 +465,10 @@ function compareSelectedForRanking(left: SelectedFile, right: SelectedFile): num
   return left.rel.localeCompare(right.rel);
 }
 
+function perBucketCap(maxFiles: number): number {
+  return Math.max(1, Math.ceil(Math.max(1, maxFiles) / 4));
+}
+
 function itemTypeFromPath(path: string): KnowledgeItemType {
   const lower = path.toLowerCase();
   if (lower.endsWith('.md')) {
@@ -476,11 +483,13 @@ function itemTypeFromPath(path: string): KnowledgeItemType {
   return 'code_ref';
 }
 
-function labelsFor(project: string, file: SelectedFile): LabelInput[] {
+function labelsFor(project: string, file: SelectedFile, classified: ClassifiedQuery): LabelInput[] {
   const labels: LabelInput[] = [
     { type: 'project', value: project, weight: 1 },
     { type: 'file', value: file.rel, weight: 1 },
   ];
+  labels.push(...classified.symbols.slice(0, 6).map((value) => ({ type: 'symbol' as const, value, weight: 0.85 })));
+  labels.push(...classified.errors.slice(0, 4).map((value) => ({ type: 'error' as const, value, weight: 0.9 })));
   if (file.reason === 'prompt_named') {
     labels.push({ type: 'task_type', value: 'continuation', weight: 0.8 });
   }
@@ -510,11 +519,31 @@ function summaryFor(file: SelectedFile): string {
   }
 }
 
-function buildContextualContent(file: SelectedFile, content: string): string {
-  const header = [
+function buildContextualContent(file: SelectedFile, content: string, classified: ClassifiedQuery): string {
+  const lines = [
     `Worktree source: ${file.reason}`,
     `Path: ${file.rel}`,
+    `Status: ${file.reason}`,
     `Mtime: ${file.stat.mtime.toISOString()}`,
-  ].join('\n');
-  return `${header}\n\n${content}`;
+    `Size bytes: ${file.stat.size}`,
+    `First heading: ${extractFirstHeading(content) ?? '(none)'}`,
+  ];
+  if (classified.files.length) {
+    lines.push(`Matched files: ${classified.files.slice(0, 8).join(', ')}`);
+  }
+  if (classified.symbols.length) {
+    lines.push(`Matched symbols: ${classified.symbols.slice(0, 8).join(', ')}`);
+  }
+  if (classified.errors.length) {
+    lines.push(`Matched errors: ${classified.errors.slice(0, 4).join(', ')}`);
+  }
+  return lines.join('\n');
+}
+
+function extractFirstHeading(content: string): string | undefined {
+  const heading = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#{1,6}\s+\S/.test(line));
+  return heading?.replace(/^#{1,6}\s+/, '').trim();
 }

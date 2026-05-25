@@ -195,8 +195,9 @@ test('Phase 5: worktree wins precedence over a conflicting durable memory for co
       `worktree should carry the live-evidence boost reason; matchReasons=${JSON.stringify(worktreeItem!.matchReasons)}`,
     );
 
-    // Worktree content carries the new symbols; the memory still describes the old ones.
-    assert.ok(worktreeItem!.content.includes('dispatchV2'), 'worktree content should contain the live truth (dispatchV2)');
+    // Worktree candidates point at live files without copying raw file bodies into the pack.
+    assert.ok(worktreeItem!.content.includes('Path: src/example/handler.ts'), 'worktree content should identify the live file path');
+    assert.ok(!worktreeItem!.content.includes('dispatchV2'), 'worktree content should stay bounded and omit raw file bodies');
     assert.ok(memoryItem!.content.toLowerCase().includes('dispatch(request)'), 'memory should still describe the old signature');
   } finally {
     destroySandbox(sandbox);
