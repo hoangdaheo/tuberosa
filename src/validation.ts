@@ -368,6 +368,7 @@ export function validateMaintenanceApplyInput(value: unknown): MaintenanceApplyI
     approvedItemIds: readOptionalStringArray(record, 'approvedItemIds', 'maintenance apply input'),
     reviewer: readOptionalString(record, 'reviewer', 'maintenance apply input'),
     reviewerNote: readOptionalString(record, 'reviewerNote', 'maintenance apply input'),
+    autoApplyLowRisk: readOptionalBoolean(record, 'autoApplyLowRisk', 'maintenance apply input'),
   };
 }
 
@@ -390,12 +391,21 @@ function readMaintenanceItems(value: unknown, path: string): MaintenanceItem[] {
   return value.map((entry, index) => readMaintenanceItem(entry, `${path}[${index}]`));
 }
 
+const MAINTENANCE_RISKS = ['low', 'medium', 'high'] as const;
+const MAINTENANCE_RISK_DEFAULTS: Record<MaintenanceItemKind, 'low' | 'medium' | 'high'> = {
+  duplicate_memory: 'low',
+  weak_label: 'low',
+  stale_relation: 'medium',
+  superseded_reflection: 'high',
+};
+
 function readMaintenanceItem(value: unknown, path: string): MaintenanceItem {
   const record = expectObject(value, path);
   const kindRaw = record.kind;
   if (typeof kindRaw !== 'string' || !MAINTENANCE_ITEM_KINDS.includes(kindRaw as MaintenanceItemKind)) {
     throw validationIssue(`${path}.kind`, `must be one of: ${MAINTENANCE_ITEM_KINDS.join(', ')}.`);
   }
+  const kind = kindRaw as MaintenanceItemKind;
   const labelValue = record.label;
   let label: MaintenanceItemLabel | undefined;
   if (labelValue !== undefined && labelValue !== null) {
@@ -409,9 +419,20 @@ function readMaintenanceItem(value: unknown, path: string): MaintenanceItem {
   const evidence = evidenceRaw === undefined
     ? undefined
     : readOptionalStringArray(record, 'evidence', path);
+  // Risk is derived from `kind` by default. Inline payloads from older callers
+  // may omit it; explicit values are validated against the literal union.
+  const riskRaw = record.risk;
+  let risk = MAINTENANCE_RISK_DEFAULTS[kind];
+  if (riskRaw !== undefined) {
+    if (typeof riskRaw !== 'string' || !MAINTENANCE_RISKS.includes(riskRaw as typeof MAINTENANCE_RISKS[number])) {
+      throw validationIssue(`${path}.risk`, `must be one of: ${MAINTENANCE_RISKS.join(', ')}.`);
+    }
+    risk = riskRaw as typeof MAINTENANCE_RISKS[number];
+  }
   return {
     id: readRequiredString(record, 'id', path),
-    kind: kindRaw as MaintenanceItemKind,
+    kind,
+    risk,
     reason: readOptionalString(record, 'reason', path) ?? '',
     project: readOptionalString(record, 'project', path),
     knowledgeId: readOptionalString(record, 'knowledgeId', path),

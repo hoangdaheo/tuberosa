@@ -296,10 +296,22 @@ export interface MaintenanceItemLabel {
   value: string;
 }
 
+/**
+ * Risk class derived from the item's kind, exposed so the workbench and any
+ * auto-apply opt-in flag can gate destructive vs. reversible work.
+ *
+ * - `low`: rejects a pending draft or removes a low-confidence inferred label.
+ * - `medium`: deletes a stored relation.
+ * - `high`: archives durable approved knowledge.
+ */
+export type MaintenanceRisk = 'low' | 'medium' | 'high';
+
 export interface MaintenanceItem {
   /** Stable id within the batch. Used by apply to pick which items to mutate. */
   id: string;
   kind: MaintenanceItemKind;
+  /** Derived from `kind`; reviewer-visible gate for autoApplyLowRisk. */
+  risk: MaintenanceRisk;
   reason: string;
   project?: string;
   /** Target identifiers, populated per kind. */
@@ -339,9 +351,26 @@ export interface MaintenanceApplyInput {
   approvedItemIds?: string[];
   reviewer?: string;
   reviewerNote?: string;
+  /**
+   * When true AND `approvedItemIds` is omitted, only items with `risk: 'low'`
+   * are applied. Items with medium/high risk are skipped. Has no effect when
+   * `approvedItemIds` is provided — explicit reviewer approval always wins.
+   */
+  autoApplyLowRisk?: boolean;
 }
 
-export type MaintenanceApplyOutcome = 'applied' | 'noop' | 'skipped' | 'failed';
+/**
+ * Outcome of a single apply step.
+ *
+ * - `applied`: mutation occurred.
+ * - `expired`: re-check found the target already in the desired state
+ *   (idempotent self-replay or an externally applied change since propose).
+ * - `skipped`: not in `approvedItemIds`, or filtered out by `autoApplyLowRisk`.
+ * - `failed`: re-check or mutation threw.
+ * - `noop`: reserved for future kinds with no-op semantics; current paths emit
+ *   `expired` for precondition-changed cases.
+ */
+export type MaintenanceApplyOutcome = 'applied' | 'expired' | 'noop' | 'skipped' | 'failed';
 
 export interface MaintenanceApplyResultItem {
   itemId: string;
@@ -354,7 +383,10 @@ export interface MaintenanceApplyResult {
   batchId?: string;
   appliedAt: string;
   appliedCount: number;
+  /** Includes `expired` and `noop` outcomes as well as explicit skips. */
   skippedCount: number;
+  /** Subset of `skippedCount`: items whose preconditions changed since propose. */
+  expiredCount: number;
   failedCount: number;
   results: MaintenanceApplyResultItem[];
 }
@@ -1729,6 +1761,7 @@ export type WorkbenchSummaryCounts = {
 export interface WorkbenchMaintenanceItemSummary {
   id: string;
   kind: MaintenanceItemKind;
+  risk: MaintenanceRisk;
   reason: string;
   project?: string;
   knowledgeId?: string;
