@@ -56,6 +56,14 @@ test('toAppError + appErrorToHttpBody strip raw redis message text', () => {
   doesNotMatch(body.error, /NOAUTH/);
 });
 
+test('createHttpServer sets requestTimeout=60s and headersTimeout=10s to defeat slowloris', async () => {
+  const { createHttpServer: factory } = await import('../src/http/server.js');
+  const server = factory({} as never);
+  equal(server.requestTimeout, 60_000, 'requestTimeout should be 60s');
+  equal(server.headersTimeout, 10_000, 'headersTimeout should be 10s');
+  server.close();
+});
+
 test('HTTP JSON body reader rejects oversized request bodies', async () => {
   const request = requestFromJson({ content: 'x'.repeat(500) });
 
