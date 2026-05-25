@@ -57,7 +57,7 @@
 - `c07e747` dup `002_*.sql` removed + `003_cleanup_dup_002s.sql` added → `migrations/`
 - `745d1f1` retrieval eval default `failUnderHitRate=1` → `scripts/eval-retrieval.ts:243`
 
-**Task 1.7 (slowloris timeouts) shipped on `refactor/audit-wave1-slowloris-ci` (PR #2)** — see task body below.
+**Task 1.7 (slowloris timeouts) shipped on `refactor/audit-wave1-slowloris-ci` (PR #2) — merged to `main` 2026-05-25 via `058370c`.** See task body below.
 
 ---
 
@@ -587,7 +587,9 @@ Before starting Plan 2, run every command and confirm green:
 
 **Verification gate before Plan 3 starts:** All new tests in this plan pass locally; CI workflow runs them on a synthetic PR.
 
-**✅ All 6 tasks shipped on `refactor/audit-wave1-slowloris-ci` (PR #2) 2026-05-25.** Final verification: 406/406 unit tests pass, `eval:retrieval` green at hit@5=100%, `test:integration` green against Docker stack. Implementation deviations vs. plan-as-written are listed under each task.
+**✅ All 6 tasks shipped on `refactor/audit-wave1-slowloris-ci` (PR #2) — merged to `main` 2026-05-25 via `058370c`.** Final verification: 406/406 unit tests pass locally and on GitHub Actions CI (build + tests + `eval:retrieval` + `eval:agent-context` + Postgres/Redis integration all green). Implementation deviations vs. plan-as-written are listed under each task. Plus two follow-up CI hardening commits: `fff9e40` (Corepack-based pnpm install so Node 22 is provisioned first) and `1184b49` (test fakes aligned with real `RerankResult` shape and `StoredKnowledge.sourceUri` optionality — surfaced by strict `tsc` in CI).
+
+**Verification gate to Plan 3:** ✅ passed. Plan 3 is now unblocked.
 
 ---
 
