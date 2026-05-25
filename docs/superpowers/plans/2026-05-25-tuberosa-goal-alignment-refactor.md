@@ -1537,8 +1537,10 @@ export * from './types/retrieval.js';
 ### Task 5.2: Split `src/storage/postgres-store.ts` (2746 LOC)
 
 **Files:**
-- Create: `src/storage/postgres/knowledge-store.ts`, `label-store.ts`, `search-store.ts`, `feedback-store.ts`, `session-store.ts`, `backup-store.ts`, `relations-store.ts`
+- Create: `src/storage/postgres/knowledge-store.ts`, `label-store.ts`, `search-store.ts`, `feedback-store.ts`, `session-store.ts`, `context-store.ts`, `backup-store.ts`, `relations-store.ts`
 - Modify: `src/storage/postgres-store.ts` → thin facade that composes the above
+
+**Plan 5b progress (2026-05-25):** Started the incremental facade split on `refactor/plan5b-monolith-splits`. Extracted `src/storage/postgres/backup-store.ts`, `label-store.ts`, and `context-store.ts`; `PostgresKnowledgeStore` still implements the full `KnowledgeStore` interface and delegates these table families. Verified with build, storage parity, integration, operations, retrieval/session/research-trace focused tests, retrieval eval, and full unit tests.
 
 - [ ] **Step 1: Identify domain seams.** Each new file owns one table family + its searches.
 
