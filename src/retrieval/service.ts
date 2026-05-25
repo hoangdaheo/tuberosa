@@ -1827,17 +1827,15 @@ function intentSuppressionAdjustment(
       const delta = feedback === 'stale' ? -0.1 : -0.08;
       factor *= penaltyDeltaToFactor(delta);
       reasons.push(`suppression:prior feedback:${feedback}`);
-      const suppressionReason: SuppressionReason = feedback === 'stale'
-        ? 'feedback_stale'
-        : feedback === 'rejected'
-          ? 'feedback_rejected'
-          : 'feedback_irrelevant';
-      events.push({
-        reason: suppressionReason,
-        deltaScore: delta,
-        confidence: 0.7,
-        evidence: `candidate-side feedback status=${feedback}`,
-      });
+      const suppressionReason = feedbackSuppressionReason(feedback);
+      if (suppressionReason) {
+        events.push({
+          reason: suppressionReason,
+          deltaScore: delta,
+          confidence: 0.7,
+          evidence: `candidate-side feedback status=${feedback}`,
+        });
+      }
     }
   }
 

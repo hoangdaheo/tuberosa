@@ -2012,17 +2012,13 @@ export interface ScoreBreakdown {
 }
 
 export type SuppressionReason =
-  | 'stale_freshness'
-  | 'aging_freshness'
-  | 'feedback_rejected'
-  | 'feedback_stale'
-  | 'feedback_irrelevant'
-  | 'domain_mismatch'
-  | 'low_trust'
-  | 'safety_blocked'
-  | 'evidence_mismatch'
   | 'superseded'
-  | 'other';
+  | 'stale_freshness'
+  | 'evidence_mismatch'
+  | 'domain_mismatch'
+  | 'feedback_stale'
+  | 'feedback_rejected'
+  | 'feedback_irrelevant';
 
 export interface SuppressionEvent {
   knowledgeId: string;
