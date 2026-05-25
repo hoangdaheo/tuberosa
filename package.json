@@ -34,6 +34,7 @@
     "organization": "tsx scripts/organization.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "eval:retrieval": "tsx scripts/eval-retrieval.ts",
+    "eval:startup-brief": "tsx scripts/eval-startup-brief.ts",
     "eval:research-trace": "tsx scripts/eval-research-trace.ts",
     "eval:knowledge-completeness": "tsx scripts/eval-knowledge-completeness.ts",
     "eval:agent-context": "tsx scripts/eval-agent-context.ts",

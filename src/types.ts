@@ -712,6 +712,28 @@ export interface ContextPackTaskBrief {
   omittedReviewTargetCount: number;
 }
 
+export interface StartupBrief {
+  verdict: 'proceed' | 'confirm' | 'clarify';
+  readFirst: Array<{
+    path: string;
+    reason: string;
+    source: 'worktree' | 'memory';
+  }>;
+  directEvidence: Array<{
+    knowledgeId?: string;
+    path?: string;
+    reason: string;
+  }>;
+  adjacentEvidence: Array<{
+    knowledgeId: string;
+    reason: string;
+  }>;
+  missingSignals: string[];
+  riskyAreas: string[];
+  verificationCommands: string[];
+  requiredContextDecision: AgentContextDecisionType;
+}
+
 export interface ContextPackSection {
   name: 'essential' | 'supporting' | 'optional';
   items: RankedCandidate[];
@@ -775,6 +797,7 @@ export interface ContextPack {
   contextFit?: ContextFit;
   orientation?: ContextPackOrientation;
   taskBrief?: ContextPackTaskBrief;
+  startupBrief?: StartupBrief;
   actionableMissingSignals?: ActionableMissingSignals;
   sections: ContextPackSection[];
   deepContext?: DeepContext;

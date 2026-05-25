@@ -17,6 +17,7 @@ import type {
 import { clamp, truncate, uniqueStrings } from '../util/text.js';
 import { candidateText as candidateTextHelper } from './candidate-helpers.js';
 import { hasDomainMismatch } from './classifier.js';
+import { composeStartupBrief } from './startup-brief.js';
 
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
 const GENERAL_MIN_FINAL_SCORE = 0.35;
@@ -83,6 +84,12 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
 
   const briefBuild = buildTaskBrief({ ...input, reviewTargets }, selected, orientation);
   const contextFit = mergeBriefWarningsIntoContextFit(input.contextFit, briefBuild.warnings);
+  const startupBrief = composeStartupBrief({
+    prompt: input.prompt,
+    classified: input.classified,
+    candidates: prioritized,
+    contextFit,
+  });
 
   return {
     id: randomUUID(),
@@ -95,6 +102,7 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
     contextFit,
     orientation,
     taskBrief: briefBuild.taskBrief,
+    startupBrief,
     actionableMissingSignals,
     sections: [
       { name: 'essential', items: sanitizeItems(essential), tokenEstimate: sumTokens(essential) },

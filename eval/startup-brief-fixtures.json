@@ -1,0 +1,79 @@
+{
+  "name": "startup brief eval",
+  "cases": [
+    {
+      "id": "continuation-current-handoff",
+      "prompt": "Continue from handoff.md",
+      "seed": {
+        "worktreeFiles": [{ "path": "handoff.md", "heading": "Current handoff" }],
+        "memory": []
+      },
+      "contextFit": { "fitStatus": "ready", "missingSignals": [] },
+      "expect": { "verdict": "proceed", "readFirst": ["handoff.md"], "missingSignals": [] }
+    },
+    {
+      "id": "continuation-current-plan",
+      "prompt": "Continue from plan-phase9.md",
+      "seed": {
+        "worktreeFiles": [{ "path": "plan-phase9.md", "heading": "Phase 9 current plan" }],
+        "memory": []
+      },
+      "contextFit": { "fitStatus": "ready", "missingSignals": [] },
+      "expect": { "verdict": "proceed", "readFirst": ["plan-phase9.md"], "missingSignals": [] }
+    },
+    {
+      "id": "continuation-missing-handoff",
+      "prompt": "Continue from handoff",
+      "seed": { "worktreeFiles": [], "memory": [] },
+      "contextFit": { "fitStatus": "ready", "missingSignals": [] },
+      "expect": { "verdict": "clarify", "readFirst": [], "missingSignals": ["handoff_file"] }
+    },
+    {
+      "id": "insufficient-fit-with-no-direct-signal",
+      "prompt": "Continue the implementation",
+      "seed": { "worktreeFiles": [], "memory": [] },
+      "contextFit": { "fitStatus": "insufficient", "missingSignals": ["intent"] },
+      "expect": { "verdict": "clarify", "readFirst": [], "missingSignals": ["intent"] }
+    },
+    {
+      "id": "memory-worktree-plan-mismatch",
+      "prompt": "Continue Phase 9 from plan-phase9.md",
+      "seed": {
+        "worktreeFiles": [{ "path": "plan-phase9.md", "heading": "Phase 9 current plan" }],
+        "memory": [{ "path": "plan-phase9.md", "title": "Phase 9 stale plan" }]
+      },
+      "contextFit": { "fitStatus": "ready", "missingSignals": [] },
+      "expect": { "verdict": "confirm", "readFirst": ["plan-phase9.md"], "missingSignals": ["plan_mismatch"] }
+    },
+    {
+      "id": "needs-confirmation-fit",
+      "prompt": "Continue from handoff.md",
+      "seed": {
+        "worktreeFiles": [{ "path": "handoff.md", "heading": "Current handoff" }],
+        "memory": []
+      },
+      "contextFit": { "fitStatus": "needs_confirmation", "missingSignals": [] },
+      "expect": { "verdict": "confirm", "readFirst": ["handoff.md"], "missingSignals": [] }
+    },
+    {
+      "id": "required-file-only-in-memory",
+      "prompt": "Continue from handoff.md",
+      "seed": {
+        "worktreeFiles": [],
+        "memory": [{ "path": "handoff.md", "title": "Current handoff" }]
+      },
+      "contextFit": { "fitStatus": "ready", "missingSignals": [] },
+      "expect": { "verdict": "confirm", "readFirst": ["handoff.md"], "missingSignals": [] }
+    },
+    {
+      "id": "proceed-with-adjacent-memory",
+      "prompt": "Continue from status.md",
+      "seed": {
+        "worktreeFiles": [{ "path": "status.md", "heading": "Current status" }],
+        "memory": [{ "path": "notes.md", "title": "Useful adjacent note" }]
+      },
+      "contextFit": { "fitStatus": "ready", "missingSignals": [] },
+      "expect": { "verdict": "proceed", "readFirst": ["status.md"], "missingSignals": [] }
+    }
+  ]
+}
