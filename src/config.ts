@@ -4,6 +4,10 @@ export interface AppConfig {
   databaseUrl: string;
   redisUrl: string;
   apiKey?: string;
+  /** HTTP bind host. Defaults to 127.0.0.1; set TUBEROSA_HTTP_HOST=0.0.0.0 to expose externally. */
+  httpHost: string;
+  /** When true (default), requests from non-loopback addresses must present a valid API key even if apiKey is unset. */
+  requireApiKeyForNonLoopback: boolean;
   store: 'postgres' | 'memory';
   cache: 'redis' | 'memory' | 'none';
   autoMigrate: boolean;
@@ -50,6 +54,8 @@ export function loadConfig(): AppConfig {
     databaseUrl: process.env.DATABASE_URL ?? 'postgres://tuberosa:tuberosa@localhost:5432/tuberosa',
     redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
     apiKey: process.env.TUBEROSA_API_KEY || undefined,
+    httpHost: process.env.TUBEROSA_HTTP_HOST ?? '127.0.0.1',
+    requireApiKeyForNonLoopback: readBoolean(process.env.TUBEROSA_REQUIRE_API_KEY_FOR_NON_LOOPBACK, true),
     store: readEnum(process.env.TUBEROSA_STORE, ['postgres', 'memory'], 'postgres'),
     cache: readEnum(process.env.TUBEROSA_CACHE, ['redis', 'memory', 'none'], 'redis'),
     autoMigrate: readBoolean(process.env.TUBEROSA_AUTO_MIGRATE, true),
@@ -74,7 +80,7 @@ export function loadConfig(): AppConfig {
     backupRetentionMaxAgeDays: Number(process.env.TUBEROSA_BACKUP_RETENTION_MAX_AGE_DAYS ?? 30),
     backupWriteThrough: readBoolean(process.env.TUBEROSA_BACKUP_WRITE_THROUGH, false),
     backupWriteThroughThrottleSeconds: Number(process.env.TUBEROSA_BACKUP_WRITE_THROUGH_THROTTLE_SECONDS ?? 10 * 60),
-    physicalMirrorEnabled: readBoolean(process.env.TUBEROSA_PHYSICAL_MIRROR_ENABLED, true),
+    physicalMirrorEnabled: readBoolean(process.env.TUBEROSA_PHYSICAL_MIRROR_ENABLED, false),
     physicalMirrorDir: process.env.TUBEROSA_PHYSICAL_MIRROR_DIR ?? '.tuberosa/current',
     physicalMirrorDebounceMs: Number(process.env.TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS ?? 500),
     errorLogDir: process.env.TUBEROSA_ERROR_LOG_DIR ?? '.tuberosa/error-logs',

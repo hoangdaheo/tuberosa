@@ -461,6 +461,8 @@ const CALIBRATION_CONFIG: AppConfig = {
   port: 3027,
   databaseUrl: '',
   redisUrl: '',
+  httpHost: '127.0.0.1',
+  requireApiKeyForNonLoopback: false,
   store: 'memory',
   cache: 'memory',
   autoMigrate: false,

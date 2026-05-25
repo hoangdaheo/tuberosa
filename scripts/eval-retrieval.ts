@@ -14,7 +14,7 @@ import { HashModelProvider } from '../src/model/provider.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 
-interface CliOptions {
+export interface CliOptions {
   fixturePath: string;
   topK: number;
   json: boolean;
@@ -27,6 +27,8 @@ const defaultConfig: AppConfig = {
   port: 3027,
   databaseUrl: '',
   redisUrl: '',
+  httpHost: '127.0.0.1',
+  requireApiKeyForNonLoopback: false,
   store: 'memory',
   cache: 'memory',
   autoMigrate: false,
@@ -234,11 +236,13 @@ function printCases(cases: RetrievalEvalCaseResult[]): void {
   }
 }
 
-function shouldFail(report: RetrievalEvalReport, options: CliOptions): boolean {
+export const DEFAULT_HIT_RATE_THRESHOLD = 1.0;
+
+export function shouldFail(report: RetrievalEvalReport, options: CliOptions): boolean {
   const failedCase = report.cases.some((testCase) => !testCase.passed);
-  const missedThreshold = options.failUnderHitRate !== undefined
-    && report.metrics.hitRate !== null
-    && report.metrics.hitRate < options.failUnderHitRate;
+  const threshold = options.failUnderHitRate ?? DEFAULT_HIT_RATE_THRESHOLD;
+  const missedThreshold = report.metrics.hitRate !== null
+    && report.metrics.hitRate < threshold;
 
   return failedCase || missedThreshold;
 }

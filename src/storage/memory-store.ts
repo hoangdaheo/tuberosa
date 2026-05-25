@@ -569,7 +569,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     for (const relation of this.relations.values()) {
       if (isRelationExpired(relation, validityCutoff)) continue;
       const item = this.knowledge.get(relation.fromKnowledgeId);
-      if (!item || !this.allowed(item, options) || item.status !== 'approved') {
+      if (!item || !this.allowed(item, options)) {
         continue;
       }
 
@@ -606,7 +606,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         const expandTo = fromInFrontier ? relation.targetKnowledgeId : relation.fromKnowledgeId;
         if (!expandTo || scored.has(expandTo) || depth2Frontier.has(expandTo)) continue;
         const target = this.knowledge.get(expandTo);
-        if (!target || !this.allowed(target, options) || target.status !== 'approved') continue;
+        if (!target || !this.allowed(target, options)) continue;
         const score = graphHopMultiplier(policy, 'depth2', relation.relationType) * relation.confidence;
         keepBestGraphScore(scored, expandTo, score, relation, 'depth2_expansion');
         depth2Count += 1;
@@ -618,7 +618,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         const [knowledgeId, graphScore] = entry;
         const item = this.knowledge.get(knowledgeId);
         const chunk = [...this.chunks.values()].find((candidate) => candidate.knowledgeId === knowledgeId);
-        if (!item || !chunk || !this.allowed(item, options) || item.status !== 'approved') {
+        if (!item || !chunk || !this.allowed(item, options)) {
           return undefined;
         }
 
@@ -1204,6 +1204,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
   private allowed(item: StoredKnowledge, options: SearchOptions): boolean {
     return (
+      item.status === 'approved' &&
       (!options.project || item.project === options.project) &&
       !(options.rejectedKnowledgeIds ?? []).includes(item.id)
     );

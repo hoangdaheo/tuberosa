@@ -436,6 +436,8 @@ function testConfig(): AppConfig {
     port: 3027,
     databaseUrl: POSTGRES_URL,
     redisUrl: REDIS_URL,
+    httpHost: '127.0.0.1',
+    requireApiKeyForNonLoopback: false,
     store: 'postgres',
     cache: 'memory',
     autoMigrate: false,

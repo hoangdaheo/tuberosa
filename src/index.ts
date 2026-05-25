@@ -4,9 +4,9 @@ import { createHttpServer } from './http/server.js';
 const services = await createAppServices();
 const server = createHttpServer(services);
 
-server.listen(services.config.port, () => {
+server.listen(services.config.port, services.config.httpHost, () => {
   services.operations.startScheduledBackups();
-  console.log(`Tuberosa HTTP server listening on http://localhost:${services.config.port}`);
+  console.log(`Tuberosa HTTP server listening on http://${services.config.httpHost}:${services.config.port}`);
 });
 
 async function shutdown(signal: string) {

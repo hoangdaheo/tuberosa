@@ -25,7 +25,22 @@ async function drain(): Promise<void> {
       return;
     }
 
-    const message = JSON.parse(framed.body) as JsonRpcRequest;
+    let message: JsonRpcRequest;
+    try {
+      message = JSON.parse(framed.body) as JsonRpcRequest;
+    } catch {
+      writeMessage({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: -32700,
+          message: 'Parse error',
+          data: { code: 'validation_error', status: 400 },
+        },
+      }, framed.framing);
+      continue;
+    }
+
     if (!('id' in message)) {
       continue;
     }
