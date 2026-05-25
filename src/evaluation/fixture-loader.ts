@@ -73,6 +73,7 @@ function parseCase(value: unknown, path: string): RetrievalEvalCase {
     files: optionalStringArray(item.files, `${path}.files`),
     symbols: optionalStringArray(item.symbols, `${path}.symbols`),
     errors: optionalStringArray(item.errors, `${path}.errors`),
+    noiseTolerance: optionalString(item.noiseTolerance, `${path}.noiseTolerance`) as RetrievalEvalCase['noiseTolerance'],
     tokenBudget: optionalNumber(item.tokenBudget, `${path}.tokenBudget`),
     expectedKnowledgeIds: optionalStringArray(item.expectedKnowledgeIds, `${path}.expectedKnowledgeIds`),
     expectedSelectedKnowledgeIds: optionalStringArray(

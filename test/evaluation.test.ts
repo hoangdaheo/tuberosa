@@ -114,6 +114,36 @@ test('retrieval evaluation treats explicit empty classification arrays as exact 
   equal(report.cases[0].classificationChecks[0]?.passed, false);
 });
 
+test('retrieval evaluation passes noiseTolerance through to context search', async () => {
+  let observedNoiseTolerance: unknown;
+  const evaluator = new RetrievalEvaluator(
+    {
+      async ingestKnowledge() {
+        throw new Error('fixture should not ingest knowledge');
+      },
+    },
+    {
+      async searchContext(input) {
+        observedNoiseTolerance = input.noiseTolerance;
+        return contextPack([]);
+      },
+    },
+  );
+
+  await evaluator.run({
+    name: 'noise tolerance pass-through',
+    project: 'tuberosa',
+    knowledge: [],
+    cases: [{
+      id: 'strict-noise',
+      prompt: 'How should weak memories be handled?',
+      noiseTolerance: 'strict',
+    } as any],
+  });
+
+  equal(observedNoiseTolerance, 'strict');
+});
+
 test('knowledge completeness fixture parser validates required evidence', () => {
   const fixture = parseKnowledgeCompletenessFixture({
     name: 'parser fixture',

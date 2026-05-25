@@ -1452,12 +1452,32 @@ function applyNoiseTolerance(
   candidates: RankedCandidate[],
   noiseTolerance: NormalizedContextSearchInput['noiseTolerance'],
 ): ContextFit {
-  if (noiseTolerance !== 'strict' || contextFit.fitStatus !== 'ready') {
+  if (noiseTolerance !== 'strict') {
     return contextFit;
   }
 
   const hasDirectEvidence = candidates.slice(0, 3).some((candidate) => hasHardSignalEvidence(candidate, classified));
   if (hasDirectEvidence) {
+    return contextFit;
+  }
+
+  if (contextFit.fitStatus === 'needs_confirmation') {
+    return {
+      ...contextFit,
+      fitStatus: 'insufficient',
+      fitScore: Math.min(contextFit.fitScore, 0.44),
+      fitReasons: uniqueStrings([
+        ...contextFit.fitReasons,
+        'strict noise tolerance rejected weak semantic match',
+      ]),
+      missingSignals: uniqueStrings([
+        ...contextFit.missingSignals,
+        'strict_no_hard_signal',
+      ]),
+    };
+  }
+
+  if (contextFit.fitStatus !== 'ready') {
     return contextFit;
   }
 

@@ -819,6 +819,24 @@
       "minContextFitScore": 0.45
     },
     {
+      "id": "strict-weak-evidence-insufficient",
+      "prompt": "How should reflection memories be approved before becoming searchable?",
+      "noiseTolerance": "strict",
+      "taxon": "text_to_text_doc",
+      "expectedEntities": {},
+      "expectedKnowledgeIds": [
+        "reflection-review-memory"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "reflection-review-memory"
+      ],
+      "unexpectedKnowledgeIds": [
+        "paywall-modal",
+        "legacy-auth-flow"
+      ],
+      "expectedContextFitStatus": "insufficient"
+    },
+    {
       "id": "continuation-handoff",
       "prompt": "Continue the current Phase 8 context hardening work from the roadmap.",
       "project": "newsletter-app",

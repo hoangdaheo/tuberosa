@@ -70,6 +70,7 @@ export interface RetrievalEvalCase {
   files?: string[];
   symbols?: string[];
   errors?: string[];
+  noiseTolerance?: ContextSearchInput['noiseTolerance'];
   tokenBudget?: number;
   expectedKnowledgeIds?: string[];
   expectedSelectedKnowledgeIds?: string[];
@@ -341,6 +342,7 @@ export class RetrievalEvaluator {
       files: testCase.files,
       symbols: testCase.symbols,
       errors: testCase.errors,
+      noiseTolerance: testCase.noiseTolerance,
       tokenBudget: testCase.tokenBudget,
       rejectedKnowledgeIds: [...rejectedIds],
       bypassCache: true,
