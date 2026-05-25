@@ -39,13 +39,15 @@
 
 ---
 
-# Plan 1 — P0 Stop-the-Bleed
+# Plan 1 — P0 Stop-the-Bleed ✅ COMPLETED 2026-05-25 on branch `refactor/plan1-stop-the-bleed`
 
 **Goal:** Close the P0 correctness, security, and migration bugs that block downstream work and leave production deployments unsafe. Estimated 1–2 days.
 
 **Prerequisite:** None.
 
 **Verification gate before Plan 2 starts:** `pnpm run build && pnpm test && pnpm run eval:retrieval` all green; `tuberosa_search_context` succeeds against the local main checkout.
+
+**Final status:** 6/6 tickets shipped. Verification: build clean, 301 unit tests pass, retrieval eval at hit@5=100%, agent-context eval passes, integration tests pass against the Docker stack. Implementation deviations vs. the plan as written are listed under each ticket below.
 
 ---
 
@@ -118,7 +120,9 @@ git commit -m "fix(storage): guard pack_feedback CTE against worktree:<sha> ids"
 
 ---
 
-### Task 1.2: Memory-store must filter `status='approved'`
+### Task 1.2: Memory-store must filter `status='approved'` ✅ COMPLETED
+
+**Deviation:** Plan referenced `status: 'pending'` in test seeds, but `KnowledgeStatus` is `'approved' | 'needs_review' | 'archived' | 'blocked'`. Used `'needs_review'` instead. Test moved from `searchMetadata` to `searchMemories` because the metadata path scores on label hits, not raw `files: [...]`; the parity concern was identical. Also stripped now-redundant `&& item.status !== 'approved'` guards at the graph-relation call sites (the audit hadn't called these out as a cleanup but they became dead code once `allowed()` enforced it centrally).
 
 **Files:**
 - Modify: `src/storage/memory-store.ts:1205`
@@ -175,7 +179,9 @@ git commit -m "fix(storage): memory-store must filter status=approved like pg st
 
 ---
 
-### Task 1.3: MCP stdio guard `JSON.parse` against malformed frames
+### Task 1.3: MCP stdio guard `JSON.parse` against malformed frames ✅ COMPLETED
+
+**No deviation.** Plan's test pattern worked as written. Added `TUBEROSA_PHYSICAL_MIRROR_ENABLED=false` to the child env so the spawned server doesn't write to the working tree during the test.
 
 **Files:**
 - Modify: `src/mcp-stdio.ts:28`
@@ -252,7 +258,9 @@ git commit -m "fix(mcp): wrap frame JSON.parse and return -32700 on bad input"
 
 ---
 
-### Task 1.4: HTTP — require API key for non-loopback; bind 127.0.0.1 by default; strip raw pg/redis messages
+### Task 1.4: HTTP — require API key for non-loopback; bind 127.0.0.1 by default; strip raw pg/redis messages ✅ COMPLETED
+
+**Deviation:** Plan's HTTP test (`fetch` with `host: '203.0.113.5'` header) wouldn't actually exercise non-loopback behavior — `socket.remoteAddress` stays `127.0.0.1` for any local fetch. Replaced with unit tests on a new exported `isAuthorizedRequest(request, config)` predicate plus `isLoopbackRequest`. The predicate layers on top of `isAuthorizedApiKey` so the existing helper (and the test asserting `isAuthorizedApiKey(undefined, undefined) === true`) keeps working. Also picked up the Plan 1.7 work (flip `physicalMirrorEnabled` default to `false`) in the same commit — they share `src/config.ts` and grouping them avoided a second config bump. Env var named `TUBEROSA_REQUIRE_API_KEY_FOR_NON_LOOPBACK` rather than the plan's `TUBEROSA_REQUIRE_API_KEY` to make the boolean's scope unambiguous. Twenty-plus test/script files that build `AppConfig` literals got the two new fields swept into them via `sed` so `tsc` stays green.
 
 **Files:**
 - Modify: `src/config.ts`, `src/index.ts`, `src/http/server.ts:794-800`, `src/errors.ts:101-138`
@@ -373,7 +381,9 @@ git commit -m "fix(http): default 127.0.0.1 + API-key for non-loopback; strip ra
 
 ---
 
-### Task 1.5: Drop the three duplicate `002_*.sql` migrations with paired cleanup
+### Task 1.5: Drop the three duplicate `002_*.sql` migrations with paired cleanup ✅ COMPLETED
+
+**No deviation.** Behaved exactly as plan specified.
 
 **Files:**
 - Delete: `migrations/002_agent_sessions.sql`, `migrations/002_knowledge_relations.sql`, `migrations/002_knowledge_conflicts.sql`
@@ -431,7 +441,9 @@ git commit -m "fix(migrations): collapse dup 002_* files; add 003 cleanup of orp
 
 ---
 
-### Task 1.6: Default-on `failUnderHitRate=1` in retrieval eval
+### Task 1.6: Default-on `failUnderHitRate=1` in retrieval eval ✅ COMPLETED
+
+**Deviation:** Plan's test spawned the eval script as a subprocess with a corrupted fixture. Switched to a unit test that imports `shouldFail` and `DEFAULT_HIT_RATE_THRESHOLD` (newly exported) and table-tests the predicate directly. Same coverage, much faster, no fixture-corruption ceremony. Real `pnpm run eval:retrieval` confirmed still green at hit@5=100%.
 
 **Files:**
 - Modify: `scripts/eval-retrieval.ts:237-244`

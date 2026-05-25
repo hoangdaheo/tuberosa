@@ -1,6 +1,8 @@
 import test from 'node:test';
 import { equal } from 'node:assert/strict';
-import { shouldFail, DEFAULT_HIT_RATE_THRESHOLD } from '../scripts/eval-retrieval.js';
+import { shouldFail, DEFAULT_HIT_RATE_THRESHOLD, type CliOptions } from '../scripts/eval-retrieval.js';
+
+const baseOpts: CliOptions = { fixturePath: 'test', topK: 5, json: false, help: false };
 import type { RetrievalEvalReport } from '../src/evaluation/retrieval-evaluator.js';
 
 function makeReport(metrics: { hitRate: number | null }, cases: { passed: boolean }[]): RetrievalEvalReport {
@@ -25,21 +27,21 @@ test('DEFAULT_HIT_RATE_THRESHOLD is 1.0 (CLAUDE.md invariant)', () => {
 
 test('shouldFail returns true when hitRate < 1.0 even with no explicit threshold', () => {
   const report = makeReport({ hitRate: 0.9 }, [{ passed: true }, { passed: true }]);
-  equal(shouldFail(report, {}), true);
+  equal(shouldFail(report, baseOpts), true);
 });
 
 test('shouldFail returns false at hitRate=1.0 with no failed cases and default threshold', () => {
   const report = makeReport({ hitRate: 1.0 }, [{ passed: true }, { passed: true }]);
-  equal(shouldFail(report, {}), false);
+  equal(shouldFail(report, baseOpts), false);
 });
 
 test('shouldFail still returns true when any case failed, regardless of hitRate', () => {
   const report = makeReport({ hitRate: 1.0 }, [{ passed: true }, { passed: false }]);
-  equal(shouldFail(report, {}), true);
+  equal(shouldFail(report, baseOpts), true);
 });
 
 test('shouldFail respects explicit lower threshold for soft eval runs', () => {
   const report = makeReport({ hitRate: 0.8 }, [{ passed: true }]);
-  equal(shouldFail(report, { failUnderHitRate: 0.7 }), false);
-  equal(shouldFail(report, { failUnderHitRate: 0.9 }), true);
+  equal(shouldFail(report, { ...baseOpts, failUnderHitRate: 0.7 }), false);
+  equal(shouldFail(report, { ...baseOpts, failUnderHitRate: 0.9 }), true);
 });
