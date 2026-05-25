@@ -6,8 +6,7 @@ import { Pill } from '../components/Pill.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { presentSessionStart, type SessionViewModel, type EvidenceRow } from '../presenters/sessionPresenter.js';
 import { StartupBriefPanel } from './StartupBriefPanel.js';
-import { ResearchTracePanel } from './ResearchTracePanel.js';
-import { extractResearchTrace } from '../presenters/researchTracePresenter.js';
+import { ResearchTraceFromMetadata } from './ResearchTracePanel.js';
 import type { AgentSessionStartResult, ContextDecisionResult, FinishSessionResult } from '../types.js';
 
 interface FormState {
@@ -242,10 +241,7 @@ export function SessionView({ defaultProject }: Props) {
                   {finishResult.learningDecision.reasons.map((r, i) => <li key={i}>{r}</li>)}
                 </ul>
               ) : null}
-              {(() => {
-                const trace = extractResearchTrace(finishResult.session.metadata);
-                return trace ? <ResearchTracePanel trace={trace} /> : null;
-              })()}
+              <ResearchTraceFromMetadata metadata={finishResult.session.metadata} />
             </div>
           )}
         </div>

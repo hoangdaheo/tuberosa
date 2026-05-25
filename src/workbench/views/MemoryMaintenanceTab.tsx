@@ -111,48 +111,91 @@ export function MemoryMaintenanceTab({ project, refresh }: Props) {
 
       {batch.items.length === 0
         ? <EmptyState title="No maintenance items detected." hint="Tuberosa scans for duplicates, stale relations, supersessions, and weak labels." />
-        : (Object.keys(grouped) as MaintenanceItemKind[]).map((kind) => (
-          <section key={kind} data-testid={`maintenance-group-${kind}`}>
-            <h4 class="row" style={{ alignItems: 'center', gap: 8 }}>
-              {KIND_LABELS[kind]}
-              <Pill kind="muted">{grouped[kind].length}</Pill>
-            </h4>
-            <ul class="bare">
-              {grouped[kind].map((item) => (
-                <li class="card" key={item.id}>
-                  <div class="card-header">
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div class="card-title">{item.reason}</div>
-                      <div class="small muted">
-                        {item.knowledgeId && <>knowledge <code>{item.knowledgeId}</code></>}
-                        {item.relationId && <>relation <code>{item.relationId}</code></>}
-                        {item.reflectionDraftId && <>draft <code>{item.reflectionDraftId}</code></>}
-                        {item.label && <> · label {item.label.type}=<code>{item.label.value}</code></>}
-                      </div>
-                    </div>
-                    <Pill kind={riskKind(item.risk)} title={`Risk: ${item.risk}`}>{item.risk}</Pill>
-                  </div>
-                  {item.evidence && item.evidence.length > 0 && (
-                    <ul class="bullets small muted">
-                      {item.evidence.slice(0, 4).map((line, i) => <li key={i}>{line}</li>)}
-                    </ul>
-                  )}
-                  <div class="queue-actions">
-                    <button
-                      class="icon-button primary"
-                      disabled={busyId === item.id}
-                      data-testid={`maintenance-apply-${item.id}`}
-                      onClick={() => applyItem(item)}
-                    >
-                      {busyId === item.id ? 'Working…' : 'Apply'}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))
+        : (Object.keys(grouped) as MaintenanceItemKind[])
+          .filter((kind) => grouped[kind].length > 0)
+          .map((kind) => (
+            <section key={kind} data-testid={`maintenance-group-${kind}`}>
+              <h4 class="row" style={{ alignItems: 'center', gap: 8 }}>
+                {KIND_LABELS[kind]}
+                <Pill kind="muted">{grouped[kind].length}</Pill>
+              </h4>
+              <ul class="bare">
+                {grouped[kind].map((item) => (
+                  <MaintenanceItemCard
+                    key={item.id}
+                    item={item}
+                    busy={busyId === item.id}
+                    onApply={() => applyItem(item)}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))
       }
+    </div>
+  );
+}
+
+function MaintenanceItemCard({
+  item,
+  busy,
+  onApply,
+}: {
+  item: MaintenanceItem;
+  busy: boolean;
+  onApply: () => void;
+}) {
+  return (
+    <li class="card">
+      <div class="card-header">
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div class="card-title">{item.reason}</div>
+          <div class="small muted">
+            {item.knowledgeId && <>knowledge <code>{item.knowledgeId}</code></>}
+            {item.relationId && <>relation <code>{item.relationId}</code></>}
+            {item.reflectionDraftId && <>draft <code>{item.reflectionDraftId}</code></>}
+            {item.label && <> · label {item.label.type}=<code>{item.label.value}</code></>}
+          </div>
+        </div>
+        <Pill kind={riskKind(item.risk)} title={`Risk: ${item.risk}`}>{item.risk}</Pill>
+      </div>
+      {item.before && <MaintenanceBeforeBlock before={item.before} />}
+      {item.evidence && item.evidence.length > 0 && (
+        <ul class="bullets small muted" data-testid={`maintenance-evidence-${item.id}`}>
+          {item.evidence.slice(0, 4).map((entry, i) => (
+            <li key={i}><Pill kind="muted">{entry.source}</Pill> <code>{entry.reference}</code></li>
+          ))}
+        </ul>
+      )}
+      <div class="queue-actions">
+        <button
+          class="icon-button primary"
+          disabled={busy}
+          data-testid={`maintenance-apply-${item.id}`}
+          onClick={onApply}
+        >
+          {busy ? 'Working…' : 'Apply'}
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function MaintenanceBeforeBlock({ before }: { before: NonNullable<MaintenanceItem['before']> }) {
+  if (!before.title && !before.summary && (!before.labels || before.labels.length === 0)) return null;
+  return (
+    <div class="small" style={{ marginTop: 4 }}>
+      <strong>Before:</strong>{' '}
+      {before.title && <code>{before.title}</code>}
+      {before.status && <> · status <Pill kind="muted">{before.status}</Pill></>}
+      {before.summary && <div class="muted">{before.summary}</div>}
+      {before.labels && before.labels.length > 0 && (
+        <div class="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+          {before.labels.slice(0, 6).map((l, i) => (
+            <Pill key={i} kind="muted">{l.type}: {l.value}</Pill>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -179,5 +222,10 @@ function reportApply(result: MaintenanceApplyResult): void {
   if (result.expiredCount) parts.push(`expired ${result.expiredCount}`);
   if (result.skippedCount) parts.push(`skipped ${result.skippedCount}`);
   if (result.failedCount) parts.push(`failed ${result.failedCount}`);
-  pushToast(`Maintenance: ${parts.join(' · ')}`, result.failedCount > 0 ? 'bad' : 'good');
+  const kind: 'bad' | 'good' | 'info' = result.failedCount > 0
+    ? 'bad'
+    : result.appliedCount > 0
+      ? 'good'
+      : 'info';
+  pushToast(`Maintenance: ${parts.join(' · ')}`, kind);
 }

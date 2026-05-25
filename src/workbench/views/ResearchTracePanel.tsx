@@ -1,9 +1,20 @@
 import { GlossaryTerm } from '../components/GlossaryTerm.js';
 import { Pill } from '../components/Pill.js';
+import { extractResearchTrace } from '../presenters/researchTracePresenter.js';
 import type { ResearchTraceStep, ResearchTraceSummary } from '../types.js';
 
 interface Props {
   trace: ResearchTraceSummary;
+}
+
+/**
+ * Render a research trace pulled from arbitrary metadata (session or draft).
+ * Returns null when no valid trace is present so callers can just drop it in.
+ */
+export function ResearchTraceFromMetadata({ metadata }: { metadata: Record<string, unknown> | undefined | null }) {
+  const trace = extractResearchTrace(metadata);
+  if (!trace) return null;
+  return <ResearchTracePanel trace={trace} />;
 }
 
 export function ResearchTracePanel({ trace }: Props) {
@@ -54,10 +65,10 @@ function renderReference(ref: NonNullable<ResearchTraceStep['references']>[numbe
 
 function stepColor(kind: ResearchTraceStep['kind']): string {
   switch (kind) {
-    case 'thought':     return 'var(--color-muted, #888)';
-    case 'action':      return 'var(--color-accent, #4a90e2)';
-    case 'observation': return 'var(--color-good, #2c8a3c)';
-    case 'decision':    return 'var(--color-warn, #d18b18)';
+    case 'thought':     return '#888';
+    case 'action':      return '#4a90e2';
+    case 'observation': return '#2c8a3c';
+    case 'decision':    return '#d18b18';
   }
 }
 

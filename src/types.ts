@@ -306,6 +306,33 @@ export interface MaintenanceItemLabel {
  */
 export type MaintenanceRisk = 'low' | 'medium' | 'high';
 
+/**
+ * Detector that produced a maintenance item. Surfaced on each evidence entry so
+ * the reviewer can tell which scan flagged the target and trace it back to the
+ * relevant code path in `MaintenanceService`.
+ */
+export type MaintenanceEvidenceSource =
+  | 'write_gate'
+  | 'relation_expiry'
+  | 'label_provenance';
+
+export interface MaintenanceEvidence {
+  source: MaintenanceEvidenceSource;
+  reference: string;
+}
+
+/**
+ * A snapshot of the target at propose time. The reviewer sees this in the
+ * workbench without needing a second round-trip — the apply step still
+ * re-reads the live target for the precondition check.
+ */
+export interface MaintenanceBefore {
+  title?: string;
+  summary?: string;
+  labels?: Array<{ type: string; value: string }>;
+  status?: string;
+}
+
 export interface MaintenanceItem {
   /** Stable id within the batch. Used by apply to pick which items to mutate. */
   id: string;
@@ -321,8 +348,10 @@ export interface MaintenanceItem {
   label?: MaintenanceItemLabel;
   /** Closest related knowledge (e.g. write-gate's closestKnowledgeId for supersedes). */
   closestKnowledgeId?: string;
-  /** Free-form ids the reviewer can inspect to verify the proposal. */
-  evidence?: string[];
+  /** Structured evidence with detector attribution. */
+  evidence?: MaintenanceEvidence[];
+  /** Snapshot of the target at propose time so the reviewer can see what will change. */
+  before?: MaintenanceBefore;
 }
 
 export type MaintenanceCounts = Record<MaintenanceItemKind, number>;

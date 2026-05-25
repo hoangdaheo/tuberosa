@@ -31,6 +31,8 @@ import type {
   LearningReviewStatus,
   MaintenanceApplyInput,
   MaintenanceItem,
+  MaintenanceBefore,
+  MaintenanceEvidence,
   MaintenanceItemKind,
   MaintenanceItemLabel,
   MaintenanceProposeInput,
@@ -392,6 +394,7 @@ function readMaintenanceItems(value: unknown, path: string): MaintenanceItem[] {
 }
 
 const MAINTENANCE_RISKS = ['low', 'medium', 'high'] as const;
+const MAINTENANCE_EVIDENCE_SOURCES = ['write_gate', 'relation_expiry', 'label_provenance'] as const;
 const MAINTENANCE_RISK_DEFAULTS: Record<MaintenanceItemKind, 'low' | 'medium' | 'high'> = {
   duplicate_memory: 'low',
   weak_label: 'low',
@@ -416,9 +419,51 @@ function readMaintenanceItem(value: unknown, path: string): MaintenanceItem {
     };
   }
   const evidenceRaw = record.evidence;
-  const evidence = evidenceRaw === undefined
-    ? undefined
-    : readOptionalStringArray(record, 'evidence', path);
+  let evidence: MaintenanceEvidence[] | undefined;
+  if (evidenceRaw !== undefined && evidenceRaw !== null) {
+    if (!Array.isArray(evidenceRaw)) {
+      throw validationIssue(`${path}.evidence`, 'must be an array.');
+    }
+    evidence = evidenceRaw.map((entry, i) => {
+      const entryRecord = expectObject(entry, `${path}.evidence[${i}]`);
+      const source = readRequiredString(entryRecord, 'source', `${path}.evidence[${i}]`);
+      if (!MAINTENANCE_EVIDENCE_SOURCES.includes(source as typeof MAINTENANCE_EVIDENCE_SOURCES[number])) {
+        throw validationIssue(
+          `${path}.evidence[${i}].source`,
+          `must be one of: ${MAINTENANCE_EVIDENCE_SOURCES.join(', ')}.`,
+        );
+      }
+      return {
+        source: source as MaintenanceEvidence['source'],
+        reference: readRequiredString(entryRecord, 'reference', `${path}.evidence[${i}]`),
+      };
+    });
+  }
+  const beforeRaw = record.before;
+  let before: MaintenanceBefore | undefined;
+  if (beforeRaw !== undefined && beforeRaw !== null) {
+    const beforeRecord = expectObject(beforeRaw, `${path}.before`);
+    const labelsRaw = beforeRecord.labels;
+    let labels: Array<{ type: string; value: string }> | undefined;
+    if (labelsRaw !== undefined && labelsRaw !== null) {
+      if (!Array.isArray(labelsRaw)) {
+        throw validationIssue(`${path}.before.labels`, 'must be an array.');
+      }
+      labels = labelsRaw.map((entry, i) => {
+        const entryRecord = expectObject(entry, `${path}.before.labels[${i}]`);
+        return {
+          type: readRequiredString(entryRecord, 'type', `${path}.before.labels[${i}]`),
+          value: readRequiredString(entryRecord, 'value', `${path}.before.labels[${i}]`),
+        };
+      });
+    }
+    before = {
+      title: readOptionalString(beforeRecord, 'title', `${path}.before`),
+      summary: readOptionalString(beforeRecord, 'summary', `${path}.before`),
+      status: readOptionalString(beforeRecord, 'status', `${path}.before`),
+      labels,
+    };
+  }
   // Risk is derived from `kind` by default. Inline payloads from older callers
   // may omit it; explicit values are validated against the literal union.
   const riskRaw = record.risk;
@@ -441,6 +486,7 @@ function readMaintenanceItem(value: unknown, path: string): MaintenanceItem {
     label,
     closestKnowledgeId: readOptionalString(record, 'closestKnowledgeId', path),
     evidence,
+    before,
   };
 }
 

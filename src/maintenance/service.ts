@@ -8,12 +8,15 @@ import type {
   MaintenanceApplyResult,
   MaintenanceApplyResultItem,
   MaintenanceBatch,
+  MaintenanceBefore,
   MaintenanceCounts,
+  MaintenanceEvidence,
   MaintenanceItem,
   MaintenanceItemKind,
   MaintenanceProposeInput,
   MaintenanceRisk,
   ReflectionDraft,
+  StoredKnowledge,
 } from '../types.js';
 
 /**
@@ -33,6 +36,24 @@ export const MAINTENANCE_ITEM_KINDS: readonly MaintenanceItemKind[] = [
   'weak_label',
 ] as const;
 
+/**
+ * Risk classification per kind. The roadmap originally framed low-risk as
+ * "additive enrichment only" (add_labels, add_references). This scanner ships
+ * curation-only kinds, so "low" here means "subtractive but reversible and
+ * scoped to a single pending draft or low-confidence label":
+ *
+ * - `duplicate_memory` rejects a *pending* draft — no durable knowledge is
+ *   touched, and the draft can be re-created from the original session.
+ * - `weak_label` removes a single inferred label (confidence < 0.5) from one
+ *   knowledge item — re-ingestion or manual re-tagging restores it.
+ *
+ * Anything touching `approved` knowledge (`superseded_reflection`) or deleting
+ * a stored relation (`stale_relation`) is *not* eligible for `autoApplyLowRisk`.
+ *
+ * Reviewers using `autoApplyLowRisk` should expect drafts to be rejected and
+ * weak labels to be dropped without explicit approval — document this in any
+ * client that exposes the flag.
+ */
 const MAINTENANCE_RISK_BY_KIND: Record<MaintenanceItemKind, MaintenanceRisk> = {
   duplicate_memory: 'low',
   weak_label: 'low',
@@ -94,7 +115,8 @@ export class MaintenanceService {
             project: draft.project,
             reflectionDraftId: draft.id,
             closestKnowledgeId: closest,
-            evidence: closest ? [closest] : [],
+            evidence: writeGateEvidence(draft.id, closest),
+            before: draftBefore(draft),
           });
           counts.duplicate_memory += 1;
         } else if (decision === 'DELETE' && wantKinds.has('superseded_reflection')) {
@@ -106,7 +128,8 @@ export class MaintenanceService {
             project: draft.project,
             reflectionDraftId: draft.id,
             closestKnowledgeId: closest,
-            evidence: closest ? [closest] : [],
+            evidence: writeGateEvidence(draft.id, closest),
+            before: draftBefore(draft),
           });
           counts.superseded_reflection += 1;
         }
@@ -124,9 +147,16 @@ export class MaintenanceService {
         if (typeof validUntilRaw !== 'string') continue;
         const ts = Date.parse(validUntilRaw);
         if (Number.isNaN(ts) || ts > now) continue;
-        const evidence: string[] = [relation.fromKnowledgeId];
-        if (relation.targetKnowledgeId) evidence.push(relation.targetKnowledgeId);
-        if (relation.targetValue) evidence.push(relation.targetValue);
+        const evidence: MaintenanceEvidence[] = [
+          { source: 'relation_expiry', reference: `validUntil=${validUntilRaw}` },
+          { source: 'relation_expiry', reference: `from=${relation.fromKnowledgeId}` },
+        ];
+        if (relation.targetKnowledgeId) {
+          evidence.push({ source: 'relation_expiry', reference: `to=${relation.targetKnowledgeId}` });
+        }
+        if (relation.targetValue) {
+          evidence.push({ source: 'relation_expiry', reference: `targetValue=${relation.targetValue}` });
+        }
         items.push({
           id: `mi-rel-${relation.id}`,
           kind: 'stale_relation',
@@ -135,6 +165,7 @@ export class MaintenanceService {
           project: relation.project,
           relationId: relation.id,
           evidence,
+          before: { title: relation.relationType, status: 'expired' },
         });
         counts.stale_relation += 1;
       }
@@ -156,7 +187,14 @@ export class MaintenanceService {
             project: item.project,
             knowledgeId: item.id,
             label: { type: label.type, value: label.value },
-            evidence: [item.id],
+            evidence: [
+              { source: 'label_provenance', reference: `knowledge=${item.id}` },
+              {
+                source: 'label_provenance',
+                reference: `provenance=${label.provenance?.source}@${formatConfidence(label.provenance?.confidence)}`,
+              },
+            ],
+            before: knowledgeBefore(item),
           });
           counts.weak_label += 1;
         }
@@ -407,6 +445,32 @@ function formatConfidence(value: number | undefined): string {
 function truncate(value: string | undefined, max: number): string {
   if (!value) return 'n/a';
   return value.length <= max ? value : `${value.slice(0, Math.max(1, max - 1))}…`;
+}
+
+function writeGateEvidence(draftId: string, closest: string | undefined): MaintenanceEvidence[] {
+  const evidence: MaintenanceEvidence[] = [
+    { source: 'write_gate', reference: `draft=${draftId}` },
+  ];
+  if (closest) evidence.push({ source: 'write_gate', reference: `closest=${closest}` });
+  return evidence;
+}
+
+function draftBefore(draft: ReflectionDraft): MaintenanceBefore {
+  return {
+    title: draft.title,
+    summary: draft.summary,
+    labels: draft.suggestedLabels?.map((l) => ({ type: l.type, value: l.value })),
+    status: draft.status,
+  };
+}
+
+function knowledgeBefore(item: StoredKnowledge): MaintenanceBefore {
+  return {
+    title: item.title,
+    summary: item.summary,
+    labels: item.labels.map((l) => ({ type: l.type, value: l.value })),
+    status: item.status,
+  };
 }
 
 function maintenanceDecisionKey(kind: MaintenanceItemKind): string {

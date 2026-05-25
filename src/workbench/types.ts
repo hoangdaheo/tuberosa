@@ -167,6 +167,20 @@ export type MaintenanceItemKind =
 
 export type MaintenanceRisk = 'low' | 'medium' | 'high';
 
+export type MaintenanceEvidenceSource = 'write_gate' | 'relation_expiry' | 'label_provenance';
+
+export interface MaintenanceEvidence {
+  source: MaintenanceEvidenceSource;
+  reference: string;
+}
+
+export interface MaintenanceBefore {
+  title?: string;
+  summary?: string;
+  labels?: Array<{ type: string; value: string }>;
+  status?: string;
+}
+
 export interface MaintenanceItem {
   id: string;
   kind: MaintenanceItemKind;
@@ -178,7 +192,8 @@ export interface MaintenanceItem {
   reflectionDraftId?: string;
   label?: { type: string; value: string };
   closestKnowledgeId?: string;
-  evidence?: string[];
+  evidence?: MaintenanceEvidence[];
+  before?: MaintenanceBefore;
 }
 
 export type MaintenanceCounts = Record<MaintenanceItemKind, number>;
