@@ -75,7 +75,7 @@ function clonePolicy(): RetrievalPolicy {
 // Phase 7 — Gated query rewrite
 // ---------------------------------------------------------------------------
 
-test('Phase 7: confident probe skips models.rewriteQuery (diverse-angle gate)', async () => {
+test('confident probe skips models.rewriteQuery (diverse-angle gate)', async () => {
   setRetrievalPolicy(clonePolicy());
   try {
     const store = new MemoryKnowledgeStore();
@@ -127,7 +127,7 @@ test('Phase 7: confident probe skips models.rewriteQuery (diverse-angle gate)', 
   }
 });
 
-test('Phase 7: low-confidence probe fires rewriteQuery with mode=diverse_angle', async () => {
+test('low-confidence probe fires rewriteQuery with mode=diverse_angle', async () => {
   setRetrievalPolicy(clonePolicy());
   try {
     const store = new MemoryKnowledgeStore();
@@ -190,7 +190,7 @@ test('Phase 7: low-confidence probe fires rewriteQuery with mode=diverse_angle',
 // Phase 7 — Tunable RRF k
 // ---------------------------------------------------------------------------
 
-test('Phase 7: rrfKFor honors per-task overrides and falls back to the global k', () => {
+test('rrfKFor honors per-task overrides and falls back to the global k', () => {
   setRetrievalPolicy(clonePolicy());
   try {
     const policy = clonePolicy();
@@ -206,7 +206,7 @@ test('Phase 7: rrfKFor honors per-task overrides and falls back to the global k'
   }
 });
 
-test('Phase 7: smaller RRF k produces sharper top-rank advantage at the same rank', () => {
+test('smaller RRF k produces sharper top-rank advantage at the same rank', () => {
   setRetrievalPolicy(clonePolicy());
   try {
     const classified = makeClassified('debugging');

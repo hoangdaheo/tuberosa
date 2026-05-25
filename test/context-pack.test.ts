@@ -117,7 +117,7 @@ function diagnosticsNotes(pack: { contextFit?: ContextFit }): string[] {
   return pack.contextFit?.fitDiagnostics?.notes ?? [];
 }
 
-test('Phase 8: read_file action backed by a candidate is kept and carries evidenceIds', async () => {
+test('read_file action backed by a candidate is kept and carries evidenceIds', async () => {
   const knowledgeId = '11111111-1111-1111-1111-111111111111';
   const candidate = makeCandidate({
     knowledgeId,
@@ -151,7 +151,7 @@ test('Phase 8: read_file action backed by a candidate is kept and carries eviden
   ok(!notes.some((note) => note.startsWith('brief_warning:')), 'no brief_warning should be emitted for grounded actions');
 });
 
-test('Phase 8: read_file action with no candidate evidence is dropped and warning is emitted', async () => {
+test('read_file action with no candidate evidence is dropped and warning is emitted', async () => {
   const unrelated = makeCandidate({
     knowledgeId: '22222222-2222-2222-2222-222222222222',
     title: 'Article search handler at src/retrieval/search.ts',
@@ -183,7 +183,7 @@ test('Phase 8: read_file action with no candidate evidence is dropped and warnin
   );
 });
 
-test('Phase 8: inspect_review_target action whose candidate has zero token overlap is dropped', async () => {
+test('inspect_review_target action whose candidate has zero token overlap is dropped', async () => {
   const reviewTargetId = '33333333-3333-3333-3333-333333333333';
   // Candidate with knowledgeId === reviewTargetId, but its searchable text shares ZERO
   // tokens with the review target's title.
@@ -237,7 +237,7 @@ test('Phase 8: inspect_review_target action whose candidate has zero token overl
   );
 });
 
-test('Phase 8: review_target evidence and policy-only actions are preserved when grounded', async () => {
+test('review_target evidence and policy-only actions are preserved when grounded', async () => {
   const targetId = '44444444-4444-4444-4444-444444444444';
   const candidate = makeCandidate({
     knowledgeId: targetId,

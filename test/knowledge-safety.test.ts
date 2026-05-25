@@ -2,7 +2,7 @@ import test from 'node:test';
 import { equal, ok } from 'node:assert/strict';
 import { KnowledgeSafetyService, SECRET_PATTERN_NAMES } from '../src/security/knowledge-safety.js';
 
-test('Phase 9: SECRET_PATTERN_NAMES exposes the five canonical pattern names', () => {
+test('SECRET_PATTERN_NAMES exposes the five canonical pattern names', () => {
   // Order is the iteration order applied by redactSecretPatterns. Hard-code it
   // here so that re-ordering for ranking reasons is a deliberate change, not
   // an accidental drift.
@@ -11,7 +11,7 @@ test('Phase 9: SECRET_PATTERN_NAMES exposes the five canonical pattern names', (
   equal(SECRET_PATTERN_NAMES[4], 'credential_assignment');
 });
 
-test('Phase 9: real credentials still redact (load-bearing recall guarantee)', () => {
+test('real credentials still redact (load-bearing recall guarantee)', () => {
   const safety = new KnowledgeSafetyService();
   const cases: Array<[string, string, string]> = [
     ['pem', '-----BEGIN OPENSSH PRIVATE KEY-----\nabcd1234\n-----END OPENSSH PRIVATE KEY-----', 'pem_private_key'],
@@ -30,7 +30,7 @@ test('Phase 9: real credentials still redact (load-bearing recall guarantee)', (
   }
 });
 
-test('Phase 9: TypeScript type annotations are no longer redacted as credentials', () => {
+test('TypeScript type annotations are no longer redacted as credentials', () => {
   const safety = new KnowledgeSafetyService();
   const result = safety.scanForSecrets(
     'function login(password: AccessTokenServiceCredential, apiKey: ServiceAuthCredentialProvider) {}',
@@ -39,7 +39,7 @@ test('Phase 9: TypeScript type annotations are no longer redacted as credentials
   equal(result.firedPatterns.length, 0);
 });
 
-test('Phase 9: env-example placeholders (<your-key>, ${VAR}, xxxx, your_*_here) are skipped', () => {
+test('env-example placeholders (<your-key>, ${VAR}, xxxx, your_*_here) are skipped', () => {
   const safety = new KnowledgeSafetyService();
   const cases = [
     'API_KEY=your_api_key_here_replace_me',
@@ -53,7 +53,7 @@ test('Phase 9: env-example placeholders (<your-key>, ${VAR}, xxxx, your_*_here) 
   }
 });
 
-test('Phase 9: line-comment / JSDoc credential mentions are skipped', () => {
+test('line-comment / JSDoc credential mentions are skipped', () => {
   const safety = new KnowledgeSafetyService();
   const cases = [
     '// TODO: pass api_key = realValueHereXYZ from config to the auth provider',
@@ -65,7 +65,7 @@ test('Phase 9: line-comment / JSDoc credential mentions are skipped', () => {
   }
 });
 
-test('Phase 9: JSON-style "password": "value" assignments are redacted', () => {
+test('JSON-style "password": "value" assignments are redacted', () => {
   const safety = new KnowledgeSafetyService();
   const result = safety.scanForSecrets('{"username":"svc","password":"k2P9xQ5mL7nB3vT8wY1aC4dE"}');
   ok(result.redactionCount > 0);

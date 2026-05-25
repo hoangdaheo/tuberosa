@@ -64,7 +64,7 @@ function readDiagnostics(pack: ContextPack): FitDiagnostics | undefined {
   return pack.contextFit?.fitDiagnostics;
 }
 
-test('Phase 5: prompt-named handoff file surfaces from the worktree into the essential bucket', async () => {
+test('prompt-named handoff file surfaces from the worktree into the essential bucket', async () => {
   const sandbox = createSandbox();
   try {
     writeFileSync(
@@ -117,7 +117,7 @@ test('Phase 5: prompt-named handoff file surfaces from the worktree into the ess
   }
 });
 
-test('Phase 5: worktree wins precedence over a conflicting durable memory for continuation tasks', async () => {
+test('worktree wins precedence over a conflicting durable memory for continuation tasks', async () => {
   const sandbox = createSandbox();
   try {
     // The worktree's truth: handler.ts has dispatchV2 + processV2 (the migration landed).
@@ -204,7 +204,7 @@ test('Phase 5: worktree wins precedence over a conflicting durable memory for co
   }
 });
 
-test('Phase 5: planning task type opts out of the worktree provider', async () => {
+test('planning task type opts out of the worktree provider', async () => {
   const sandbox = createSandbox();
   try {
     writeFileSync(join(sandbox, 'roadmap.md'), '# Roadmap\n\nPhase 5 ships the worktree provider.\n');
@@ -238,7 +238,7 @@ test('Phase 5: planning task type opts out of the worktree provider', async () =
   }
 });
 
-test('Phase 5: TUBEROSA_WORKTREE_ENABLED=false disables the provider entirely', async () => {
+test('TUBEROSA_WORKTREE_ENABLED=false disables the provider entirely', async () => {
   const sandbox = createSandbox();
   try {
     writeFileSync(join(sandbox, 'handoff.md'), '# Handoff\n\nContext for the current effort.\n');
@@ -275,7 +275,7 @@ test('Phase 5: TUBEROSA_WORKTREE_ENABLED=false disables the provider entirely', 
   }
 });
 
-test('Phase 5: missing cwd is handled gracefully (no worktree candidates, no crash)', async () => {
+test('missing cwd is handled gracefully (no worktree candidates, no crash)', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(baseConfig.embeddingDimensions);

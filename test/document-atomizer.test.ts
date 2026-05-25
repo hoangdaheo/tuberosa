@@ -64,7 +64,7 @@ last tier is for fallback / unknown.
 A small unrelated section about probes that should not match the score-weighting query.
 `;
 
-test('Phase 4: MarkdownAtomizer emits a breadcrumb on every atom', () => {
+test('MarkdownAtomizer emits a breadcrumb on every atom', () => {
   const atomizer = new MarkdownAtomizer();
   const atoms = atomizer.atomize({ path: 'docs/phase4.md', content: SAMPLE_DOC });
 
@@ -93,7 +93,7 @@ test('Phase 4: MarkdownAtomizer emits a breadcrumb on every atom', () => {
   );
 });
 
-test('Phase 4: parent-topic query retrieves the right atom via breadcrumb (not via body)', async () => {
+test('parent-topic query retrieves the right atom via breadcrumb (not via body)', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const provider = new HashModelProvider(config.embeddingDimensions);
