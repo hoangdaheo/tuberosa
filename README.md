@@ -93,18 +93,32 @@ The request path:
 1. Agent calls tuberosa_search_context (MCP) or POST /context/search (HTTP).
 2. classifyQuery extracts: project, taskType, files, symbols, errors,
                           technologies, business areas, exact terms, lexical query.
-3. In parallel:
+3. Gated query rewrite (Phase 7):
+     - Probe pass embeds the prompt once and runs a small lexical + vector
+       lookup to score baseline retrieval confidence.
+     - If probeConfidence ≥ probeConfidenceThreshold, skip models.rewriteQuery
+       entirely (rewriteSkippedReason="probe_confident").
+     - Otherwise call rewriteQuery in diverse_angle mode; applyQueryRewrite
+       merges task-perspective rewrites into exactTerms for OR-style FTS.
+     - The probe embedding is reused by findCandidates so a gated search
+       still embeds only once.
+4. In parallel (findCandidates):
      - searchMetadata  (labels, refs, title, summary)
      - searchLexical   (Postgres FTS or in-memory token match)
      - searchVector    (pgvector cosine similarity)
      - searchMemories  (approved memory/workflow/rule/bugfix)
    Then graph relation expansion seeded from those hits.
-4. fuseCandidates  — weighted reciprocal-rank fusion across all five lists.
-5. Rerank          — deterministic hash reranker (default) or OpenAI/Ollama.
-6. Ranking adjusts — feedback deltas + stale/superseded/evidence-mismatch penalties.
-7. context-fit     — emits ready | needs_confirmation | insufficient + missing signals.
-8. assemble        — split into essential / supporting / optional within tokenBudget.
-9. (layered mode)  — expand selected ids into deepContext from full chunks.
+5. fuseCandidates  — weighted reciprocal-rank fusion across all five lists.
+6. Rerank          — deterministic hash reranker (default) or OpenAI/Ollama.
+7. Ranking adjusts — feedback deltas + stale/superseded/evidence-mismatch penalties.
+8. context-fit     — emits ready | needs_confirmation | insufficient + missing
+                     signals; applyNoiseTolerance further demotes weak hits
+                     when noiseTolerance="strict".
+9. assemble        — split into essential / supporting / optional within tokenBudget.
+10. (layered mode) — expand selected ids into deepContext from full chunks.
+
+Both `bypassCache: true` and `debug: true` on the search input skip the Redis
+context-pack cache (`debug` also emits per-stage candidates and timings).
 ```
 
 The hybrid design matters because **exact symbols, file paths, and error codes carry as much signal as semantic similarity** in code work.
@@ -445,6 +459,18 @@ npx @modelcontextprotocol/inspector pnpm --silent --dir <repo-path> run mcp
 
 ---
 
+## Workbench UI
+
+The HTTP server also ships a small local workbench at `http://localhost:3027/workbench` — review queues, session inspector, recent error logs, context-pack browser, and risky-memory list. Static assets are served from `/workbench/static/<asset>`. The same view is also reachable from the CLI:
+
+```bash
+pnpm run workbench
+```
+
+The workbench page itself is served publicly, but its data calls hit the same authenticated routes as the rest of the API, so `TUBEROSA_API_KEY` still applies once set.
+
+---
+
 ## HTTP API
 
 All endpoints return JSON. Health is unauthenticated; everything else requires `Authorization: Bearer $TUBEROSA_API_KEY` if you set the key.
@@ -458,14 +484,17 @@ All endpoints return JSON. Health is unauthenticated; everything else requires `
 | `GET`  | `/knowledge/{id}` | Fetch one. |
 | `PATCH`| `/knowledge/{id}` | Update fields. |
 | `POST` | `/ingest/files` | Bulk file ingestion (chunks + atomizes). |
+| `GET`  | `/labels` | List labels (optionally filtered by `project`, `type`). |
 
 ### Context
 
 | Method | Path | Use |
 |---|---|---|
-| `POST` | `/context/search` | Run retrieval. Pass `"debug": true` for per-stage candidates and timings. |
+| `POST` | `/context/search` | Run retrieval. Pass `"debug": true` for per-stage candidates and timings, or `"bypassCache": true` to skip the Redis pack cache. |
+| `GET`  | `/context/packs` | List stored packs (admin). |
 | `GET`  | `/context/packs/{id}` | Fetch a stored pack. |
 | `POST` | `/context/feedback` | `selected` / `rejected` / `stale` / `irrelevant` / `missing_context`. Rejected/stale/irrelevant triggers a one-shot retry excluding `rejectedKnowledgeIds`. |
+| `GET`  | `/feedback-events` | List recorded feedback events. |
 
 ### Agent sessions
 
@@ -473,8 +502,8 @@ All endpoints return JSON. Health is unauthenticated; everything else requires `
 POST /agent-sessions                       — start
 GET  /agent-sessions                       — list
 GET  /agent-sessions/{id}                  — read
-POST /agent-sessions/{id}/context-decisions
-POST /agent-sessions/{id}/context-decision (alias)
+GET  /agent-sessions/{id}/context-decisions — list decisions for a session
+POST /agent-sessions/{id}/context-decision — record one decision
 POST /agent-sessions/{id}/learning-signals
 POST /agent-sessions/{id}/finish
 POST /agent-sessions/{id}/notes
@@ -505,7 +534,8 @@ GET  /operations/conflicts                  — detected conflicts
 POST /operations/conflicts/detect
 POST /operations/conflicts/{id}             — resolve
 
-GET  /operations/knowledge-gaps             — missing-coverage items
+GET   /operations/knowledge-gaps            — missing-coverage items
+PATCH /operations/knowledge-gaps/{id}       — update a gap (status, notes)
 GET  /operations/learning-proposals
 POST /operations/learning-proposals/{id}    — accept/reject
 
