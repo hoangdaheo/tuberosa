@@ -91,6 +91,14 @@ export async function computeWriteGate(input: WriteGateInput): Promise<WriteGate
   const draftEmbedding = input.models
     ? await safeEmbed(input.models, `${input.draft.summary}\n${input.draft.content}`)
     : undefined;
+  // Audit P1 fix: if embeddings were requested (models supplied) but the draft
+  // embedding came back empty, the lexical rawScore proxy is the only signal
+  // available — that proxy is not strong enough to auto-NOOP/UPDATE/DELETE a
+  // memory that could contradict the draft, so we force the decision back to
+  // ADD downstream. `embeddingDegraded` records that condition.
+  const embeddingRequested = input.models !== undefined;
+  const embeddingAvailable = draftEmbedding !== undefined && draftEmbedding.length > 0;
+  const embeddingDegraded = embeddingRequested && !embeddingAvailable;
   const cosineFn = await buildCosineFn(input.models, draftEmbedding);
 
   let best: { candidate: WriteGateInputCandidate; scores: WriteGateScores; contradicts: boolean; addsNovelFacts: boolean } | undefined;
@@ -115,6 +123,16 @@ export async function computeWriteGate(input: WriteGateInput): Promise<WriteGate
 
   // Safe: candidates is non-empty here so the loop ran at least once.
   const { candidate, scores, contradicts, addsNovelFacts } = best!;
+
+  if (embeddingDegraded) {
+    return {
+      decision: 'ADD',
+      scores,
+      evidenceIds: [],
+      closestKnowledgeId: candidate.knowledgeId,
+      reason: 'Embedding unavailable; defaulting to ADD to avoid auto-deciding on a lexical proxy alone.',
+    };
+  }
 
   if (scores.cosine >= COSINE_NOOP_THRESHOLD && scores.labelOverlap >= LABEL_NOOP_THRESHOLD) {
     return {
