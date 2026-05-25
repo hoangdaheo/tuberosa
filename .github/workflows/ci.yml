@@ -1,0 +1,55 @@
+name: ci
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: tuberosa
+          POSTGRES_PASSWORD: tuberosa
+          POSTGRES_DB: tuberosa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tuberosa"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm test
+      - run: pnpm run eval:retrieval
+      - run: pnpm run eval:agent-context
+      - name: Run migrations against Postgres
+        env:
+          DATABASE_URL: postgres://tuberosa:tuberosa@localhost:5432/tuberosa
+        run: pnpm run migrate
+      - name: Integration tests
+        env:
+          DATABASE_URL: postgres://tuberosa:tuberosa@localhost:5432/tuberosa
+          REDIS_URL: redis://localhost:6379
+        run: pnpm run test:integration
