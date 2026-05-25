@@ -1260,6 +1260,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
               OR cardinality(fe.rejected_knowledge_ids) = 0
             )
             AND ($2::text IS NULL OR fp.name = $2 OR pp.name = $2)
+            AND item->>'knowledgeId' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
         ),
         relevant_feedback AS (
           SELECT * FROM explicit_feedback
