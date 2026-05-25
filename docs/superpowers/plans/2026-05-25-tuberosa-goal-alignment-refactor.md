@@ -1317,13 +1317,21 @@ git commit -m "feat(session): compact ResearchTrace on finish-session (input or 
 
 ---
 
-# Plan 4 — Maintenance Preview + Workbench Review UX
+# Plan 4 — Maintenance Preview + Workbench Review UX ✅ MERGED 2026-05-25 (with deferred follow-ups)
 
 **Goal:** Close the review loop. Add preview/apply maintenance endpoints (per `plan-synthesis.md` Phase C) and surface them — plus the new `StartupBrief` and `ResearchTrace` — in the workbench so the 9 pending drafts and 3 open gaps can actually be resolved. Estimated 3–4 days.
 
 **Prerequisite:** Plan 3 green.
 
 **Verification gate before Plan 5 starts:** Maintenance endpoints work end-to-end; workbench renders all four new panels; browser test green.
+
+**Final status:** Shipped on `refactor/plan4-maintenance-and-workbench` (PR #3, merge `b0944d5`) across three commits: `7f090f3` (maintenance risk + autoApplyLowRisk + expired re-check), `1c3e8ce` (three workbench panels), `300ca58` (audit follow-ups).
+
+**Deferred follow-ups (not blocking; tracked for a future maintenance pass):**
+- `eval/maintenance-fixtures.json` was not created — `test/maintenance.test.ts` covers the surface inline. If we want fixture-driven evals like `eval:startup-brief`, file a follow-up.
+- Browser tests `test/browser/startup-brief.test.ts` and `test/browser/maintenance.test.ts` were folded into the existing `test/browser/workbench-browser.test.ts` rather than split per-panel. Coverage is present; file shape differs from plan.
+- Glossary entry `proceed_confirm_clarify` was not added (entries for `startup_brief`/`read_first`/`worktree_evidence`/`research_trace` are present); `verification_mode` was not added either. Workbench renders verdict badges without a dedicated glossary tooltip — low impact.
+- `src/workbench/state/api.ts` does not export named `fetchStartupBrief`/`fetchMaintenancePreview` helpers; calls are made directly via the generic `api()` helper inside each panel (see `MemoryMaintenanceTab.tsx:36`). Functional, just structured differently than the plan prescribed.
 
 ---
 
@@ -1482,13 +1490,25 @@ git commit -m "feat(workbench): ResearchTracePanel + draft-review trace display"
 
 ---
 
-# Plan 5 — Structural Cleanup
+# Plan 5 — Structural Cleanup ⚠️ PARTIALLY SHIPPED 2026-05-25 — mechanical cleanup only; monolith splits deferred
 
 **Goal:** Now that the parity matrix (Plan 2) protects storage seams and the goal features (Plan 3+4) are live, split the monolith files, replace `as` casts with validated row mappers, lift magic numbers into config, and remove dormant modules. This is the audit's Wave 4+5 — high blast radius, only safe with the gates from Plan 2. Estimated 5–7 days.
 
 **Prerequisite:** Plan 2 storage parity matrix green AND Plan 3+4 shipped (so behavior surface is stable before refactor).
 
 **Verification gate before close:** All evals green; LOC of `postgres-store.ts`, `service.ts`, `types.ts`, `memory-store.ts`, `validation.ts` all under 1000.
+
+**Final status (PR #4, merge `b52adaa` on branch `refactor/plan5-structural-cleanup`):** PR was scoped to "mechanical cleanup" only and shipped Tasks **5.7, 5.8, 5.9** (commits `dab6409`, `5e95431`, `696d851`). The high-risk monolith splits — Tasks **5.1, 5.2, 5.3, 5.4, 5.5, 5.6** — were **NOT done** and are still open. Current LOC versus the plan's <1000 gate (measured 2026-05-25 on `main`):
+
+| File | LOC | Gate |
+|---|---|---|
+| `src/storage/postgres-store.ts` | 2747 | ❌ |
+| `src/types.ts` | 2092 | ❌ |
+| `src/retrieval/service.ts` | 2090 | ❌ |
+| `src/storage/memory-store.ts` | 1525 | ❌ |
+| `src/validation.ts` | 1424 | ❌ |
+
+`as` cast count: `postgres-store.ts` 50, `memory-store.ts` 18 (gate wanted <10 total across the split files — gate cannot be evaluated because the split was never done). The `Plan 5 Verification Gate` at the end of this file is therefore **not satisfied**; treat the gate as failed pending a Plan 5b that resumes the file splits. All evals are green on `main`, so the cleanup is safe to resume incrementally.
 
 ---
 
@@ -1517,8 +1537,10 @@ export * from './types/retrieval.js';
 ### Task 5.2: Split `src/storage/postgres-store.ts` (2746 LOC)
 
 **Files:**
-- Create: `src/storage/postgres/knowledge-store.ts`, `label-store.ts`, `search-store.ts`, `feedback-store.ts`, `session-store.ts`, `backup-store.ts`, `relations-store.ts`
+- Create: `src/storage/postgres/knowledge-store.ts`, `label-store.ts`, `search-store.ts`, `feedback-store.ts`, `session-store.ts`, `context-store.ts`, `backup-store.ts`, `relations-store.ts`
 - Modify: `src/storage/postgres-store.ts` → thin facade that composes the above
+
+**Plan 5b progress (2026-05-25):** Started the incremental facade split on `refactor/plan5b-monolith-splits`. Extracted `src/storage/postgres/backup-store.ts`, `label-store.ts`, and `context-store.ts`; `PostgresKnowledgeStore` still implements the full `KnowledgeStore` interface and delegates these table families. Verified with build, storage parity, integration, operations, retrieval/session/research-trace focused tests, retrieval eval, and full unit tests.
 
 - [ ] **Step 1: Identify domain seams.** Each new file owns one table family + its searches.
 
