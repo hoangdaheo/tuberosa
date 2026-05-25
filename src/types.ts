@@ -998,6 +998,29 @@ export interface AgentLearningSignal {
   createdAt?: string;
 }
 
+export interface ResearchTraceReference {
+  file?: string;
+  symbol?: string;
+  command?: string;
+  knowledgeId?: string;
+}
+
+export interface ResearchTraceStep {
+  kind: 'thought' | 'action' | 'observation' | 'decision';
+  text: string;
+  references?: ResearchTraceReference[];
+}
+
+export interface ResearchTraceInput {
+  steps: ResearchTraceStep[];
+  outcome: string;
+}
+
+export interface ResearchTraceSummary extends ResearchTraceInput {
+  derived: boolean;
+  bytes: number;
+}
+
 export interface CaptureAgentLearningSignalInput extends AgentLearningSignal {
   sessionId: string;
   author?: string;
@@ -1273,6 +1296,7 @@ export interface FinishAgentSessionInput {
   contextBypassReason?: string;
   learningMode?: AgentLearningMode;
   metadata?: Record<string, unknown>;
+  researchTrace?: ResearchTraceInput;
   reflectionDraft?: ReflectionDraftInput;
 }
 

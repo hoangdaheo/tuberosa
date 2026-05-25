@@ -24,12 +24,14 @@ import type {
   FinishAgentSessionInput,
   LabelInput,
   ReferenceInput,
+  ResearchTraceSummary,
   RecordAgentContextDecisionInput,
   ReflectionDraft,
   ReflectionDraftInput,
   StartAgentSessionInput,
 } from '../types.js';
 import { truncate, uniqueStrings } from '../util/text.js';
+import { deriveResearchTrace, normalizeResearchTrace } from './research-trace.js';
 
 export class AgentSessionService {
   constructor(
@@ -88,6 +90,17 @@ export class AgentSessionService {
     const existingSession = await this.requireSession(input.sessionId);
     const decisions = await this.store.listAgentContextDecisions({ sessionId: input.sessionId, limit: 100 });
     const compliance = sessionCompliance(existingSession, decisions, input.contextBypassReason);
+    const learningSignals = sessionLearningSignals(input, existingSession);
+    const researchTrace = input.researchTrace
+      ? normalizeResearchTrace(input.researchTrace)
+      : deriveResearchTrace({
+        learningSignals,
+        sessionNotes: sessionNotesFromMetadata(existingSession.metadata),
+        contextDecisions: decisions,
+        changedFiles: input.changedFiles,
+        verificationCommands: input.verificationCommands,
+        outcome: input.summary?.trim() || input.agentOutputSummary?.trim() || `Session finished with outcome ${input.outcome}.`,
+      });
     const reflectionDraft = input.reflectionDraft
       ? await this.reflection.createDraft({
         ...input.reflectionDraft,
@@ -96,6 +109,7 @@ export class AgentSessionService {
           ...(input.reflectionDraft.metadata ?? {}),
           agentSessionId: input.sessionId,
           contextPackId: input.reflectionDraft.metadata?.contextPackId ?? existingSession.initialContextPackId,
+          researchTrace,
         },
       })
       : undefined;
@@ -108,7 +122,7 @@ export class AgentSessionService {
           draftId: reflectionDraft.id,
         } satisfies AgentSessionLearningDecision,
       }
-      : await this.createSessionLearning(input, existingSession, decisions, compliance);
+      : await this.createSessionLearning(input, existingSession, decisions, compliance, researchTrace, learningSignals);
     const reflectionDraftIds = [
       ...(reflectionDraft ? [reflectionDraft.id] : []),
       ...(learning.draft && learning.draft.id !== reflectionDraft?.id ? [learning.draft.id] : []),
@@ -120,6 +134,7 @@ export class AgentSessionService {
         ...(input.metadata ?? {}),
         contextCompliance: compliance,
         agentLearning: learning.decision,
+        researchTrace,
       },
       reflectionDraftIds,
     });
@@ -205,6 +220,8 @@ export class AgentSessionService {
     session: AgentSession,
     decisions: AgentContextDecision[],
     compliance: AgentContextCompliance,
+    researchTrace?: ResearchTraceSummary,
+    precomputedLearningSignals?: AgentLearningSignal[],
   ): Promise<SessionLearningResult> {
     const mode = input.learningMode ?? 'auto';
     if (mode === 'off') {
@@ -227,7 +244,7 @@ export class AgentSessionService {
       };
     }
 
-    const learningSignals = sessionLearningSignals(input, session);
+    const learningSignals = precomputedLearningSignals ?? sessionLearningSignals(input, session);
     const summary = durableLearningSummary(input, learningSignals);
     if (!summary || summary.length < 24) {
       return {
@@ -240,7 +257,7 @@ export class AgentSessionService {
     }
 
     const selectedPack = await this.selectedContextPack(session, decisions);
-    const draftInput = buildLearningDraftInput(input, session, decisions, selectedPack, learningSignals, summary);
+    const draftInput = buildLearningDraftInput(input, session, decisions, selectedPack, learningSignals, summary, researchTrace);
 
     try {
       const draft = await this.reflection.createDraft(draftInput);
@@ -352,6 +369,7 @@ function buildLearningDraftInput(
   selectedPack: ContextPack | undefined,
   learningSignals: AgentLearningSignal[],
   summary: string,
+  researchTrace?: ResearchTraceSummary,
 ): ReflectionDraftInput {
   const classified = selectedPack?.classified;
   const references = learningReferences(session, selectedPack, input, learningSignals);
@@ -398,6 +416,7 @@ function buildLearningDraftInput(
       verificationCommands,
       learningSignals,
       learningSignalCount: learningSignals.length,
+      researchTrace,
     }),
   };
 }
@@ -665,6 +684,19 @@ function learningSignalsFromNotes(metadata: Record<string, unknown>): AgentLearn
       : undefined)
     .filter(isLearningSignalRecord)
     .map(normalizeLearningSignal);
+}
+
+function sessionNotesFromMetadata(metadata: Record<string, unknown>): AgentSessionNote[] {
+  if (!Array.isArray(metadata.notes)) {
+    return [];
+  }
+
+  return metadata.notes.filter((note): note is AgentSessionNote => (
+    Boolean(note)
+    && typeof note === 'object'
+    && typeof (note as AgentSessionNote).note === 'string'
+    && typeof (note as AgentSessionNote).at === 'string'
+  ));
 }
 
 function hasLowConfidenceLearningSignals(metadata: Record<string, unknown> | undefined): boolean {

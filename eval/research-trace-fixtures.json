@@ -1,0 +1,60 @@
+{
+  "name": "research trace eval",
+  "cases": [
+    {
+      "id": "explicit-trace",
+      "mode": "explicit",
+      "input": {
+        "outcome": "Verified with pnpm test.",
+        "steps": [
+          {
+            "kind": "decision",
+            "text": "Used selected context before editing.",
+            "references": [{ "file": "src/widget.ts", "symbol": "WidgetService" }]
+          }
+        ]
+      },
+      "expect": {
+        "derived": false,
+        "includes": ["Used selected context before editing.", "src/widget.ts"],
+        "excludes": ["RAW_PRIVATE_TRANSCRIPT_TOKEN"],
+        "maxSteps": 12
+      }
+    },
+    {
+      "id": "derived-trace",
+      "mode": "derived",
+      "input": {
+        "outcome": "Session completed with structured evidence.",
+        "changedFiles": ["src/widget.ts"],
+        "verificationCommands": ["pnpm test"],
+        "learningSignals": [
+          {
+            "kind": "verification",
+            "text": "pnpm test passed for WidgetService behavior.",
+            "files": ["src/widget.ts"],
+            "symbols": ["WidgetService"]
+          }
+        ],
+        "contextDecisions": [
+          {
+            "id": "decision-1",
+            "sessionId": "session-1",
+            "contextPackId": "pack-1",
+            "decision": "selected",
+            "reason": "The selected pack matched the WidgetService file.",
+            "rejectedKnowledgeIds": [],
+            "metadata": {},
+            "createdAt": "2026-05-25T00:00:00.000Z"
+          }
+        ]
+      },
+      "expect": {
+        "derived": true,
+        "includes": ["pnpm test", "src/widget.ts", "selected"],
+        "excludes": ["RAW_PRIVATE_TRANSCRIPT_TOKEN"],
+        "maxSteps": 12
+      }
+    }
+  ]
+}

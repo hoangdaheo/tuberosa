@@ -50,6 +50,9 @@ import type {
   ReflectionDraftPatchInput,
   ReflectionDraftReviewInput,
   ReflectionDraftStatus,
+  ResearchTraceInput,
+  ResearchTraceReference,
+  ResearchTraceStep,
   ResolveErrorLogInput,
   RestoreBackupInput,
   StartAgentSessionInput,
@@ -58,6 +61,11 @@ import type {
   WorkbenchSummaryInput,
 } from './types.js';
 import { ValidationError } from './errors.js';
+import {
+  MAX_RESEARCH_TRACE_OUTCOME,
+  MAX_RESEARCH_TRACE_STEP_TEXT,
+  MAX_RESEARCH_TRACE_STEPS,
+} from './agent-session/research-trace.js';
 
 export interface IngestFilesRequest {
   project: string;
@@ -557,6 +565,7 @@ export function validateFinishAgentSessionInput(value: unknown, sessionId?: stri
     contextBypassReason: readOptionalString(record, 'contextBypassReason', 'finish agent session input'),
     learningMode: readOptionalEnum(record, 'learningMode', AGENT_LEARNING_MODES, 'finish agent session input'),
     metadata: readOptionalObject(record, 'metadata', 'finish agent session input'),
+    researchTrace: readOptionalResearchTrace(record.researchTrace, 'finish agent session input.researchTrace'),
     reflectionDraft,
   };
 }
@@ -910,6 +919,69 @@ function readOptionalLearningSignals(value: unknown, path: string): AgentLearnin
   }
 
   return value.map((signal, index) => readLearningSignal(expectObject(signal, `${path}[${index}]`), `${path}[${index}]`));
+}
+
+function readOptionalResearchTrace(value: unknown, path: string): ResearchTraceInput | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const record = expectObject(value, path);
+  const outcome = readRequiredString(record, 'outcome', path);
+  if (outcome.length > MAX_RESEARCH_TRACE_OUTCOME) {
+    throw validationIssue(`${path}.outcome`, `must be ${MAX_RESEARCH_TRACE_OUTCOME} characters or fewer.`);
+  }
+
+  const rawSteps = record.steps;
+  if (!Array.isArray(rawSteps)) {
+    throw validationIssue(`${path}.steps`, 'must be an array.');
+  }
+  if (rawSteps.length > MAX_RESEARCH_TRACE_STEPS) {
+    throw validationIssue(`${path}.steps`, `must contain ${MAX_RESEARCH_TRACE_STEPS} or fewer steps.`);
+  }
+
+  return {
+    outcome,
+    steps: rawSteps.map((step, index) => readResearchTraceStep(step, `${path}.steps[${index}]`)),
+  };
+}
+
+function readResearchTraceStep(value: unknown, path: string): ResearchTraceStep {
+  const record = expectObject(value, path);
+  const text = readRequiredString(record, 'text', path);
+  if (text.length > MAX_RESEARCH_TRACE_STEP_TEXT) {
+    throw validationIssue(`${path}.text`, `must be ${MAX_RESEARCH_TRACE_STEP_TEXT} characters or fewer.`);
+  }
+
+  return {
+    kind: readRequiredEnum(record, 'kind', ['thought', 'action', 'observation', 'decision'], path),
+    text,
+    references: readOptionalResearchTraceReferences(record.references, `${path}.references`),
+  };
+}
+
+function readOptionalResearchTraceReferences(value: unknown, path: string): ResearchTraceReference[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw validationIssue(path, 'must be an array.');
+  }
+
+  return value.map((reference, index) => {
+    const itemPath = `${path}[${index}]`;
+    const record = expectObject(reference, itemPath);
+    const parsed: ResearchTraceReference = {
+      file: readOptionalString(record, 'file', itemPath),
+      symbol: readOptionalString(record, 'symbol', itemPath),
+      command: readOptionalString(record, 'command', itemPath),
+      knowledgeId: readOptionalString(record, 'knowledgeId', itemPath),
+    };
+    if (!parsed.file && !parsed.symbol && !parsed.command && !parsed.knowledgeId) {
+      throw validationIssue(itemPath, 'must include file, symbol, command, or knowledgeId.');
+    }
+    return parsed;
+  });
 }
 
 function readLearningSignal(record: Record<string, unknown>, path: string): AgentLearningSignal {

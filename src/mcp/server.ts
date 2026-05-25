@@ -808,6 +808,37 @@ function tools() {
             type: 'array',
             items: learningSignalSchema(),
           },
+          researchTrace: {
+            type: 'object',
+            required: ['steps', 'outcome'],
+            properties: {
+              steps: {
+                type: 'array',
+                maxItems: 12,
+                items: {
+                  type: 'object',
+                  required: ['kind', 'text'],
+                  properties: {
+                    kind: { type: 'string', enum: ['thought', 'action', 'observation', 'decision'] },
+                    text: { type: 'string', maxLength: 280 },
+                    references: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          file: { type: 'string' },
+                          symbol: { type: 'string' },
+                          command: { type: 'string' },
+                          knowledgeId: { type: 'string' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              outcome: { type: 'string', maxLength: 500 },
+            },
+          },
           contextBypassReason: { type: 'string' },
           learningMode: { type: 'string', enum: [...AGENT_LEARNING_MODES] },
           metadata: { type: 'object' },
