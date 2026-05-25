@@ -17,7 +17,7 @@ const baseClassified: ClassifiedQuery = {
   exactTerms: [],
   intent: {
     taskGoal: 'parity status doc',
-    workflowStage: 'discovery',
+    workflowStage: 'exploration',
     impliedFiles: [],
     impliedSymbols: [],
     impliedDomains: [],
@@ -45,7 +45,7 @@ async function seedTwo(store: MemoryKnowledgeStore) {
       labels: [],
       references: [],
     },
-    [{ content: 'parity status doc approved body', contextualContent: 'parity status doc approved body', tokenEstimate: 8, embedding: new Array(1536).fill(0.001) }],
+    [{ index: 0, content: 'parity status doc approved body', contextualContent: 'parity status doc approved body', tokenEstimate: 8, embedding: new Array(1536).fill(0.001) }],
   );
   const pending = await store.upsertKnowledge(
     {
@@ -59,9 +59,9 @@ async function seedTwo(store: MemoryKnowledgeStore) {
       labels: [],
       references: [],
     },
-    [{ content: 'parity status doc pending body', contextualContent: 'parity status doc pending body', tokenEstimate: 8, embedding: new Array(1536).fill(0.001) }],
+    [{ index: 0, content: 'parity status doc pending body', contextualContent: 'parity status doc pending body', tokenEstimate: 8, embedding: new Array(1536).fill(0.001) }],
   );
-  await store.updateKnowledge(pending.id, { status: 'pending' });
+  await store.updateKnowledge(pending.id, { status: 'needs_review' });
   return { approvedId: approved.id, pendingId: pending.id };
 }
 
@@ -98,7 +98,7 @@ test('memory-store searchMemories excludes non-approved items', async () => {
       labels: [],
       references: [],
     },
-    [{ content: 'parity rule approved body', contextualContent: 'parity rule approved body', tokenEstimate: 8, embedding: new Array(1536).fill(0.001) }],
+    [{ index: 0, content: 'parity rule approved body', contextualContent: 'parity rule approved body', tokenEstimate: 8, embedding: new Array(1536).fill(0.001) }],
   );
   const pending = await store.upsertKnowledge(
     {
@@ -112,9 +112,9 @@ test('memory-store searchMemories excludes non-approved items', async () => {
       labels: [],
       references: [],
     },
-    [{ content: 'parity rule pending body', contextualContent: 'parity rule pending body', tokenEstimate: 8, embedding: new Array(1536).fill(0.001) }],
+    [{ index: 0, content: 'parity rule pending body', contextualContent: 'parity rule pending body', tokenEstimate: 8, embedding: new Array(1536).fill(0.001) }],
   );
-  await store.updateKnowledge(pending.id, { status: 'pending' });
+  await store.updateKnowledge(pending.id, { status: 'needs_review' });
 
   const candidates = await store.searchMemories({ ...baseClassified, lexicalQuery: 'parity rule' }, baseOptions);
   const ids = new Set(candidates.map((c) => c.knowledgeId));

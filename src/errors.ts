@@ -98,17 +98,20 @@ export interface JsonRpcErrorBody {
   };
 }
 
+const PG_PUBLIC_MESSAGE = 'Storage error. See server logs for details.';
+const REDIS_PUBLIC_MESSAGE = 'Cache error. See server logs for details.';
+
 export function toAppError(error: unknown): AppError {
   if (error instanceof AppError) {
     return error;
   }
 
   if (isPgError(error)) {
-    return new StoreError(errorMessage(error), error);
+    return new StoreError(PG_PUBLIC_MESSAGE, error);
   }
 
   if (isRedisError(error)) {
-    return new CacheError(errorMessage(error), error);
+    return new CacheError(REDIS_PUBLIC_MESSAGE, error);
   }
 
   const statusCode = readStatusCode(error);

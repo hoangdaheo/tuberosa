@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
+import type { AppConfig } from '../config.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { getCatchupMetadata } from '../operations/catchup.js';
@@ -105,7 +106,7 @@ class HttpRouter {
       }
 
       if (!matched.route.public) {
-        authenticate(request, this.services.config.apiKey);
+        authenticate(request, this.services.config);
       }
 
       const body = await matched.route.handle({
@@ -774,9 +775,8 @@ export async function readJsonBody<T = Record<string, unknown>>(request: Incomin
   }
 }
 
-function authenticate(request: IncomingMessage, apiKey: string | undefined): void {
-  const provided = readProvidedApiKey(request);
-  if (!isAuthorizedApiKey(provided, apiKey)) {
+function authenticate(request: IncomingMessage, config: AppConfig): void {
+  if (!isAuthorizedRequest(request, config)) {
     throw new HttpError(401, 'Unauthorized.');
   }
 }
@@ -797,6 +797,24 @@ export function isAuthorizedApiKey(provided: string | undefined, apiKey: string 
   }
 
   return Boolean(provided && secureEqual(provided, apiKey));
+}
+
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+export function isLoopbackRequest(request: IncomingMessage): boolean {
+  const remote = request.socket?.remoteAddress;
+  return typeof remote === 'string' && LOOPBACK_ADDRESSES.has(remote);
+}
+
+export function isAuthorizedRequest(request: IncomingMessage, config: AppConfig): boolean {
+  const provided = readProvidedApiKey(request);
+  if (config.apiKey) {
+    return Boolean(provided && secureEqual(provided, config.apiKey));
+  }
+  if (!config.requireApiKeyForNonLoopback) {
+    return true;
+  }
+  return isLoopbackRequest(request);
 }
 
 function secureEqual(left: string, right: string): boolean {
