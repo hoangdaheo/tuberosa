@@ -47,7 +47,17 @@
 
 **Verification gate before Plan 2 starts:** `pnpm run build && pnpm test && pnpm run eval:retrieval` all green; `tuberosa_search_context` succeeds against the local main checkout.
 
-**Final status:** 6/6 tickets shipped. Verification: build clean, 301 unit tests pass, retrieval eval at hit@5=100%, agent-context eval passes, integration tests pass against the Docker stack. Implementation deviations vs. the plan as written are listed under each ticket below.
+**Final status:** 6/6 tickets shipped on `refactor/plan1-stop-the-bleed`. Verification: build clean, 301 unit tests pass, retrieval eval at hit@5=100%, agent-context eval passes, integration tests pass against the Docker stack. Implementation deviations vs. the plan as written are listed under each ticket below.
+
+**✅ Merged to `main` 2026-05-25** via PR #1 (`91c96b1`). Verified on `main`:
+- `fee7f47` worktree `pack_feedback` CTE guard → `src/storage/postgres-store.ts`
+- `5cbcf93` memory-store `status='approved'` filter → `src/storage/memory-store.ts:1207`
+- `d3c90b4` MCP `-32700` parse guard → `src/mcp-stdio.ts:30,36`
+- `275a9d4` HTTP loopback-aware auth + raw-error strip + `physicalMirrorEnabled: false` default → `src/config.ts:8,10,57,58,83`, `src/index.ts:7`
+- `c07e747` dup `002_*.sql` removed + `003_cleanup_dup_002s.sql` added → `migrations/`
+- `745d1f1` retrieval eval default `failUnderHitRate=1` → `scripts/eval-retrieval.ts:243`
+
+**Task 1.7 (slowloris timeouts) shipped on `refactor/audit-wave1-slowloris-ci` (PR #2)** — see task body below.
 
 ---
 
@@ -489,6 +499,73 @@ git commit -m "fix(eval): retrieval eval enforces hitRate>=1.0 by default"
 
 ---
 
+### Task 1.7: HTTP slowloris guard — `requestTimeout` + `headersTimeout` ✅ COMPLETED
+
+**Deviation:** Timeouts set inside `createHttpServer` (`src/http/server.ts`) rather than in the bootstrap (`src/index.ts`). The factory seam is testable without spawning the bootstrap; the plan's assertion of `server.requestTimeout` on the value returned by `createHttpServer` becomes the natural test. Shipped on `refactor/audit-wave1-slowloris-ci` (`12a8aa6`).
+
+Source: audit Wave 3.4 (verified P1 — `src/http/server.ts:756-775` has byte cap but no socket timeout; a 1-byte-per-second client holds a worker indefinitely). Co-located here because the fix touches `src/index.ts`, which Task 1.4 already opens. Cheap, additive, no breaking change. **Not on `refactor/plan1-stop-the-bleed` — new addition.**
+
+**Files:**
+- Modify: `src/index.ts` (set timeouts on the server returned by `createHttpServer`)
+- Test: `test/http-security.test.ts` (assert the defaults)
+
+- [ ] **Step 1: Write failing test**
+
+Append to `test/http-security.test.ts`:
+
+```ts
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createHttpServer } from '../src/http/server.js';
+import { createAppServices } from '../src/app.js';
+
+test('HTTP server enforces requestTimeout and headersTimeout', async () => {
+  const services = await createAppServices();
+  const server = createHttpServer(services);
+  // The bootstrap in src/index.ts must set these. We assert on the values
+  // the bootstrap writes; if the bootstrap isn't responsible (e.g. the
+  // factory sets them), update the assertion to read from the factory output.
+  assert.equal(server.requestTimeout, 60_000, 'requestTimeout default should be 60s');
+  assert.equal(server.headersTimeout, 10_000, 'headersTimeout default should be 10s');
+  server.close();
+  await services.close();
+});
+```
+
+Note: `createHttpServer` returns a vanilla `http.Server` whose defaults are `requestTimeout=300000`, `headersTimeout=60000`. The test will fail until the bootstrap in `src/index.ts` writes the tighter defaults.
+
+- [ ] **Step 2: Verify FAIL**
+
+```bash
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx test/http-security.test.ts
+```
+
+- [ ] **Step 3: Set the timeouts in `src/index.ts`**
+
+After `const server = createHttpServer(services);` and before `server.listen(...)`:
+
+```ts
+server.requestTimeout = 60_000;
+server.headersTimeout = 10_000;
+```
+
+If Task 1.4 was already merged with `server.listen(port, httpHost, ...)`, the new lines slot between server construction and `listen`. If a future task wants per-deployment tuning, lift to config — for now defaults are sufficient.
+
+- [ ] **Step 4: Verify PASS**
+
+```bash
+PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/index.ts test/http-security.test.ts
+git commit -m "fix(http): set requestTimeout=60s and headersTimeout=10s to defeat slowloris"
+```
+
+---
+
 ### Plan 1 Verification Gate
 
 Before starting Plan 2, run every command and confirm green:
@@ -498,6 +575,7 @@ Before starting Plan 2, run every command and confirm green:
 - `pnpm run eval:agent-context`
 - `pnpm run test:integration` (if Docker available)
 - Manual: from this checkout, call `tuberosa_search_context` via the MCP and confirm no `worktree:<sha>` uuid error.
+- Manual slowloris smoke: `timeout 15 nc 127.0.0.1 3027` then type one byte; the server must close the socket within 60s (it will not — `requestTimeout` is for the **request body**, not idle sockets; for true slowloris also confirm Node's default `keepAliveTimeout` is acceptable, or document the gap and defer to a deployment-level reverse proxy).
 
 ---
 
@@ -509,9 +587,13 @@ Before starting Plan 2, run every command and confirm green:
 
 **Verification gate before Plan 3 starts:** All new tests in this plan pass locally; CI workflow runs them on a synthetic PR.
 
+**✅ All 6 tasks shipped on `refactor/audit-wave1-slowloris-ci` (PR #2) 2026-05-25.** Final verification: 406/406 unit tests pass, `eval:retrieval` green at hit@5=100%, `test:integration` green against Docker stack. Implementation deviations vs. plan-as-written are listed under each task.
+
 ---
 
-### Task 2.1: Add `.github/workflows/ci.yml`
+### Task 2.1: Add `.github/workflows/ci.yml` ✅ COMPLETED
+
+**No deviation.** Workflow contains 10 steps including build, unit tests, retrieval/agent-context evals, and Postgres+Redis integration tests with service containers. Shipped as `1a8998d`.
 
 **Files:**
 - Create: `.github/workflows/ci.yml`
@@ -567,7 +649,9 @@ git commit -m "ci: gate PRs on build, tests, retrieval eval, agent-context eval,
 
 ---
 
-### Task 2.2: CLAUDE.md invariant tests
+### Task 2.2: CLAUDE.md invariant tests ✅ COMPLETED
+
+**Deviation:** Embedding-dim test scans `migrations/001_init.sql` for *every* `vector(N)` declaration and asserts they all agree before comparing to `EMBEDDING_DIMENSIONS` — protects against future migrations adding mismatched dims. MCP stdout test parses both line- and Content-Length-framed responses (covers both framings the server emits). Shipped as `a95df92`.
 
 **Files:**
 - Create: `test/invariants.test.ts`
@@ -618,7 +702,9 @@ git commit -m "test: CLAUDE.md invariants (embedding dims, mcp stdout discipline
 
 ---
 
-### Task 2.3: Table-driven `validation.ts` tests
+### Task 2.3: Table-driven `validation.ts` tests ✅ COMPLETED
+
+**Deviation:** Plan-as-written referenced `validateIngestKnowledgeInput` and `validateRecordContextDecisionInput`; actual export names are `validateKnowledgeInput` and `validateRecordAgentContextDecisionInput`. Final table covers 64 rows across 7 validators (added `validateReflectionDraftInput`). All passed first run — no schema bugs surfaced. Shipped as `40bd772`.
 
 **Files:**
 - Create: `test/validation.test.ts`
@@ -697,7 +783,9 @@ git commit -m "test(validation): table-driven coverage of trust-boundary schemas
 
 ---
 
-### Task 2.4: `write-gate.ts` unit tests
+### Task 2.4: `write-gate.ts` unit tests ✅ COMPLETED
+
+**Deviation:** Plan called the function `evaluateWriteGate({draft, store, models})`; actual export is `computeWriteGate({draft, candidates, models?, now?})` — store is not a dependency, the caller pre-resolves candidates. Audit P1 (empty-embedding fallback to lexical proxy) confirmed by failing test; fix added: `embeddingDegraded` flag downgrades NOOP/UPDATE/DELETE → ADD when `models` was supplied but `draftEmbedding` came back empty. Shipped as `ede70ba`.
 
 **Files:**
 - Create: `test/write-gate.test.ts`
@@ -773,7 +861,9 @@ git commit -m "test(write-gate): direct coverage of every gate decision branch"
 
 ---
 
-### Task 2.5: Storage parity matrix
+### Task 2.5: Storage parity matrix ✅ COMPLETED
+
+**Deviation:** Parity asserts on `sourceUri` sets, not `knowledgeId` sets — backends generate independent UUIDs per insert, but the source URI is the stable cross-backend identifier. New helpers: `test/support/pg.ts` (extracted `postgresAvailable`/`ensurePostgresMigrated` from `test/integration.test.ts`), `test/support/parity-fixtures.ts` (5 named scenarios + a `runFixture` driver). Both backends agreed on all 5 scenarios on first run — no divergences surfaced (the audit's P2 about precise-vs-broad metadata scoring would need score-tolerance assertions, not ID-set parity, and is deferred). Shipped as `a9fa8bc`.
 
 **Files:**
 - Create: `test/storage-parity.test.ts`, `test/support/parity-fixtures.ts`
@@ -831,7 +921,9 @@ git commit -m "test(storage): parity matrix; fix memory-store metadata precision
 
 ---
 
-### Task 2.6: `factory.ts`, `knowledge-namespace.ts`, `model/registry.ts`
+### Task 2.6: `factory.ts`, `knowledge-namespace.ts`, `model/registry.ts` ✅ COMPLETED
+
+**Deviation:** Plan referenced `normaliseNamespace`/`matchNamespace`; actual exports are `deriveNamespace`/`namespaceMatchesFilter` (plus `kindFromItemType`, `readNamespaceFromMetadata`, `writeNamespaceToMetadata`). `createKnowledgeStore` is synchronous and takes only `AppConfig` (no pool arg). `buildProviderRegistry` returns `ModelProvider | null` (null when `modelProvider !== 'local'`); same for `buildOllamaRegistry`. 22 tests total across the three files. Shipped as `17f1024`.
 
 **Files:**
 - Create: `test/storage-factory.test.ts`, `test/knowledge-namespace.test.ts`, `test/model-registry.test.ts`

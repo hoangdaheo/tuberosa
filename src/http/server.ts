@@ -74,9 +74,12 @@ interface RawHttpResponse {
 export function createHttpServer(services: AppServices) {
   const router = new HttpRouter(services);
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     await router.handle(request, response);
   });
+  server.requestTimeout = 60_000;
+  server.headersTimeout = 10_000;
+  return server;
 }
 
 export async function handleHttpRequest(
