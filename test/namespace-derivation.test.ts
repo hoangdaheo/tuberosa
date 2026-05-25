@@ -64,7 +64,7 @@ function ingestionFor(store: MemoryKnowledgeStore) {
 // Phase 6a — Namespaced memory scope
 // ============================================================================
 
-test('Phase 6a: kindFromItemType collapses memory/bugfix/rule into `reflection`', () => {
+test('kindFromItemType collapses memory/bugfix/rule into `reflection`', () => {
   equal(kindFromItemType('memory'), 'reflection');
   equal(kindFromItemType('bugfix'), 'reflection');
   equal(kindFromItemType('rule'), 'reflection');
@@ -74,7 +74,7 @@ test('Phase 6a: kindFromItemType collapses memory/bugfix/rule into `reflection`'
   equal(kindFromItemType('workflow'), 'workflow');
 });
 
-test('Phase 6a: deriveNamespace picks agent from metadata.agentName when present', () => {
+test('deriveNamespace picks agent from metadata.agentName when present', () => {
   const ns = deriveNamespace({
     project: 'demo',
     itemType: 'memory',
@@ -85,7 +85,7 @@ test('Phase 6a: deriveNamespace picks agent from metadata.agentName when present
   equal(ns.agent, 'claude-code');
 });
 
-test('Phase 6a: writeNamespaceToMetadata + readNamespaceFromMetadata round-trip', () => {
+test('writeNamespaceToMetadata + readNamespaceFromMetadata round-trip', () => {
   const ns: KnowledgeNamespace = { project: 'demo', kind: 'reflection', agent: 'agentX' };
   const meta = writeNamespaceToMetadata({ existing: 'value' }, ns);
   equal(meta.existing, 'value');
@@ -95,7 +95,7 @@ test('Phase 6a: writeNamespaceToMetadata + readNamespaceFromMetadata round-trip'
   equal(back!.agent, 'agentX');
 });
 
-test('Phase 6a: namespaceMatchesFilter honors kind and agent independently', () => {
+test('namespaceMatchesFilter honors kind and agent independently', () => {
   const stored: KnowledgeNamespace = { project: 'demo', kind: 'reflection', agent: 'a' };
   ok(namespaceMatchesFilter(stored, undefined));
   ok(namespaceMatchesFilter(stored, { kind: 'reflection' }));
@@ -105,7 +105,7 @@ test('Phase 6a: namespaceMatchesFilter honors kind and agent independently', () 
   ok(!namespaceMatchesFilter(undefined, { kind: 'reflection' }));
 });
 
-test('Phase 6a: upsertKnowledge stamps namespace into metadata.namespace and on the stored row', async () => {
+test('upsertKnowledge stamps namespace into metadata.namespace and on the stored row', async () => {
   const store = new MemoryKnowledgeStore();
   const ingest = ingestionFor(store);
   const stored = await ingest.ingestKnowledge({
@@ -126,7 +126,7 @@ test('Phase 6a: upsertKnowledge stamps namespace into metadata.namespace and on 
   equal(persistedNamespace.agent, 'agent-X');
 });
 
-test('Phase 6a: searchContext namespace filter drops mismatched candidates', async () => {
+test('searchContext namespace filter drops mismatched candidates', async () => {
   const store = new MemoryKnowledgeStore();
   const ingest = ingestionFor(store);
 
@@ -168,7 +168,7 @@ test('Phase 6a: searchContext namespace filter drops mismatched candidates', asy
 // Phase 6c — Time-stamped edge validity
 // ============================================================================
 
-test('Phase 6c: KnowledgeRelationInference stamps metadata.validFrom on every inferred relation', () => {
+test('KnowledgeRelationInference stamps metadata.validFrom on every inferred relation', () => {
   const inference = new KnowledgeRelationInference();
   const item: StoredKnowledge = {
     id: 'k1',
@@ -198,7 +198,7 @@ test('Phase 6c: KnowledgeRelationInference stamps metadata.validFrom on every in
   }
 });
 
-test('Phase 6c: creating a supersedes relation expires the target memory\'s other inferred relations', async () => {
+test('creating a supersedes relation expires the target memory\'s other inferred relations', async () => {
   const store = new MemoryKnowledgeStore();
   const ingest = ingestionFor(store);
 
@@ -254,7 +254,7 @@ test('Phase 6c: creating a supersedes relation expires the target memory\'s othe
     'expected at least one legacy outgoing inferred relation to be marked expired');
 });
 
-test('Phase 6c: searchGraphRelations skips expired relations', async () => {
+test('searchGraphRelations skips expired relations', async () => {
   const store = new MemoryKnowledgeStore();
   const ingest = ingestionFor(store);
 
@@ -290,7 +290,7 @@ test('Phase 6c: searchGraphRelations skips expired relations', async () => {
     `expected expired legacy item to be excluded from graph expansion, found: ${graphCandidates.map((c) => c.title).join(', ')}`);
 });
 
-test('Phase 6c: recordFeedback `stale` expires outgoing inferred relations of the named knowledge', async () => {
+test('recordFeedback `stale` expires outgoing inferred relations of the named knowledge', async () => {
   const store = new MemoryKnowledgeStore();
   const ingest = ingestionFor(store);
 
@@ -322,7 +322,7 @@ test('Phase 6c: recordFeedback `stale` expires outgoing inferred relations of th
 // Phase 6d — Entity-centric graph expansion (caps)
 // ============================================================================
 
-test('Phase 6d: searchGraphRelations bounds depth-2 expansion to 16 relations', async () => {
+test('searchGraphRelations bounds depth-2 expansion to 16 relations', async () => {
   const store = new MemoryKnowledgeStore();
   const ingest = ingestionFor(store);
 
@@ -390,7 +390,7 @@ test('Phase 6d: searchGraphRelations bounds depth-2 expansion to 16 relations', 
 // Phase 6b — Local-heuristic write gate
 // ============================================================================
 
-test('Phase 6b: computeWriteGate returns ADD when no candidates exist', async () => {
+test('computeWriteGate returns ADD when no candidates exist', async () => {
   const result = await computeWriteGate({
     draft: {
       title: 'New lesson',
@@ -405,7 +405,7 @@ test('Phase 6b: computeWriteGate returns ADD when no candidates exist', async ()
   equal(result.scores.cosine, 0);
 });
 
-test('Phase 6b: computeWriteGate returns NOOP when cosine and labels overlap heavily', async () => {
+test('computeWriteGate returns NOOP when cosine and labels overlap heavily', async () => {
   const result = await computeWriteGate({
     draft: {
       title: 'Keep refresh tokens stable on retry',
@@ -438,7 +438,7 @@ test('Phase 6b: computeWriteGate returns NOOP when cosine and labels overlap hea
   ok(result.scores.labelOverlap >= 0.7);
 });
 
-test('Phase 6b: computeWriteGate returns UPDATE when draft adds novel facts to a near-duplicate', async () => {
+test('computeWriteGate returns UPDATE when draft adds novel facts to a near-duplicate', async () => {
   const result = await computeWriteGate({
     draft: {
       title: 'AuthService retry policy with backoff window',
@@ -469,7 +469,7 @@ test('Phase 6b: computeWriteGate returns UPDATE when draft adds novel facts to a
   ok(result.scores.labelOverlap >= 0.5);
 });
 
-test('Phase 6b: computeWriteGate returns DELETE when references contradict on same basename', async () => {
+test('computeWriteGate returns DELETE when references contradict on same basename', async () => {
   const result = await computeWriteGate({
     draft: {
       title: 'AuthService retry policy lives in src/auth.ts',
@@ -493,7 +493,7 @@ test('Phase 6b: computeWriteGate returns DELETE when references contradict on sa
   ok(result.scores.cosine >= 0.8);
 });
 
-test('Phase 6b: ReflectionService.createDraft stamps writeGate metadata on the draft', async () => {
+test('ReflectionService.createDraft stamps writeGate metadata on the draft', async () => {
   const store = new MemoryKnowledgeStore();
   const ingestion = ingestionFor(store);
   const reflection = new ReflectionService(store, ingestion);
@@ -514,7 +514,7 @@ test('Phase 6b: ReflectionService.createDraft stamps writeGate metadata on the d
   ok(writeGate.scores);
 });
 
-test('Phase 6b: gateWriteGate blocks auto-approval when decision is NOOP/UPDATE/DELETE', () => {
+test('gateWriteGate blocks auto-approval when decision is NOOP/UPDATE/DELETE', () => {
   const baseDraft = (decision: 'ADD' | 'NOOP' | 'UPDATE' | 'DELETE'): ReflectionDraft => ({
     id: 'd1',
     project: 'demo',

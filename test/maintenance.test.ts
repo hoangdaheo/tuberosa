@@ -126,7 +126,7 @@ async function buildPhase10Fixture(options: { project?: string } = {}): Promise<
   return { store, maintenance, duplicateDrafts, staleRelations, closestKnowledgeId: canonical.id };
 }
 
-test('Phase 10: propose returns exactly 5 duplicate_memory + 3 stale_relation items on the seeded fixture', async () => {
+test('propose returns exactly 5 duplicate_memory + 3 stale_relation items on the seeded fixture', async () => {
   const fixture = await buildPhase10Fixture();
   const batch: MaintenanceBatch = await fixture.maintenance.propose({ project: 'demo' });
 
@@ -155,7 +155,7 @@ test('Phase 10: propose returns exactly 5 duplicate_memory + 3 stale_relation it
   }
 });
 
-test('Phase 10: apply mutates only the records listed in approvedItemIds', async () => {
+test('apply mutates only the records listed in approvedItemIds', async () => {
   const fixture = await buildPhase10Fixture();
   const batch = await fixture.maintenance.propose({ project: 'demo' });
 
@@ -196,7 +196,7 @@ test('Phase 10: apply mutates only the records listed in approvedItemIds', async
   ok(!remainingStale.some((relation) => relation.id === staleItem!.relationId));
 });
 
-test('Phase 10: apply is idempotent — re-applying the same batch returns expired outcomes', async () => {
+test('apply is idempotent — re-applying the same batch returns expired outcomes', async () => {
   const fixture = await buildPhase10Fixture();
   const batch = await fixture.maintenance.propose({ project: 'demo' });
 
@@ -210,7 +210,7 @@ test('Phase 10: apply is idempotent — re-applying the same batch returns expir
   ok(secondRun.results.every((row) => row.status === 'expired'), 'every per-item outcome is expired on re-apply');
 });
 
-test('Phase 10: propose detects superseded_reflection drafts and weak_label provenance', async () => {
+test('propose detects superseded_reflection drafts and weak_label provenance', async () => {
   const store = new MemoryKnowledgeStore();
   const ingest = new IngestionService(store, new HashModelProvider(1536));
 
@@ -294,7 +294,7 @@ test('Phase 10: propose detects superseded_reflection drafts and weak_label prov
   ok(!updatedItem!.labels.some((label) => label.value === 'maybe-rust'), 'weak label should be removed after apply');
 });
 
-test('Phase 10: propose honors kinds filter — only requested kinds are scanned', async () => {
+test('propose honors kinds filter — only requested kinds are scanned', async () => {
   const fixture = await buildPhase10Fixture();
   const onlyDuplicates = await fixture.maintenance.propose({ project: 'demo', kinds: ['duplicate_memory'] });
   equal(onlyDuplicates.items.length, 5);
@@ -306,7 +306,7 @@ test('Phase 10: propose honors kinds filter — only requested kinds are scanned
   ok(onlyRelations.items.every((item) => item.kind === 'stale_relation'));
 });
 
-test('Phase 10: apply supports inline items[] payload (no batch id) for forwards compatibility', async () => {
+test('apply supports inline items[] payload (no batch id) for forwards compatibility', async () => {
   const fixture = await buildPhase10Fixture();
   const batch = await fixture.maintenance.propose({ project: 'demo' });
   const subset: MaintenanceItem[] = batch.items.filter((item) => item.kind === 'stale_relation');

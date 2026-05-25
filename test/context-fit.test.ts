@@ -97,7 +97,7 @@ async function seedHandlerCorpus(store: MemoryKnowledgeStore, embedder: HashMode
   return knowledge.id;
 }
 
-test('Phase 3: rerank failure → fitStatus=needs_confirmation, candidates kept, reason recorded', async () => {
+test('rerank failure → fitStatus=needs_confirmation, candidates kept, reason recorded', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const embedder = new HashModelProvider(config.embeddingDimensions);
@@ -130,7 +130,7 @@ test('Phase 3: rerank failure → fitStatus=needs_confirmation, candidates kept,
   equal(diagnostics.rerankerAvailable, false);
 });
 
-test('Phase 3: fitDiagnostics.contributors lists top1, top3Avg, coverage, worktreeMatchScore with numbers', async () => {
+test('fitDiagnostics.contributors lists top1, top3Avg, coverage, worktreeMatchScore with numbers', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const embedder = new HashModelProvider(config.embeddingDimensions);
@@ -173,7 +173,7 @@ test('Phase 3: fitDiagnostics.contributors lists top1, top3Avg, coverage, worktr
   equal(diagnostics.rerankerAvailable, true);
 });
 
-test('Phase 3: rerank failure causes fitDiagnostics.rerankerAvailable=false', async () => {
+test('rerank failure causes fitDiagnostics.rerankerAvailable=false', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const embedder = new HashModelProvider(config.embeddingDimensions);
