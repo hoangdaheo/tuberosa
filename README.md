@@ -1,46 +1,420 @@
 # Tuberosa
 
-Tuberosa is a local-first context broker for agentic AI workflows. It sits between coding agents and durable project knowledge, retrieves the right references for a task, and stores reviewed reflection memories so future agents do not repeat the same mistakes.
+Tuberosa is a **local-first context broker** for coding agents. It sits between an agent (Claude Code, Codex, Copilot, Cursor…) and your project knowledge: it retrieves the right references for a task, captures reviewed lessons from each session, and feeds both back into future runs so agents stop repeating the same mistakes.
 
-The current v1 shape is:
-
-- MCP stdio server for AI agent integrations.
-- HTTP API for knowledge ingestion, retrieval, feedback, and reflection review.
-- Postgres + pgvector for durable knowledge, chunks, labels, references, context packs, feedback, and embeddings.
-- Redis for short-lived context-pack caching.
-- Provider-pluggable model adapter with a deterministic hash provider for local development and OpenAI embedding support when `OPENAI_API_KEY` is set.
-
-## When To Use It
-
-Use Tuberosa when an agent needs project-specific context before or during work:
-
-- Code references: files, symbols, errors, prior bug fixes, architecture notes.
-- Operating knowledge: runbooks, workflow notes, gotchas, review preferences.
-- Reflection memories: reviewed lessons from previous agent sessions.
-- Retrieval provenance: every suggested context item carries labels, references, scores, and match reasons.
-
-MCP remains the first-class integration surface, with HTTP as the operational and debugging API. The v1 API shape should not block richer product surfaces such as review workspaces, guided agent-start flows, or collaborative context tools when they fit Tuberosa's core context-broker purpose.
-
-## Detailed Guides
-
-- [Setup and usage](docs/SETUP_AND_USAGE.md)
-- [Flow logic](docs/FLOW_LOGIC.md)
-
-## Quick Start
-
-One command brings up the full local stack (Postgres + Redis + migrations) when Docker is available, and gracefully falls back to in-memory embedded mode when it isn't.
-
-```bash
-npx tuberosa init       # full local stack (Docker) or embedded fallback
-npx tuberosa doctor     # diagnose Node / pnpm / Docker / port / Postgres / MCP issues
-npx tuberosa mcp        # run the MCP stdio server with embedded-mode defaults
+```
+ ┌──────────┐   tuberosa_search_context    ┌──────────────────┐
+ │  Agent   │ ───────────────────────────▶ │  Tuberosa (MCP)  │
+ │ (Claude, │ ◀── ranked context pack ──── │  HTTP + stdio    │
+ │  Codex)  │                              └────────┬─────────┘
+ └──────────┘                                       │
+                                          Postgres+pgvector
+                                          Redis cache
+                                          .tuberosa/current/ mirror
 ```
 
-`init` writes a project-local `.tuberosa/compose.yml`, brings the stack up, waits for Postgres health, runs `pnpm run migrate`, and copies `.env.example → .env` when missing. It is idempotent — safe to re-run when something drifts. Pass `--no-docker` to force the embedded (volatile) mode.
+Two surfaces:
 
-### MCP snippets
+- **MCP stdio** — first-class integration for agents.
+- **HTTP API** on `:3027` — ingestion, retrieval, feedback, reflection review, ops.
 
-Claude Code / Codex / Cursor — `~/.codex/config.toml` or the matching client config:
+Storage: Postgres + pgvector for durable knowledge / chunks / labels / references / embeddings; Redis for short-lived pack caching; a `.tuberosa/current/` markdown mirror for human-readable inspection.
+
+---
+
+## When to use it
+
+Use Tuberosa whenever an agent needs project-specific context *before or during* work:
+
+| Need | Example knowledge that lives in Tuberosa |
+|---|---|
+| Code references | "`PaywallSelectionModal` lives in `src/components/paywall-selection-modal.tsx`" |
+| Operating knowledge | "Run `pnpm run eval:retrieval` before changing fusion weights" |
+| Bug fixes | "Stale embeddings cause `vector dimension mismatch` — re-run migrate after dimension change" |
+| Reflection memory | "When refactoring auth, also update the worker — it has its own DB pool" |
+
+Every returned item carries `labels`, `references`, `score`, `matchReasons`, and provenance — never opaque blobs.
+
+---
+
+## Quick start
+
+One command brings up Postgres + Redis + migrations, or falls back to embedded mode without Docker.
+
+```bash
+npx tuberosa init      # full local stack via Docker (or --no-docker for embedded)
+npx tuberosa doctor    # diagnose Node / pnpm / Docker / port / Postgres / MCP issues
+npx tuberosa mcp       # run the MCP stdio server with embedded-mode defaults
+```
+
+`init` is idempotent: it writes `.tuberosa/compose.yml`, brings the stack up, waits for Postgres health, runs migrations, and copies `.env.example → .env` if missing. Safe to re-run.
+
+### Smoke test — no Docker, no dependencies
+
+```bash
+TUBEROSA_STORE=memory TUBEROSA_CACHE=memory TUBEROSA_MODEL_PROVIDER=hash pnpm run dev
+curl http://localhost:3027/health
+```
+
+Memory mode loses data on exit. Useful for poking around the API.
+
+### Full local stack — Docker
+
+```bash
+corepack enable
+pnpm install
+docker compose up --build -d
+curl http://localhost:3027/health
+```
+
+Expected:
+
+```json
+{
+  "ok": true,
+  "service": "tuberosa",
+  "store": "postgres",
+  "durability": "persistent",
+  "backupDir": ".tuberosa/backups",
+  "cache": "redis",
+  "modelProvider": "hash"
+}
+```
+
+Stop the stack: `docker compose down` (add `-v` to wipe Postgres data).
+
+---
+
+## How it works
+
+The request path:
+
+```
+1. Agent calls tuberosa_search_context (MCP) or POST /context/search (HTTP).
+2. classifyQuery extracts: project, taskType, files, symbols, errors,
+                          technologies, business areas, exact terms, lexical query.
+3. In parallel:
+     - searchMetadata  (labels, refs, title, summary)
+     - searchLexical   (Postgres FTS or in-memory token match)
+     - searchVector    (pgvector cosine similarity)
+     - searchMemories  (approved memory/workflow/rule/bugfix)
+   Then graph relation expansion seeded from those hits.
+4. fuseCandidates  — weighted reciprocal-rank fusion across all five lists.
+5. Rerank          — deterministic hash reranker (default) or OpenAI/Ollama.
+6. Ranking adjusts — feedback deltas + stale/superseded/evidence-mismatch penalties.
+7. context-fit     — emits ready | needs_confirmation | insufficient + missing signals.
+8. assemble        — split into essential / supporting / optional within tokenBudget.
+9. (layered mode)  — expand selected ids into deepContext from full chunks.
+```
+
+The hybrid design matters because **exact symbols, file paths, and error codes carry as much signal as semantic similarity** in code work.
+
+### A minimal end-to-end example
+
+```bash
+# 1. Ingest one knowledge item
+curl -sX POST http://localhost:3027/knowledge -H 'Content-Type: application/json' -d '{
+  "project": "newsletter-app",
+  "sourceType": "manual",
+  "sourceUri": "docs/paywall.md",
+  "itemType": "wiki",
+  "title": "Newsletter paywall workflow",
+  "content": "PaywallSelectionModal must preserve selected product ids across edits.",
+  "labels": [
+    { "type": "business_area", "value": "paywall", "weight": 1 },
+    { "type": "symbol",        "value": "PaywallSelectionModal", "weight": 1 }
+  ],
+  "references": [{ "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }]
+}'
+
+# 2. Search
+curl -sX POST http://localhost:3027/context/search -H 'Content-Type: application/json' -d '{
+  "project": "newsletter-app",
+  "prompt": "Update PaywallSelectionModal for newsletter paywall flow",
+  "files":  ["src/components/paywall-selection-modal.tsx"],
+  "symbols":["PaywallSelectionModal"],
+  "taskType": "implementation"
+}'
+
+# 3. After working, mark the item as useful (or stale, irrelevant, missing_context)
+curl -sX POST http://localhost:3027/context/feedback -H 'Content-Type: application/json' -d '{
+  "contextPackId": "<id-from-step-2>",
+  "project": "newsletter-app",
+  "feedbackType": "selected"
+}'
+```
+
+---
+
+## Core concepts (with examples)
+
+### Knowledge item
+
+The atomic stored unit. Required fields: `project`, `sourceType`, `sourceUri`, `itemType`, `title`, `content`.
+
+| `itemType`     | When to use                                          |
+|----------------|------------------------------------------------------|
+| `code_ref`     | A piece of source code / file you want surfaced      |
+| `wiki`         | Free-form documentation, runbooks                    |
+| `spec`         | Specs, requirements docs                             |
+| `workflow`     | Procedural how-to (e.g. "release checklist")         |
+| `rule`         | Hard project rule (e.g. "MCP stdout is JSON-RPC only") |
+| `bugfix`       | Specific bug + fix pairing                           |
+| `memory`       | Reflection memory (usually written via reflection drafts, not directly) |
+| `conversation` | Captured chat / decision thread                      |
+
+### Label
+
+A typed signal that boosts metadata matching. The fixed `type` axes:
+
+```jsonc
+{ "type": "file",          "value": "src/retrieval/fusion.ts", "weight": 1.0 }
+{ "type": "symbol",        "value": "fuseCandidates",          "weight": 0.9 }
+{ "type": "error",         "value": "ECONNREFUSED",            "weight": 0.8 }
+{ "type": "technology",    "value": "postgres",                "weight": 0.7 }
+{ "type": "business_area", "value": "paywall",                 "weight": 1.0 }
+{ "type": "domain",        "value": "retrieval",               "weight": 1.0 }
+{ "type": "task_type",     "value": "debugging",               "weight": 0.8 }
+{ "type": "project",       "value": "tuberosa",                "weight": 1.0 }
+```
+
+### Reference
+
+Where a knowledge item points to in your world:
+
+```jsonc
+{ "type": "file",         "uri": "src/retrieval/service.ts", "lineStart": 142, "lineEnd": 178 }
+{ "type": "url",          "uri": "https://docs.../pgvector" }
+{ "type": "commit",       "uri": "abc1234", "metadata": { "repo": "tuberosa" } }
+{ "type": "tool",         "uri": "tuberosa_search_context" }
+{ "type": "conversation", "uri": "session:91b70c51-…" }
+```
+
+### Ingestion mode
+
+`POST /ingest/files` accepts `mode: "document" | "atomic"` (default `document`):
+
+- **document** — file is chunked but stays one logical item. Best for code.
+- **atomic** — Markdown is split into headed sections, each becoming its own knowledge item. Best for long docs.
+
+Mode is also inferable: Markdown defaults to `wiki` + atomic; spec-like paths to `spec`; everything else to `code_ref`.
+
+### Context pack
+
+The shortlist returned to the agent. Shape:
+
+```jsonc
+{
+  "id":         "<context-pack-id>",
+  "confidence": 0.92,
+  "classified": { "files": [...], "symbols": [...], "businessAreas": [...] },
+  "contextFit": { "status": "ready" | "needs_confirmation" | "insufficient",
+                  "score":  0.98,
+                  "missingSignals": [] },
+  "sections": {
+    "essential":  [ /* items the agent should read first */ ],
+    "supporting": [ /* helpful but secondary */ ],
+    "optional":   [ /* nice-to-have */ ]
+  },
+  "deepContext": { /* present in layered mode */ }
+}
+```
+
+Each item lists `matchReasons` (`vector match`, `symbol:fuseCandidates`, `feedback:selected:3`, `boost:domain_match:retrieval`, …) so retrieval is fully auditable.
+
+### Context-fit signals
+
+`contextFit.status` drives agent behavior:
+
+- `ready` — confident shortlist, agent can proceed.
+- `needs_confirmation` — show shortlist to the user first.
+- `insufficient` — ask the user for the listed `missingSignals` (a file, symbol, error, doc, intent) before proceeding.
+
+### Agent session lifecycle
+
+Auditable, per-task:
+
+```
+tuberosa_start_session
+        │
+        ▼
+tuberosa_record_context_decision   ← selected / rejected / stale / irrelevant /
+        │                            missing_context / selected_but_noisy / ...
+        ▼
+tuberosa_append_session_note       ← optional post-hoc notes
+        │
+        ▼
+tuberosa_finish_session            ← outcome=completed|failed|blocked|cancelled
+                                     auto-extracts a reflection draft unless
+                                     learningMode="off" or you pass one explicitly
+```
+
+### Reflection memory
+
+A *reviewed* lesson from a session. Lifecycle:
+
+```
+finish_session ──▶ reflection draft (pending)
+                          │
+                          ├─ approve  ──▶ stored as itemType="memory" (searchable)
+                          ├─ reject   ──▶ archived, never injected
+                          └─ needs_changes ──▶ author edits, re-submits
+```
+
+Drafts are **never** injected into context until approved — that's the safety boundary that keeps low-quality lessons from polluting future retrieval.
+
+---
+
+## Configuration
+
+Copy `.env.example → .env`. The variables that actually matter:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PORT` | `3027` | HTTP port. |
+| `DATABASE_URL` | `postgres://tuberosa:tuberosa@localhost:5432/tuberosa` | |
+| `POSTGRES_PASSWORD` | `tuberosa` | Used by Docker Compose. Change outside local dev. |
+| `REDIS_URL` | `redis://localhost:6379` | |
+| `TUBEROSA_STORE` | `postgres` | `postgres` or `memory`. |
+| `TUBEROSA_CACHE` | `redis` | `redis`, `memory`, or `none`. MCP stdio defaults this to `memory` so clients can init without Redis. |
+| `TUBEROSA_AUTO_MIGRATE` | `true` | Run migrations on app start. |
+| `TUBEROSA_MODEL_PROVIDER` | `hash` | `hash`, `openai`, or `ollama`. |
+| `TUBEROSA_CONTEXT_MODE` | `layered` | `layered` adds deep-context expansion; `compact` is shortlist only. |
+| `TUBEROSA_DEEP_CONTEXT_BUDGET` | `60000` | Tokens. Clamped 30k–100k. |
+| `CONTEXT_CACHE_TTL_SECONDS` | `300` | Context-pack cache TTL. |
+| `TUBEROSA_PHYSICAL_MIRROR_ENABLED` | `true` | Sync DB to `.tuberosa/current/` for inspection. |
+| `TUBEROSA_API_KEY` | _empty_ | If set, all routes except `/health` need `Authorization: Bearer <key>`. |
+| `OPENAI_API_KEY` | _empty_ | Needed when `TUBEROSA_MODEL_PROVIDER=openai`. |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Must match `EMBEDDING_DIMENSIONS`. |
+| `EMBEDDING_DIMENSIONS` | `1536` | Must equal the `vector(N)` column in `migrations/001_init.sql`. |
+
+For backup tuning, error-log capture, request-size limits, and physical-mirror tuning, see `.env.example` — every tunable is documented there.
+
+> ⚠️ Changing `EMBEDDING_DIMENSIONS` requires a new migration. The pgvector column dimension and the embedding length must agree.
+
+Ollama reranker example (already in `.env.example`):
+
+```bash
+TUBEROSA_MODEL_PROVIDER=ollama
+TUBEROSA_OLLAMA_URL=http://localhost:11434
+TUBEROSA_OLLAMA_RERANK_MODEL=dengcao/Qwen3-Reranker-0.6B
+```
+
+---
+
+## MCP
+
+Run the stdio server:
+
+```bash
+pnpm run mcp                    # in the checkout
+# or
+npx tuberosa mcp                # from anywhere
+```
+
+> The MCP process writes **only JSON-RPC** to stdout. Diagnostics go to stderr.
+
+### Tools
+
+**Retrieval**
+| Tool | Purpose |
+|---|---|
+| `tuberosa_search_context` | Classify a task and return a ranked context pack. |
+| `tuberosa_get_context_pack` | Fetch a full pack by id after a shortlist is accepted. |
+
+**Session lifecycle**
+| Tool | Purpose |
+|---|---|
+| `tuberosa_start_session` | Begin an auditable agent session with initial context + policy. |
+| `tuberosa_record_context_decision` | Record selected / rejected / stale / irrelevant / missing / noisy context. |
+| `tuberosa_capture_learning_signal` | Capture a tip/decision/mistake/verification/file_change/preference mid-session. |
+| `tuberosa_append_session_note` | Append a post-finish note or context-quality feedback to a session. |
+| `tuberosa_finish_session` | Finish a session; auto-extract or accept an explicit reflection draft. |
+
+**Reflection review**
+| Tool | Purpose |
+|---|---|
+| `tuberosa_reflect` | Create a reviewable reflection draft. |
+| `tuberosa_list_reflection_drafts` | List pending drafts. |
+| `tuberosa_get_reflection_draft` | Fetch one draft. |
+| `tuberosa_review_reflection_draft` | Approve / reject / mark needs-changes. |
+
+**Feedback & quality**
+| Tool | Purpose |
+|---|---|
+| `tuberosa_feedback_context` | Record selected/rejected/stale/irrelevant/missing/noisy feedback. |
+| `tuberosa_collect_context_quality_feedback` | Collect noisy or missing-context feedback with linked review actions. |
+| `tuberosa_get_workbench_summary` | Local V1 workbench: review queues, health, recent sessions, risky memories. |
+
+**Maintenance**
+| Tool | Purpose |
+|---|---|
+| `tuberosa_propose_maintenance` | Propose dedup / re-link / re-classify maintenance work. |
+| `tuberosa_apply_maintenance`   | Apply a proposed maintenance plan. |
+
+**Error logs**
+| Tool | Purpose |
+|---|---|
+| `tuberosa_record_error_log` | Capture a filesystem-backed incident. |
+| `tuberosa_list_error_logs` / `tuberosa_get_error_log` | Browse incidents. |
+| `tuberosa_collect_error_logs` | Aggregate a set for review. |
+| `tuberosa_update_error_log` / `tuberosa_resolve_error_log` | Update or close an incident. |
+| `tuberosa_create_error_log_reflection_draft` | Turn a resolved incident into a reflection draft. |
+
+### Resource templates
+
+```
+tuberosa://packs/{id}
+tuberosa://knowledge/{id}
+tuberosa://error-logs/{id}
+tuberosa://error-logs/{id}/markdown
+```
+
+### Prompts
+
+```
+tuberosa_bootstrap_session
+tuberosa_reflect_after_task
+tuberosa_review_pending_reflections
+tuberosa_capture_error_for_later
+tuberosa_review_error_logs
+tuberosa_fix_error_log
+```
+
+### Recommended agent workflow
+
+```
+1. tuberosa_start_session (or tuberosa_search_context)
+2. Inspect contextFit + actionableMissingSignals.
+   - status=ready              → proceed
+   - status=needs_confirmation → confirm shortlist with user
+   - status=insufficient       → ask user for missing signals
+3. tuberosa_get_context_pack (if you only got a shortlist)
+4. Do the work.
+5. tuberosa_record_context_decision (selected / stale / etc.)
+6. tuberosa_finish_session  → reflection draft is queued for review
+```
+
+### Client snippets
+
+**Claude Code** — project-scoped:
+
+```bash
+claude mcp add --transport stdio --scope project tuberosa -- \
+  pnpm --silent --dir <repo-path> run mcp
+```
+
+Add this to your `CLAUDE.md`:
+
+```text
+Before non-trivial implementation, debugging, review, or planning in this repo,
+call tuberosa_start_session (or tuberosa_search_context) with project, cwd, prompt,
+contextMode="layered", noiseTolerance="strict", includeDeepContext=true.
+Inspect contextFit and taskBrief, record a context decision, and finish meaningful
+sessions with tuberosa_finish_session.
+```
+
+**Codex** — `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.tuberosa]
@@ -48,715 +422,285 @@ command = "npx"
 args    = ["tuberosa", "mcp"]
 ```
 
-For a Tuberosa checkout that you want to attach to a durable Postgres stack, add:
+Attach to a durable Postgres checkout instead:
 
 ```toml
 [mcp_servers.tuberosa]
 command = "/usr/bin/zsh"
-args = [
-  "-lc",
-  "cd /home/nash/tuberosa && PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --import tsx src/mcp-stdio.ts"
-]
+args    = ["-lc", "cd <repo-path> && node --import tsx src/mcp-stdio.ts"]
 ```
 
-The MCP command must write only JSON-RPC protocol frames to stdout. `npx tuberosa mcp` enforces this by inheriting stdio without adding any banner text.
-
-## Architecture
-
-The request path is:
-
-1. An agent calls `tuberosa_search_context` through MCP, or a client calls `POST /context/search`.
-2. Tuberosa classifies the task prompt into project, task type, files, symbols, errors, technologies, and business areas.
-3. Tuberosa searches candidates through metadata, lexical full-text, vector similarity, and approved memory search.
-4. Results are fused with weighted reciprocal-rank fusion, reranked, and packed into `essential`, `supporting`, and `optional` context sections. In layered mode, selected knowledge expands into a larger `deepContext` payload from stored chunks.
-5. The agent or user can select, reject, mark stale, or mark irrelevant context through feedback.
-6. Useful lessons can be stored as reflection drafts and approved into searchable memory.
-
-Storage defaults:
-
-- `postgres`: durable production-like store, using pgvector for embeddings and Postgres full-text search for lexical retrieval.
-- `memory`: local test/fallback store.
-- `redis`: cache for repeated context lookups.
-- `none` or `memory`: local cache fallback.
-
-## Requirements
-
-- Node.js `22.13` or newer. `.nvmrc` is pinned to `22.21.1`.
-- pnpm `11.1.2` or newer through Corepack.
-- Docker Compose if you want the full Postgres + Redis stack.
-- Optional: `OPENAI_API_KEY` for OpenAI embeddings. Without it, Tuberosa uses a deterministic hash embedding provider.
-
-## Configuration
-
-Copy the example environment:
-
-```bash
-cp .env.example .env
-```
-
-Important variables:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PORT` | `3027` | HTTP server port. |
-| `TUBEROSA_API_KEY` | empty | Optional HTTP API key. When set, all routes except `/health` require `Authorization: Bearer <key>` or `x-tuberosa-api-key`. |
-| `DATABASE_URL` | `postgres://tuberosa:tuberosa@localhost:5432/tuberosa` | Postgres connection string. |
-| `POSTGRES_PASSWORD` | `tuberosa` | Docker Compose Postgres password used by the app and worker. Change this outside local development. |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection string. |
-| `TUBEROSA_STORE` | `postgres` | `postgres` or `memory`. |
-| `TUBEROSA_CACHE` | `redis` | `redis`, `memory`, or `none`. |
-| `TUBEROSA_MODEL_PROVIDER` | `hash` | `hash` or `openai`. |
-| `OPENAI_API_KEY` | empty | Enables OpenAI embeddings when provider is `openai`. |
-| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name. |
-| `EMBEDDING_DIMENSIONS` | `1536` | Embedding dimension count. Must match the pgvector column dimension. |
-| `CONTEXT_CACHE_TTL_SECONDS` | `300` | Context pack cache TTL. |
-| `TUBEROSA_CONTEXT_MODE` | `layered` | `layered` returns compact sections plus deep context; `compact` returns only compact sections. |
-| `TUBEROSA_DEEP_CONTEXT_BUDGET` | `60000` | Deep context token budget, clamped from 30000 to 100000. |
-| `TUBEROSA_MAX_REQUEST_BYTES` | `10485760` | Maximum HTTP JSON body size. |
-| `TUBEROSA_MAX_INGEST_CONTENT_BYTES` | `2097152` | Maximum size for one knowledge content field before chunking. |
-| `TUBEROSA_PHYSICAL_MIRROR_ENABLED` | `true` | Keep `.tuberosa/current` synced as the latest readable mirror of live DB state. |
-| `TUBEROSA_PHYSICAL_MIRROR_DIR` | `.tuberosa/current` | Directory for the physical mirror. |
-| `TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS` | `500` | Delay before coalescing automatic physical mirror requests. Manual syncs run immediately. |
-
-`text-embedding-3-small` defaults to 1536 dimensions, which matches `migrations/001_init.sql`.
-
-## Quick Start With Docker
-
-Docker is the easiest way to run the full stack:
-
-```bash
-corepack enable
-pnpm install
-docker compose up --build -d
-curl http://localhost:3027/health
-```
-
-Expected health response:
+**GitHub Copilot** (VS Code Agent mode) — `.vscode/mcp.json`:
 
 ```json
-{
-  "ok": true,
-  "service": "tuberosa",
-  "store": "postgres",
-  "cache": "redis",
-  "modelProvider": "hash"
-}
+{ "servers": { "tuberosa": { "type": "stdio", "command": "pnpm",
+                             "args": ["--dir", "<repo-path>", "run", "mcp"] } } }
 ```
 
-The Compose app runs migrations before starting the HTTP server. Postgres is exposed on `localhost:5432`, Redis on `localhost:6379`, and Tuberosa on `localhost:3027`.
-
-Stop the stack:
+**Debug with MCP Inspector**:
 
 ```bash
-docker compose down
+npx @modelcontextprotocol/inspector pnpm --silent --dir <repo-path> run mcp
 ```
 
-Remove Postgres data as well:
+---
+
+## HTTP API
+
+All endpoints return JSON. Health is unauthenticated; everything else requires `Authorization: Bearer $TUBEROSA_API_KEY` if you set the key.
+
+### Knowledge
+
+| Method | Path | Use |
+|---|---|---|
+| `POST` | `/knowledge` | Add one item (full schema). |
+| `GET`  | `/knowledge?project=<p>&q=<q>&limit=<n>` | List. `limit` capped at 100. |
+| `GET`  | `/knowledge/{id}` | Fetch one. |
+| `PATCH`| `/knowledge/{id}` | Update fields. |
+| `POST` | `/ingest/files` | Bulk file ingestion (chunks + atomizes). |
+
+### Context
+
+| Method | Path | Use |
+|---|---|---|
+| `POST` | `/context/search` | Run retrieval. Pass `"debug": true` for per-stage candidates and timings. |
+| `GET`  | `/context/packs/{id}` | Fetch a stored pack. |
+| `POST` | `/context/feedback` | `selected` / `rejected` / `stale` / `irrelevant` / `missing_context`. Rejected/stale/irrelevant triggers a one-shot retry excluding `rejectedKnowledgeIds`. |
+
+### Agent sessions
+
+```
+POST /agent-sessions                       — start
+GET  /agent-sessions                       — list
+GET  /agent-sessions/{id}                  — read
+POST /agent-sessions/{id}/context-decisions
+POST /agent-sessions/{id}/context-decision (alias)
+POST /agent-sessions/{id}/learning-signals
+POST /agent-sessions/{id}/finish
+POST /agent-sessions/{id}/notes
+```
+
+### Reflection drafts
+
+```
+POST /reflection-drafts                       — create
+GET  /reflection-drafts                       — list
+GET  /reflection-drafts/{id}                  — read
+PATCH /reflection-drafts/{id}                 — edit
+POST /reflection-drafts/{id}/review           — approve | reject | needs_changes
+POST /reflection-drafts/{id}/approve          — shortcut
+GET  /reflection-drafts/{id}/recommendation   — write-gate recommendation
+```
+
+Valid `triggerType`: `complex_task_success`, `error_recovery`, `user_correction`, `non_trivial_workflow`, `manual`.
+
+### Operations (admin / maintenance)
+
+```
+GET  /operations/relations                  — knowledge graph relations
+POST /operations/relations                  — add
+DELETE/PATCH/GET /operations/relations/{id}
+
+GET  /operations/conflicts                  — detected conflicts
+POST /operations/conflicts/detect
+POST /operations/conflicts/{id}             — resolve
+
+GET  /operations/knowledge-gaps             — missing-coverage items
+GET  /operations/learning-proposals
+POST /operations/learning-proposals/{id}    — accept/reject
+
+GET  /operations/organization/project-map
+GET  /operations/organization/knowledge-graph.jsonl
+GET  /operations/organization/readable-summary
+
+GET  /operations/context-quality
+GET  /operations/workbench/summary
+GET  /operations/catchup
+
+POST /operations/error-logs                 — record
+GET  /operations/error-logs                 — list
+POST /operations/error-logs/collection
+POST /operations/error-logs/reflection-drafts
+POST /operations/error-logs/{id}/resolve
+GET/PATCH /operations/error-logs/{id}
+
+POST /operations/import-files               — bulk import
+POST /operations/cleanup                    — run cleanup pass
+GET  /operations/backups                    — list backups
+POST /operations/backups                    — create
+GET  /operations/backups/status
+POST /operations/backups/prune
+```
+
+### Add-a-knowledge-item example
 
 ```bash
-docker compose down -v
+curl -sX POST http://localhost:3027/knowledge -H 'Content-Type: application/json' -d '{
+  "project": "newsletter-app",
+  "sourceType": "manual",
+  "sourceUri": "docs/paywall.md",
+  "itemType": "wiki",
+  "title": "Newsletter paywall workflow",
+  "summary": "How paywall selection should behave.",
+  "content": "PaywallSelectionModal must keep selected product ids stable across edits.",
+  "trustLevel": 80,
+  "labels":     [ { "type": "business_area", "value": "paywall", "weight": 1 } ],
+  "references": [ { "type": "file", "uri": "src/components/paywall-selection-modal.tsx" } ]
+}'
 ```
 
-## Quick Start Without Docker
-
-Use this mode when you already have Postgres and Redis running locally:
+### Bulk-ingest example
 
 ```bash
-corepack enable
-pnpm install
-cp .env.example .env
-pnpm run migrate
-pnpm run dev
+curl -sX POST http://localhost:3027/ingest/files -H 'Content-Type: application/json' -d '{
+  "project": "newsletter-app",
+  "mode":    "document",
+  "files": [
+    { "path": "src/components/paywall-selection-modal.tsx",
+      "content": "export function PaywallSelectionModal() { return null; }" }
+  ]
+}'
 ```
 
-For a no-dependency local smoke test, set these values in `.env`:
+Inference rules when you omit `itemType`:
+
+- `*.md`, `docs/**` → `wiki`
+- `specs/**`, `*-spec.*` → `spec`
+- everything else → `code_ref`
+
+### Self-ingest the repo
 
 ```bash
-TUBEROSA_STORE=memory
-TUBEROSA_CACHE=memory
-TUBEROSA_MODEL_PROVIDER=hash
+pnpm run seed:self
+# or, for full coverage (all src/ + docs/ recursive):
+node --import tsx scripts/seed-tuberosa-knowledge.ts
 ```
 
-Then run:
+The extended seed wraps each file in its own try/catch — `IngestionService.ingestFiles` is sequential and would otherwise abort the whole batch on a single rejected file.
+
+---
+
+## Common commands
 
 ```bash
-pnpm run dev
+pnpm run build           # TypeScript + workbench build
+pnpm test                # full unit suite
+pnpm run dev             # HTTP server in watch mode (port 3027)
+pnpm run mcp             # MCP stdio server
+pnpm run migrate         # apply SQL migrations
+pnpm run worker          # worker process
+
+pnpm run eval:retrieval         # deterministic retrieval quality eval
+pnpm run eval:agent-context     # session compliance eval
+pnpm run eval:knowledge-completeness
+pnpm run eval:context-mapping
+pnpm run eval:safety
+
+pnpm run sandbox                # synthetic corpus + golden prompts
+pnpm run sandbox:ablate         # ablate each retrieval source in turn
+pnpm run calibrate-fusion       # emit a calibrated retrieval-policy.json patch
+
+pnpm run test:integration       # Docker-gated Postgres+Redis tests (skips if down)
+pnpm run context-quality -- --project tuberosa
+pnpm run workbench
+pnpm run error-logs
+pnpm run backup / restore
 ```
 
-Memory mode does not persist data after process exit.
-
-## Common Commands
+Older Node in your shell? Either `nvm use` or prefix:
 
 ```bash
-pnpm run build     # TypeScript build
-pnpm test          # Node test suite
-pnpm run dev       # HTTP app in watch mode
-pnpm start         # Run built HTTP app
-pnpm run mcp       # MCP stdio server
-pnpm run worker    # Worker process placeholder
-pnpm run migrate   # Apply SQL migrations
-pnpm run eval:retrieval # Deterministic retrieval quality eval
-pnpm run eval:agent-context # Agent context compliance eval
-pnpm run test:integration # Docker-gated Postgres/Redis tests
-pnpm run context-quality -- --project tuberosa # Context-quality review workbench and explicit review actions
+PATH=/home/<you>/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
 ```
 
-If your shell defaults to an older Node version:
+---
 
-```bash
-nvm use
-```
+## Retrieval evaluation
 
-or prefix commands explicitly:
-
-```bash
-PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
-```
-
-## Retrieval Evaluation
-
-Run the deterministic retrieval eval suite before changing classification, fusion weights, reranking, or context pack assembly:
+Run **before** changing classifier, fusion weights, reranker, or context-pack assembly:
 
 ```bash
 pnpm run eval:retrieval
-```
-
-The default fixture lives at `eval/retrieval-fixtures.json`. It seeds an in-memory store, runs each prompt through the normal ingestion and retrieval services, and reports hit rate, MRR, precision@k, stale rejection, unexpected-result avoidance, and exact file/symbol/error classification checks.
-
-Useful options:
-
-```bash
 pnpm run eval:retrieval -- --top-k 3
 pnpm run eval:retrieval -- --json
 pnpm run eval:retrieval -- --fixture eval/retrieval-fixtures.json --fail-under-hit-rate 0.95
 ```
 
-## Integration Tests
+The fixture seeds an in-memory store, runs each prompt through the real ingestion + retrieval services, and reports hit rate, MRR, precision@k, stale rejection, unexpected-result avoidance, and exact file/symbol/error classification.
 
-Run Docker-backed integration checks with:
+**Rule:** don't add heuristics or weight tweaks without a fixture case that would fail without the change. Matching improves through measured retrieval quality, not manual weights.
+
+---
+
+## Integration tests
 
 ```bash
 pnpm run test:integration
 ```
 
-The tests probe Postgres and Redis before running. If the Docker stack is not reachable, they skip instead of failing. By default they target:
+Probes Postgres + Redis first; skips (doesn't fail) if the stack is down. Defaults:
 
 ```bash
 TUBEROSA_INTEGRATION_DATABASE_URL=postgres://tuberosa:tuberosa@localhost:5432/tuberosa
 TUBEROSA_INTEGRATION_REDIS_URL=redis://localhost:6379
 ```
 
-The Postgres test applies pending migrations, seeds a unique project, verifies retrieval through the normal services, checks pgvector search, and records context-pack feedback. The Redis test verifies JSON set/get/delete through the cache abstraction.
+The Postgres test applies migrations, seeds a unique project, exercises pgvector + FTS, and records context-pack feedback. The Redis test verifies JSON set/get/delete through the cache abstraction.
 
-## HTTP API
+---
 
-All endpoints return JSON.
+## Security
 
-### Health
+- **Secrets** are redacted from content before storage *and* from search prompts before embedding (`src/security/knowledge-safety.ts`).
+- **Prompt-injection** patterns are blocked at ingestion.
+- **Retrieved candidates** are re-sanitized before being returned, so legacy unsafe knowledge can't be injected.
+- **Self-ingestion gotcha:** the security module's own pattern strings will trip its own guard. Skip `src/security/knowledge-safety.ts` in self-seed scripts.
+- Set `TUBEROSA_API_KEY` to require `Authorization: Bearer <key>` on every HTTP route except `/health`.
 
-```bash
-curl http://localhost:3027/health
-```
-
-### Add One Knowledge Item
-
-```bash
-curl -X POST http://localhost:3027/knowledge \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "project": "newsletter-app",
-    "sourceType": "manual",
-    "sourceUri": "docs/paywall.md",
-    "itemType": "wiki",
-    "title": "Newsletter paywall workflow",
-    "summary": "How newsletter paywall selection should behave.",
-    "content": "PaywallSelectionModal must keep selected product ids stable while editors configure newsletter paywall options.",
-    "trustLevel": 80,
-    "labels": [
-      { "type": "business_area", "value": "paywall", "weight": 1 },
-      { "type": "technology", "value": "react", "weight": 0.8 },
-      { "type": "symbol", "value": "PaywallSelectionModal", "weight": 1 }
-    ],
-    "references": [
-      { "type": "file", "uri": "src/components/paywall-selection-modal.tsx" }
-    ]
-  }'
-```
-
-Required fields:
-
-- `project`
-- `sourceType`
-- `sourceUri`
-- `itemType`
-- `title`
-- `content`
-
-Useful `itemType` values:
-
-- `spec`
-- `workflow`
-- `memory`
-- `bugfix`
-- `code_ref`
-- `rule`
-- `wiki`
-- `conversation`
-
-### Ingest Files
-
-`POST /ingest/files` accepts a project name and an array of file objects:
-
-```bash
-curl -X POST http://localhost:3027/ingest/files \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "project": "newsletter-app",
-    "files": [
-      {
-        "path": "src/components/paywall-selection-modal.tsx",
-        "content": "export function PaywallSelectionModal() { return null; }",
-        "labels": [
-          { "type": "business_area", "value": "paywall", "weight": 1 }
-        ]
-      }
-    ]
-  }'
-```
-
-The service infers `wiki` for Markdown/docs paths, `spec` for spec-like paths, and `code_ref` otherwise.
-
-### List Knowledge
-
-```bash
-curl 'http://localhost:3027/knowledge?project=newsletter-app&q=paywall&limit=25'
-```
-
-`limit` is capped at `100`.
-
-### Search Context
-
-```bash
-curl -X POST http://localhost:3027/context/search \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "project": "newsletter-app",
-    "prompt": "Update PaywallSelectionModal for the newsletter paywall flow",
-    "files": ["src/components/paywall-selection-modal.tsx"],
-    "symbols": ["PaywallSelectionModal"],
-    "taskType": "implementation",
-    "tokenBudget": 4000
-  }'
-```
-
-Response shape:
-
-- `id`: context pack id.
-- `queryId`: stored context query id.
-- `confidence`: pack-level confidence from top score, classifier confidence, and result density.
-- `classified`: extracted files, symbols, errors, technologies, business areas, and lexical query.
-- `sections`: `essential`, `supporting`, and `optional` candidate groups.
-- `sections[].items[].matchReasons`: why a candidate matched.
-- `sections[].items[].references`: source files, URLs, commits, tools, or conversations.
-
-For retrieval diagnostics, pass `"debug": true` in the search body. The response includes per-stage metadata, lexical, memory, vector, fusion, and rerank candidates with scores, ranks, match reasons, timings, cache behavior, and rejected-id filter decisions. Debug output is returned only for that response; stored and cached context packs remain compact.
-
-### Get A Context Pack
-
-```bash
-curl http://localhost:3027/context/packs/<context-pack-id>
-```
-
-### Record Feedback
-
-Use feedback to mark good or bad context and to trigger a retry for rejected/stale/irrelevant packs.
-
-```bash
-curl -X POST http://localhost:3027/context/feedback \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "contextPackId": "<context-pack-id>",
-    "project": "newsletter-app",
-    "feedbackType": "stale",
-    "reason": "This points at the legacy paywall flow.",
-    "rejectedKnowledgeIds": ["<knowledge-id>"]
-  }'
-```
-
-Valid `feedbackType` values:
-
-- `selected`
-- `rejected`
-- `irrelevant`
-- `stale`
-- `missing_context`
-
-Rejected, irrelevant, and stale feedback cause Tuberosa to retry the search with rejected knowledge excluded.
-
-### Create A Reflection Draft
-
-Reflection drafts are reviewable by default. They do not become searchable memory until approved.
-
-```bash
-curl -X POST http://localhost:3027/reflection-drafts \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "project": "newsletter-app",
-    "title": "Keep paywall product ids stable",
-    "summary": "Newsletter paywall edits should preserve selected product ids.",
-    "content": "When changing PaywallSelectionModal, preserve selected product ids across render and submit paths because downstream billing configuration depends on stable ids.",
-    "triggerType": "user_correction",
-    "labels": [
-      { "type": "business_area", "value": "paywall", "weight": 1 },
-      { "type": "symbol", "value": "PaywallSelectionModal", "weight": 1 }
-    ]
-  }'
-```
-
-Valid `triggerType` values:
-
-- `complex_task_success`
-- `error_recovery`
-- `user_correction`
-- `non_trivial_workflow`
-- `manual`
-
-### Approve A Reflection Draft
-
-```bash
-curl -X POST http://localhost:3027/reflection-drafts/<draft-id>/approve
-```
-
-Approval writes the draft into knowledge as `itemType: "memory"` unless another item type was provided.
-
-## MCP Server
-
-Run the MCP stdio server:
-
-```bash
-pnpm run mcp
-```
-
-Current MCP methods:
-
-- `tools/list`
-- `tools/call`
-- `resources/templates/list`
-- `resources/read`
-- `prompts/list`
-- `prompts/get`
-
-Current MCP tools:
-
-| Tool | Purpose |
-| --- | --- |
-| `tuberosa_search_context` | Classify a task and return a ranked shortlist with confidence, reasons, and references. |
-| `tuberosa_get_context_pack` | Fetch the full pack after a shortlist is accepted. |
-| `tuberosa_start_session` | Start an auditable agent session with initial context and policy. |
-| `tuberosa_record_context_decision` | Record selected, noisy, rejected, stale, irrelevant, or missing context for a session. |
-| `tuberosa_finish_session` | Finish a session and optionally draft or auto-extract reviewed learning. |
-| `tuberosa_append_session_note` | Append post-finish feedback or context-quality notes to a session. |
-| `tuberosa_reflect` | Create a reviewable reflection draft. |
-| reflection review tools | List, inspect, approve, reject, or mark drafts as needing changes. |
-| `tuberosa_feedback_context` | Record selected/rejected/stale/irrelevant/missing/noisy context feedback. |
-| `tuberosa_collect_context_quality_feedback` | Collect noisy or missing-context feedback with linked review actions. |
-| error-log tools | Record, list, collect, read, update, and resolve filesystem-backed incidents. |
-
-Current MCP resource templates:
-
-- `tuberosa://packs/{id}`
-- `tuberosa://knowledge/{id}`
-- `tuberosa://error-logs/{id}`
-- `tuberosa://error-logs/{id}/markdown`
-
-Current MCP prompts:
-
-- `tuberosa_bootstrap_session`
-- `tuberosa_reflect_after_task`
-- `tuberosa_review_pending_reflections`
-- `tuberosa_capture_error_for_later`
-- `tuberosa_review_error_logs`
-- `tuberosa_fix_error_log`
-
-Recommended agent workflow:
-
-1. Before work starts, call `tuberosa_search_context` with the user prompt, project, cwd, files, symbols, and errors when known.
-2. Show the shortlist to the user or apply an explicit acceptance rule.
-3. Call `tuberosa_get_context_pack` for the chosen pack.
-4. If context is wrong, call `tuberosa_feedback_context` and retry once.
-5. After a useful correction or durable lesson, call `tuberosa_reflect`.
-6. Approve reflection drafts through HTTP or a future UI before they become memory.
-
-## Agent Integration Guides
-
-### Codex
-
-Codex can run local stdio MCP servers. Add Tuberosa to your Codex config, using the absolute repo path:
-
-```toml
-[mcp_servers.tuberosa]
-command = "/usr/bin/zsh"
-args = [
-  "-lc",
-  "cd /home/nash/tuberosa && PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --import tsx src/mcp-stdio.ts"
-]
-```
-
-This direct Node command avoids package-manager lifecycle output on stdout. The MCP stdio entry point defaults `TUBEROSA_CACHE` to `memory` so Codex can complete the initialize handshake even when Redis is unavailable to the child process.
-
-If your Codex environment already has the right Node version on `PATH`, this shorter command is also valid:
-
-```toml
-[mcp_servers.tuberosa]
-command = "node"
-args = ["--import", "tsx", "/home/nash/tuberosa/src/mcp-stdio.ts"]
-```
-
-Suggested project instruction:
-
-```text
-Before starting implementation or debugging, call tuberosa_search_context with the user task, cwd, project, files, symbols, and errors when known. Use tuberosa_get_context_pack only after the shortlist looks relevant. Record rejected or stale context with tuberosa_feedback_context.
-```
-
-### Claude Code
-
-Add a project-scoped local stdio server:
-
-```bash
-claude mcp add --transport stdio --scope project tuberosa -- pnpm --silent --dir /home/nash/tuberosa run mcp
-```
-
-Claude Code writes project-scoped MCP config to `.mcp.json`. A manual equivalent is:
-
-```json
-{
-  "mcpServers": {
-    "tuberosa": {
-      "command": "pnpm",
-      "args": ["--silent", "--dir", "/home/nash/tuberosa", "run", "mcp"],
-      "env": {}
-    }
-  }
-}
-```
-
-Add this to `CLAUDE.md` or the session prompt so Claude actually invokes the deferred tools:
-
-```text
-Before implementation, debugging, review, or planning in this repo, load the deferred tuberosa_* tools if needed, then call tuberosa_start_session with project "tuberosa", cwd "/home/nash/tuberosa", contextMode "layered", noiseTolerance "strict", includeDeepContext true, and the user's prompt. Inspect contextFit and taskBrief, record a context decision with tuberosa_record_context_decision, and finish meaningful sessions with tuberosa_finish_session. If the tools are unavailable, say so explicitly before continuing from direct repo evidence.
-```
-
-For user scope instead of project scope:
-
-```bash
-claude mcp add --transport stdio --scope user tuberosa -- pnpm --silent --dir /home/nash/tuberosa run mcp
-```
-
-### GitHub Copilot
-
-For local VS Code Agent mode, add a workspace MCP config:
-
-```json
-{
-  "servers": {
-    "tuberosa": {
-      "type": "stdio",
-      "command": "pnpm",
-      "args": ["--dir", "/home/nash/tuberosa", "run", "mcp"]
-    }
-  }
-}
-```
-
-For Copilot cloud agent, use Tuberosa only if the server and its database are available in the environment where the cloud agent runs. Copilot cloud agent currently relies on MCP tools; do not depend on Tuberosa MCP resources or prompts for that path. Keep `tuberosa_search_context`, `tuberosa_get_context_pack`, and `tuberosa_feedback_context` sufficient as tools.
-
-### MCP Inspector
-
-Use the MCP Inspector to debug server compatibility:
-
-```bash
-npx @modelcontextprotocol/inspector pnpm --silent --dir /home/nash/tuberosa run mcp
-```
-
-Use it to verify that tools, prompts, and resources list correctly before wiring a new client.
-
-## Matching Functionality
-
-Current matching is intentionally simple and inspectable:
-
-1. `classifyQuery` extracts known task structure from the prompt:
-   - project
-   - task type
-   - file paths
-   - symbols
-   - error codes
-   - technologies
-   - business areas
-   - exact terms
-   - lexical query
-2. `searchMetadata` favors labels, references, title, summary, and metadata matches.
-3. `searchLexical` uses Postgres full-text search or in-memory token matching.
-4. `searchVector` embeds the query and compares against chunk embeddings.
-5. `searchMemories` targets approved memories, workflows, rules, and bug fixes.
-6. `fuseCandidates` applies weighted reciprocal-rank fusion.
-7. The model provider reranks candidates.
-8. `assembleContextPack` filters weak tail candidates, trims content, and splits results into sections within the token budget.
-
-This hybrid design is the right baseline for code and operational memory because exact symbols, file names, and error codes matter as much as semantic similarity.
-
-### Recommended Matching Improvements
-
-Implement matching improvements in this order:
-
-1. Retrieval eval coverage.
-   - Expand fixtures with real project prompts, expected knowledge ids, and negative examples.
-   - Track hit rate, MRR, precision@k, stale-context rejection, unexpected-result avoidance, and exact classification checks.
-   - Include exact file/symbol matching, business-domain matching, prior-error recovery, and missing-context scenarios.
-2. Query rewriting.
-   - Add a provider hook that can expand vague prompts into structured search queries.
-   - Keep the original query in the search set so rewriting cannot erase exact terms.
-3. Stronger metadata filters.
-   - Treat `project`, `repo`, `file`, `symbol`, `error`, `task_type`, and `freshnessAt` as first-class filters or boosts.
-   - Prefer exact file/symbol/error hits over broad semantic similarity.
-4. Real reranker provider.
-   - Keep the deterministic hash reranker for tests.
-   - Add a provider-backed reranker for top 50-200 candidates, then keep 5-12 final context items.
-5. Diversity and dedupe.
-   - Avoid returning many chunks from the same knowledge item unless they answer different parts of the task.
-   - Keep one best chunk per knowledge item by default, then allow expansion when the user fetches the full pack.
-6. Freshness and feedback learning.
-   - Penalize stale feedback and low-trust knowledge.
-   - Boost selected context for similar future prompts within the same project.
-7. Security filters.
-   - Redact secrets before ingestion and before context injection.
-   - Block prompt-injection and malware-like instructions before storage.
-   - Re-check retrieval candidates so legacy unsafe knowledge is not injected into agent context.
-   - Redact secrets from search prompts before storing or embedding them.
-8. pgvector tuning.
-   - Keep HNSW indexes for vector search.
-   - Evaluate `hnsw.iterative_scan` when project filters become selective.
-   - Keep embedding dimensions consistent between model config and migration schema.
-
-Do not add more heuristics without eval coverage. Matching should improve through measured retrieval quality, not only manual weight tweaks.
-
-## Product UI Direction
-
-The v1 baseline is an admin/debug interface, but it is no longer a ceiling. Future UI work can explore richer agent workspaces, review flows, and context-quality tools when they preserve provenance, reviewed memory, and local-first operation.
-
-Primary jobs:
-
-- Browse projects, knowledge items, labels, references, and chunks.
-- Inspect chunk text, contextual content, token estimates, source metadata, and embedding dimensions.
-- Run a search prompt and see the individual metadata, lexical, vector, and memory candidate lists before fusion.
-- Show final fused/reranked context packs with confidence, match reasons, and provenance.
-- Record selected/rejected/stale feedback from the UI.
-- Review and approve reflection drafts.
-- Copy MCP setup snippets for Codex, Claude Code, and GitHub Copilot.
-
-Vector-specific UI ideas:
-
-- Show vector dimensions, model provider, embedding model, and chunk id.
-- Display nearest-neighbor results for a selected chunk.
-- Add a projection view later if the dataset is large enough to justify it.
-- Keep raw vector arrays collapsed by default; they are usually less useful than distances, source text, labels, and neighbors.
-
-Suggested first UI stack:
-
-- Keep it served by the existing Node app to avoid another service.
-- Add static HTML/CSS/JS or a small Vite app only when interactions outgrow plain static assets.
-- Use the existing HTTP API first; add dedicated debug endpoints only for source-level candidate breakdowns and vector neighbor inspection.
-
-## Roadmap
-
-### Near Term
-
-- Expand README and examples as the source of truth for setup and API usage.
-- Expand retrieval eval fixtures with real-project regression cases.
-- Build the admin/debug UI for knowledge browsing, search testing, reflection approval, and inspection of the source-level retrieval debug trace.
-
-### Mid Term
-
-- Add a CLI: `tuberosa ingest --project <name> --path <repo-or-docs-path>`.
-- Add GitNexus/Graphify import adapters so existing graph/wiki outputs become normalized knowledge.
-- Add provider-backed query rewriting and reranking.
-- Expand prompt-injection, malware-pattern, and secret-redaction fixtures with more real examples.
-- Replace the minimal MCP JSON-RPC implementation with the official TypeScript MCP SDK if stricter client compatibility is required.
-
-### Later
-
-- Add remote MCP transport with authentication for hosted agents.
-- Add multi-user/project permissions if Tuberosa moves beyond local-first usage.
-- Add observability traces for retrieval stages, embedding calls, reranking calls, feedback, latency, and cost.
-- Add prompt/version management for search and reflection templates.
+---
 
 ## Troubleshooting
 
-### `node:sqlite` or pnpm fails under Node 20
+| Symptom | Fix |
+|---|---|
+| `node:sqlite` or pnpm fails on Node 20 | `nvm use` then `corepack enable && pnpm install`. `.nvmrc` pins 22.21.1. |
+| pnpm tries to use a global store | `pnpm config set store-dir .pnpm-store --location project && pnpm install`. |
+| Docker app exits during migration | `docker compose logs --no-color app worker` then `docker compose up --build -d`. |
+| `curl localhost:3027` fails in a sandbox | Run from an env allowed to bind/access local ports. |
+| `vector dimension mismatch` errors | `EMBEDDING_DIMENSIONS` must equal the `vector(N)` in `migrations/001_init.sql`. Changing it needs a new migration. |
+| OpenAI embeddings fail | Verify `TUBEROSA_MODEL_PROVIDER=openai`, `OPENAI_API_KEY` set, model dimensions match `EMBEDDING_DIMENSIONS` and the pgvector column. |
+| MCP client sees no tools | Use absolute repo path, check the command's `PATH` for Node/pnpm, verify with MCP Inspector, ensure stdout is JSON-RPC only. |
+| `DuplicateIngestionError` on re-ingest | Expected — `DuplicateDetector` auto-rejects textual + semantic duplicates. Treat as skip. |
 
-Use Node 22:
+---
 
-```bash
-nvm use
-corepack enable
-pnpm install
-```
+## Roadmap
 
-### pnpm cannot create a global store
+**Near term**
+- Expand README + examples as the canonical setup/API doc (this file).
+- More real-project regression cases in retrieval eval fixtures.
+- Admin/debug workbench UI for browsing, search testing, reflection approval, and source-level retrieval debug traces.
 
-The repo is configured for a local pnpm store through `pnpm-workspace.yaml`. If pnpm still tries to use a global store:
+**Mid term**
+- `tuberosa ingest --project <p> --path <repo-or-docs>` CLI.
+- GitNexus / Graphify import adapters.
+- Provider-backed query rewriting + reranking on by default.
+- Replace minimal MCP JSON-RPC impl with the official TypeScript MCP SDK if stricter client compat is required.
 
-```bash
-pnpm config set store-dir .pnpm-store --location project
-pnpm install
-```
+**Later**
+- Remote MCP transport with auth for hosted agents.
+- Multi-user / project permissions.
+- Observability traces (retrieval stages, embedding cost, reranking cost, latency).
+- Prompt / version management for search + reflection templates.
 
-### Docker app exits during migration
+---
 
-Check logs:
+## Further reading
 
-```bash
-docker compose logs --no-color app worker
-```
-
-Then rebuild:
-
-```bash
-docker compose up --build -d
-```
-
-### `curl localhost:3027` fails in a sandboxed environment
-
-Run the server and curl from an environment allowed to bind and access local ports. In Codex-style sandboxes, local networking may require explicit approval.
-
-### OpenAI embeddings fail
-
-Check:
-
-- `TUBEROSA_MODEL_PROVIDER=openai`
-- `OPENAI_API_KEY` is set.
-- `OPENAI_EMBEDDING_MODEL` supports the configured `EMBEDDING_DIMENSIONS`.
-- Postgres `knowledge_chunks.embedding vector(...)` dimension matches the embedding length.
-
-### MCP client does not see tools
-
-Verify with MCP Inspector first. Then check:
-
-- The command uses an absolute repo path.
-- The client has the correct Node and pnpm on `PATH`.
-- The MCP process writes JSON-RPC to stdio and does not print extra logs to stdout.
-- For cloud agents, the environment can access the command, app, Postgres, and Redis.
-
-## References And Inspiration
-
-- Model Context Protocol SDKs: https://modelcontextprotocol.io/docs/sdk
-- MCP Inspector: https://modelcontextprotocol.io/docs/tools/inspector
-- OpenAI Docs MCP and Codex setup: https://developers.openai.com/learn/docs-mcp
-- OpenAI `text-embedding-3-small`: https://developers.openai.com/api/docs/models/text-embedding-3-small
-- Claude Code MCP: https://code.claude.com/docs/en/mcp
-- GitHub Copilot MCP: https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/extend-cloud-agent-with-mcp
-- pgvector HNSW guidance: https://supabase.com/docs/guides/ai/vector-indexes/hnsw-indexes
-- Open WebUI Knowledge/RAG behavior: https://docs.openwebui.com/features/workspace/knowledge/
-- Langfuse observability and evals: https://langfuse.com/docs
-- RAG techniques overview: https://www.microsoft.com/en-us/microsoft-cloud/blog/2025/02/04/common-retrieval-augmented-generation-rag-techniques-explained/
-- RecallDB pgvector API/dashboard inspiration: https://recalldb.ai/
-- dbSurface pgvector visualization inspiration: https://dbsurface.com/
+- Project intent and design notes — [docs/tuberosa-project.md](docs/tuberosa-project.md)
+- Model Context Protocol — https://modelcontextprotocol.io/docs/sdk
+- MCP Inspector — https://modelcontextprotocol.io/docs/tools/inspector
+- Claude Code MCP — https://code.claude.com/docs/en/mcp
+- GitHub Copilot MCP — https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/extend-cloud-agent-with-mcp
+- pgvector HNSW — https://supabase.com/docs/guides/ai/vector-indexes/hnsw-indexes
+- Langfuse evals — https://langfuse.com/docs
