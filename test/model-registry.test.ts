@@ -51,7 +51,7 @@ test('ProviderRegistry.register is first-write-wins per capability', () => {
   const fallback = {
     async embed() { return [0]; },
     async rewriteQuery() { return undefined; },
-    async rerank() { return { rankedKnowledgeIds: [], model: 'fallback' }; },
+    async rerank() { return { candidates: [], model: 'fallback' }; },
   };
   const registry = new ProviderRegistry(fallback);
   registry.register({
@@ -59,14 +59,14 @@ test('ProviderRegistry.register is first-write-wins per capability', () => {
     capabilities: ['embed'],
     embed: async () => [1],
     rewriteQuery: async () => undefined,
-    rerank: async () => ({ rankedKnowledgeIds: [], model: 'first' }),
+    rerank: async () => ({ candidates: [], model: 'first' }),
   });
   registry.register({
     name: 'second',
     capabilities: ['embed'],
     embed: async () => [2],
     rewriteQuery: async () => undefined,
-    rerank: async () => ({ rankedKnowledgeIds: [], model: 'second' }),
+    rerank: async () => ({ candidates: [], model: 'second' }),
   });
   const description = registry.describe();
   const embed = description.find((entry) => entry.capability === 'embed');
@@ -77,7 +77,7 @@ test('ProviderRegistry falls back to fallback provider when capability is missin
   const fallback = {
     async embed() { return [42]; },
     async rewriteQuery() { return undefined; },
-    async rerank() { return { rankedKnowledgeIds: ['fallback'], model: 'fallback' }; },
+    async rerank() { return { candidates: [], model: 'fallback' }; },
   };
   const registry = new ProviderRegistry(fallback);
   // No registrations — every capability goes through fallback.

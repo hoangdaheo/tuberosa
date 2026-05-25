@@ -212,7 +212,7 @@ export async function seedFixture(
     if (seed.status && seed.status !== 'approved') {
       await store.updateKnowledge(stored.id, { status: seed.status });
     }
-    results.push({ knowledgeId: stored.id, sourceUri: stored.sourceUri });
+    results.push({ knowledgeId: stored.id, sourceUri: stored.sourceUri ?? seed.input.sourceUri });
   }
   return results;
 }

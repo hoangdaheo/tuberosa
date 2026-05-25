@@ -97,7 +97,7 @@ test('computeWriteGate refuses to auto-decide stronger than ADD when embedding r
   const failingModels: ModelProvider = {
     async embed() { return []; },
     async rewriteQuery() { return undefined; },
-    async rerank(input) { return { rankedKnowledgeIds: input.candidates.map((c) => c.knowledgeId), model: 'noop' }; },
+    async rerank() { return { candidates: [], model: 'noop' }; },
   };
   const labels = [
     { type: 'file' as const, value: 'src/foo.ts', weight: 1 },
