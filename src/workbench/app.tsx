@@ -5,8 +5,10 @@ import { api, getApiKey, getLimit, getProject, setApiKey, setLimit, setProject }
 import { currentRoute, ensureDefaultRoute, pushToast } from './state/store.js';
 import { presentSummary, type SummaryViewModel } from './presenters/summaryPresenter.js';
 import { TopNav } from './components/TopNav.js';
+import { ReadinessStrip } from './components/ReadinessStrip.js';
 import { Toasts } from './components/Toasts.js';
-import type { WorkbenchSummary } from './types.js';
+import { StartView } from './views/StartView.js';
+import type { AgentSessionStartResult, WorkbenchSummary } from './types.js';
 
 function App() {
   const [project, setProjectState] = useState(getProject());
@@ -15,6 +17,7 @@ function App() {
   const [summary, setSummary] = useState<WorkbenchSummary | null>(null);
   const [summaryVM, setSummaryVM] = useState<SummaryViewModel | null>(null);
   const [loading, setLoading] = useState(false);
+  const [activeSession, setActiveSession] = useState<AgentSessionStartResult | null>(null);
   const route = currentRoute.value;
 
   async function refresh() {
@@ -54,12 +57,19 @@ function App() {
   return (
     <>
       <TopNav route={route} />
+      <ReadinessStrip summary={summaryVM} apiKeySet={Boolean(apiKey)} loading={loading} />
       <main class="workbench-shell">
         <section class="workspace">
-          <div class="panel" data-testid={`${route.view}-view`}>
-            <h1>{route.view}</h1>
-            <p class="muted">This surface will be migrated in the next tasks.</p>
-          </div>
+          {route.view === 'start' && (
+            <StartView defaultProject={project} onSessionStarted={setActiveSession} />
+          )}
+          {route.view !== 'start' && (
+            <div class="panel" data-testid={`${route.view}-view`}>
+              <h1>{route.view}</h1>
+              <p class="muted">This surface will be migrated in the next tasks.</p>
+              {activeSession && <span hidden data-testid="active-session-id">{activeSession.session.id}</span>}
+            </div>
+          )}
         </section>
         <aside class="support-rail">
           <div class="panel">
@@ -72,12 +82,6 @@ function App() {
             <input id="rail-api-key" type="password" value={apiKey} onInput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)} />
             <button class="primary" disabled={loading} onClick={refresh}>{loading ? 'Refreshing...' : 'Refresh'}</button>
           </div>
-          {summaryVM && (
-            <div class="panel">
-              <h2>Readiness</h2>
-              <p class={summaryVM.health.warning ? 'small' : 'small muted'}>{summaryVM.health.line}</p>
-            </div>
-          )}
           {summary && <div hidden data-testid="summary-loaded">{summary.generatedAt}</div>}
         </aside>
       </main>

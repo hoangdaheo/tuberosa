@@ -444,6 +444,33 @@ export interface SessionResultViewModel {
   nextActions: SessionNextActionView[];
 }
 
+export interface WorkbenchStartForm {
+  prompt: string;
+  project: string;
+  cwd: string;
+  taskType: string;
+  files: string;
+  symbols: string;
+  errors: string;
+  contextMode: 'compact' | 'layered';
+}
+
+export interface WorkbenchIngestFileInput {
+  project?: string;
+  path: string;
+  content: string;
+  itemType?: KnowledgeItemType;
+  mode?: 'document' | 'atomic';
+  labels?: LabelInput[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface WorkbenchIngestFilesRequest {
+  project: string;
+  files: WorkbenchIngestFileInput[];
+  mode?: 'document' | 'atomic';
+}
+
 export type ReviewQueueFilter = 'all' | 'drafts' | 'quality' | 'gaps' | 'proposals' | 'conflicts' | 'risky' | 'errors' | 'maintenance';
 export type ReviewQueueItemType = 'draft' | 'quality' | 'gap' | 'proposal' | 'conflict' | 'risky_memory' | 'error_log' | 'maintenance';
 
