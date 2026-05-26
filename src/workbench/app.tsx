@@ -8,6 +8,7 @@ import { TopNav } from './components/TopNav.js';
 import { ReadinessStrip } from './components/ReadinessStrip.js';
 import { Toasts } from './components/Toasts.js';
 import { StartView } from './views/StartView.js';
+import { SessionResultView } from './views/SessionResultView.js';
 import type { AgentSessionStartResult, WorkbenchSummary } from './types.js';
 
 function App() {
@@ -63,7 +64,14 @@ function App() {
           {route.view === 'start' && (
             <StartView defaultProject={project} onSessionStarted={setActiveSession} />
           )}
-          {route.view !== 'start' && (
+          {route.view === 'session' && activeSession && <SessionResultView result={activeSession} />}
+          {route.view === 'session' && !activeSession && (
+            <div class="panel" data-testid="session-result-missing">
+              <h1>Session not loaded</h1>
+              <p class="muted">Open this session from the Sessions list or map a new task from Start.</p>
+            </div>
+          )}
+          {route.view !== 'start' && route.view !== 'session' && (
             <div class="panel" data-testid={`${route.view}-view`}>
               <h1>{route.view}</h1>
               <p class="muted">This surface will be migrated in the next tasks.</p>
