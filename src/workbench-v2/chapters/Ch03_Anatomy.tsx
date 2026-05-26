@@ -64,17 +64,21 @@ export default function Ch03_Anatomy() {
     optional: [],
   });
   return (
-    <section id="ch3" class="chapter" ref={ref}>
-      <h2>Anatomy of a session</h2>
-      <p class="lead">One prompt, ~80ms, three groups of context.</p>
-      <div class="card" style="margin-top:16px">
-        <strong>Prompt</strong> · "Where does paywall logic live?"
+    <section id="ch3" class="chapter" data-numeral="03" ref={ref}>
+      <span class="overline">A session, end to end</span>
+      <h2 style="margin-top:var(--space-4)">Anatomy of a session</h2>
+      <p class="lead">One prompt, about eighty milliseconds, three groups of context.</p>
+      <div class="card" style="margin-top:var(--space-4);display:flex;gap:var(--space-3);align-items:baseline">
+        <span class="overline" style="flex:none">Prompt</span>
+        <span style="font-family:var(--font-display);font-style:italic;font-size:18px;color:var(--paper-0)">
+          "Where does paywall logic live?"
+        </span>
       </div>
-      <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="split-2" style="margin-top:var(--space-5)">
         <div>
           <h3>Signals</h3>
           {shown >= 1 && <SignalChips chips={chips} />}
-          <h3 style="margin-top:16px">Pipeline</h3>
+          <h3 style="margin-top:var(--space-5)">Pipeline</h3>
           {shown >= 2 && <PipelineFlow steps={steps} />}
         </div>
         <div>

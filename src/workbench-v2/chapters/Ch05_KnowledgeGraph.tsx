@@ -43,14 +43,19 @@ export default function Ch05_KnowledgeGraph() {
   const selected = selectedId ? items.find((i) => i.id === selectedId) : undefined;
 
   return (
-    <section id="ch5" class="chapter" ref={ref}>
-      <h2>The knowledge graph</h2>
-      <p class="lead">Items are nodes. Relations are edges. Click around.</p>
-      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+    <section id="ch5" class="chapter" data-numeral="05" ref={ref}>
+      <span class="overline">The knowledge graph</span>
+      <h2 style="margin-top:var(--space-4)">Items are nodes. Relations are edges.</h2>
+      <p class="lead">Filter by item type, toggle layout, click any node to inspect it.</p>
+      <div
+        style="display:flex;gap:8px;margin-top:var(--space-3);flex-wrap:wrap;align-items:center"
+      >
         {ALL.map((k) => (
           <button
             key={k}
-            class={`pill ${filters.has(k) ? '' : 'ghost'}`}
+            class={filters.has(k) ? 'pill' : 'pill'}
+            data-tone={filters.has(k) ? '' : 'neutral'}
+            style={`border:0;cursor:pointer;opacity:${filters.has(k) ? 1 : 0.5}`}
             onClick={() => {
               const next = new Set(filters);
               if (next.has(k)) next.delete(k);
@@ -58,40 +63,53 @@ export default function Ch05_KnowledgeGraph() {
               setFilters(next);
             }}
           >
-            {k}
+            {k.replace('_', ' ')}
           </button>
         ))}
+        <span style="flex:1" />
         <button class="ghost" onClick={() => setLayout(layout === 'cose' ? 'dagre' : 'cose')}>
-          layout: {layout}
+          layout · {layout}
         </button>
       </div>
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:16px">
-        <GraphCanvas
-          input={input}
-          layout={layout}
-          selectedNodeId={selectedId}
-          onNodeClick={(id) => setRoute({ ...route.value, graphNodeId: id })}
-        />
-        <aside class="card">
+      <div
+        style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:var(--space-4);margin-top:var(--space-4)"
+      >
+        <div style="min-width:0">
+          <GraphCanvas
+            input={input}
+            layout={layout}
+            selectedNodeId={selectedId}
+            onNodeClick={(id) => setRoute({ ...route.value, graphNodeId: id })}
+          />
+        </div>
+        <aside class="card" style="min-width:0">
           {selected ? (
             <>
-              <strong>{selected.title}</strong>
-              <div style="color:var(--fg-muted);font-size:12px;margin-top:4px">
+              <strong
+                style="font-family:var(--font-display);font-weight:500;font-size:18px;display:block"
+              >
+                {selected.title}
+              </strong>
+              <div style="color:var(--paper-3);font-size:var(--fs-overline);margin-top:6px;font-family:var(--font-mono);letter-spacing:0.06em">
                 <span class="code">{selected.sourceUri}</span>
               </div>
-              <div style="margin-top:8px">
-                {labelStrings(selected).map((l) => (
-                  <span key={l} class="pill" style="margin-right:4px">
+              <div class="row-chips" style="margin-top:var(--space-3)">
+                {labelStrings(selected).slice(0, 6).map((l) => (
+                  <span key={l} class="pill" data-tone="neutral">
                     {l}
                   </span>
                 ))}
               </div>
-              <p style="margin-top:8px;color:var(--fg-muted);font-size:13px">
+              <p
+                style="margin-top:var(--space-3);color:var(--paper-2);font-size:var(--fs-small);line-height:1.55"
+              >
                 {selected.content.slice(0, 240)}…
               </p>
             </>
           ) : (
-            <span style="color:var(--fg-muted)">Click a node to inspect it.</span>
+            <span style="color:var(--paper-3);font-style:italic">
+              Click a node to inspect it.
+            </span>
           )}
         </aside>
       </div>

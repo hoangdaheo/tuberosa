@@ -41,8 +41,9 @@ export default function Ch10_TuneOps() {
   }, [open]);
 
   return (
-    <section id="ch10" class="chapter" ref={ref}>
-      <h2>Tune & operate</h2>
+    <section id="ch10" class="chapter" data-numeral="10" ref={ref}>
+      <span class="overline">Tune & operate</span>
+      <h2 style="margin-top:var(--space-4)">Tune & operate</h2>
       <p class="lead">Review queues, system status, and your operator knobs.</p>
       <details
         open={open}
@@ -52,7 +53,7 @@ export default function Ch10_TuneOps() {
         <summary style="cursor:pointer">Open the operator panel</summary>
         {loading && <div style="margin-top:8px">Loading summary…</div>}
         {summary && (
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:16px">
+          <div class="split-3" style="margin-top:var(--space-4)">
             <div class="card">
               <h3 style="margin-top:0">Review</h3>
               <Row label="pending drafts" n={summary.counts?.pendingDrafts ?? 0} />

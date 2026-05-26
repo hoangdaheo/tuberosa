@@ -55,21 +55,31 @@ export default function Ch07_TryIt() {
   const [active, setActive] = useState<string | null>(null);
   const replay = active ? REPLAYS[active] : null;
   return (
-    <section id="ch7" class="chapter" ref={ref}>
-      <h2>Try ten prompts</h2>
-      <p class="lead">Click any card to replay it. Every branch is covered.</p>
-      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px">
-        {acmeBilling.prompts.map((p) => (
+    <section id="ch7" class="chapter" data-numeral="07" ref={ref}>
+      <span class="overline">Try it yourself</span>
+      <h2 style="margin-top:var(--space-4)">Ten prompts. Every branch.</h2>
+      <p class="lead">Click any card to replay it.</p>
+      <div class="split-2" style="margin-top:var(--space-4)">
+        {acmeBilling.prompts.map((p, idx) => (
           <button
             key={p.id}
             class="card"
+            data-selected={active === p.id ? 'true' : undefined}
             onClick={() => setActive(p.id)}
-            style={`text-align:left;cursor:pointer;border-color:${active === p.id ? 'var(--accent)' : 'var(--line)'}`}
           >
-            <div>"{p.text}"</div>
-            <div style="margin-top:6px">
+            <div style="display:flex;align-items:baseline;gap:10px">
+              <span
+                style="font-family:var(--font-display);font-size:14px;color:var(--paper-3);font-variant-numeric:tabular-nums"
+              >
+                {String(idx + 1).padStart(2, '0')}
+              </span>
+              <span style="font-family:var(--font-display);font-style:italic;font-size:16px;color:var(--paper-0);line-height:1.4">
+                "{p.text}"
+              </span>
+            </div>
+            <div class="row-chips" style="margin-top:10px">
               {p.branches.map((b) => (
-                <span key={b} class="pill" style="margin-right:4px">
+                <span key={b} class="pill" data-tone="neutral">
                   {b}
                 </span>
               ))}
@@ -78,19 +88,22 @@ export default function Ch07_TryIt() {
         ))}
       </div>
       {replay && (
-        <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="split-2" style="margin-top:var(--space-5)">
           <div>
             <h3>Signals</h3>
             <SignalChips chips={toSignalChips(replay.classifier)} />
-            <h3 style="margin-top:16px">Pipeline</h3>
+            <h3 style="margin-top:var(--space-5)">Pipeline</h3>
             <PipelineFlow steps={pipelineSteps(replay.timings.stageMs)} />
           </div>
           <div>
             <h3>Pack</h3>
             <PackTimeline vm={toPackVM(replay.pack)} />
-            <div style="margin-top:8px">
-              <span class="pill" data-tone={replay.contextFit.fitStatus === 'ready' ? '' : 'warm'}>
-                fit: {replay.contextFit.fitStatus}
+            <div style="margin-top:var(--space-3)">
+              <span
+                class="pill"
+                data-tone={replay.contextFit.fitStatus === 'ready' ? 'good' : 'warm'}
+              >
+                fit · {replay.contextFit.fitStatus}
               </span>
             </div>
           </div>

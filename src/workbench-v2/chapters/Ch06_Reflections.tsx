@@ -23,50 +23,81 @@ export default function Ch06_Reflections() {
   ];
 
   return (
-    <section id="ch6" class="chapter" ref={ref}>
-      <h2>Reflections that learn</h2>
+    <section id="ch6" class="chapter" data-numeral="06" ref={ref}>
+      <span class="overline">Reflections</span>
+      <h2 style="margin-top:var(--space-4)">Reflections that learn</h2>
       <p class="lead">
         After a session ends, Tuberosa can save a reviewed lesson. The next agent reads it first.
       </p>
       <div
         class="card fade-in"
-        style={`margin-top:16px;border-color:${approved ? 'var(--good)' : 'var(--accent-warm)'};transition:border-color var(--anim-med)`}
+        style={`margin-top:var(--space-4);border-color:${approved ? 'var(--good)' : 'var(--copper-deep)'};transition:border-color var(--anim-med)`}
       >
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <strong>{reflection?.title}</strong>
-          <span class="pill" data-tone={approved ? '' : 'warm'}>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--space-3)">
+          <strong
+            style="font-family:var(--font-display);font-weight:500;font-size:18px;color:var(--paper-0)"
+          >
+            {reflection?.title}
+          </strong>
+          <span class="pill" data-tone={approved ? 'good' : 'warm'}>
             {approved ? 'approved' : 'draft'}
           </span>
         </div>
-        <p style="color:var(--fg-muted);font-size:14px;margin-top:8px">
+        <p style="color:var(--paper-2);font-size:var(--fs-small);margin-top:var(--space-2);line-height:1.55">
           {reflection?.content.slice(0, 220)}…
         </p>
         {!approved && (
-          <button class="primary" style="margin-top:8px" onClick={() => setApproved(true)}>
-            Approve
+          <button class="primary" style="margin-top:var(--space-3)" onClick={() => setApproved(true)}>
+            Approve reflection
           </button>
         )}
       </div>
-      <h3 style="margin-top:24px">Before & after on the same prompt</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px">
+      <h3 style="margin-top:var(--space-6)">Before & after on the same prompt</h3>
+      <div class="split-2" style="margin-top:var(--space-2)">
         <div class="card">
-          <strong>Without memory</strong>
-          <ol style="margin:8px 0 0;padding-left:18px">
+          <span class="overline">Without memory</span>
+          <ol style="margin:var(--space-3) 0 0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:8px;counter-reset:rk">
             {without.map((r) => (
-              <li key={r.id}>
-                <span class="code">{r.id}</span> {r.title}
+              <li
+                key={r.id}
+                style="display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:baseline;counter-increment:rk;color:var(--paper-1);font-size:var(--fs-small)"
+              >
+                <span
+                  style="font-family:var(--font-display);color:var(--paper-3);font-variant-numeric:tabular-nums"
+                >
+                  {String(r.rank).padStart(2, '0')}
+                </span>
+                <span>
+                  <span class="code">{r.id}</span> {r.title}
+                </span>
               </li>
             ))}
           </ol>
         </div>
-        <div class="card" style={`border-color:${approved ? 'var(--good)' : 'var(--line)'}`}>
-          <strong>With reviewed memory</strong>
-          <ol style="margin:8px 0 0;padding-left:18px">
-            {withMem.map((r) => (
-              <li key={r.id} style={r.id === 'mem-migration-step-missed' ? 'color:var(--good)' : ''}>
-                <span class="code">{r.id}</span> {r.title}
-              </li>
-            ))}
+        <div
+          class="card"
+          style={`border-color:${approved ? 'var(--good)' : 'var(--line)'};transition:border-color var(--anim-med)`}
+        >
+          <span class="overline">With reviewed memory</span>
+          <ol style="margin:var(--space-3) 0 0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:8px">
+            {withMem.map((r) => {
+              const isMem = r.id === 'mem-migration-step-missed';
+              return (
+                <li
+                  key={r.id}
+                  style={`display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:baseline;color:${isMem ? 'var(--sage)' : 'var(--paper-1)'};font-size:var(--fs-small)`}
+                >
+                  <span
+                    style={`font-family:var(--font-display);color:${isMem ? 'var(--sage)' : 'var(--paper-3)'};font-variant-numeric:tabular-nums`}
+                  >
+                    {String(r.rank).padStart(2, '0')}
+                  </span>
+                  <span>
+                    <span class="code">{r.id}</span> {r.title}
+                  </span>
+                </li>
+              );
+            })}
           </ol>
         </div>
       </div>

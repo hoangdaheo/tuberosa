@@ -116,20 +116,32 @@ export default function Ch04_Pipeline() {
   useEffect(() => (ref.current ? observeChapter(ref.current, 4) : undefined), []);
   const [sel, setSel] = useState<string>('search');
   const steps = pipelineSteps(TIMINGS);
+  const stageInput = graphForStep(sel);
   return (
-    <section id="ch4" class="chapter" ref={ref}>
-      <h2>The pipeline, stage by stage</h2>
+    <section id="ch4" class="chapter" data-numeral="04" ref={ref}>
+      <span class="overline">The pipeline</span>
+      <h2 style="margin-top:var(--space-4)">The pipeline, stage by stage</h2>
       <p class="lead">Click any stage to see exactly what it produced for our prompt.</p>
-      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:16px;margin-top:16px">
+      <div class="pipeline-graph-split" style="margin-top:var(--space-5)">
         <PipelineFlow steps={steps} selected={sel} onSelect={setSel} />
         <div>
-          <h3 style="margin:0 0 8px">
-            What "{steps.find((s) => s.id === sel)?.title}" produced
+          <h3 style="margin-bottom:var(--space-3)">
+            {steps.find((s) => s.id === sel)?.title.replace(/^\d+\s*·\s*/, '')}
+            <span style="color:var(--paper-3);font-weight:400"> · produced</span>
           </h3>
-          <GraphCanvas
-            input={graphForStep(sel)}
-            layout={sel === 'fuse' || sel === 'rerank' ? 'dagre' : 'cose'}
-          />
+          {stageInput.items.length === 0 ? (
+            <div
+              class="card"
+              style="height:460px;display:grid;place-items:center;color:var(--paper-3);font-style:italic"
+            >
+              this stage produced no candidates
+            </div>
+          ) : (
+            <GraphCanvas
+              input={stageInput}
+              layout={sel === 'fuse' || sel === 'rerank' ? 'dagre' : 'cose'}
+            />
+          )}
         </div>
       </div>
     </section>

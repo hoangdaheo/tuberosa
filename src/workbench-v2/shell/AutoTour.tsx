@@ -40,10 +40,12 @@ function step(i: number): void {
 
 export function AutoTour() {
   const t = tour.value;
-  const caption = t.playing ? SCRIPT[t.index]?.caption : 'Take the guided tour — about a minute.';
+  const caption = t.playing
+    ? SCRIPT[t.index]?.caption ?? ''
+    : 'Take the guided tour — about a minute.';
   return (
-    <div style="position:fixed;top:12px;right:16px;z-index:40;display:flex;gap:8px;align-items:center">
-      <span style="max-width:42ch;font-size:12px;color:var(--fg-muted)">{caption}</span>
+    <div class="auto-tour">
+      <span class="caption">{caption}</span>
       {!t.playing ? (
         <button
           class="primary"
@@ -62,6 +64,7 @@ export function AutoTour() {
               clear();
               tour.value = { playing: false, index: t.index };
             }}
+            aria-label="Pause tour"
           >
             ⏸
           </button>
@@ -71,6 +74,7 @@ export function AutoTour() {
               clear();
               tour.value = { playing: false, index: 0 };
             }}
+            aria-label="End tour"
           >
             ✕
           </button>

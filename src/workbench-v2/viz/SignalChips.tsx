@@ -4,17 +4,24 @@ export { toSignalChips };
 export type { Chip, ClassifierLike } from './signal-chips-vm.js';
 
 const TONE: Record<Chip['kind'], string> = {
-  task: '',
+  task: 'neutral',
   symbol: '',
-  file: '',
+  file: 'neutral',
   error: 'bad',
-  tech: '',
+  tech: 'neutral',
   area: 'warm',
 };
 
 export function SignalChips({ chips, animate = true }: { chips: Chip[]; animate?: boolean }) {
+  if (chips.length === 0) {
+    return (
+      <span style="color:var(--paper-3);font-size:var(--fs-small);font-style:italic">
+        no signals detected
+      </span>
+    );
+  }
   return (
-    <div style="display:flex;flex-wrap:wrap;gap:6px">
+    <div class="row-chips">
       {chips.map((c, i) => (
         <span
           key={`${c.kind}:${c.label}:${i}`}
@@ -22,7 +29,7 @@ export function SignalChips({ chips, animate = true }: { chips: Chip[]; animate?
           data-tone={TONE[c.kind]}
           style={`animation-delay:${i * 60}ms`}
         >
-          <span style="opacity:.7">{c.kind}:</span>
+          <span style="opacity:.55;margin-right:4px">{c.kind}</span>
           {c.label}
         </span>
       ))}

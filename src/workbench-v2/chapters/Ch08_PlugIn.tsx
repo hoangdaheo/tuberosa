@@ -60,32 +60,39 @@ export default function Ch08_PlugIn() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
-    <section id="ch8" class="chapter" ref={ref}>
-      <h2>Plug into your agent</h2>
-      <p class="lead">One snippet per editor. Click a card to expand.</p>
-      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px">
+    <section id="ch8" class="chapter" data-numeral="08" ref={ref}>
+      <span class="overline">Plug in</span>
+      <h2 style="margin-top:var(--space-4)">One snippet per editor.</h2>
+      <p class="lead">Click any card to reveal the snippet, then copy.</p>
+      <div class="split-2" style="margin-top:var(--space-4)">
         {SNIPPETS.map((s) => {
           const open = expanded === s.id;
           return (
-            <div key={s.id} class="card">
+            <div key={s.id} class="card" style="padding:0;overflow:hidden">
               <button
-                class="ghost"
-                style="width:100%;text-align:left;border:0;padding:0;cursor:pointer;background:transparent"
+                style="width:100%;text-align:left;border:0;cursor:pointer;background:transparent;color:var(--paper-0);padding:14px 16px;font-family:var(--font-sans)"
                 onClick={() => setExpanded(open ? null : s.id)}
               >
-                <strong>{s.name}</strong>
-                <div style="color:var(--fg-muted);font-size:12px;margin-top:2px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+                  <strong
+                    style="font-family:var(--font-display);font-weight:500;font-size:18px"
+                  >
+                    {s.name}
+                  </strong>
+                  <span style="color:var(--paper-3);font-family:var(--font-mono);font-size:11px">
+                    {open ? '−' : '+'}
+                  </span>
+                </div>
+                <div style="color:var(--paper-3);font-size:var(--fs-overline);margin-top:4px;letter-spacing:0.08em">
                   <span class="code">{s.configPath}</span>
                 </div>
               </button>
               {open && (
-                <>
-                  <pre style="margin-top:8px;padding:8px;background:rgba(0,0,0,0.25);border-radius:6px;overflow:auto;font-family:var(--font-mono);font-size:12px;color:var(--fg)">
-                    {s.body}
-                  </pre>
+                <div style="padding:0 16px 14px">
+                  <pre>{s.body}</pre>
                   <button
                     class="primary"
-                    style="margin-top:8px"
+                    style="margin-top:var(--space-3)"
                     onClick={() => {
                       navigator.clipboard
                         .writeText(s.body)
@@ -93,9 +100,9 @@ export default function Ch08_PlugIn() {
                         .catch(() => pushToast('Copy failed', 'bad'));
                     }}
                   >
-                    Copy
+                    Copy snippet
                   </button>
-                </>
+                </div>
               )}
             </div>
           );

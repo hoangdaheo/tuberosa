@@ -20,9 +20,7 @@ function App() {
     <div class="workbench-shell">
       <ProgressRail />
       <main>
-        <div style="position:fixed;top:12px;left:80px;z-index:39">
-          <DemoToggle />
-        </div>
+        <DemoToggle />
         <AutoTour />
         <Ch01 />
         <Ch02 />

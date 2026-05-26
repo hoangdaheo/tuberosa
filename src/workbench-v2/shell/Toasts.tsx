@@ -2,15 +2,13 @@ import { toasts } from '../state/store.js';
 
 export function Toasts() {
   return (
-    <div style="position:fixed;bottom:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:50">
+    <div class="toasts-root">
       {toasts.value.map((t) => (
-        <div
-          key={t.id}
-          class="card fade-in"
-          data-tone={t.tone}
-          style={`min-width:240px;border-color:var(--${t.tone === 'bad' ? 'bad' : t.tone === 'good' ? 'good' : 'line'})`}
-        >
-          {t.text}
+        <div key={t.id} class="card fade-in" data-tone={t.tone}>
+          <span class="pill" data-tone={t.tone === 'info' ? 'neutral' : t.tone}>
+            {t.tone}
+          </span>
+          <span style="margin-left:8px">{t.text}</span>
         </div>
       ))}
     </div>

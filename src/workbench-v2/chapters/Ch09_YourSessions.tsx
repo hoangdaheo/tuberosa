@@ -76,8 +76,9 @@ export default function Ch09_YourSessions() {
   }, [selectedId]);
 
   return (
-    <section id="ch9" class="chapter" ref={ref}>
-      <h2>Inspect your own sessions</h2>
+    <section id="ch9" class="chapter" data-numeral="09" ref={ref}>
+      <span class="overline">Your sessions</span>
+      <h2 style="margin-top:var(--space-4)">Inspect your own sessions</h2>
       <p class="lead">
         Real Tuberosa sessions in this checkout. Replay needs{' '}
         <span class="code">TUBEROSA_PERSIST_REPLAY=true</span>.
