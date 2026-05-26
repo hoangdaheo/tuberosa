@@ -1,12 +1,21 @@
 import { deepEqual, equal, ok } from 'node:assert/strict';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import { AgentSessionService } from '../../src/agent-session/service.js';
+import type { AppServices } from '../../src/app.js';
 import { MemoryCache } from '../../src/cache.js';
 import type { AppConfig } from '../../src/config.js';
+import { ErrorLogInsightService } from '../../src/error-log/insights.js';
+import { ErrorLogService } from '../../src/error-log/service.js';
+import { createHttpServer } from '../../src/http/server.js';
 import { IngestionService } from '../../src/ingest/service.js';
+import { MaintenanceService } from '../../src/maintenance/service.js';
 import { HashModelProvider } from '../../src/model/provider.js';
+import { OperationsService } from '../../src/operations/service.js';
 import { ReflectionService } from '../../src/reflection/service.js';
 import { RetrievalService } from '../../src/retrieval/service.js';
+import { KnowledgeSafetyService } from '../../src/security/knowledge-safety.js';
 import { MemoryKnowledgeStore } from '../../src/storage/memory-store.js';
 import { SessionReplayService, type SessionReplayBundle } from '../../src/operations/session-replay.js';
 
@@ -104,6 +113,30 @@ test('agent session start persists replay when opt-in flag is enabled', async ()
   ok(storedReplay.fusionOrder.length > 0);
 });
 
+test('GET /operations/workbench/session/:id/replay returns 404 for unknown, 200 for known', async () => {
+  const services = buildTestServices();
+  const sessionId = '00000000-0000-0000-0000-0000000000aa';
+  await services.sessionReplay.writeReplay(sampleReplay(sessionId));
+  const server = createHttpServer(services);
+
+  try {
+    const baseUrl = await listen(server);
+    const missing = await fetch(`${baseUrl}/operations/workbench/session/00000000-0000-0000-0000-000000000099/replay`);
+    equal(missing.status, 404);
+    const missingBody = await missing.json() as { code?: string };
+    equal(missingBody.code, 'not_found');
+
+    const found = await fetch(`${baseUrl}/operations/workbench/session/${sessionId}/replay`);
+    equal(found.status, 200);
+    const body = await found.json() as SessionReplayBundle;
+    equal(body.sessionId, sessionId);
+    deepEqual(body.pack.essential, [{ id: 'k1' }]);
+  } finally {
+    await closeServer(server);
+    await services.close();
+  }
+});
+
 function testConfig(persistReplay: boolean): AppConfig {
   return {
     env: 'test',
@@ -138,4 +171,57 @@ function testConfig(persistReplay: boolean): AppConfig {
     worktreeMaxFiles: 50,
     worktreeMaxMtimeAgeHours: 72,
   };
+}
+
+function buildTestServices(): AppServices {
+  const store = new MemoryKnowledgeStore();
+  const cache = new MemoryCache();
+  const models = new HashModelProvider(1536);
+  const config = testConfig(false);
+  const safety = new KnowledgeSafetyService();
+  const ingestion = new IngestionService(store, models, { safety });
+  const retrieval = new RetrievalService(store, cache, models, config, safety);
+  const reflection = new ReflectionService(store, ingestion, safety);
+  const sessionReplay = new SessionReplayService(store);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection, sessionReplay, config);
+  const operations = new OperationsService(store, ingestion);
+  const errorLogs = new ErrorLogService({ rootDir: config.errorLogDir, safety });
+  const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
+  const maintenance = new MaintenanceService(store);
+
+  return {
+    config,
+    cache,
+    store,
+    models,
+    safety,
+    errorLogs,
+    errorLogInsights,
+    ingestion,
+    retrieval,
+    reflection,
+    agentSessions,
+    sessionReplay,
+    operations,
+    maintenance,
+    async close() {
+      await Promise.allSettled([operations.close(), cache.close(), store.close()]);
+    },
+  };
+}
+
+async function listen(server: Server): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address() as AddressInfo;
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
 }

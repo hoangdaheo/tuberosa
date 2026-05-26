@@ -522,6 +522,18 @@ function createRoutes(): HttpRoute[] {
       handle: ({ services, url }) => buildWorkbenchSummary(services, readWorkbenchSummaryOptions(url)),
     },
     {
+      method: 'GET',
+      match: pathPattern(/^\/operations\/workbench\/session\/([^/]+)\/replay$/, ['id']),
+      handle: async ({ services, params }) => {
+        const bundle = await services.sessionReplay.readReplay(params.id);
+        if (!bundle) {
+          throw new NotFoundError('replay not found');
+        }
+
+        return bundle;
+      },
+    },
+    {
       method: 'POST',
       match: exactPath('/operations/maintenance/preview'),
       handle: async ({ services, request }) => {
