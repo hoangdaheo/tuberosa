@@ -98,8 +98,9 @@ function makeSummary(): WorkbenchSummary {
       logs: [{
         id: 'error-1',
         project: 'tuberosa',
+        fingerprint: 'fp-error-1',
         category: 'test',
-        severity: 'high',
+        severity: 'error',
         status: 'open',
         title: 'Browser test failed',
         summary: 'Graph did not render',

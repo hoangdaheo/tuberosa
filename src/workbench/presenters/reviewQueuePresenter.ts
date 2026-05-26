@@ -101,8 +101,8 @@ export function presentReviewQueue(summary: WorkbenchSummary, filter: ReviewQueu
     ...summary.openErrorLogs.logs.map((log): ReviewQueueItemView => ({
       id: log.id,
       type: 'error_log',
-      priority: log.severity === 'critical' || log.severity === 'high' ? 2 : 4,
-      tone: log.severity === 'critical' || log.severity === 'high' ? 'bad' : 'warn',
+      priority: isHighSeverity(log.severity) ? 2 : 4,
+      tone: isHighSeverity(log.severity) ? 'bad' : 'warn',
       title: log.title,
       summary: log.summary ?? `${log.category} · ${log.status}`,
       whyItMatters: 'Resolved incidents can become reviewed bugfix lessons.',
@@ -152,6 +152,10 @@ function filterMatches(filter: ReviewQueueFilter, type: ReviewQueueItemView['typ
   if (filter === 'errors') return type === 'error_log';
   if (filter === 'maintenance') return type === 'maintenance';
   return false;
+}
+
+function isHighSeverity(severity: string): boolean {
+  return severity === 'error' || severity === 'critical' || severity === 'alert' || severity === 'emergency';
 }
 
 function toneForFeedback(type: string): EvidenceGraphTone {

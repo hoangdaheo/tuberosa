@@ -42,7 +42,7 @@ test('session result presenter groups missing signals for insufficient context',
         notes: ['Need more project knowledge.'],
       },
     },
-  } as Partial<AgentSessionStartResult>);
+  });
   const view = presentSessionResult(result);
 
   equal(view.verdict.status, 'insufficient');
@@ -52,7 +52,14 @@ test('session result presenter groups missing signals for insufficient context',
   equal(view.nextActions.some((action) => action.kind === 'ingest_missing_context'), true);
 });
 
-function makeResult(overrides: Partial<AgentSessionStartResult> = {}): AgentSessionStartResult {
+interface ResultOverrides {
+  contextPack?: {
+    contextFit?: Partial<AgentSessionStartResult['contextPack']['contextFit']>;
+    orientation?: Partial<AgentSessionStartResult['contextPack']['orientation']>;
+  };
+}
+
+function makeResult(overrides: ResultOverrides = {}): AgentSessionStartResult {
   const base: AgentSessionStartResult = {
     session: {
       id: 'session-1',
