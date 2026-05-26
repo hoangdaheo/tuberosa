@@ -18,6 +18,7 @@
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.workbench.json && tsx scripts/build-workbench-v2.ts",
     "build:workbench": "tsx scripts/build-workbench-v2.ts",
     "dev:workbench": "tsx scripts/build-workbench-v2.ts --watch",
+    "gen:demo-replays": "tsx scripts/gen-demo-replays.ts",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/src/index.js",
     "mcp": "node --import tsx src/mcp-stdio.ts",

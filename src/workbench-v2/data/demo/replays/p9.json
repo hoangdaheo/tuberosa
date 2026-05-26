@@ -1,0 +1,94 @@
+{
+  "classifier": {
+    "symbols": [
+      "Read"
+    ],
+    "errors": [],
+    "files": [
+      "src/webhooks/billing-webhook.ts"
+    ],
+    "businessAreas": [
+      "billing"
+    ],
+    "technologies": [],
+    "taskType": "planning"
+  },
+  "timings": {
+    "totalMs": 25,
+    "stageMs": {
+      "classification": 0,
+      "rewriteProbe": 1,
+      "rewrite": 0,
+      "contextQuery": 0,
+      "worktree": 1,
+      "metadata": 1,
+      "lexical": 0,
+      "memory": 0,
+      "vector": 0,
+      "graph": 0,
+      "fusion": 0,
+      "rerank": 0,
+      "fit": 3,
+      "assembly": 3,
+      "save": 0,
+      "total": 16
+    }
+  },
+  "pack": {
+    "essential": [
+      {
+        "id": "ac9865e5-0b66-4885-b8fa-07bf24763063",
+        "title": "Billing webhook spec for src/webhooks/billing-webhook.ts",
+        "tokens": 318
+      },
+      {
+        "id": "3b86a61c-7f67-4fba-82ae-384e1c8d291f",
+        "title": "Fix: EMBED_DIM_MISMATCHError in embedding pipeline",
+        "tokens": 100
+      },
+      {
+        "id": "8c604c4e-8660-4f4e-8d0e-f3801c206eb3",
+        "title": "Lesson: agent missed migration step — always run migrate before deploy",
+        "tokens": 96
+      },
+      {
+        "id": "739351b2-a223-45c2-bf98-7590f6431965",
+        "title": "Correct email ad tag encoding in src/marketing/liveintent.ts",
+        "tokens": 84
+      }
+    ],
+    "supporting": [
+      {
+        "id": "1d5b5904-1fd0-4a2f-9bd9-6770b312fd29",
+        "title": "TokenService in src/auth/token-service.ts",
+        "tokens": 49
+      },
+      {
+        "id": "2ffb4d19-5876-490f-b5f4-8cc7a51c64e0",
+        "title": "AuthMiddleware in src/middleware/auth.ts",
+        "tokens": 74
+      },
+      {
+        "id": "c640cc15-8654-4170-b0ed-1d0ca69ba3e5",
+        "title": "UserService in src/users/user-service.ts",
+        "tokens": 52
+      }
+    ],
+    "optional": []
+  },
+  "contextFit": {
+    "fitStatus": "ready",
+    "missingSignals": []
+  },
+  "sourceCounts": {
+    "metadata": 18,
+    "lexical": 18,
+    "memory": 4,
+    "vector": 18,
+    "graph": 5,
+    "worktree": 0,
+    "fusion": 19,
+    "rerank": 19,
+    "fit": 19
+  }
+}

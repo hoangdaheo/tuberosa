@@ -1,0 +1,101 @@
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { observeChapter } from '../state/scrollController.js';
+import { acmeBilling } from '../data/fixtures.js';
+import { SignalChips } from '../viz/SignalChips.js';
+import { toSignalChips } from '../viz/signal-chips-vm.js';
+import { PipelineFlow } from '../viz/PipelineFlow.js';
+import { pipelineSteps } from '../viz/pipeline-flow-vm.js';
+import { PackTimeline } from '../viz/PackTimeline.js';
+import { toPackVM } from '../viz/pack-timeline-vm.js';
+import p1 from '../data/demo/replays/p1.json' with { type: 'json' };
+import p2 from '../data/demo/replays/p2.json' with { type: 'json' };
+import p3 from '../data/demo/replays/p3.json' with { type: 'json' };
+import p4 from '../data/demo/replays/p4.json' with { type: 'json' };
+import p5 from '../data/demo/replays/p5.json' with { type: 'json' };
+import p6 from '../data/demo/replays/p6.json' with { type: 'json' };
+import p7 from '../data/demo/replays/p7.json' with { type: 'json' };
+import p8 from '../data/demo/replays/p8.json' with { type: 'json' };
+import p9 from '../data/demo/replays/p9.json' with { type: 'json' };
+import p10 from '../data/demo/replays/p10.json' with { type: 'json' };
+
+interface Replay {
+  classifier: {
+    symbols: string[];
+    errors: string[];
+    files: string[];
+    businessAreas: string[];
+    technologies: string[];
+    taskType?: string;
+  };
+  timings: { totalMs: number; stageMs: Record<string, number> };
+  pack: {
+    essential: Array<{ id: string; title: string; tokens: number }>;
+    supporting: Array<{ id: string; title: string; tokens: number }>;
+    optional: Array<{ id: string; title: string; tokens: number }>;
+  };
+  contextFit: { fitStatus: string };
+}
+
+const REPLAYS: Record<string, Replay> = {
+  p1: p1 as Replay,
+  p2: p2 as Replay,
+  p3: p3 as Replay,
+  p4: p4 as Replay,
+  p5: p5 as Replay,
+  p6: p6 as Replay,
+  p7: p7 as Replay,
+  p8: p8 as Replay,
+  p9: p9 as Replay,
+  p10: p10 as Replay,
+};
+
+export default function Ch07_TryIt() {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => (ref.current ? observeChapter(ref.current, 7) : undefined), []);
+  const [active, setActive] = useState<string | null>(null);
+  const replay = active ? REPLAYS[active] : null;
+  return (
+    <section id="ch7" class="chapter" ref={ref}>
+      <h2>Try ten prompts</h2>
+      <p class="lead">Click any card to replay it. Every branch is covered.</p>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px">
+        {acmeBilling.prompts.map((p) => (
+          <button
+            key={p.id}
+            class="card"
+            onClick={() => setActive(p.id)}
+            style={`text-align:left;cursor:pointer;border-color:${active === p.id ? 'var(--accent)' : 'var(--line)'}`}
+          >
+            <div>"{p.text}"</div>
+            <div style="margin-top:6px">
+              {p.branches.map((b) => (
+                <span key={b} class="pill" style="margin-right:4px">
+                  {b}
+                </span>
+              ))}
+            </div>
+          </button>
+        ))}
+      </div>
+      {replay && (
+        <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <h3>Signals</h3>
+            <SignalChips chips={toSignalChips(replay.classifier)} />
+            <h3 style="margin-top:16px">Pipeline</h3>
+            <PipelineFlow steps={pipelineSteps(replay.timings.stageMs)} />
+          </div>
+          <div>
+            <h3>Pack</h3>
+            <PackTimeline vm={toPackVM(replay.pack)} />
+            <div style="margin-top:8px">
+              <span class="pill" data-tone={replay.contextFit.fitStatus === 'ready' ? '' : 'warm'}>
+                fit: {replay.contextFit.fitStatus}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}

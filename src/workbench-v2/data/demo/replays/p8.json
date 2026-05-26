@@ -1,0 +1,69 @@
+{
+  "classifier": {
+    "symbols": [],
+    "errors": [],
+    "files": [
+      "src/db/migrate.ts"
+    ],
+    "businessAreas": [],
+    "technologies": [],
+    "taskType": "unknown"
+  },
+  "timings": {
+    "totalMs": 19,
+    "stageMs": {
+      "classification": 1,
+      "rewriteProbe": 1,
+      "rewrite": 0,
+      "contextQuery": 0,
+      "worktree": 1,
+      "metadata": 1,
+      "lexical": 1,
+      "memory": 1,
+      "vector": 0,
+      "graph": 0,
+      "fusion": 1,
+      "rerank": 0,
+      "fit": 2,
+      "assembly": 0,
+      "save": 0,
+      "total": 10
+    }
+  },
+  "pack": {
+    "essential": [
+      {
+        "id": "8c604c4e-8660-4f4e-8d0e-f3801c206eb3",
+        "title": "Lesson: agent missed migration step — always run migrate before deploy",
+        "tokens": 96
+      },
+      {
+        "id": "739351b2-a223-45c2-bf98-7590f6431965",
+        "title": "Correct email ad tag encoding in src/marketing/liveintent.ts",
+        "tokens": 84
+      },
+      {
+        "id": "1d5b5904-1fd0-4a2f-9bd9-6770b312fd29",
+        "title": "TokenService in src/auth/token-service.ts",
+        "tokens": 49
+      }
+    ],
+    "supporting": [],
+    "optional": []
+  },
+  "contextFit": {
+    "fitStatus": "ready",
+    "missingSignals": []
+  },
+  "sourceCounts": {
+    "metadata": 1,
+    "lexical": 5,
+    "memory": 3,
+    "vector": 18,
+    "graph": 3,
+    "worktree": 0,
+    "fusion": 19,
+    "rerank": 19,
+    "fit": 19
+  }
+}
