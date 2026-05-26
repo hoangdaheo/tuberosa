@@ -15,6 +15,7 @@ async function run(): Promise<void> {
   const options: esbuild.BuildOptions = {
     entryPoints: [join(srcDir, 'app.tsx')],
     outdir: outDir,
+    outbase: srcDir,
     bundle: true,
     format: 'esm',
     target: ['es2020'],
@@ -35,6 +36,9 @@ async function run(): Promise<void> {
     const ctx = await esbuild.context(options);
     await ctx.watch();
     console.log('[workbench-v2] watching...');
+    const shutdown = async () => { await ctx.dispose(); process.exit(0); };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
     return;
   }
 

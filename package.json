@@ -48,12 +48,12 @@
     "test": "node --test --import tsx test/*.test.ts"
   },
   "dependencies": {
+    "@motionone/dom": "^10.18.0",
     "@preact/signals": "^2.9.0",
     "cytoscape": "^3.33.4",
     "cytoscape-cose-bilkent": "^4.1.0",
     "cytoscape-dagre": "^3.0.0",
     "lucide-preact": "^1.16.0",
-    "motion": "^12.40.0",
     "pg": "^8.13.1",
     "preact": "^10.29.2",
     "redis": "^4.7.0"
