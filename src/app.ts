@@ -9,6 +9,7 @@ import { MaintenanceService } from './maintenance/service.js';
 import { createModelProvider } from './model/factory.js';
 import type { ModelProvider } from './model/provider.js';
 import { OperationsService } from './operations/service.js';
+import { SessionReplayService } from './operations/session-replay.js';
 import { ReflectionService } from './reflection/service.js';
 import { RetrievalService } from './retrieval/service.js';
 import { KnowledgeSafetyService } from './security/knowledge-safety.js';
@@ -28,6 +29,7 @@ export interface AppServices {
   retrieval: RetrievalService;
   reflection: ReflectionService;
   agentSessions: AgentSessionService;
+  sessionReplay: SessionReplayService;
   operations: OperationsService;
   maintenance: MaintenanceService;
   close(): Promise<void>;
@@ -57,7 +59,8 @@ export async function createAppServices(): Promise<AppServices> {
   const retrieval = new RetrievalService(store, cache, models, config, safety);
   const reflection = new ReflectionService(store, ingestion, safety);
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
-  const agentSessions = new AgentSessionService(store, retrieval, reflection);
+  const sessionReplay = new SessionReplayService(store);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection, sessionReplay, config);
   const maintenance = new MaintenanceService(store);
   const operations = new OperationsService(store, ingestion, {
     backupDir: config.backupDir,
@@ -98,6 +101,7 @@ export async function createAppServices(): Promise<AppServices> {
     retrieval,
     reflection,
     agentSessions,
+    sessionReplay,
     operations,
     maintenance,
     async close() {

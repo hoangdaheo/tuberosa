@@ -1,4 +1,10 @@
 import { NotFoundError } from '../errors.js';
+import type { AppConfig } from '../config.js';
+import {
+  sessionReplayFromContextPack,
+  stripReplayDebug,
+  type SessionReplayService,
+} from '../operations/session-replay.js';
 import { evaluateGates } from '../reflection/recommendation.js';
 import type { ReflectionService } from '../reflection/service.js';
 import type { RetrievalService } from '../retrieval/service.js';
@@ -38,10 +44,15 @@ export class AgentSessionService {
     private readonly store: KnowledgeStore,
     private readonly retrieval: RetrievalService,
     private readonly reflection: ReflectionService,
+    private readonly replayService?: SessionReplayService,
+    private readonly config: Pick<AppConfig, 'persistReplay'> = { persistReplay: false },
   ) {}
 
   async startSession(input: StartAgentSessionInput): Promise<AgentSessionStartResult> {
-    const contextPack = await this.retrieval.searchContext(input);
+    const shouldPersistReplay = this.config.persistReplay && this.replayService !== undefined;
+    const contextPack = await this.retrieval.searchContext(
+      shouldPersistReplay ? { ...input, debug: true } : input,
+    );
     const session = await this.store.createAgentSession({
       prompt: input.prompt,
       project: input.project ?? contextPack.project,
@@ -51,10 +62,11 @@ export class AgentSessionService {
       initialContextPackId: contextPack.id,
       metadata: input.metadata,
     });
+    await this.persistReplayIfAvailable(session.id, contextPack);
 
     return {
       session,
-      contextPack,
+      contextPack: shouldPersistReplay && !input.debug ? stripReplayDebug(contextPack) : contextPack,
       policy: sessionPolicy(contextPack.contextFit?.fitStatus),
     };
   }
@@ -141,6 +153,7 @@ export class AgentSessionService {
     if (!session) {
       throw new NotFoundError(`Agent session not found: ${input.sessionId}`);
     }
+    await this.persistReplayFromSelectedPack(session.id, decisions);
 
     return {
       session,
@@ -332,6 +345,29 @@ export class AgentSessionService {
     const selected = [...decisions].reverse().find((decision) => isSelectedDecision(decision.decision) && decision.contextPackId);
     const packId = selected?.contextPackId ?? session.initialContextPackId;
     return packId ? this.store.getContextPack(packId) : undefined;
+  }
+
+  private async persistReplayFromSelectedPack(sessionId: string, decisions: AgentContextDecision[]): Promise<void> {
+    if (!this.config.persistReplay || !this.replayService) {
+      return;
+    }
+
+    const session = await this.requireSession(sessionId);
+    const selectedPack = await this.selectedContextPack(session, decisions);
+    if (selectedPack) {
+      await this.persistReplayIfAvailable(sessionId, selectedPack);
+    }
+  }
+
+  private async persistReplayIfAvailable(sessionId: string, pack: ContextPack): Promise<void> {
+    if (!this.config.persistReplay || !this.replayService) {
+      return;
+    }
+
+    const replay = sessionReplayFromContextPack(sessionId, pack);
+    if (replay) {
+      await this.replayService.writeReplay(replay);
+    }
   }
 }
 

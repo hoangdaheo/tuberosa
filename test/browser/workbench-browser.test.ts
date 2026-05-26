@@ -16,6 +16,7 @@ import { IngestionService } from '../../src/ingest/service.js';
 import { MaintenanceService } from '../../src/maintenance/service.js';
 import { HashModelProvider } from '../../src/model/provider.js';
 import { OperationsService } from '../../src/operations/service.js';
+import { SessionReplayService } from '../../src/operations/session-replay.js';
 import { ReflectionService } from '../../src/reflection/service.js';
 import { RetrievalService } from '../../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../../src/storage/memory-store.js';
@@ -53,6 +54,7 @@ const config: AppConfig = {
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
   errorLogCaptureClientErrors: false,
+  persistReplay: false,
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
@@ -259,7 +261,8 @@ function createBrowserServices(backupDir: string, errorLogDir: string): AppServi
   const ingestion = new IngestionService(store, models);
   const retrieval = new RetrievalService(store, cache, models, localConfig);
   const reflection = new ReflectionService(store, ingestion);
-  const agentSessions = new AgentSessionService(store, retrieval, reflection);
+  const sessionReplay = new SessionReplayService(store);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection, sessionReplay, localConfig);
   const operations = new OperationsService(store, ingestion, {
     backupDir,
     storeKind: 'memory',
@@ -278,6 +281,7 @@ function createBrowserServices(backupDir: string, errorLogDir: string): AppServi
     retrieval,
     reflection,
     agentSessions,
+    sessionReplay,
     operations,
     errorLogs,
     errorLogInsights,

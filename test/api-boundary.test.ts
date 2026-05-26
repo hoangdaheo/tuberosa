@@ -37,6 +37,7 @@ const config: AppConfig = {
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
   errorLogCaptureClientErrors: false,
+  persistReplay: false,
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
@@ -1123,6 +1124,10 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
       finishSession: async () => {
         throw new Error('Unexpected session finish call.');
       },
+    },
+    sessionReplay: {
+      writeReplay: async () => undefined,
+      readReplay: async () => null,
     },
     store: {
       listKnowledge: async () => [],

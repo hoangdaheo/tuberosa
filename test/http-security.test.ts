@@ -132,6 +132,7 @@ function baseConfig(overrides: Partial<AppConfig>): AppConfig {
     errorLogMaxBytes: 256 * 1024,
     errorLogAutoCapture: false,
     errorLogCaptureClientErrors: false,
+  persistReplay: false,
     worktreeEnabled: false,
     worktreeMaxFiles: 50,
     worktreeMaxMtimeAgeHours: 72,

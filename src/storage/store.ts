@@ -45,6 +45,7 @@ import type {
   SearchOptions,
   StoredKnowledge,
 } from '../types.js';
+import type { SessionReplayBundle } from '../operations/session-replay.js';
 
 export interface ChunkInput {
   index: number;
@@ -129,6 +130,8 @@ export interface KnowledgeStore {
     sessionId: string;
     note: AgentSessionNote;
   }): Promise<AgentSession | undefined>;
+  writeSessionReplay(bundle: SessionReplayBundle): Promise<void>;
+  readSessionReplay(sessionId: string): Promise<SessionReplayBundle | null>;
   listReflectionDrafts(options: ListRecordsOptions): Promise<ReflectionDraft[]>;
   getReflectionDraft(id: string): Promise<ReflectionDraft | undefined>;
   createReflectionDraft(input: ReflectionDraftInput, duplicateCandidates: unknown[]): Promise<ReflectionDraft>;

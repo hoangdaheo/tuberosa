@@ -56,6 +56,7 @@ import {
   readNamespaceFromMetadata,
   writeNamespaceToMetadata,
 } from './knowledge-namespace.js';
+import type { SessionReplayBundle } from '../operations/session-replay.js';
 import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 interface MemoryChunk extends ChunkInput {
@@ -75,6 +76,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly proposals = new Map<string, LearningProposal>();
   private readonly agentSessions = new Map<string, AgentSession>();
   private readonly agentDecisions = new Map<string, AgentContextDecision>();
+  private readonly sessionReplays = new Map<string, SessionReplayBundle>();
   private readonly feedback: FeedbackEvent[] = [];
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
@@ -835,6 +837,15 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return updated;
   }
 
+  async writeSessionReplay(bundle: SessionReplayBundle): Promise<void> {
+    this.sessionReplays.set(bundle.sessionId, cloneJson(bundle));
+  }
+
+  async readSessionReplay(sessionId: string): Promise<SessionReplayBundle | null> {
+    const bundle = this.sessionReplays.get(sessionId);
+    return bundle ? cloneJson(bundle) : null;
+  }
+
   async createReflectionDraft(input: ReflectionDraftInput, duplicateCandidates: unknown[]): Promise<ReflectionDraft> {
     const draft: ReflectionDraft = {
       id: randomUUID(),
@@ -1522,4 +1533,8 @@ function cosine(left: number[], right: number[]): number {
   }
 
   return dot / Math.sqrt(leftNorm * rightNorm);
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
