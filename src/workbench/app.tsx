@@ -64,7 +64,7 @@ function App() {
           {route.view === 'start' && (
             <StartView defaultProject={project} onSessionStarted={setActiveSession} />
           )}
-          {route.view === 'session' && activeSession && <SessionResultView result={activeSession} />}
+          {route.view === 'session' && activeSession && <SessionResultView result={activeSession} onChanged={refresh} />}
           {route.view === 'session' && !activeSession && (
             <div class="panel" data-testid="session-result-missing">
               <h1>Session not loaded</h1>
