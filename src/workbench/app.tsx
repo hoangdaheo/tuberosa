@@ -1,17 +1,10 @@
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { BookOpen, ClipboardList, HeartPulse, Home, Map, PlayCircle } from 'lucide-preact';
 import './styles/main.css';
 import { api, getApiKey, getLimit, getProject, setApiKey, setLimit, setProject } from './state/api.js';
-import { currentRoute, ensureDefaultRoute, navigate, pushToast } from './state/store.js';
+import { currentRoute, ensureDefaultRoute, pushToast } from './state/store.js';
 import { presentSummary, type SummaryViewModel } from './presenters/summaryPresenter.js';
-import { SummarySidebar } from './views/SummarySidebar.js';
-import { OverviewView } from './views/OverviewView.js';
-import { CatchupView } from './views/CatchupView.js';
-import { SessionView } from './views/SessionView.js';
-import { QualityView } from './views/QualityView.js';
-import { MemoryView } from './views/MemoryView.js';
-import { GuideView } from './views/GuideView.js';
+import { TopNav } from './components/TopNav.js';
 import { Toasts } from './components/Toasts.js';
 import type { WorkbenchSummary } from './types.js';
 
@@ -23,7 +16,6 @@ function App() {
   const [summaryVM, setSummaryVM] = useState<SummaryViewModel | null>(null);
   const [loading, setLoading] = useState(false);
   const route = currentRoute.value;
-  const view = route.view;
 
   async function refresh() {
     setLoading(true);
@@ -61,62 +53,38 @@ function App() {
 
   return (
     <>
-      <header class="app">
-        <div class="shell">
-          <div class="row between">
-            <div>
-              <h1>Tuberosa Workbench</h1>
-              <p class="subtitle">Review context quality, memory drafts, gaps, conflicts, and learning signals from one local control plane.</p>
-            </div>
+      <TopNav route={route} />
+      <main class="workbench-shell">
+        <section class="workspace">
+          <div class="panel" data-testid={`${route.view}-view`}>
+            <h1>{route.view}</h1>
+            <p class="muted">This surface will be migrated in the next tasks.</p>
           </div>
-          <nav class="tabs" role="tablist">
-            <button class={view === 'overview' ? 'active' : ''} onClick={() => navigate('overview')} data-testid="nav-overview"><Home size={15} aria-hidden="true" /> Overview</button>
-            <button class={view === 'catchup' ? 'active' : ''} onClick={() => navigate('catchup')} data-testid="nav-catchup"><Map size={15} aria-hidden="true" /> Catchup</button>
-            <button class={view === 'session' ? 'active' : ''} onClick={() => navigate('session')} data-testid="nav-session"><PlayCircle size={15} aria-hidden="true" /> Start session</button>
-            <button class={view === 'quality' ? 'active' : ''} onClick={() => navigate('quality')} data-testid="nav-quality"><HeartPulse size={15} aria-hidden="true" /> Context quality</button>
-            <button class={view === 'memory' ? 'active' : ''} onClick={() => navigate({ view: 'memory', memoryTab: route.memoryTab })} data-testid="nav-memory"><ClipboardList size={15} aria-hidden="true" /> Memory review</button>
-            <button class={view === 'guide' ? 'active' : ''} onClick={() => navigate('guide')} data-testid="nav-guide"><BookOpen size={15} aria-hidden="true" /> Guide</button>
-          </nav>
-        </div>
-      </header>
-
-      <main class="shell">
-        <SummarySidebar
-          summary={summaryVM}
-          project={project}
-          limit={limit}
-          apiKey={apiKey}
-          loading={loading}
-          onProjectChange={onProjectChange}
-          onLimitChange={onLimitChange}
-          onApiKeyChange={onApiKeyChange}
-          onRefresh={refresh}
-        />
-        <section>
-          {view === 'overview' && (
-            <OverviewView
-              summary={summary}
-              summaryVM={summaryVM}
-              project={project}
-              loading={loading}
-              onProjectChange={onProjectChange}
-              onRefresh={refresh}
-            />
-          )}
-          {view === 'catchup' && <CatchupView />}
-          {view === 'session' && <SessionView defaultProject={project} />}
-          {view === 'quality' && <QualityView summary={summary} />}
-          {view === 'memory' && <MemoryView summary={summary} project={project} limit={limit} refresh={refresh} activeTab={route.memoryTab} />}
-          {view === 'guide' && <GuideView />}
         </section>
+        <aside class="support-rail">
+          <div class="panel">
+            <h2>Setup</h2>
+            <label htmlFor="rail-project">Project</label>
+            <input id="rail-project" value={project} onInput={(e) => onProjectChange((e.target as HTMLInputElement).value)} />
+            <label htmlFor="rail-limit">Result limit</label>
+            <input id="rail-limit" type="number" min={1} max={100} value={limit} onInput={(e) => onLimitChange(Number((e.target as HTMLInputElement).value))} />
+            <label htmlFor="rail-api-key">API key</label>
+            <input id="rail-api-key" type="password" value={apiKey} onInput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)} />
+            <button class="primary" disabled={loading} onClick={refresh}>{loading ? 'Refreshing...' : 'Refresh'}</button>
+          </div>
+          {summaryVM && (
+            <div class="panel">
+              <h2>Readiness</h2>
+              <p class={summaryVM.health.warning ? 'small' : 'small muted'}>{summaryVM.health.line}</p>
+            </div>
+          )}
+          {summary && <div hidden data-testid="summary-loaded">{summary.generatedAt}</div>}
+        </aside>
       </main>
-
       <Toasts />
     </>
   );
 }
 
 const root = document.getElementById('app');
-if (root) {
-  render(<App />, root);
-}
+if (root) render(<App />, root);
