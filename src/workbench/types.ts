@@ -340,6 +340,110 @@ export interface CatchupResponse {
   summary: import('../types.js').WorkbenchSummary;
 }
 
+export type SessionVerdictStatus = 'ready' | 'needs_confirmation' | 'insufficient' | 'unknown';
+
+export interface SessionVerdictView {
+  status: SessionVerdictStatus;
+  headline: string;
+  detail: string;
+  score?: number;
+  policyAction: 'proceed' | 'confirm' | 'clarify';
+  policyInstruction: string;
+}
+
+export interface PipelineStageView {
+  key: 'prompt' | 'classify' | 'retrieve' | 'rank' | 'fit' | 'decision' | 'memory';
+  label: string;
+  status: 'done' | 'attention' | 'waiting';
+  detail: string;
+  count?: number;
+}
+
+export type EvidenceGraphNodeKind = 'task' | 'pack' | 'knowledge' | 'file' | 'symbol' | 'memory' | 'feedback' | 'gap' | 'proposal';
+export type EvidenceGraphTone = 'good' | 'warn' | 'bad' | 'muted' | 'accent';
+
+export interface EvidenceGraphNode {
+  id: string;
+  kind: EvidenceGraphNodeKind;
+  label: string;
+  detail?: string;
+  tone: EvidenceGraphTone;
+}
+
+export interface EvidenceGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  tone: EvidenceGraphTone;
+}
+
+export interface EvidenceGraphView {
+  nodes: EvidenceGraphNode[];
+  edges: EvidenceGraphEdge[];
+}
+
+export interface ContextStackItemView {
+  knowledgeId: string;
+  title: string;
+  summary: string;
+  itemType: string;
+  evidenceStrength: string;
+  evidenceCategory: string;
+  score: number;
+  why?: string;
+  references: ReferenceInput[];
+}
+
+export interface ContextStackView {
+  essential: ContextStackItemView[];
+  supporting: ContextStackItemView[];
+  optional: ContextStackItemView[];
+}
+
+export interface MissingSignalGroups {
+  files: string[];
+  symbols: string[];
+  errors: string[];
+  docs: string[];
+  intent: string[];
+  other: string[];
+}
+
+export interface AgentHandoffView {
+  title: string;
+  text: string;
+  commands: string[];
+  files: Array<{ path: string; reason: string }>;
+  warnings: string[];
+}
+
+export type SessionNextActionKind =
+  | 'record_decision'
+  | 'copy_handoff'
+  | 'finish_session'
+  | 'ingest_missing_context'
+  | 'retry_same_task';
+
+export interface SessionNextActionView {
+  kind: SessionNextActionKind;
+  label: string;
+  tone: EvidenceGraphTone;
+}
+
+export interface SessionResultViewModel {
+  sessionId: string;
+  prompt: string;
+  project?: string;
+  verdict: SessionVerdictView;
+  pipeline: PipelineStageView[];
+  graph: EvidenceGraphView;
+  contextStack: ContextStackView;
+  handoff: AgentHandoffView;
+  missingSignals: MissingSignalGroups;
+  nextActions: SessionNextActionView[];
+}
+
 export type WorkbenchSummary = import('../types.js').WorkbenchSummary;
 export type WorkbenchCounts = import('../types.js').WorkbenchSummaryCounts;
 export type WorkbenchRecommendedActionTarget = import('../types.js').WorkbenchRecommendedActionTarget;
