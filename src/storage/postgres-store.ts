@@ -62,6 +62,7 @@ import {
   readNamespaceFromMetadata,
   writeNamespaceToMetadata,
 } from './knowledge-namespace.js';
+import type { SessionReplayBundle } from '../operations/session-replay.js';
 import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
 
 type Queryable = Pool | PoolClient;
@@ -1294,6 +1295,54 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rows[0] ? mapAgentSessionRow(result.rows[0]) : undefined;
   }
 
+  async writeSessionReplay(bundle: SessionReplayBundle): Promise<void> {
+    await this.pool.query(
+      `
+        INSERT INTO agent_session_replays (
+          session_id, recorded_at, classifier, source_candidates, fusion_order,
+          rerank_deltas, adjustments, context_fit, pack, timings
+        )
+        VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb)
+        ON CONFLICT (session_id) DO UPDATE SET
+          recorded_at = EXCLUDED.recorded_at,
+          classifier = EXCLUDED.classifier,
+          source_candidates = EXCLUDED.source_candidates,
+          fusion_order = EXCLUDED.fusion_order,
+          rerank_deltas = EXCLUDED.rerank_deltas,
+          adjustments = EXCLUDED.adjustments,
+          context_fit = EXCLUDED.context_fit,
+          pack = EXCLUDED.pack,
+          timings = EXCLUDED.timings
+      `,
+      [
+        bundle.sessionId,
+        bundle.recordedAt ?? new Date().toISOString(),
+        JSON.stringify(bundle.classifier),
+        JSON.stringify(bundle.sourceCandidates),
+        JSON.stringify(bundle.fusionOrder),
+        JSON.stringify(bundle.rerankDeltas),
+        JSON.stringify(bundle.adjustments),
+        JSON.stringify(bundle.contextFit),
+        JSON.stringify(bundle.pack),
+        JSON.stringify(bundle.timings),
+      ],
+    );
+  }
+
+  async readSessionReplay(sessionId: string): Promise<SessionReplayBundle | null> {
+    const result = await this.pool.query(
+      `
+        SELECT session_id, recorded_at, classifier, source_candidates, fusion_order,
+          rerank_deltas, adjustments, context_fit, pack, timings
+        FROM agent_session_replays
+        WHERE session_id = $1
+      `,
+      [sessionId],
+    );
+
+    return result.rows[0] ? mapSessionReplayRow(result.rows[0]) : null;
+  }
+
   async finishAgentSession(input: FinishAgentSessionInput & {
     reflectionDraftIds?: string[];
   }): Promise<AgentSession | undefined> {
@@ -2381,6 +2430,21 @@ function mapAgentSessionRow(row: Record<string, unknown>, project?: string): Age
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
     finishedAt: row.finished_at ? toIso(row.finished_at) : undefined,
+  };
+}
+
+function mapSessionReplayRow(row: Record<string, unknown>): SessionReplayBundle {
+  return {
+    sessionId: String(row.session_id),
+    recordedAt: row.recorded_at ? toIso(row.recorded_at) : undefined,
+    classifier: (row.classifier ?? {}) as Record<string, unknown>,
+    sourceCandidates: (row.source_candidates ?? {}) as SessionReplayBundle['sourceCandidates'],
+    fusionOrder: (row.fusion_order ?? []) as SessionReplayBundle['fusionOrder'],
+    rerankDeltas: (row.rerank_deltas ?? []) as SessionReplayBundle['rerankDeltas'],
+    adjustments: (row.adjustments ?? []) as SessionReplayBundle['adjustments'],
+    contextFit: row.context_fit as SessionReplayBundle['contextFit'],
+    pack: row.pack as SessionReplayBundle['pack'],
+    timings: row.timings as SessionReplayBundle['timings'],
   };
 }
 

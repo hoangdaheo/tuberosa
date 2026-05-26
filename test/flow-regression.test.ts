@@ -14,6 +14,7 @@ import { MaintenanceService } from '../src/maintenance/service.js';
 import { handleMcpRequest } from '../src/mcp/server.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { OperationsService } from '../src/operations/service.js';
+import { SessionReplayService } from '../src/operations/session-replay.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { KnowledgeSafetyService } from '../src/security/knowledge-safety.js';
@@ -47,6 +48,7 @@ const config: AppConfig = {
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
   errorLogCaptureClientErrors: false,
+  persistReplay: false,
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
@@ -259,7 +261,8 @@ function createTestServices(): AppServices {
   const ingestion = new IngestionService(store, models, { safety });
   const retrieval = new RetrievalService(store, cache, models, config, safety);
   const reflection = new ReflectionService(store, ingestion, safety);
-  const agentSessions = new AgentSessionService(store, retrieval, reflection);
+  const sessionReplay = new SessionReplayService(store);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection, sessionReplay, config);
   const operations = new OperationsService(store, ingestion);
   const errorLogs = new ErrorLogService({ rootDir: config.errorLogDir, safety });
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
@@ -275,6 +278,7 @@ function createTestServices(): AppServices {
     retrieval,
     reflection,
     agentSessions,
+    sessionReplay,
     operations,
     errorLogs,
     errorLogInsights,

@@ -1,0 +1,680 @@
+@import './tokens.css';
+
+/* ---------------------------------------------------------------------------
+   Reset / base
+   --------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Atmosphere — one warm radial wash + a faint grain. No animation. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 18% 0%, rgba(212, 165, 116, 0.08), transparent 55%),
+    radial-gradient(80% 60% at 100% 110%, rgba(196, 106, 77, 0.06), transparent 60%);
+  z-index: 0;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.85  0 0 0 0 0.78  0 0 0 0 0.65  0 0 0 0.4 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  z-index: 0;
+}
+
+/* Make sure real content stacks above the atmosphere. */
+.workbench-shell,
+.toasts-root,
+.auto-tour {
+  position: relative;
+  z-index: 1;
+}
+
+::selection {
+  background: var(--copper);
+  color: var(--ink-0);
+}
+
+a {
+  color: var(--copper);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--anim-quick), color var(--anim-quick);
+}
+
+a:hover {
+  border-bottom-color: var(--copper);
+}
+
+/* ---------------------------------------------------------------------------
+   Shell — sticky rail + content column
+   --------------------------------------------------------------------------- */
+
+.workbench-shell {
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.workbench-shell > main {
+  min-width: 0;
+  /* Reserve room above the first chapter for the fixed-position tour. */
+  padding-top: var(--space-7);
+}
+
+.progress-rail {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  border-right: var(--hairline);
+  padding: var(--space-5) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: linear-gradient(180deg, rgba(11, 9, 7, 0.6), rgba(11, 9, 7, 0) 30%);
+  backdrop-filter: blur(2px);
+}
+
+.progress-rail ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.progress-rail a {
+  display: grid;
+  place-items: center;
+  padding: var(--space-2) 0;
+  margin: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--paper-3);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  border-bottom: 0;
+  transition: color var(--anim-quick), background var(--anim-quick);
+}
+
+.progress-rail a strong {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.progress-rail a:hover {
+  color: var(--paper-1);
+  background: var(--ink-1);
+}
+
+.progress-rail a[aria-current="true"] {
+  color: var(--copper);
+  background: linear-gradient(90deg, rgba(212, 165, 116, 0.12), transparent);
+}
+
+.progress-rail a[aria-current="true"]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 2px;
+  height: 24px;
+  background: var(--copper);
+  border-radius: 0 2px 2px 0;
+}
+
+.progress-rail a {
+  position: relative;
+}
+
+/* ---------------------------------------------------------------------------
+   Chapter rhythm
+   --------------------------------------------------------------------------- */
+
+.chapter {
+  position: relative;
+  padding: var(--space-8) var(--space-7);
+  max-width: var(--content-max);
+  margin: 0 auto;
+  scroll-margin-top: var(--space-5);
+}
+
+.chapter + .chapter {
+  border-top: 1px dashed var(--ink-3);
+}
+
+.chapter h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--fs-h2);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-4);
+  color: var(--paper-0);
+  font-variation-settings: 'opsz' 144;
+  max-width: 22ch;
+}
+
+.chapter h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: var(--fs-h3);
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-3);
+  color: var(--paper-1);
+  font-variation-settings: 'opsz' 36;
+}
+
+.chapter .lead {
+  font-size: var(--fs-lead);
+  color: var(--paper-2);
+  max-width: 60ch;
+  margin: 0 0 var(--space-5);
+  line-height: 1.5;
+}
+
+.chapter::before {
+  content: attr(data-numeral);
+  position: absolute;
+  top: var(--space-7);
+  right: var(--space-7);
+  font-family: var(--font-display);
+  font-size: var(--fs-numeral);
+  line-height: 1;
+  font-weight: 300;
+  font-variation-settings: 'opsz' 144;
+  color: var(--ink-3);
+  letter-spacing: -0.04em;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Card primitive
+   --------------------------------------------------------------------------- */
+
+.card {
+  background: var(--bg-elev);
+  border: var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-rest);
+  color: var(--paper-0);
+  transition: border-color var(--anim-quick), background var(--anim-quick),
+              box-shadow var(--anim-quick), transform var(--anim-quick);
+}
+
+button.card,
+a.card {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  color: var(--paper-0);
+  font-family: var(--font-sans);
+}
+
+button.card:hover,
+a.card:hover {
+  background: var(--ink-2);
+  border-color: var(--copper-deep);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-1px);
+}
+
+button.card[aria-pressed="true"],
+button.card[data-selected="true"] {
+  border-color: var(--copper);
+  background: linear-gradient(180deg, rgba(212, 165, 116, 0.08), rgba(212, 165, 116, 0));
+}
+
+/* ---------------------------------------------------------------------------
+   Pill / chip
+   --------------------------------------------------------------------------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(212, 165, 116, 0.12);
+  color: var(--copper);
+  font-family: var(--font-mono);
+  font-size: var(--fs-overline);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  border: 1px solid rgba(212, 165, 116, 0.16);
+  line-height: 1.4;
+}
+
+.pill[data-tone="warm"] {
+  background: rgba(196, 106, 77, 0.14);
+  color: var(--terracotta);
+  border-color: rgba(196, 106, 77, 0.22);
+}
+
+.pill[data-tone="bad"] {
+  background: rgba(199, 93, 75, 0.16);
+  color: var(--rust);
+  border-color: rgba(199, 93, 75, 0.24);
+}
+
+.pill[data-tone="good"] {
+  background: rgba(143, 174, 126, 0.14);
+  color: var(--sage);
+  border-color: rgba(143, 174, 126, 0.22);
+}
+
+.pill[data-tone="neutral"] {
+  background: var(--ink-2);
+  color: var(--paper-1);
+  border-color: var(--line);
+}
+
+/* ---------------------------------------------------------------------------
+   Buttons
+   --------------------------------------------------------------------------- */
+
+button {
+  font-family: var(--font-sans);
+  color: var(--paper-0);
+}
+
+button.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--copper);
+  color: var(--ink-0);
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 10px 18px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background var(--anim-quick), transform var(--anim-quick),
+              box-shadow var(--anim-quick);
+  box-shadow: 0 1px 0 rgba(255, 240, 220, 0.18) inset,
+              0 8px 22px -10px rgba(212, 165, 116, 0.55);
+}
+
+button.primary:hover {
+  background: var(--vellum);
+  transform: translateY(-1px);
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 9px 16px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
+  cursor: pointer;
+  transition: border-color var(--anim-quick), color var(--anim-quick),
+              background var(--anim-quick);
+}
+
+button.ghost:hover {
+  border-color: var(--copper-deep);
+  color: var(--paper-0);
+  background: var(--ink-1);
+}
+
+/* ---------------------------------------------------------------------------
+   Code / kbd
+   --------------------------------------------------------------------------- */
+
+.code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--ink-2);
+  color: var(--vellum);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--line);
+  font-weight: 500;
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  background: var(--ink-0);
+  border: var(--hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow: auto;
+  color: var(--paper-1);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-overline);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  padding: 1px 6px;
+  color: var(--paper-1);
+  background: var(--ink-1);
+}
+
+/* ---------------------------------------------------------------------------
+   Form controls
+   --------------------------------------------------------------------------- */
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input:not([type]) {
+  width: 100%;
+  background: var(--ink-0);
+  color: var(--paper-0);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
+  transition: border-color var(--anim-quick), background var(--anim-quick);
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--copper);
+  background: var(--ink-1);
+  box-shadow: 0 0 0 3px rgba(212, 165, 116, 0.12);
+}
+
+label {
+  display: block;
+  font-size: var(--fs-overline);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper-2);
+  margin-bottom: var(--space-1);
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
+details > summary {
+  cursor: pointer;
+  color: var(--paper-1);
+  font-family: var(--font-sans);
+  padding: var(--space-3) var(--space-4);
+  background: var(--ink-1);
+  border: var(--hairline);
+  border-radius: var(--radius-md);
+  list-style: none;
+  transition: border-color var(--anim-quick), background var(--anim-quick);
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details > summary::before {
+  content: '⏵';
+  display: inline-block;
+  margin-right: var(--space-2);
+  color: var(--copper);
+  transition: transform var(--anim-quick);
+}
+
+details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+details > summary:hover {
+  border-color: var(--copper-deep);
+  background: var(--ink-2);
+}
+
+/* ---------------------------------------------------------------------------
+   Animation
+   --------------------------------------------------------------------------- */
+
+.fade-in {
+  animation: fadeIn var(--anim-med) both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Graph container
+   --------------------------------------------------------------------------- */
+
+.graph-canvas {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 460px;
+  border: var(--hairline);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(212, 165, 116, 0.05), transparent 60%),
+    var(--ink-1);
+  overflow: hidden;
+  contain: strict;
+}
+
+.graph-canvas[data-loading="true"]::after {
+  content: 'rendering graph…';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--paper-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  letter-spacing: 0.06em;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Two-column chapter layout helpers
+   --------------------------------------------------------------------------- */
+
+.split-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+.split-2 > * {
+  min-width: 0;
+}
+
+.split-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.split-3 > * {
+  min-width: 0;
+}
+
+.pipeline-graph-split {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.pipeline-graph-split > * {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .split-2,
+  .split-3,
+  .pipeline-graph-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chapter {
+    padding: var(--space-7) var(--space-4);
+  }
+  .chapter::before {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Overline / labels
+   --------------------------------------------------------------------------- */
+
+.overline {
+  font-family: var(--font-mono);
+  font-size: var(--fs-overline);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--paper-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.overline::before {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: var(--copper);
+}
+
+/* Reusable horizontal stack for chip rows. */
+.row-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+   Fixed floating UI (DemoToggle / AutoTour container)
+   --------------------------------------------------------------------------- */
+
+.auto-tour {
+  position: fixed;
+  top: var(--space-3);
+  right: var(--space-4);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: rgba(11, 9, 7, 0.78);
+  backdrop-filter: blur(8px);
+  border: var(--hairline);
+  border-radius: 999px;
+  padding: 6px 6px 6px 16px;
+  box-shadow: 0 12px 30px -16px rgba(0, 0, 0, 0.6);
+}
+
+.auto-tour .caption {
+  font-size: var(--fs-overline);
+  letter-spacing: 0.08em;
+  color: var(--paper-2);
+  max-width: 38ch;
+  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
+.demo-toggle {
+  position: fixed;
+  top: var(--space-3);
+  left: calc(var(--rail-width) + var(--space-4));
+  z-index: 39;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-overline);
+  font-family: var(--font-mono);
+  color: var(--paper-2);
+  background: rgba(11, 9, 7, 0.78);
+  backdrop-filter: blur(8px);
+  border: var(--hairline);
+  border-radius: 999px;
+  padding: 4px 4px 4px 12px;
+}
+
+.demo-toggle button.ghost {
+  padding: 4px 10px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------------------
+   Toasts
+   --------------------------------------------------------------------------- */
+
+.toasts-root {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: 50;
+}
+
+.toasts-root .card {
+  min-width: 240px;
+}

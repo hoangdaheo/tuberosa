@@ -1,0 +1,116 @@
+{
+  "classifier": {
+    "symbols": [
+      "PaywallService"
+    ],
+    "errors": [],
+    "files": [
+      "src/billing/paywall.ts"
+    ],
+    "businessAreas": [
+      "billing",
+      "paywall"
+    ],
+    "technologies": [],
+    "taskType": "unknown"
+  },
+  "timings": {
+    "totalMs": 25,
+    "stageMs": {
+      "classification": 1,
+      "rewriteProbe": 1,
+      "rewrite": 0,
+      "contextQuery": 0,
+      "worktree": 1,
+      "metadata": 1,
+      "lexical": 0,
+      "memory": 0,
+      "vector": 0,
+      "graph": 0,
+      "fusion": 1,
+      "rerank": 0,
+      "fit": 2,
+      "assembly": 3,
+      "save": 0,
+      "total": 15
+    }
+  },
+  "pack": {
+    "essential": [
+      {
+        "id": "5b188790-499b-49ee-ae44-019ee43a9c32",
+        "title": "PaywallService in src/billing/paywall.ts",
+        "tokens": 95
+      },
+      {
+        "id": "762f2e61-eda9-4b35-b7f0-b4332d15665d",
+        "title": "paywallGuard middleware in src/billing/paywall.ts",
+        "tokens": 77
+      },
+      {
+        "id": "e3fc5529-5ad6-4c17-8a36-6d17b210ab03",
+        "title": "Testing conventions — src/billing/ test patterns in test/billing/",
+        "tokens": 198
+      },
+      {
+        "id": "c96598eb-9ae5-419d-a9ea-ab0308ce460c",
+        "title": "FeatureRegistry in src/billing/features.ts",
+        "tokens": 70
+      }
+    ],
+    "supporting": [
+      {
+        "id": "7c88e656-1939-42c7-8fdf-fb13946432bb",
+        "title": "SubscriptionService in src/billing/subscription-service.ts",
+        "tokens": 54
+      },
+      {
+        "id": "3bab69a4-64d3-4888-b971-82e07d7bc58c",
+        "title": "Subscription tier spec for src/billing/tiers.ts — adding new tiers",
+        "tokens": 118
+      },
+      {
+        "id": "739351b2-a223-45c2-bf98-7590f6431965",
+        "title": "Correct email ad tag encoding in src/marketing/liveintent.ts",
+        "tokens": 84
+      },
+      {
+        "id": "1d5b5904-1fd0-4a2f-9bd9-6770b312fd29",
+        "title": "TokenService in src/auth/token-service.ts",
+        "tokens": 49
+      },
+      {
+        "id": "8c604c4e-8660-4f4e-8d0e-f3801c206eb3",
+        "title": "Lesson: agent missed migration step — always run migrate before deploy",
+        "tokens": 96
+      },
+      {
+        "id": "2ffb4d19-5876-490f-b5f4-8cc7a51c64e0",
+        "title": "AuthMiddleware in src/middleware/auth.ts",
+        "tokens": 74
+      }
+    ],
+    "optional": [
+      {
+        "id": "c640cc15-8654-4170-b0ed-1d0ca69ba3e5",
+        "title": "UserService in src/users/user-service.ts",
+        "tokens": 52
+      }
+    ]
+  },
+  "contextFit": {
+    "fitStatus": "ready",
+    "missingSignals": []
+  },
+  "sourceCounts": {
+    "metadata": 18,
+    "lexical": 18,
+    "memory": 4,
+    "vector": 18,
+    "graph": 5,
+    "worktree": 0,
+    "fusion": 20,
+    "rerank": 20,
+    "fit": 20
+  }
+}

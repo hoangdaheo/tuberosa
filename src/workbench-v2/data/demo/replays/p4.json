@@ -1,0 +1,68 @@
+{
+  "classifier": {
+    "symbols": [
+      "AuthMiddleware"
+    ],
+    "errors": [],
+    "files": [
+      "src/middleware/auth.ts"
+    ],
+    "businessAreas": [
+      "auth"
+    ],
+    "technologies": [],
+    "taskType": "refactor"
+  },
+  "timings": {
+    "totalMs": 22,
+    "stageMs": {
+      "classification": 0,
+      "rewriteProbe": 2,
+      "rewrite": 0,
+      "contextQuery": 0,
+      "worktree": 1,
+      "metadata": 1,
+      "lexical": 0,
+      "memory": 0,
+      "vector": 0,
+      "graph": 0,
+      "fusion": 0,
+      "rerank": 0,
+      "fit": 4,
+      "assembly": 1,
+      "save": 0,
+      "total": 13
+    }
+  },
+  "pack": {
+    "essential": [
+      {
+        "id": "2ffb4d19-5876-490f-b5f4-8cc7a51c64e0",
+        "title": "AuthMiddleware in src/middleware/auth.ts",
+        "tokens": 74
+      },
+      {
+        "id": "739351b2-a223-45c2-bf98-7590f6431965",
+        "title": "Correct email ad tag encoding in src/marketing/liveintent.ts",
+        "tokens": 84
+      }
+    ],
+    "supporting": [],
+    "optional": []
+  },
+  "contextFit": {
+    "fitStatus": "ready",
+    "missingSignals": []
+  },
+  "sourceCounts": {
+    "metadata": 5,
+    "lexical": 5,
+    "memory": 0,
+    "vector": 18,
+    "graph": 5,
+    "worktree": 0,
+    "fusion": 19,
+    "rerank": 19,
+    "fit": 19
+  }
+}

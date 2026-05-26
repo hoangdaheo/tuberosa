@@ -44,7 +44,7 @@ import {
   validateStartAgentSessionInput,
   validateWorkbenchSummaryInput,
 } from '../validation.js';
-import { readWorkbenchAsset, workbenchHtml } from './workbench.js';
+import { readWorkbenchAsset, workbenchHtml } from './workbench-v2.js';
 
 type RouteParams = Record<string, string>;
 type RouteMatcher = (url: URL) => RouteParams | undefined;
@@ -520,6 +520,18 @@ function createRoutes(): HttpRoute[] {
       method: 'GET',
       match: exactPath('/operations/workbench/summary'),
       handle: ({ services, url }) => buildWorkbenchSummary(services, readWorkbenchSummaryOptions(url)),
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/operations\/workbench\/session\/([^/]+)\/replay$/, ['id']),
+      handle: async ({ services, params }) => {
+        const bundle = await services.sessionReplay.readReplay(params.id);
+        if (!bundle) {
+          throw new NotFoundError('replay not found');
+        }
+
+        return bundle;
+      },
     },
     {
       method: 'POST',

@@ -1,0 +1,108 @@
+{
+  "classifier": {
+    "symbols": [],
+    "errors": [],
+    "files": [
+      "src/billing/tiers.ts"
+    ],
+    "businessAreas": [
+      "billing",
+      "subscription"
+    ],
+    "technologies": [],
+    "taskType": "implementation"
+  },
+  "timings": {
+    "totalMs": 25,
+    "stageMs": {
+      "classification": 1,
+      "rewriteProbe": 1,
+      "rewrite": 0,
+      "contextQuery": 0,
+      "worktree": 0,
+      "metadata": 0,
+      "lexical": 0,
+      "memory": 0,
+      "vector": 0,
+      "graph": 0,
+      "fusion": 2,
+      "rerank": 0,
+      "fit": 3,
+      "assembly": 1,
+      "save": 0,
+      "total": 17
+    }
+  },
+  "pack": {
+    "essential": [
+      {
+        "id": "3bab69a4-64d3-4888-b971-82e07d7bc58c",
+        "title": "Subscription tier spec for src/billing/tiers.ts — adding new tiers",
+        "tokens": 118
+      },
+      {
+        "id": "5b188790-499b-49ee-ae44-019ee43a9c32",
+        "title": "PaywallService in src/billing/paywall.ts",
+        "tokens": 95
+      },
+      {
+        "id": "7c88e656-1939-42c7-8fdf-fb13946432bb",
+        "title": "SubscriptionService in src/billing/subscription-service.ts",
+        "tokens": 54
+      },
+      {
+        "id": "c96598eb-9ae5-419d-a9ea-ab0308ce460c",
+        "title": "FeatureRegistry in src/billing/features.ts",
+        "tokens": 70
+      }
+    ],
+    "supporting": [
+      {
+        "id": "69af190d-45f8-4063-838d-eed8c07d146d",
+        "title": "InvoiceService in src/billing/invoice-service.ts",
+        "tokens": 48
+      },
+      {
+        "id": "e3fc5529-5ad6-4c17-8a36-6d17b210ab03",
+        "title": "Testing conventions — src/billing/ test patterns in test/billing/",
+        "tokens": 198
+      },
+      {
+        "id": "739351b2-a223-45c2-bf98-7590f6431965",
+        "title": "Correct email ad tag encoding in src/marketing/liveintent.ts",
+        "tokens": 84
+      },
+      {
+        "id": "2ffb4d19-5876-490f-b5f4-8cc7a51c64e0",
+        "title": "AuthMiddleware in src/middleware/auth.ts",
+        "tokens": 74
+      },
+      {
+        "id": "1d5b5904-1fd0-4a2f-9bd9-6770b312fd29",
+        "title": "TokenService in src/auth/token-service.ts",
+        "tokens": 49
+      },
+      {
+        "id": "c640cc15-8654-4170-b0ed-1d0ca69ba3e5",
+        "title": "UserService in src/users/user-service.ts",
+        "tokens": 52
+      }
+    ],
+    "optional": []
+  },
+  "contextFit": {
+    "fitStatus": "ready",
+    "missingSignals": []
+  },
+  "sourceCounts": {
+    "metadata": 18,
+    "lexical": 18,
+    "memory": 4,
+    "vector": 18,
+    "graph": 5,
+    "worktree": 0,
+    "fusion": 21,
+    "rerank": 21,
+    "fit": 21
+  }
+}

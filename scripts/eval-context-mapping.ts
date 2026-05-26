@@ -58,6 +58,7 @@ const defaultConfig: AppConfig = {
   errorLogMaxBytes: 256 * 1024,
   errorLogAutoCapture: true,
   errorLogCaptureClientErrors: false,
+  persistReplay: false,
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,

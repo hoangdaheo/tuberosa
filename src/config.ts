@@ -39,6 +39,7 @@ export interface AppConfig {
   errorLogMaxBytes: number;
   errorLogAutoCapture: boolean;
   errorLogCaptureClientErrors: boolean;
+  persistReplay: boolean;
   /** Phase 5 — when true, the worktree provider runs as a 6th retrieval source. */
   worktreeEnabled: boolean;
   /** Phase 5 — hard cap on files surfaced from the worktree per query. */
@@ -87,6 +88,7 @@ export function loadConfig(): AppConfig {
     errorLogMaxBytes: Number(process.env.TUBEROSA_ERROR_LOG_MAX_BYTES ?? 256 * 1024),
     errorLogAutoCapture: readBoolean(process.env.TUBEROSA_ERROR_LOG_AUTO_CAPTURE, true),
     errorLogCaptureClientErrors: readBoolean(process.env.TUBEROSA_ERROR_LOG_CAPTURE_CLIENT_ERRORS, false),
+    persistReplay: readBoolean(process.env.TUBEROSA_PERSIST_REPLAY, false),
     worktreeEnabled: readBoolean(process.env.TUBEROSA_WORKTREE_ENABLED, true),
     worktreeMaxFiles: Number(process.env.TUBEROSA_WORKTREE_MAX_FILES ?? 50),
     worktreeMaxMtimeAgeHours: Number(process.env.TUBEROSA_WORKTREE_MAX_MTIME_AGE_HOURS ?? 72),

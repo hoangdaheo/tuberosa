@@ -8,9 +8,21 @@ importers:
 
   .:
     dependencies:
+      '@motionone/dom':
+        specifier: ^10.18.0
+        version: 10.18.0
       '@preact/signals':
         specifier: ^2.9.0
         version: 2.9.0(preact@10.29.2)
+      cytoscape:
+        specifier: ^3.33.4
+        version: 3.33.4
+      cytoscape-cose-bilkent:
+        specifier: ^4.1.0
+        version: 4.1.0(cytoscape@3.33.4)
+      cytoscape-dagre:
+        specifier: ^3.0.0
+        version: 3.0.0(cytoscape@3.33.4)
       lucide-preact:
         specifier: ^1.16.0
         version: 1.16.0(preact@10.29.2)
@@ -24,6 +36,9 @@ importers:
         specifier: ^4.7.0
         version: 4.7.1
     devDependencies:
+      '@types/cytoscape':
+        specifier: ^3.31.0
+        version: 3.31.0
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.19
@@ -44,6 +59,12 @@ importers:
         version: 5.9.3
 
 packages:
+
+  '@dagrejs/dagre@3.0.0':
+    resolution: {integrity: sha512-ZzhnTy1rfuoew9Ez3EIw4L2znPGnYYhfn8vc9c4oB8iw6QAsszbiU0vRhlxWPFnmmNSFAkrYeF1PhM5m4lAN0Q==}
+
+  '@dagrejs/graphlib@4.0.1':
+    resolution: {integrity: sha512-IvcV6FduIIAmLwnH+yun+QtV36SC7mERqa86aClNqmMN09WhmPPYU8ckHrZBozErf+UvHPWOTJYaGYiIcs0DgA==}
 
   '@esbuild/aix-ppc64@0.28.0':
     resolution: {integrity: sha512-lhRUCeuOyJQURhTxl4WkpFTjIsbDayJHih5kZC1giwE+MhIzAb7mEsQMqMf18rHLsrb5qI1tafG20mLxEWcWlA==}
@@ -201,6 +222,24 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@motionone/animation@10.18.0':
+    resolution: {integrity: sha512-9z2p5GFGCm0gBsZbi8rVMOAJCtw1WqBTIPw3ozk06gDvZInBPIsQcHgYogEJ4yuHJ+akuW8g1SEIOpTOvYs8hw==}
+
+  '@motionone/dom@10.18.0':
+    resolution: {integrity: sha512-bKLP7E0eyO4B2UaHBBN55tnppwRnaE3KFfh3Ps9HhnAkar3Cb69kUCJY9as8LrccVYKgHA+JY5dOQqJLOPhF5A==}
+
+  '@motionone/easing@10.18.0':
+    resolution: {integrity: sha512-VcjByo7XpdLS4o9T8t99JtgxkdMcNWD3yHU/n6CLEz3bkmKDRZyYQ/wmSf6daum8ZXqfUAgFeCZSpJZIMxaCzg==}
+
+  '@motionone/generators@10.18.0':
+    resolution: {integrity: sha512-+qfkC2DtkDj4tHPu+AFKVfR/C30O1vYdvsGYaR13W/1cczPrrcjdvYCj0VLFuRMN+lP1xvpNZHCRNM4fBzn1jg==}
+
+  '@motionone/types@10.17.1':
+    resolution: {integrity: sha512-KaC4kgiODDz8hswCrS0btrVrzyU2CSQKO7Ps90ibBVSQmjkrt2teqta6/sOG59v7+dPnKMAg13jyqtMKV2yJ7A==}
+
+  '@motionone/utils@10.18.0':
+    resolution: {integrity: sha512-3XVF7sgyTSI2KWvTf6uLlBJ5iAgRgmvp3bpuOiQJvInd4nZ19ET8lX5unn30SlmRH7hXbBbH+Gxd0m0klJ3Xtw==}
+
   '@preact/signals-core@1.14.2':
     resolution: {integrity: sha512-RZHdBj9ZF4n40Rp4jS052EHHjBWf96P9oNdXPfhQTovCuWY9iQn3Gq+gOTJSgBO9A/JBuPfMOWsSX/lIU9Pc/A==}
 
@@ -238,6 +277,10 @@ packages:
     peerDependencies:
       '@redis/client': ^1.0.0
 
+  '@types/cytoscape@3.31.0':
+    resolution: {integrity: sha512-EXHOHxqQjGxLDEh5cP4te6J0bi7LbCzmZkzsR6f703igUac8UGMdEohMyU3GHAayCTZrLQOMnaE/lqB2Ekh8Ww==}
+    deprecated: This is a stub types definition. cytoscape provides its own type definitions, so you do not need this installed.
+
   '@types/node@22.19.19':
     resolution: {integrity: sha512-dyh/xO2Fh5bYrfWaaqGrRQQGkNdmYw6AmaAUvYeUMNTWQtvb796ikLdmTchRmOlOiIJ1TDXfWgVx1QkUlQ6Hew==}
 
@@ -247,6 +290,23 @@ packages:
   cluster-key-slot@1.1.2:
     resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
     engines: {node: '>=0.10.0'}
+
+  cose-base@1.0.3:
+    resolution: {integrity: sha512-s9whTXInMSgAp/NVXVNuVxVKzGH2qck3aQlVHxDCdAEPgtMKwc4Wq6/QKhgdEdgbLSi9rBTAcPoRa6JpiG4ksg==}
+
+  cytoscape-cose-bilkent@4.1.0:
+    resolution: {integrity: sha512-wgQlVIUJF13Quxiv5e1gstZ08rnZj2XaLHGoFMYXz7SkNfCDOOteKBE6SYRfA9WxxI/iBc3ajfDoc6hb/MRAHQ==}
+    peerDependencies:
+      cytoscape: ^3.2.0
+
+  cytoscape-dagre@3.0.0:
+    resolution: {integrity: sha512-SsQoCLMFfbMJU1Ouuvds8hJ4gZGLoxCu0KcaHYtd+ieXZVd6UyVEpwEoASM6eBJV0tjJxoWfj29/qrZj73OSKA==}
+    peerDependencies:
+      cytoscape: ^3.2.22
+
+  cytoscape@3.33.4:
+    resolution: {integrity: sha512-HIN5Pmd9MrX9BkV7tDwnOcEJCSFvCpc8X97h3f508J6I5FsqAY65wKOCvgH2CuP42CaahWaz4tuh32SOOIH7ww==}
+    engines: {node: '>=0.10'}
 
   esbuild@0.28.0:
     resolution: {integrity: sha512-sNR9MHpXSUV/XB4zmsFKN+QgVG82Cc7+/aaxJ8Adi8hyOac+EXptIp45QBPaVyX3N70664wRbTcLTOemCAnyqw==}
@@ -261,6 +321,12 @@ packages:
   generic-pool@3.9.0:
     resolution: {integrity: sha512-hymDOu5B53XvN4QT9dBmZxPX4CWhBPPLguTZ9MMFeFa/Kg0xWVfylOVNlJji/E7yTZWFd/q9GO5TxDLq156D7g==}
     engines: {node: '>= 4'}
+
+  hey-listen@1.0.8:
+    resolution: {integrity: sha512-COpmrF2NOg4TBWUJ5UVyaCU2A88wEMkUPK4hNqyCkqHbxT92BbvfjoSozkAIIm6XhicGlJHhFdullInrdhwU8Q==}
+
+  layout-base@1.0.2:
+    resolution: {integrity: sha512-8h2oVEZNktL4BH2JCOI90iD1yXwL6iNW7KcCKT2QZgQJR2vbqDsldCTPRU9NifTCqHZci57XvQQ15YTu+sTYPg==}
 
   lucide-preact@1.16.0:
     resolution: {integrity: sha512-Sa1XSig6iWCFhdrqS+vT1EFJH4Yos2Q7H/EMawql1K+D9qjNRzjMutPySak0iMYto6PneHYAWoxnDBBlryjngw==}
@@ -332,6 +398,9 @@ packages:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
 
+  tslib@2.8.1:
+    resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
+
   tsx@4.22.0:
     resolution: {integrity: sha512-8ccZMPD69s1AbKXx0C5ddTNZfNjwV04iIKgjZmKfKxMynEtSYcK0Lh7iQFh53fI5Yu4pb9usgAiqyPmEONaALg==}
     engines: {node: '>=18.0.0'}
@@ -353,6 +422,12 @@ packages:
     resolution: {integrity: sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==}
 
 snapshots:
+
+  '@dagrejs/dagre@3.0.0':
+    dependencies:
+      '@dagrejs/graphlib': 4.0.1
+
+  '@dagrejs/graphlib@4.0.1': {}
 
   '@esbuild/aix-ppc64@0.28.0':
     optional: true
@@ -432,6 +507,41 @@ snapshots:
   '@esbuild/win32-x64@0.28.0':
     optional: true
 
+  '@motionone/animation@10.18.0':
+    dependencies:
+      '@motionone/easing': 10.18.0
+      '@motionone/types': 10.17.1
+      '@motionone/utils': 10.18.0
+      tslib: 2.8.1
+
+  '@motionone/dom@10.18.0':
+    dependencies:
+      '@motionone/animation': 10.18.0
+      '@motionone/generators': 10.18.0
+      '@motionone/types': 10.17.1
+      '@motionone/utils': 10.18.0
+      hey-listen: 1.0.8
+      tslib: 2.8.1
+
+  '@motionone/easing@10.18.0':
+    dependencies:
+      '@motionone/utils': 10.18.0
+      tslib: 2.8.1
+
+  '@motionone/generators@10.18.0':
+    dependencies:
+      '@motionone/types': 10.17.1
+      '@motionone/utils': 10.18.0
+      tslib: 2.8.1
+
+  '@motionone/types@10.17.1': {}
+
+  '@motionone/utils@10.18.0':
+    dependencies:
+      '@motionone/types': 10.17.1
+      hey-listen: 1.0.8
+      tslib: 2.8.1
+
   '@preact/signals-core@1.14.2': {}
 
   '@preact/signals@2.9.0(preact@10.29.2)':
@@ -465,6 +575,10 @@ snapshots:
     dependencies:
       '@redis/client': 1.6.1
 
+  '@types/cytoscape@3.31.0':
+    dependencies:
+      cytoscape: 3.33.4
+
   '@types/node@22.19.19':
     dependencies:
       undici-types: 6.21.0
@@ -476,6 +590,22 @@ snapshots:
       pg-types: 2.2.0
 
   cluster-key-slot@1.1.2: {}
+
+  cose-base@1.0.3:
+    dependencies:
+      layout-base: 1.0.2
+
+  cytoscape-cose-bilkent@4.1.0(cytoscape@3.33.4):
+    dependencies:
+      cose-base: 1.0.3
+      cytoscape: 3.33.4
+
+  cytoscape-dagre@3.0.0(cytoscape@3.33.4):
+    dependencies:
+      '@dagrejs/dagre': 3.0.0
+      cytoscape: 3.33.4
+
+  cytoscape@3.33.4: {}
 
   esbuild@0.28.0:
     optionalDependencies:
@@ -510,6 +640,10 @@ snapshots:
     optional: true
 
   generic-pool@3.9.0: {}
+
+  hey-listen@1.0.8: {}
+
+  layout-base@1.0.2: {}
 
   lucide-preact@1.16.0(preact@10.29.2):
     dependencies:
@@ -574,6 +708,8 @@ snapshots:
       '@redis/time-series': 1.1.0(@redis/client@1.6.1)
 
   split2@4.2.0: {}
+
+  tslib@2.8.1: {}
 
   tsx@4.22.0:
     dependencies:
