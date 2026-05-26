@@ -203,16 +203,18 @@ function handoffText(result: AgentSessionStartResult, missing: MissingSignalGrou
 }
 
 function nextActions(status: SessionVerdictStatus): SessionNextActionView[] {
-  const actions: SessionNextActionView[] = [
+  const needsMoreContext = status === 'insufficient' || status === 'needs_confirmation';
+  return [
     { kind: 'record_decision', label: 'Record decision', tone: status === 'ready' ? 'good' : 'warn' },
+    ...(needsMoreContext
+      ? ([
+          { kind: 'ingest_missing_context', label: 'Ingest missing context', tone: 'warn' },
+          { kind: 'retry_same_task', label: 'Retry same task', tone: 'accent' },
+        ] as SessionNextActionView[])
+      : []),
     { kind: 'copy_handoff', label: 'Copy agent handoff', tone: 'accent' },
     { kind: 'finish_session', label: 'Finish session', tone: 'muted' },
   ];
-  if (status === 'insufficient' || status === 'needs_confirmation') {
-    actions.splice(1, 0, { kind: 'ingest_missing_context', label: 'Ingest missing context', tone: 'warn' });
-    actions.splice(2, 0, { kind: 'retry_same_task', label: 'Retry same task', tone: 'accent' });
-  }
-  return actions;
 }
 
 function evidenceCategoryLabel(value: RankedCandidate['evidenceCategory']): string {

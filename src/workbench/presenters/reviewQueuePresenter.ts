@@ -6,17 +6,30 @@ import type {
   WorkbenchSummary,
 } from '../types.js';
 
-const FILTERS: Array<{ key: ReviewQueueFilter; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'drafts', label: 'Drafts' },
-  { key: 'quality', label: 'Quality' },
-  { key: 'gaps', label: 'Gaps' },
-  { key: 'proposals', label: 'Proposals' },
-  { key: 'conflicts', label: 'Conflicts' },
-  { key: 'risky', label: 'Risky' },
-  { key: 'errors', label: 'Errors' },
-  { key: 'maintenance', label: 'Maintenance' },
-];
+const FILTER_TYPE: Record<Exclude<ReviewQueueFilter, 'all'>, ReviewQueueItemView['type']> = {
+  drafts: 'draft',
+  quality: 'quality',
+  gaps: 'gap',
+  proposals: 'proposal',
+  conflicts: 'conflict',
+  risky: 'risky_memory',
+  errors: 'error_log',
+  maintenance: 'maintenance',
+};
+
+const FILTER_LABEL: Record<ReviewQueueFilter, string> = {
+  all: 'All',
+  drafts: 'Drafts',
+  quality: 'Quality',
+  gaps: 'Gaps',
+  proposals: 'Proposals',
+  conflicts: 'Conflicts',
+  risky: 'Risky',
+  errors: 'Errors',
+  maintenance: 'Maintenance',
+};
+
+const FILTER_ORDER: ReviewQueueFilter[] = ['all', ...(Object.keys(FILTER_TYPE) as Array<Exclude<ReviewQueueFilter, 'all'>>)];
 
 export function presentReviewQueue(summary: WorkbenchSummary, filter: ReviewQueueFilter = 'all'): ReviewQueueViewModel {
   const allItems: ReviewQueueItemView[] = [
@@ -125,16 +138,16 @@ export function presentReviewQueue(summary: WorkbenchSummary, filter: ReviewQueu
     })),
   ].sort((a, b) => a.priority - b.priority || (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
 
-  const items = filter === 'all' ? allItems : allItems.filter((item) => filterMatches(filter, item.type));
+  const items = allItems.filter((item) => filterMatches(filter, item.type));
   return {
     activeFilter: filter,
-    filters: FILTERS.map((entry) => ({
-      key: entry.key,
-      label: entry.label,
-      count: entry.key === 'all' ? allItems.length : allItems.filter((item) => filterMatches(entry.key, item.type)).length,
+    filters: FILTER_ORDER.map((key) => ({
+      key,
+      label: FILTER_LABEL[key],
+      count: allItems.filter((item) => filterMatches(key, item.type)).length,
     })),
     items,
-    emptyTitle: filter === 'all' ? 'Nothing needs a decision' : `No ${FILTERS.find((entry) => entry.key === filter)?.label.toLowerCase()} items`,
+    emptyTitle: filter === 'all' ? 'Nothing needs a decision' : `No ${FILTER_LABEL[filter].toLowerCase()} items`,
     emptyHint: filter === 'all'
       ? 'Tuberosa will surface review work here after sessions, feedback, drafts, or maintenance scans.'
       : 'Change the filter or map a new task to create review work.',
@@ -142,16 +155,7 @@ export function presentReviewQueue(summary: WorkbenchSummary, filter: ReviewQueu
 }
 
 function filterMatches(filter: ReviewQueueFilter, type: ReviewQueueItemView['type']): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'drafts') return type === 'draft';
-  if (filter === 'quality') return type === 'quality';
-  if (filter === 'gaps') return type === 'gap';
-  if (filter === 'proposals') return type === 'proposal';
-  if (filter === 'conflicts') return type === 'conflict';
-  if (filter === 'risky') return type === 'risky_memory';
-  if (filter === 'errors') return type === 'error_log';
-  if (filter === 'maintenance') return type === 'maintenance';
-  return false;
+  return filter === 'all' || FILTER_TYPE[filter] === type;
 }
 
 function isHighSeverity(severity: string): boolean {

@@ -1,9 +1,9 @@
 import { render } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import './styles/main.css';
 import { api, getApiKey, getLimit, getProject, setApiKey, setLimit, setProject } from './state/api.js';
 import { currentRoute, ensureDefaultRoute, pushToast } from './state/store.js';
-import { presentSummary, type SummaryViewModel } from './presenters/summaryPresenter.js';
+import { presentSummary } from './presenters/summaryPresenter.js';
 import { TopNav } from './components/TopNav.js';
 import { ReadinessStrip } from './components/ReadinessStrip.js';
 import { Toasts } from './components/Toasts.js';
@@ -21,17 +21,16 @@ function App() {
   const [limit, setLimitState] = useState(getLimit());
   const [apiKey, setApiKeyState] = useState(getApiKey());
   const [summary, setSummary] = useState<WorkbenchSummary | null>(null);
-  const [summaryVM, setSummaryVM] = useState<SummaryViewModel | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeSession, setActiveSession] = useState<AgentSessionStartResult | null>(null);
   const route = currentRoute.value;
+  const summaryVM = useMemo(() => (summary ? presentSummary(summary) : null), [summary]);
 
   async function refresh() {
     setLoading(true);
     try {
       const data = await api<WorkbenchSummary>('/operations/workbench/summary', { query: { project: project || undefined, limit } });
       setSummary(data);
-      setSummaryVM(presentSummary(data));
     } catch (err) {
       pushToast(err instanceof Error ? err.message : String(err), 'bad');
     } finally {
