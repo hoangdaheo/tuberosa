@@ -753,13 +753,20 @@ git commit -m "http: serve workbench v2 bundle"
 
 ## Phase C — Shell
 
+**Status 2026-05-26:** Complete and verified on branch `feat/workbench-v2`.
+
+Audit notes:
+- `index.html` re-introduces the `/workbench/static/app.css` link now that the stylesheet exists, and `app.tsx` imports `./styles/main.css` so esbuild emits it as a sibling chunk.
+- State store guards `window`/`history`/`localStorage` so the module is safe to import from non-browser test contexts (Phase F seeded a test runner that pulls these transitively).
+- ProgressRail uses `aria-current="true"` for the active chapter and the rail's anchor links remain real `<a href="#/chN">` so hash-based deep links work without JS too.
+
 ### Task 8: Design tokens + main.css + index.html copy
 
 **Files:**
 - Create: `src/workbench-v2/styles/tokens.css`
 - Create: `src/workbench-v2/styles/main.css`
 
-- [ ] **Step 1: Write tokens.css**
+- [x] **Step 1: Write tokens.css**
 
 ```css
 :root {
@@ -793,7 +800,7 @@ git commit -m "http: serve workbench v2 bundle"
 }
 ```
 
-- [ ] **Step 2: Write main.css**
+- [x] **Step 2: Write main.css**
 
 Provides the layout grid (sticky left rail + content column + occasional right detail), chapter rhythm (each `<section.chapter>` reserves `--chapter-gap` vertical margin), shared component utility classes (`.pill`, `.card`, `.kbd`, `.code`), and `@media (prefers-reduced-motion)` overrides that disable transforms.
 
@@ -822,12 +829,12 @@ button.ghost { background:transparent; color:var(--fg); border:1px solid var(--l
 }
 ```
 
-- [ ] **Step 3: Confirm CSS gets bundled**
+- [x] **Step 3: Confirm CSS gets bundled**
 
 Run: `pnpm run build:workbench`
 Expected: `dist/workbench/app.css` exists.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/workbench-v2/styles/
@@ -844,7 +851,7 @@ git commit -m "workbench v2: design tokens + base stylesheet"
 - Create: `src/workbench-v2/state/scrollController.ts`
 - Create: `test/workbench-v2/routes.test.ts`
 
-- [ ] **Step 1: Write the failing route test**
+- [x] **Step 1: Write the failing route test**
 
 ```ts
 // test/workbench-v2/routes.test.ts
@@ -868,7 +875,7 @@ test('routeToHash', () => {
 
 Run: FAIL — module doesn't exist.
 
-- [ ] **Step 2: Implement routes.ts**
+- [x] **Step 2: Implement routes.ts**
 
 ```ts
 // src/workbench-v2/state/routes.ts
@@ -895,7 +902,7 @@ export function routeToHash(route: Route): string {
 
 Run the route test: PASS.
 
-- [ ] **Step 3: Implement store.ts (signals)**
+- [x] **Step 3: Implement store.ts (signals)**
 
 ```ts
 // src/workbench-v2/state/store.ts
@@ -931,7 +938,7 @@ if (typeof window !== 'undefined') {
 }
 ```
 
-- [ ] **Step 4: Implement scrollController.ts (chapter-in-view tracker)**
+- [x] **Step 4: Implement scrollController.ts (chapter-in-view tracker)**
 
 ```ts
 // src/workbench-v2/state/scrollController.ts
@@ -955,7 +962,7 @@ export function observeChapter(el: HTMLElement, chapter: ChapterId): () => void 
 }
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/workbench-v2/state/ test/workbench-v2/routes.test.ts
@@ -971,7 +978,7 @@ git commit -m "workbench v2: routes + signal store + scroll controller"
 - Create: `src/workbench-v2/shell/DemoToggle.tsx`
 - Create: `src/workbench-v2/shell/Toasts.tsx`
 
-- [ ] **Step 1: ProgressRail.tsx**
+- [x] **Step 1: ProgressRail.tsx**
 
 ```tsx
 import { activeChapter } from '../state/scrollController.js';
@@ -1004,7 +1011,7 @@ export function ProgressRail() {
 }
 ```
 
-- [ ] **Step 2: DemoToggle.tsx**
+- [x] **Step 2: DemoToggle.tsx**
 
 ```tsx
 import { demoMode } from '../state/store.js';
@@ -1021,7 +1028,7 @@ export function DemoToggle() {
 }
 ```
 
-- [ ] **Step 3: Toasts.tsx**
+- [x] **Step 3: Toasts.tsx**
 
 ```tsx
 import { toasts } from '../state/store.js';
@@ -1039,7 +1046,7 @@ export function Toasts() {
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/workbench-v2/shell/
@@ -1053,7 +1060,7 @@ git commit -m "workbench v2: progress rail, demo toggle, toasts"
 **Files:**
 - Create: `src/workbench-v2/shell/AutoTour.tsx`
 
-- [ ] **Step 1: Write AutoTour.tsx**
+- [x] **Step 1: Write AutoTour.tsx**
 
 ```tsx
 import { tour, setRoute, route } from '../state/store.js';
@@ -1102,7 +1109,7 @@ export function AutoTour() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/shell/AutoTour.tsx
@@ -1116,7 +1123,7 @@ git commit -m "workbench v2: auto-tour with reduced-motion fallback"
 **Files:**
 - Create: `src/workbench-v2/data/api.ts`
 
-- [ ] **Step 1: Implement api.ts**
+- [x] **Step 1: Implement api.ts**
 
 ```ts
 import { apiKey, pushToast } from '../state/store.js';
@@ -1145,7 +1152,7 @@ export async function api<T>(path: string, init: RequestInit & { query?: Record<
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/data/api.ts
@@ -1156,13 +1163,21 @@ git commit -m "workbench v2: api fetch wrapper"
 
 ## Phase D — Visualization primitives
 
+**Status 2026-05-26:** Complete and verified on branch `feat/workbench-v2`.
+
+Audit notes:
+- Pure VM logic was split out into sibling `.ts` files (`signal-chips-vm.ts`, `pipeline-flow-vm.ts`, `pack-timeline-vm.ts`) so the unit tests can be typechecked by the main `tsconfig.json` without enabling JSX everywhere; the `.tsx` components re-export the VM types/helpers for ergonomics.
+- A new `tsconfig.workbench.json` typechecks `src/workbench-v2/**` with `lib: [DOM, DOM.Iterable]` and `jsx: react-jsx` (jsxImportSource: preact). Main `tsconfig.json` excludes `src/workbench-v2/**`.
+- Cytoscape's two layout plugins lack ambient types; `src/workbench-v2/types/cytoscape-plugins.d.ts` declares them.
+- `pnpm run build` now runs both `tsc` invocations before `tsx scripts/build-workbench-v2.ts`.
+
 ### Task 13: SignalChips component + view-model
 
 **Files:**
 - Create: `src/workbench-v2/viz/SignalChips.tsx`
 - Create: `test/workbench-v2/signal-chips-vm.test.ts`
 
-- [ ] **Step 1: Write the VM test**
+- [x] **Step 1: Write the VM test**
 
 ```ts
 import test from 'node:test';
@@ -1183,7 +1198,7 @@ test('toSignalChips groups by kind and preserves order', () => {
 
 Run: FAIL.
 
-- [ ] **Step 2: Implement SignalChips.tsx + view-model**
+- [x] **Step 2: Implement SignalChips.tsx + view-model**
 
 ```tsx
 export interface ClassifierLike {
@@ -1222,7 +1237,7 @@ export function SignalChips({ chips, animate = true }: { chips: Chip[]; animate?
 
 Run: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/workbench-v2/viz/SignalChips.tsx test/workbench-v2/signal-chips-vm.test.ts
@@ -1237,7 +1252,7 @@ git commit -m "viz: signal chips + vm"
 - Create: `src/workbench-v2/viz/PipelineFlow.tsx`
 - Create: `test/workbench-v2/pipeline-vm.test.ts`
 
-- [ ] **Step 1: Write the VM test**
+- [x] **Step 1: Write the VM test**
 
 ```ts
 import test from 'node:test';
@@ -1261,7 +1276,7 @@ test('stage state derives from timings', () => {
 });
 ```
 
-- [ ] **Step 2: Implement PipelineFlow.tsx + VM**
+- [x] **Step 2: Implement PipelineFlow.tsx + VM**
 
 ```tsx
 export type StageState = 'pending'|'active'|'done'|'skipped'|'failed';
@@ -1316,7 +1331,7 @@ export function PipelineFlow({ steps, onSelect, selected }:
 
 Run: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/workbench-v2/viz/PipelineFlow.tsx test/workbench-v2/pipeline-vm.test.ts
@@ -1331,7 +1346,7 @@ git commit -m "viz: pipeline flow + vm"
 - Create: `src/workbench-v2/viz/PackTimeline.tsx`
 - Create: `test/workbench-v2/pack-timeline-vm.test.ts`
 
-- [ ] **Step 1: VM test**
+- [x] **Step 1: VM test**
 
 ```ts
 import test from 'node:test';
@@ -1350,7 +1365,7 @@ test('toPackVM totals counts and tokens', () => {
 });
 ```
 
-- [ ] **Step 2: Implement PackTimeline.tsx + VM**
+- [x] **Step 2: Implement PackTimeline.tsx + VM**
 
 ```tsx
 export interface PackItem { id: string; title: string; tokens: number; matchReasons?: string[]; }
@@ -1382,7 +1397,7 @@ export function PackTimeline({ vm }: { vm: PackVM }) {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/workbench-v2/viz/PackTimeline.tsx test/workbench-v2/pack-timeline-vm.test.ts
@@ -1398,7 +1413,7 @@ git commit -m "viz: pack timeline + vm"
 - Create: `src/workbench-v2/viz/GraphCanvas.tsx`
 - Create: `test/workbench-v2/graph-data.test.ts`
 
-- [ ] **Step 1: graph-data adapter test**
+- [x] **Step 1: graph-data adapter test**
 
 ```ts
 import test from 'node:test';
@@ -1419,7 +1434,7 @@ test('toGraphElements maps items + relations to cy elements', () => {
 });
 ```
 
-- [ ] **Step 2: Implement adapter**
+- [x] **Step 2: Implement adapter**
 
 ```ts
 // src/workbench-v2/viz/graph-data.ts
@@ -1435,7 +1450,7 @@ export function toGraphElements(input: GraphInput): CyElement[] {
 }
 ```
 
-- [ ] **Step 3: Implement GraphCanvas with dynamic import**
+- [x] **Step 3: Implement GraphCanvas with dynamic import**
 
 ```tsx
 // src/workbench-v2/viz/GraphCanvas.tsx
@@ -1485,7 +1500,7 @@ export function GraphCanvas({ input, layout = 'cose', onNodeClick, selectedNodeI
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/workbench-v2/viz/graph-data.ts src/workbench-v2/viz/GraphCanvas.tsx test/workbench-v2/graph-data.test.ts
@@ -1496,13 +1511,25 @@ git commit -m "viz: graph canvas (cytoscape lazy chunk) + adapter"
 
 ## Phase E — Chapters
 
+**Status 2026-05-26:** Complete and verified on branch `feat/workbench-v2`.
+
+Audit notes:
+- All ten chapters render through the long-scroll shell mounted by `src/workbench-v2/app.tsx`. Each chapter calls `observeChapter(el, n)` so the progress rail tracks scroll.
+- Real seeded item IDs (`cr-paywall-001`, `spec-subscription-tiers`, etc.) replaced the plan's placeholder IDs (`k-paywall-modal`) in Ch02/Ch03/Ch04/Ch06.
+- `scripts/gen-demo-replays.ts` regenerates the ten canned replay JSON files from the live `RetrievalService` against `MemoryKnowledgeStore` (mirrors the warm-up pattern in `demo-fixture.test.ts` for memory_boost prompts). Ch07 imports them via static JSON imports so esbuild inlines them.
+- Ch04's per-stage mini-graphs hard-code small subgraphs for `classify/search/fuse/rerank/adjust/fit/assemble/deep`; `receive` and `rewrite` are empty by design (no candidate output to show).
+- Ch05 reads top-level `acmeBilling.relations` (the fixture stores relations at fixture scope, not on items) and flattens structured `labels[].value` into strings for display.
+- Ch08 ships exactly the snippets from `README.md` for Claude Code, Codex, and GitHub Copilot; the Cursor card uses a typical `~/.cursor/mcp.json` shape since the README does not include a Cursor snippet to copy verbatim.
+- Ch09 starts collapsed; lazy-loads `/agent-sessions?project=<currentProject>&limit=20` on expand and re-fetches `/operations/workbench/session/:id/replay` whenever the route's `sessionId` changes, surfacing the `TUBEROSA_PERSIST_REPLAY=true` hint for 404s.
+- Ch10 starts collapsed; on expand it fetches `/operations/workbench/summary` and exposes project / API key / limit knobs that mutate the shared signal store.
+
 Each chapter is a `Ch0N_*.tsx` file exporting a default Preact component. It must render a `<section id="chN" class="chapter">…</section>` and call `observeChapter(el, N)` in a `useEffect` so the progress rail tracks scroll.
 
 ### Task 17: Ch01 — Hello
 
 **Files:** Create `src/workbench-v2/chapters/Ch01_Hello.tsx`.
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 ```tsx
 import { useEffect, useRef } from 'preact/hooks';
@@ -1541,7 +1568,7 @@ export default function Ch01_Hello() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch01_Hello.tsx
@@ -1554,7 +1581,7 @@ git commit -m "chapter 01: hello + animated agent⇄broker⇄knowledge"
 
 **Files:** Create `src/workbench-v2/chapters/Ch02_Problem.tsx`.
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 Show two `.card` columns side by side. Each holds the same fake user message and an agent reply. Left reply is generic ("I'm not sure where that lives, maybe search the repo…"). Right reply cites the seeded paywall file from `acmeBilling`. Use CSS keyframes to typewriter-reveal each reply on view. Pull the answer text from `acmeBilling` so it stays consistent with the seed.
 
@@ -1588,7 +1615,7 @@ export default function Ch02_Problem() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch02_Problem.tsx
@@ -1603,7 +1630,7 @@ git commit -m "chapter 02: without vs with comparison"
 
 Compose `SignalChips`, `PipelineFlow`, `PackTimeline` for prompt p1 (`"Where does paywall logic live?"`). Synthesize a canned classifier/timings/pack from the seeded data (no live call). Stage the animations: chips appear → pipeline steps light up one by one (use `setTimeout` to flip each step's `state` from `pending` → `done` with a ~150ms cadence; respect reduced motion by collapsing all delays to 0) → pack tiles fade in.
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 ```tsx
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -1661,7 +1688,7 @@ export default function Ch03_Anatomy() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch03_Anatomy.tsx
@@ -1687,7 +1714,7 @@ Render `PipelineFlow` driven by the same canned p1 timings, but clicking a step 
 
 Each step gets a hardcoded sub-graph derived from `acmeBilling` at module scope. Time budget: prioritize `search`, `fuse`, `assemble` looking polished; the others can be schematic.
 
-- [ ] **Step 1: Implement** (skeleton — engineer fills the 8 step→graph mappings):
+- [x] **Step 1: Implement** (skeleton — engineer fills the 8 step→graph mappings):
 
 ```tsx
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -1726,9 +1753,9 @@ export default function Ch04_Pipeline() {
 }
 ```
 
-- [ ] **Step 2: Fill in graphForStep mappings** for at least `classify`, `search`, `fuse`, `rerank`, `adjust`, `assemble`, `deep`. Each ≤ 8 nodes.
+- [x] **Step 2: Fill in graphForStep mappings** for at least `classify`, `search`, `fuse`, `rerank`, `adjust`, `assemble`, `deep`. Each ≤ 8 nodes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch04_Pipeline.tsx
@@ -1743,7 +1770,7 @@ git commit -m "chapter 04: clickable pipeline with per-stage mini graphs"
 
 Render `GraphCanvas` against `acmeBilling` (seeded) by default; if `demoMode === 'live'`, fetch `/knowledge?project=<current>` via `api()` and adapt the response into `GraphInput`. Provide filter chips: `wiki / spec / code_ref / memory` (multi-select). Provide layout toggle `cose ↔ dagre`. Selected node opens a right-side detail card with `title`, `sourceUri`, `labels`, `references`.
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 ```tsx
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
@@ -1811,7 +1838,7 @@ export default function Ch05_KnowledgeGraph() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch05_KnowledgeGraph.tsx
@@ -1826,9 +1853,9 @@ git commit -m "chapter 05: knowledge graph with filters + detail panel"
 
 Show a single reflection card morphing `draft → approved` (CSS class swap with transition on border + label). Below, a tiny before/after rerank visualization using `PipelineFlow`'s adjust-stage card pattern: same prompt, on the left adjust ranking without the memory, on the right with. Use seeded prompt p8.
 
-- [ ] **Step 1: Implement** (engineer composes the two static rankings inline from `acmeBilling`).
+- [x] **Step 1: Implement** (engineer composes the two static rankings inline from `acmeBilling`).
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch06_Reflections.tsx
@@ -1843,7 +1870,7 @@ git commit -m "chapter 06: reflection draft→approved + before/after rank"
 
 Render 10 cards, one per `acmeBilling.prompts` entry, showing the prompt text and its branches as pills. Clicking a card runs a canned replay in place: for each prompt id, a fixed `{ classifier, timings, pack, adjustments, contextFit }` object lives in `src/workbench-v2/data/demo/replays/<id>.ts`. The chapter mounts `SignalChips`, `PipelineFlow`, `PackTimeline` with that replay data and animates them the same way Ch.3 does.
 
-- [ ] **Step 1: Generate canned replays**
+- [x] **Step 1: Generate canned replays**
 
 Run a one-shot script `scripts/gen-demo-replays.ts` that, for each prompt, executes the same retrieval pipeline used in the fixture-coverage test against `MemoryKnowledgeStore`, captures the debug bundle, and writes `src/workbench-v2/data/demo/replays/<id>.json`. (Bundled at build time, no network at runtime.)
 
@@ -1900,7 +1927,7 @@ Add to `package.json`:
 Run: `pnpm run gen:demo-replays`
 Expected: 10 JSON files under `src/workbench-v2/data/demo/replays/`.
 
-- [ ] **Step 2: Chapter component**
+- [x] **Step 2: Chapter component**
 
 ```tsx
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -1949,7 +1976,7 @@ export default function Ch07_TryIt() {
 
 (esbuild + the `loader: { '.json': 'json' }` option will inline the JSON at build; the `fetch(new URL(...))` form is used so dev-mode HMR also works.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch07_TryIt.tsx src/workbench-v2/data/demo/replays/ scripts/gen-demo-replays.ts package.json
@@ -1964,9 +1991,9 @@ git commit -m "chapter 07: try-it gallery + generated canned replays"
 
 Four cards: Claude Code, Codex, Cursor, GitHub Copilot. Each shows a `pre` with the exact MCP config snippet and a "Copy" button calling `navigator.clipboard.writeText`. Cards are click-to-expand (collapsed by default to one line).
 
-- [ ] **Step 1: Implement** with the four real snippets sourced from `README.md`. Engineer pastes them verbatim — do not paraphrase. (Read `README.md` lines 1–250 for the canonical text.)
+- [x] **Step 1: Implement** with the four real snippets sourced from `README.md`. Engineer pastes them verbatim — do not paraphrase. (Read `README.md` lines 1–250 for the canonical text.)
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch08_PlugIn.tsx
@@ -1985,9 +2012,9 @@ Collapsed `<details>` by default. On expand: `GET /agent-sessions?project=<curre
 
 The current `<current>` project comes from a separate signal (Ch.10 sets it). Default value is the workbench summary's most-active project, from `GET /operations/workbench/summary`.
 
-- [ ] **Step 1: Implement** the chapter component, lazy-loading sessions only on `<details>` open.
+- [x] **Step 1: Implement** the chapter component, lazy-loading sessions only on `<details>` open.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch09_YourSessions.tsx
@@ -2007,9 +2034,9 @@ Collapsed `<details>` by default. On expand, fetch `/operations/workbench/summar
 
 Reuse the existing summary endpoint (no new server code) — the rendering is the only new thing. Keep the markup minimal; no charts.
 
-- [ ] **Step 1: Implement** (small VM helpers can be reused from current `src/workbench/presenters/summaryPresenter.ts` — copy what's still needed; do not import from the old folder because it will be deleted in Task 28).
+- [x] **Step 1: Implement** (small VM helpers can be reused from current `src/workbench/presenters/summaryPresenter.ts` — copy what's still needed; do not import from the old folder because it will be deleted in Task 28).
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/workbench-v2/chapters/Ch10_TuneOps.tsx
@@ -2023,7 +2050,7 @@ git commit -m "chapter 10: collapsed review + system + feedback knobs"
 **Files:**
 - Modify: `src/workbench-v2/app.tsx`
 
-- [ ] **Step 1: Final app.tsx**
+- [x] **Step 1: Final app.tsx**
 
 ```tsx
 import { render } from 'preact';
@@ -2059,13 +2086,13 @@ const root = document.getElementById('app');
 if (root) render(<App />, root);
 ```
 
-- [ ] **Step 2: Build + manual smoke**
+- [x] **Step 2: Build + manual smoke**
 
 Run: `pnpm run build:workbench && pnpm run dev` (background).
 Visit `http://localhost:3027/workbench`.
 Verify: all 10 chapters render, scroll updates the progress rail, clicking the rail jumps, ▶ Tour advances, Ch.7 cards replay, Ch.5 graph clicks open detail.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/workbench-v2/app.tsx
@@ -2076,12 +2103,21 @@ git commit -m "workbench v2: mount full shell + 10 chapters"
 
 ## Phase F — Tests, cleanup, guardrails
 
+**Status 2026-05-26:** Complete and verified on branch `feat/workbench-v2`.
+
+Audit notes:
+- `test/browser/workbench-v2-browser.test.ts` boots the HTTP server with an in-memory store, navigates to `/workbench`, verifies Ch01 → Ch02 button flow, jumps to Ch07 via the progress rail, opens an example card, and asserts the replay endpoint returns a 404 envelope for an unknown session id. Auto-skips when Chrome is missing or the bundle isn't built.
+- `package.json#test:workbench-browser` now points at the v2 test file.
+- The deletion commit removed `src/workbench/`, `src/http/workbench.ts`, `scripts/build-workbench.ts`, and the five old workbench-presenter unit test files. No source file outside the test layer imported any of them.
+- Eval guardrails (`pnpm run eval:retrieval`, `pnpm run eval:agent-context`) and the full unit suite (`pnpm test` — 419 tests) all pass on the resulting tree.
+- Bundle sizes (minified): `app.js` 83.7 KB (target was ~80 KB; ~4% over), `app.css` 2.9 KB. Cytoscape and its layout plugins live in three lazy chunks totaling ~553 KB that only load when Ch04 or Ch05 mounts the `GraphCanvas`.
+
 ### Task 28: Browser smoke test (replace existing)
 
 **Files:**
 - Create: `test/browser/workbench-v2-browser.test.ts`
 
-- [ ] **Step 1: Port + extend the existing test**
+- [x] **Step 1: Port + extend the existing test**
 
 Copy `test/browser/workbench-browser.test.ts` to `test/browser/workbench-v2-browser.test.ts`. Update:
 - `bundlePath` still points at `dist/workbench/app.js`.
@@ -2093,20 +2129,20 @@ Copy `test/browser/workbench-browser.test.ts` to `test/browser/workbench-v2-brow
   - Hit `/operations/workbench/session/missing/replay`; assert 404 JSON.
 - Add `persistReplay: false` to the test's `AppConfig` literal.
 
-- [ ] **Step 2: Update `package.json` script**
+- [x] **Step 2: Update `package.json` script**
 
 ```json
 "test:workbench-browser": "node --test --import tsx test/browser/workbench-v2-browser.test.ts"
 ```
 
-- [ ] **Step 3: Run**
+- [x] **Step 3: Run**
 
 ```bash
 pnpm run build:workbench && pnpm run test:workbench-browser
 ```
 Expected: PASS (or auto-skip if Chrome not installed).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add test/browser/workbench-v2-browser.test.ts package.json
@@ -2123,7 +2159,7 @@ git commit -m "test: v2 browser smoke covering chapters + tour + replay 404"
 - Delete: `test/browser/workbench-browser.test.ts`
 - Delete: `scripts/build-workbench.ts`
 
-- [ ] **Step 1: Run GitNexus impact on what we're deleting**
+- [x] **Step 1: Run GitNexus impact on what we're deleting**
 
 Run:
 ```
@@ -2132,7 +2168,7 @@ gitnexus_impact({target: "readWorkbenchAsset", direction: "upstream"})
 ```
 Expected: callers in `src/http/server.ts` already swapped (Task 7). If anything else still imports from `src/workbench/` or `src/http/workbench.ts`, fix those imports first.
 
-- [ ] **Step 2: Delete**
+- [x] **Step 2: Delete**
 
 ```bash
 rm -rf src/workbench
@@ -2141,7 +2177,7 @@ rm test/browser/workbench-browser.test.ts
 rm scripts/build-workbench.ts
 ```
 
-- [ ] **Step 3: Build + test**
+- [x] **Step 3: Build + test**
 
 ```bash
 pnpm run build
@@ -2150,7 +2186,7 @@ pnpm run test:workbench-browser
 ```
 Expected: all green; no missing-import errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A
@@ -2161,17 +2197,17 @@ git commit -m "remove old workbench"
 
 ### Task 30: Final guardrails
 
-- [ ] **Step 1: Retrieval eval**
+- [x] **Step 1: Retrieval eval**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS (this work changed no retrieval logic).
 
-- [ ] **Step 2: Agent-context eval**
+- [x] **Step 2: Agent-context eval**
 
 Run: `pnpm run eval:agent-context`
 Expected: PASS.
 
-- [ ] **Step 3: Bundle size check**
+- [x] **Step 3: Bundle size check**
 
 After `pnpm run build:workbench`, inspect `dist/workbench/`:
 ```bash
@@ -2179,12 +2215,12 @@ ls -la dist/workbench/ | awk '{print $5, $9}'
 ```
 Expected: main `app.js` under ~80KB minified (~60KB gzipped target); a separate chunk file containing Cytoscape ≥ 150KB exists and is named in the metafile output. If the shell chunk exceeds 80KB minified, find imports that pulled Cytoscape eagerly (likely a static `import 'cytoscape'` instead of dynamic `import()`).
 
-- [ ] **Step 4: GitNexus detect-changes**
+- [x] **Step 4: GitNexus detect-changes**
 
 Run: `gitnexus_detect_changes()`
 Expected: changes only inside `src/workbench-v2/`, `src/http/`, `src/operations/session-replay.ts`, `src/agent-session/service.ts`, `src/config.ts`, `src/app.ts`, `src/storage/`, `migrations/`, `scripts/`, `test/`, `package.json`. No unrelated processes touched.
 
-- [ ] **Step 5: Done**
+- [x] **Step 5: Done**
 
 No commit — these are check-only steps.
 
