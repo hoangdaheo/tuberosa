@@ -12,3 +12,4 @@ coverage/
 npm-debug.log*
 *.tsbuildinfo
 .mcp.json
+.superpowers/

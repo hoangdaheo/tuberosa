@@ -15,9 +15,9 @@
     "migrations/"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsx scripts/build-workbench.ts",
-    "build:workbench": "tsx scripts/build-workbench.ts",
-    "dev:workbench": "tsx scripts/build-workbench.ts --watch",
+    "build": "tsc -p tsconfig.json && tsx scripts/build-workbench-v2.ts",
+    "build:workbench": "tsx scripts/build-workbench-v2.ts",
+    "dev:workbench": "tsx scripts/build-workbench-v2.ts --watch",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/src/index.js",
     "mcp": "node --import tsx src/mcp-stdio.ts",
@@ -49,12 +49,17 @@
   },
   "dependencies": {
     "@preact/signals": "^2.9.0",
+    "cytoscape": "^3.33.4",
+    "cytoscape-cose-bilkent": "^4.1.0",
+    "cytoscape-dagre": "^3.0.0",
     "lucide-preact": "^1.16.0",
+    "motion": "^12.40.0",
     "pg": "^8.13.1",
     "preact": "^10.29.2",
     "redis": "^4.7.0"
   },
   "devDependencies": {
+    "@types/cytoscape": "^3.31.0",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "esbuild": "^0.28.0",
