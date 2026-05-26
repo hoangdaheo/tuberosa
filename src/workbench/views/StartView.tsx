@@ -64,7 +64,7 @@ export function StartView({ defaultProject, defaultCwd = '', onSessionStarted }:
     <section class="start-view" data-testid="start-view">
       <div class="start-copy">
         <p class="eyebrow">Real project first</p>
-        <h1>Map the context for the task your agent is about to do.</h1>
+        <h1>Map the <em>context</em> for the task your agent is about to do.</h1>
         <p class="muted">Tuberosa will classify the task, retrieve evidence, explain confidence, and produce a handoff for Codex, Claude, Cursor, or another MCP-aware agent.</p>
       </div>
       <form class="start-card" onSubmit={mapContext} data-testid="start-form">

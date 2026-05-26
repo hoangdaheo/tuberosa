@@ -30,7 +30,9 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3027
+      TUBEROSA_HTTP_HOST: 0.0.0.0
       TUBEROSA_API_KEY: ${TUBEROSA_API_KEY:-}
+      TUBEROSA_REQUIRE_API_KEY_FOR_NON_LOOPBACK: ${TUBEROSA_REQUIRE_API_KEY_FOR_NON_LOOPBACK:-false}
       DATABASE_URL: postgres://tuberosa:${POSTGRES_PASSWORD:-tuberosa}@postgres:5432/tuberosa
       REDIS_URL: redis://redis:6379
       TUBEROSA_STORE: postgres

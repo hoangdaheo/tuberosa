@@ -8,6 +8,24 @@
 
 **Tech Stack:** Node 22.21.1, pnpm 11, strict TypeScript with NodeNext ESM, Preact, @preact/signals, lucide-preact, native SVG/CSS, Node test runner with tsx, Playwright browser smoke tests.
 
+## Implementation Status
+
+Status: Complete and verified on 2026-05-26.
+
+Audit notes:
+- The Workbench rebuild is already implemented in the current `main` history through the task-aligned commits from `608f634` through `a57c22a`, then merged by `7a984e3` and refined by `00a3e07`.
+- The guided shell, route model, Start flow, session result visualizations, session decision/finish flow, unified Review workspace, Sessions/Knowledge/Playbooks/System views, responsive CSS, browser smoke tests, and presenter tests are present.
+- Legacy tab-based Workbench views (`OverviewView`, `CatchupView`, `SessionView`, `QualityView`, `MemoryView`, `MemoryMaintenanceTab`, `GuideView`, `SummarySidebar`) are no longer present or imported.
+- No backend retrieval, MCP, storage, or API semantics were changed by this audit update.
+
+Latest verification:
+- `npx gitnexus status` -> up to date at commit `00a3e07`.
+- `node --test --import tsx test/workbench-routes.test.ts test/workbench-session-result-presenter.test.ts test/workbench-review-presenter.test.ts test/workbench-playbooks.test.ts test/workbench-presenters.test.ts` -> pass.
+- `pnpm run build` -> pass.
+- `pnpm test` -> pass, 432 tests.
+- `pnpm run test:workbench-browser` -> pass.
+- `git diff --check` -> pass.
+
 ---
 
 ## Scope Check
@@ -89,7 +107,7 @@ Keep shared components that are still useful, such as `Pill`, `EmptyState`, `Toa
 - Modify: `src/workbench/app.tsx`
 - Test: `test/workbench-routes.test.ts`
 
-- [ ] **Step 1: Run impact analysis for edited route/shell symbols**
+- [x] **Step 1: Run impact analysis for edited route/shell symbols**
 
 Run GitNexus impact analysis before editing:
 
@@ -100,7 +118,7 @@ gitnexus_impact(repo="tuberosa", target="parseView", file_path="src/workbench/st
 
 Expected: report the direct callers/processes. Continue only if risk is LOW or MEDIUM; warn the user first for HIGH or CRITICAL.
 
-- [ ] **Step 2: Write the failing route tests**
+- [x] **Step 2: Write the failing route tests**
 
 Create `test/workbench-routes.test.ts`:
 
@@ -151,7 +169,7 @@ test('unknown hashes fall back to Start', () => {
 });
 ```
 
-- [ ] **Step 3: Run route tests and verify failure**
+- [x] **Step 3: Run route tests and verify failure**
 
 Run:
 
@@ -161,7 +179,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL with a module-not-found error for `src/workbench/state/routes.js`.
 
-- [ ] **Step 4: Implement pure route helpers**
+- [x] **Step 4: Implement pure route helpers**
 
 Create `src/workbench/state/routes.ts`:
 
@@ -249,7 +267,7 @@ function readReviewFilter(queryPart: string | undefined): ReviewFilter | undefin
 }
 ```
 
-- [ ] **Step 5: Update route store to use pure helpers**
+- [x] **Step 5: Update route store to use pure helpers**
 
 Replace the route section in `src/workbench/state/store.ts` with:
 
@@ -314,7 +332,7 @@ window.addEventListener('hashchange', () => {
 });
 ```
 
-- [ ] **Step 6: Replace `App` with a minimal new shell**
+- [x] **Step 6: Replace `App` with a minimal new shell**
 
 Modify `src/workbench/app.tsx` to render the new route names with temporary placeholders. This task should not migrate full pages yet.
 
@@ -411,7 +429,7 @@ const root = document.getElementById('app');
 if (root) render(<App />, root);
 ```
 
-- [ ] **Step 7: Add the new top navigation component**
+- [x] **Step 7: Add the new top navigation component**
 
 Create `src/workbench/components/TopNav.tsx`:
 
@@ -463,7 +481,7 @@ export function TopNav({ route }: Props) {
 }
 ```
 
-- [ ] **Step 8: Run route and build checks**
+- [x] **Step 8: Run route and build checks**
 
 Run:
 
@@ -474,7 +492,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run build:workbench
 
 Expected: route tests PASS and workbench bundle builds.
 
-- [ ] **Step 9: Commit Task 1**
+- [x] **Step 9: Commit Task 1**
 
 ```bash
 git add src/workbench/app.tsx src/workbench/state/store.ts src/workbench/state/routes.ts src/workbench/components/TopNav.tsx test/workbench-routes.test.ts
@@ -490,7 +508,7 @@ git commit -m "feat(workbench): add guided route shell"
 - Modify: `src/workbench/types.ts`
 - Test: `test/workbench-session-result-presenter.test.ts`
 
-- [ ] **Step 1: Run impact analysis for the existing presenter**
+- [x] **Step 1: Run impact analysis for the existing presenter**
 
 Run GitNexus impact analysis:
 
@@ -500,7 +518,7 @@ gitnexus_impact(repo="tuberosa", target="presentSessionStart", file_path="src/wo
 
 Expected: report current callers. This task creates a new presenter rather than editing `presentSessionStart`, so the blast radius should remain small.
 
-- [ ] **Step 2: Write failing presenter tests**
+- [x] **Step 2: Write failing presenter tests**
 
 Create `test/workbench-session-result-presenter.test.ts`:
 
@@ -638,7 +656,7 @@ function makeResult(overrides: Partial<AgentSessionStartResult> = {}): AgentSess
 }
 ```
 
-- [ ] **Step 3: Run presenter test and verify failure**
+- [x] **Step 3: Run presenter test and verify failure**
 
 Run:
 
@@ -648,7 +666,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL with a module-not-found error for `sessionResultPresenter.js`.
 
-- [ ] **Step 4: Add browser-safe view model types**
+- [x] **Step 4: Add browser-safe view model types**
 
 Append to `src/workbench/types.ts`:
 
@@ -758,7 +776,7 @@ export interface SessionResultViewModel {
 }
 ```
 
-- [ ] **Step 5: Implement the session result presenter**
+- [x] **Step 5: Implement the session result presenter**
 
 Create `src/workbench/presenters/sessionResultPresenter.ts`:
 
@@ -1007,7 +1025,7 @@ function toneForStrength(strength: RankedCandidate['evidenceStrength']): Evidenc
 }
 ```
 
-- [ ] **Step 6: Run presenter test and verify pass**
+- [x] **Step 6: Run presenter test and verify pass**
 
 Run:
 
@@ -1017,7 +1035,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 2**
+- [x] **Step 7: Commit Task 2**
 
 ```bash
 git add src/workbench/types.ts src/workbench/presenters/sessionResultPresenter.ts test/workbench-session-result-presenter.test.ts
@@ -1033,7 +1051,7 @@ git commit -m "feat(workbench): present session result models"
 - Modify: `src/workbench/types.ts`
 - Test: `test/workbench-review-presenter.test.ts`
 
-- [ ] **Step 1: Run impact analysis for summary presenter**
+- [x] **Step 1: Run impact analysis for summary presenter**
 
 Run GitNexus impact analysis:
 
@@ -1043,7 +1061,7 @@ gitnexus_impact(repo="tuberosa", target="presentSummary", file_path="src/workben
 
 Expected: direct callers include the current workbench app/tests. This task creates a new review presenter and should not modify `presentSummary` yet.
 
-- [ ] **Step 2: Write failing review presenter tests**
+- [x] **Step 2: Write failing review presenter tests**
 
 Create `test/workbench-review-presenter.test.ts`:
 
@@ -1178,7 +1196,7 @@ function makeSummary(): WorkbenchSummary {
 }
 ```
 
-- [ ] **Step 3: Run review presenter test and verify failure**
+- [x] **Step 3: Run review presenter test and verify failure**
 
 Run:
 
@@ -1188,7 +1206,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL with a module-not-found error for `reviewQueuePresenter.js`.
 
-- [ ] **Step 4: Add review queue view model types**
+- [x] **Step 4: Add review queue view model types**
 
 Append to `src/workbench/types.ts`:
 
@@ -1225,7 +1243,7 @@ export interface ReviewQueueViewModel {
 }
 ```
 
-- [ ] **Step 5: Implement the review queue presenter**
+- [x] **Step 5: Implement the review queue presenter**
 
 Create `src/workbench/presenters/reviewQueuePresenter.ts`:
 
@@ -1388,7 +1406,7 @@ function toneForFeedback(type: string): EvidenceGraphTone {
 }
 ```
 
-- [ ] **Step 6: Run review presenter test and verify pass**
+- [x] **Step 6: Run review presenter test and verify pass**
 
 Run:
 
@@ -1398,7 +1416,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
 ```bash
 git add src/workbench/types.ts src/workbench/presenters/reviewQueuePresenter.ts test/workbench-review-presenter.test.ts
@@ -1416,7 +1434,7 @@ git commit -m "feat(workbench): present unified review queue"
 - Modify: `src/workbench/types.ts`
 - Test: `test/browser/workbench-browser.test.ts`
 
-- [ ] **Step 1: Run impact analysis for `App`**
+- [x] **Step 1: Run impact analysis for `App`**
 
 Run:
 
@@ -1426,7 +1444,7 @@ gitnexus_impact(repo="tuberosa", target="App", file_path="src/workbench/app.tsx"
 
 Expected: direct browser/app flow only. Continue if LOW or MEDIUM.
 
-- [ ] **Step 2: Replace first browser assertions with Start-first behavior**
+- [x] **Step 2: Replace first browser assertions with Start-first behavior**
 
 In `test/browser/workbench-browser.test.ts`, update the first boot assertions inside the main test to expect Start as the default route:
 
@@ -1441,7 +1459,7 @@ ok(startText?.includes('What is the agent about to do?'), 'Start view asks for t
 ok(startText?.includes('Map context'), 'Start view exposes the primary mapping action');
 ```
 
-- [ ] **Step 3: Run browser test and verify failure**
+- [x] **Step 3: Run browser test and verify failure**
 
 Run:
 
@@ -1452,7 +1470,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL because `start-view` and "Map context" do not render yet.
 
-- [ ] **Step 4: Add ingest and start form types**
+- [x] **Step 4: Add ingest and start form types**
 
 Append to `src/workbench/types.ts`:
 
@@ -1485,7 +1503,7 @@ export interface WorkbenchIngestFilesRequest {
 }
 ```
 
-- [ ] **Step 5: Create readiness strip**
+- [x] **Step 5: Create readiness strip**
 
 Create `src/workbench/components/ReadinessStrip.tsx`:
 
@@ -1518,7 +1536,7 @@ export function ReadinessStrip({ summary, apiKeySet, loading }: Props) {
 }
 ```
 
-- [ ] **Step 6: Create Start view**
+- [x] **Step 6: Create Start view**
 
 Create `src/workbench/views/StartView.tsx`:
 
@@ -1668,7 +1686,7 @@ function splitList(value: string): string[] | undefined {
 }
 ```
 
-- [ ] **Step 7: Wire Start view into App**
+- [x] **Step 7: Wire Start view into App**
 
 In `src/workbench/app.tsx`, import `StartView`, `ReadinessStrip`, and `AgentSessionStartResult`. Add state:
 
@@ -1700,7 +1718,7 @@ Replace the placeholder for the `start` route with:
 )}
 ```
 
-- [ ] **Step 8: Run the updated browser test and verify pass for Start**
+- [x] **Step 8: Run the updated browser test and verify pass for Start**
 
 Run:
 
@@ -1711,7 +1729,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: the boot/Start assertions PASS. Later old assertions may fail until subsequent tasks replace them; if so, mark the old assertions for replacement in the next browser-test task rather than reverting the Start behavior.
 
-- [ ] **Step 9: Commit Task 4**
+- [x] **Step 9: Commit Task 4**
 
 ```bash
 git add src/workbench/app.tsx src/workbench/types.ts src/workbench/components/ReadinessStrip.tsx src/workbench/views/StartView.tsx test/browser/workbench-browser.test.ts
@@ -1732,7 +1750,7 @@ git commit -m "feat(workbench): add guided start flow"
 - Modify: `src/workbench/app.tsx`
 - Modify: `test/browser/workbench-browser.test.ts`
 
-- [ ] **Step 1: Run impact analysis for `App`**
+- [x] **Step 1: Run impact analysis for `App`**
 
 Run:
 
@@ -1742,7 +1760,7 @@ gitnexus_impact(repo="tuberosa", target="App", file_path="src/workbench/app.tsx"
 
 Expected: direct workbench flow only.
 
-- [ ] **Step 2: Update browser test for session result**
+- [x] **Step 2: Update browser test for session result**
 
 Replace the old "Start a session" block in `test/browser/workbench-browser.test.ts` with:
 
@@ -1763,7 +1781,7 @@ ok(resultText?.includes('Agent handoff'), 'session result renders agent handoff'
 await page.locator('[data-testid="context-stack-essential"]').waitFor();
 ```
 
-- [ ] **Step 3: Run browser test and verify failure**
+- [x] **Step 3: Run browser test and verify failure**
 
 Run:
 
@@ -1774,7 +1792,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL because `session-result-view` does not render yet.
 
-- [ ] **Step 4: Create visual components**
+- [x] **Step 4: Create visual components**
 
 Create `src/workbench/components/VerdictBand.tsx`:
 
@@ -1981,7 +1999,7 @@ export function AgentHandoff({ handoff }: { handoff: AgentHandoffView }) {
 }
 ```
 
-- [ ] **Step 5: Create session result view**
+- [x] **Step 5: Create session result view**
 
 Create `src/workbench/views/SessionResultView.tsx`:
 
@@ -2014,7 +2032,7 @@ export function SessionResultView({ result }: Props) {
 }
 ```
 
-- [ ] **Step 6: Wire session result into App**
+- [x] **Step 6: Wire session result into App**
 
 In `src/workbench/app.tsx`, import `SessionResultView` and render it when `route.view === 'session'` and `activeSession` exists:
 
@@ -2028,7 +2046,7 @@ In `src/workbench/app.tsx`, import `SessionResultView` and render it when `route
 )}
 ```
 
-- [ ] **Step 7: Run presenter and browser checks**
+- [x] **Step 7: Run presenter and browser checks**
 
 Run:
 
@@ -2040,7 +2058,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: session presenter PASS; browser session result assertions PASS.
 
-- [ ] **Step 8: Commit Task 5**
+- [x] **Step 8: Commit Task 5**
 
 ```bash
 git add src/workbench/app.tsx src/workbench/components/VerdictBand.tsx src/workbench/components/PipelineRail.tsx src/workbench/components/EvidenceGraph.tsx src/workbench/components/DetailPanel.tsx src/workbench/components/ContextStack.tsx src/workbench/components/AgentHandoff.tsx src/workbench/views/SessionResultView.tsx test/browser/workbench-browser.test.ts
@@ -2058,7 +2076,7 @@ git commit -m "feat(workbench): render session result visualizations"
 - Modify: `src/workbench/app.tsx`
 - Modify: `test/browser/workbench-browser.test.ts`
 
-- [ ] **Step 1: Update browser test for session actions**
+- [x] **Step 1: Update browser test for session actions**
 
 Add after the session result assertions:
 
@@ -2074,7 +2092,7 @@ await page.locator('[data-testid="finish-session"]').click();
 await page.locator('[data-testid="finish-result"]').waitFor();
 ```
 
-- [ ] **Step 2: Run browser test and verify failure**
+- [x] **Step 2: Run browser test and verify failure**
 
 Run:
 
@@ -2085,7 +2103,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL because the decision panel does not render yet.
 
-- [ ] **Step 3: Create session action component**
+- [x] **Step 3: Create session action component**
 
 Create `src/workbench/components/SessionActions.tsx`:
 
@@ -2202,7 +2220,7 @@ export function SessionActions({ sessionId, onChanged }: Props) {
 }
 ```
 
-- [ ] **Step 4: Create missing context panel**
+- [x] **Step 4: Create missing context panel**
 
 Create `src/workbench/components/MissingContextPanel.tsx`:
 
@@ -2275,7 +2293,7 @@ export function MissingContextPanel({ project, missing, onIngested }: Props) {
 }
 ```
 
-- [ ] **Step 5: Wire actions into SessionResultView**
+- [x] **Step 5: Wire actions into SessionResultView**
 
 Modify `src/workbench/views/SessionResultView.tsx` to accept `onChanged` and render actions:
 
@@ -2300,7 +2318,7 @@ Update the `App` render call:
 <SessionResultView result={activeSession} onChanged={refresh} />
 ```
 
-- [ ] **Step 6: Run browser test and verify pass**
+- [x] **Step 6: Run browser test and verify pass**
 
 Run:
 
@@ -2311,7 +2329,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: browser test reaches `decision-recorded` and `finish-result`.
 
-- [ ] **Step 7: Commit Task 6**
+- [x] **Step 7: Commit Task 6**
 
 ```bash
 git add src/workbench/app.tsx src/workbench/views/SessionResultView.tsx src/workbench/components/SessionActions.tsx src/workbench/components/MissingContextPanel.tsx test/browser/workbench-browser.test.ts
@@ -2328,7 +2346,7 @@ git commit -m "feat(workbench): add session decision and finish flow"
 - Modify: `src/workbench/app.tsx`
 - Modify: `test/browser/workbench-browser.test.ts`
 
-- [ ] **Step 1: Update browser test for Review**
+- [x] **Step 1: Update browser test for Review**
 
 Replace old memory/quality tab checks with:
 
@@ -2342,7 +2360,7 @@ await page.locator('[data-testid="review-filter-gaps"]').click();
 await page.locator('[data-testid="review-queue"]').waitFor();
 ```
 
-- [ ] **Step 2: Run browser test and verify failure**
+- [x] **Step 2: Run browser test and verify failure**
 
 Run:
 
@@ -2353,7 +2371,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL because `review-view` does not render yet.
 
-- [ ] **Step 3: Create DecisionCard**
+- [x] **Step 3: Create DecisionCard**
 
 Create `src/workbench/components/DecisionCard.tsx`:
 
@@ -2395,7 +2413,7 @@ function pillKind(tone: ReviewQueueItemView['tone']): 'good' | 'warn' | 'bad' | 
 }
 ```
 
-- [ ] **Step 4: Create Review view**
+- [x] **Step 4: Create Review view**
 
 Create `src/workbench/views/ReviewView.tsx`:
 
@@ -2445,7 +2463,7 @@ export function ReviewView({ summary, filter = 'all' }: Props) {
 }
 ```
 
-- [ ] **Step 5: Wire Review into App**
+- [x] **Step 5: Wire Review into App**
 
 In `src/workbench/app.tsx`, import and render:
 
@@ -2457,7 +2475,7 @@ import { ReviewView } from './views/ReviewView.js';
 {route.view === 'review' && <ReviewView summary={summary} filter={route.filter} />}
 ```
 
-- [ ] **Step 6: Run presenter and browser checks**
+- [x] **Step 6: Run presenter and browser checks**
 
 Run:
 
@@ -2469,7 +2487,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: review presenter PASS and browser reaches `review-queue`.
 
-- [ ] **Step 7: Commit Task 7**
+- [x] **Step 7: Commit Task 7**
 
 ```bash
 git add src/workbench/app.tsx src/workbench/components/DecisionCard.tsx src/workbench/views/ReviewView.tsx test/browser/workbench-browser.test.ts
@@ -2491,7 +2509,7 @@ git commit -m "feat(workbench): add unified review workspace"
 - Test: `test/workbench-playbooks.test.ts`
 - Test: `test/browser/workbench-browser.test.ts`
 
-- [ ] **Step 1: Write playbook tests**
+- [x] **Step 1: Write playbook tests**
 
 Create `test/workbench-playbooks.test.ts`:
 
@@ -2521,7 +2539,7 @@ test('missing context playbook includes a runnable workbench action', () => {
 });
 ```
 
-- [ ] **Step 2: Run playbook test and verify failure**
+- [x] **Step 2: Run playbook test and verify failure**
 
 Run:
 
@@ -2531,7 +2549,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL with a module-not-found error for `playbookPresenter.js`.
 
-- [ ] **Step 3: Implement playbook presenter**
+- [x] **Step 3: Implement playbook presenter**
 
 Create `src/workbench/presenters/playbookPresenter.ts`:
 
@@ -2630,7 +2648,7 @@ export function getPlaybook(id: string | undefined): Playbook | undefined {
 }
 ```
 
-- [ ] **Step 4: Create simple Sessions, Knowledge, Playbooks, and System views**
+- [x] **Step 4: Create simple Sessions, Knowledge, Playbooks, and System views**
 
 Create `src/workbench/views/SessionsView.tsx`:
 
@@ -2809,7 +2827,7 @@ export function SystemView({ summary, summaryVM }: { summary: WorkbenchSummary |
 }
 ```
 
-- [ ] **Step 5: Wire new route views into App**
+- [x] **Step 5: Wire new route views into App**
 
 In `src/workbench/app.tsx`, import the new views:
 
@@ -2829,7 +2847,7 @@ Render them:
 {route.view === 'system' && <SystemView summary={summary} summaryVM={summaryVM} />}
 ```
 
-- [ ] **Step 6: Add browser assertions for Playbooks and System**
+- [x] **Step 6: Add browser assertions for Playbooks and System**
 
 Add to `test/browser/workbench-browser.test.ts`:
 
@@ -2847,7 +2865,7 @@ ok(systemText?.includes('store'), 'system view renders store status');
 ok(systemText?.includes('provider'), 'system view renders provider status');
 ```
 
-- [ ] **Step 7: Run tests and verify pass**
+- [x] **Step 7: Run tests and verify pass**
 
 Run:
 
@@ -2859,7 +2877,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: playbook tests PASS and browser reaches Playbooks and System.
 
-- [ ] **Step 8: Commit Task 8**
+- [x] **Step 8: Commit Task 8**
 
 ```bash
 git add src/workbench/app.tsx src/workbench/presenters/playbookPresenter.ts src/workbench/presenters/systemPresenter.ts src/workbench/views/SessionsView.tsx src/workbench/views/KnowledgeView.tsx src/workbench/views/PlaybooksView.tsx src/workbench/views/SystemView.tsx test/workbench-playbooks.test.ts test/browser/workbench-browser.test.ts
@@ -2875,7 +2893,7 @@ git commit -m "feat(workbench): add sessions knowledge playbooks and system view
 - Delete old unused view files listed in the File Map after imports are removed.
 - Test: `test/browser/workbench-browser.test.ts`
 
-- [ ] **Step 1: Update browser overflow assertions**
+- [x] **Step 1: Update browser overflow assertions**
 
 Keep the existing `verifyNoOverflowAcrossWorkbench(page)` helper and update its route list to cover the new routes:
 
@@ -2887,7 +2905,7 @@ for (const route of ['#/start', '#/sessions', '#/review', '#/knowledge', '#/play
 }
 ```
 
-- [ ] **Step 2: Run browser test and verify current CSS gaps**
+- [x] **Step 2: Run browser test and verify current CSS gaps**
 
 Run:
 
@@ -2898,7 +2916,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: FAIL on one or more missing styles or overflow checks before CSS is replaced.
 
-- [ ] **Step 3: Replace core CSS layout tokens**
+- [x] **Step 3: Replace core CSS layout tokens**
 
 Modify `src/workbench/styles/main.css`. Keep existing base utility classes that still apply, but replace old header/sidebar/tab layout with:
 
@@ -3120,7 +3138,7 @@ body {
 }
 ```
 
-- [ ] **Step 4: Delete unused old views**
+- [x] **Step 4: Delete unused old views**
 
 After confirming `rg "OverviewView|CatchupView|SessionView|QualityView|MemoryView|MemoryMaintenanceTab|GuideView|SummarySidebar" src/workbench` returns only the old file paths, remove them:
 
@@ -3128,7 +3146,7 @@ After confirming `rg "OverviewView|CatchupView|SessionView|QualityView|MemoryVie
 git rm src/workbench/views/OverviewView.tsx src/workbench/views/CatchupView.tsx src/workbench/views/SessionView.tsx src/workbench/views/QualityView.tsx src/workbench/views/MemoryView.tsx src/workbench/views/MemoryMaintenanceTab.tsx src/workbench/views/GuideView.tsx src/workbench/views/SummarySidebar.tsx
 ```
 
-- [ ] **Step 5: Run build and browser checks**
+- [x] **Step 5: Run build and browser checks**
 
 Run:
 
@@ -3139,7 +3157,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm run test:workbench-br
 
 Expected: both PASS.
 
-- [ ] **Step 6: Commit Task 9**
+- [x] **Step 6: Commit Task 9**
 
 ```bash
 git add src/workbench/styles/main.css test/browser/workbench-browser.test.ts
@@ -3155,7 +3173,7 @@ git commit -m "feat(workbench): polish responsive guided UI"
 - Modify: `test/workbench-presenters.test.ts`
 - Modify: any new presenter tests from earlier tasks if assertions drift.
 
-- [ ] **Step 1: Add an aggregate presenter smoke test**
+- [x] **Step 1: Add an aggregate presenter smoke test**
 
 Append to `test/workbench-presenters.test.ts`:
 
@@ -3172,7 +3190,7 @@ test('new workbench presenters support guided shell surfaces', () => {
 });
 ```
 
-- [ ] **Step 2: Run focused presenter tests**
+- [x] **Step 2: Run focused presenter tests**
 
 Run:
 
@@ -3182,7 +3200,7 @@ PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH node --test --import tsx t
 
 Expected: all listed tests PASS.
 
-- [ ] **Step 3: Run full verification**
+- [x] **Step 3: Run full verification**
 
 Run:
 
@@ -3200,7 +3218,7 @@ Expected:
 - `pnpm run test:workbench-browser`: PASS, or SKIP only when Chrome/bundle prerequisite is unavailable in the environment.
 - `git diff --check`: no output.
 
-- [ ] **Step 4: Run GitNexus change detection before final commit**
+- [x] **Step 4: Run GitNexus change detection before final commit**
 
 Run:
 
@@ -3210,7 +3228,7 @@ gitnexus_detect_changes(repo="tuberosa", scope="all")
 
 Expected: changed symbols and affected processes match the workbench UI, presenter tests, and browser test surfaces. Investigate any unrelated symbol or process before committing.
 
-- [ ] **Step 5: Commit Task 10**
+- [x] **Step 5: Commit Task 10**
 
 ```bash
 git add test/workbench-presenters.test.ts test/workbench-routes.test.ts test/workbench-session-result-presenter.test.ts test/workbench-review-presenter.test.ts test/workbench-playbooks.test.ts test/browser/workbench-browser.test.ts
@@ -3221,18 +3239,18 @@ git commit -m "test(workbench): cover guided rebuild flows"
 
 ## Final Acceptance Checklist
 
-- [ ] `/workbench` opens on `#/start`.
-- [ ] Start asks for a real agent task and exposes "Map context" as the primary action.
-- [ ] Mapping a task renders verdict, pipeline, evidence graph, context stack, and agent handoff.
-- [ ] Context decision recording works.
-- [ ] Session finishing works.
-- [ ] Missing context has an ingestion panel and retry guidance.
-- [ ] Review shows one prioritized mixed decision queue with filters.
-- [ ] Knowledge search/browse works.
-- [ ] Playbooks include all required scenarios.
-- [ ] System shows store/cache/provider/backup readiness.
-- [ ] Old tab-based workbench views are no longer imported.
-- [ ] Build, unit tests, browser smoke, diff check, and GitNexus change detection pass.
+- [x] `/workbench` opens on `#/start`.
+- [x] Start asks for a real agent task and exposes "Map context" as the primary action.
+- [x] Mapping a task renders verdict, pipeline, evidence graph, context stack, and agent handoff.
+- [x] Context decision recording works.
+- [x] Session finishing works.
+- [x] Missing context has an ingestion panel and retry guidance.
+- [x] Review shows one prioritized mixed decision queue with filters.
+- [x] Knowledge search/browse works.
+- [x] Playbooks include all required scenarios.
+- [x] System shows store/cache/provider/backup readiness.
+- [x] Old tab-based workbench views are no longer imported.
+- [x] Build, unit tests, browser smoke, diff check, and GitNexus change detection pass.
 
 ## Notes For Execution
 
