@@ -1,0 +1,138 @@
+@import './tokens.css';
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
+
+body {
+  line-height: 1.55;
+}
+
+.workbench-shell {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 0;
+  min-height: 100vh;
+}
+
+.progress-rail {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  border-right: 1px solid var(--line);
+  padding: var(--space-4) var(--space-2);
+}
+
+.chapter {
+  padding: var(--space-7) var(--space-6);
+  border-bottom: 1px dashed var(--line);
+  scroll-margin-top: var(--space-4);
+}
+
+.chapter h2 {
+  font-size: clamp(28px, 3.5vw, 44px);
+  margin: 0 0 var(--space-4);
+  line-height: 1.1;
+}
+
+.chapter .lead {
+  font-size: 18px;
+  color: var(--fg-muted);
+  max-width: 70ch;
+}
+
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-soft);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: rgba(106, 166, 255, 0.12);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.pill[data-tone="warm"] {
+  background: rgba(246, 184, 107, 0.14);
+  color: var(--accent-warm);
+}
+
+.pill[data-tone="bad"] {
+  background: rgba(243, 112, 112, 0.14);
+  color: var(--bad);
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+
+button.primary {
+  background: var(--accent);
+  color: #0b0d12;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
+.fade-in {
+  animation: fadeIn var(--anim-med) both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
