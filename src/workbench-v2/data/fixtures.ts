@@ -1,4 +1,5 @@
 import demo from './demo/acme-billing.json' with { type: 'json' };
+import type { KnowledgeInput, KnowledgeStatus, LabelInput, ReferenceInput } from '../../types.js';
 
 export type BranchTag =
   | 'fit:ready' | 'fit:needs_confirmation' | 'fit:insufficient'
@@ -8,22 +9,16 @@ export type BranchTag =
   | 'classifier:symbols' | 'classifier:errors' | 'classifier:business_areas' | 'classifier:empty';
 
 // Only the itemTypes the live store accepts (KnowledgeItemType union).
-export type SeedItemType = 'wiki' | 'spec' | 'code_ref' | 'memory' | 'bugfix' | 'rule' | 'workflow' | 'conversation';
+export type SeedItemType = KnowledgeInput['itemType'];
 
 // Knowledge status values the live store accepts (KnowledgeStatus union).
 // Note: 'stale' / 'superseded' are NOT KnowledgeStatus values.
 // Staleness is represented via freshnessAt / metadata.stale or a supersedes relation.
-export type SeedStatus = 'approved' | 'needs_review' | 'archived' | 'blocked';
+export type SeedStatus = KnowledgeStatus;
 
-export interface SeedLabelInput {
-  type: string;
-  value: string;
-}
+export type SeedLabelInput = LabelInput;
 
-export interface SeedReferenceInput {
-  type: string;
-  uri: string;
-}
+export type SeedReferenceInput = ReferenceInput;
 
 export interface SeedKnowledgeItem {
   id: string;
