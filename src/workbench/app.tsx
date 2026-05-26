@@ -10,6 +10,10 @@ import { Toasts } from './components/Toasts.js';
 import { StartView } from './views/StartView.js';
 import { SessionResultView } from './views/SessionResultView.js';
 import { ReviewView } from './views/ReviewView.js';
+import { SessionsView } from './views/SessionsView.js';
+import { KnowledgeView } from './views/KnowledgeView.js';
+import { PlaybooksView } from './views/PlaybooksView.js';
+import { SystemView } from './views/SystemView.js';
 import type { AgentSessionStartResult, WorkbenchSummary } from './types.js';
 
 function App() {
@@ -73,13 +77,10 @@ function App() {
             </div>
           )}
           {route.view === 'review' && <ReviewView summary={summary} filter={route.filter} />}
-          {route.view !== 'start' && route.view !== 'session' && route.view !== 'review' && (
-            <div class="panel" data-testid={`${route.view}-view`}>
-              <h1>{route.view}</h1>
-              <p class="muted">This surface will be migrated in the next tasks.</p>
-              {activeSession && <span hidden data-testid="active-session-id">{activeSession.session.id}</span>}
-            </div>
-          )}
+          {route.view === 'sessions' && <SessionsView summary={summary} />}
+          {route.view === 'knowledge' && <KnowledgeView project={project} limit={limit} />}
+          {route.view === 'playbooks' && <PlaybooksView playbookId={route.playbookId} />}
+          {route.view === 'system' && <SystemView summary={summary} summaryVM={summaryVM} />}
         </section>
         <aside class="support-rail">
           <div class="panel">
