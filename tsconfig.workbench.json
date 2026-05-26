@@ -9,11 +9,10 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "outDir": "dist/workbench",
-    "rootDir": "src/workbench",
     "noEmit": true,
     "isolatedModules": true,
     "allowImportingTsExtensions": false
   },
-  "include": ["src/workbench/**/*.ts", "src/workbench/**/*.tsx"],
+  "include": ["src/workbench-v2/**/*.ts", "src/workbench-v2/**/*.tsx"],
   "exclude": ["node_modules", "dist"]
 }
