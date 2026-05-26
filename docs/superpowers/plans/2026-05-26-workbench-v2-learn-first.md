@@ -64,6 +64,15 @@
 
 ## Phase A — Foundations
 
+**Status 2026-05-26:** Complete and verified on branch `feat/workbench-v2`.
+
+Audit notes:
+- Dependencies landed with `@motionone/dom` instead of umbrella `motion`; this keeps Motion One's DOM API explicit and matches the installed lockfile.
+- `src/workbench-v2/index.html` intentionally omits `/workbench/static/app.css` until Phase C creates the stylesheet, avoiding a guaranteed 404 during the stub phase.
+- The fixture schema uses the live store's structured `labels` / `references` inputs and top-level `relations`, so the coverage test exercises real retrieval APIs instead of a plan-only shorthand shape.
+- The fixture schema now reuses the public `KnowledgeInput`, `KnowledgeStatus`, `LabelInput`, and `ReferenceInput` types so runtime fixture data cannot drift from the store contract.
+- Verified with `pnpm run build:workbench`, `node --test --import tsx test/workbench-v2/demo-fixture.test.ts`, `pnpm run eval:retrieval`, `pnpm run build`, and `pnpm test`.
+
 ### Task 1: Add dependencies + scaffold v2 build script
 
 **Files:**
@@ -73,7 +82,7 @@
 - Create: `src/workbench-v2/app.tsx` (stub)
 - Create: `src/workbench-v2/types.ts` (stub)
 
-- [ ] **Step 1: Add dependencies**
+- [x] **Step 1: Add dependencies**
 
 Run:
 ```bash
@@ -89,7 +98,7 @@ Verify `package.json` "dependencies" now includes:
 "cytoscape-cose-bilkent": "^4.1.0"
 ```
 
-- [ ] **Step 2: Replace build script in package.json**
+- [x] **Step 2: Replace build script in package.json**
 
 Edit `package.json` "scripts":
 ```json
@@ -100,7 +109,7 @@ Edit `package.json` "scripts":
 
 (Leave the old `scripts/build-workbench.ts` in place until Task 28 deletes it; the script reference now points at v2.)
 
-- [ ] **Step 3: Write v2 build script with code-splitting**
+- [x] **Step 3: Write v2 build script with code-splitting**
 
 Create `scripts/build-workbench-v2.ts`:
 ```ts
@@ -158,7 +167,7 @@ run().catch((err) => {
 });
 ```
 
-- [ ] **Step 4: Stub index.html**
+- [x] **Step 4: Stub index.html**
 
 Create `src/workbench-v2/index.html`:
 ```html
@@ -179,7 +188,7 @@ Create `src/workbench-v2/index.html`:
 </html>
 ```
 
-- [ ] **Step 5: Stub app.tsx and types.ts**
+- [x] **Step 5: Stub app.tsx and types.ts**
 
 Create `src/workbench-v2/types.ts`:
 ```ts
@@ -194,12 +203,12 @@ const root = document.getElementById('app');
 if (root) render(<App />, root);
 ```
 
-- [ ] **Step 6: Verify build runs**
+- [x] **Step 6: Verify build runs**
 
 Run: `pnpm run build:workbench`
 Expected: prints `[workbench-v2] bundle written to dist/workbench/` and an output size line.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add package.json pnpm-lock.yaml scripts/build-workbench-v2.ts src/workbench-v2/
@@ -214,7 +223,7 @@ git commit -m "scaffold workbench v2 build + entry stubs"
 - Create: `src/workbench-v2/data/demo/acme-billing.json`
 - Create: `src/workbench-v2/data/fixtures.ts`
 
-- [ ] **Step 1: Define fixture schema in fixtures.ts**
+- [x] **Step 1: Define fixture schema in fixtures.ts**
 
 Create `src/workbench-v2/data/fixtures.ts`:
 ```ts
@@ -255,7 +264,7 @@ export interface SeedFixture {
 export const acmeBilling = demo as SeedFixture;
 ```
 
-- [ ] **Step 2: Write the JSON fixture**
+- [x] **Step 2: Write the JSON fixture**
 
 Create `src/workbench-v2/data/demo/acme-billing.json` with this exact shape (truncated content fine, ~30 items + 10 prompts; each prompt must list the branches it claims to exercise):
 
@@ -301,7 +310,7 @@ Create `src/workbench-v2/data/demo/acme-billing.json` with this exact shape (tru
 
 The engineer fills in the `_comment_for_engineer` items. Each `code_ref` content must include the file path and key symbol name so the lexical+symbol classifier catches it. Memories must have `status: 'approved'` to be retrievable (or `stale`/`superseded` to demonstrate penalty).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/workbench-v2/data/
@@ -315,7 +324,7 @@ git commit -m "seed acme-billing demo fixture"
 **Files:**
 - Create: `test/workbench-v2/demo-fixture.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/workbench-v2/demo-fixture.test.ts`:
 ```ts
@@ -414,21 +423,21 @@ test('acme-billing fixture exercises every advertised branch', async () => {
 });
 ```
 
-- [ ] **Step 2: Run and watch it fail loudly**
+- [x] **Step 2: Run and watch it fail loudly**
 
 Run: `node --test --import tsx test/workbench-v2/demo-fixture.test.ts`
 Expected: FAIL — the most likely failure is that the JSON's `_comment_for_engineer` placeholder hasn't been replaced with real items yet, so several branches won't appear.
 
-- [ ] **Step 3: Iterate on the JSON until green**
+- [x] **Step 3: Iterate on the JSON until green**
 
 Edit `src/workbench-v2/data/demo/acme-billing.json`, re-run the test. Each branch tag the assertion says is missing tells you what kind of item or relation to add. Keep iterating until green. Do not rewrite the test — fix the fixture.
 
-- [ ] **Step 4: Run the broader retrieval eval to confirm no regression**
+- [x] **Step 4: Run the broader retrieval eval to confirm no regression**
 
 Run: `pnpm run eval:retrieval`
 Expected: existing eval still passes (this task only adds a fixture; no logic changes).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add test/workbench-v2/demo-fixture.test.ts src/workbench-v2/data/demo/acme-billing.json
@@ -439,17 +448,27 @@ git commit -m "lock acme-billing fixture with branch-coverage test"
 
 ## Phase B — Backend: replay endpoint + new HTML handler
 
+**Status 2026-05-26:** Complete and verified on branch `feat/workbench-v2`.
+
+Audit notes:
+- GitNexus impact was HIGH/CRITICAL for shared startup, config, agent-session, and storage surfaces, so the implementation kept new replay behavior opt-in behind `TUBEROSA_PERSIST_REPLAY`.
+- The current retrieval service strips debug traces before saving context packs, so replay capture requests a debug-enabled pack only when persistence is enabled and stores the compact replay separately.
+- Normal agent-session start responses remain compact unless the caller explicitly asks for debug.
+- The HTTP replay route follows the existing server error pattern (`NotFoundError`) instead of introducing a parallel response helper.
+- `src/http/workbench-v2.ts` intentionally keeps the old asset-reader behavior and only swaps the HTML shell to match `src/workbench-v2/index.html`; the old handler stays until the final cleanup phase.
+- Verified with `pnpm run build`, `pnpm test`, `pnpm run eval:retrieval`, `pnpm run eval:agent-context`, `pnpm run build:workbench`, local `/workbench` smoke checks, and `git diff --check`.
+
 ### Task 4: Migration — agent_session_replays table
 
 **Files:**
 - Create: `migrations/0NN_agent_session_replays.sql` (NN = max(existing) + 1)
 
-- [ ] **Step 1: Identify next migration number**
+- [x] **Step 1: Identify next migration number**
 
 Run: `ls migrations/ | sort | tail -3`
 Expected: existing migrations like `0xx_*.sql`. Pick the next integer.
 
-- [ ] **Step 2: Write the migration**
+- [x] **Step 2: Write the migration**
 
 Create `migrations/0NN_agent_session_replays.sql`:
 ```sql
@@ -470,14 +489,14 @@ CREATE INDEX IF NOT EXISTS idx_agent_session_replays_recorded_at
   ON agent_session_replays (recorded_at DESC);
 ```
 
-- [ ] **Step 3: Apply migration locally**
+- [x] **Step 3: Apply migration locally**
 
 If Postgres is available: `pnpm run migrate`
 Expected: prints applied migration NN.
 
 If no Postgres: skip and verify the migration runner picks the file up by listing it on next run.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add migrations/0NN_agent_session_replays.sql
@@ -494,12 +513,12 @@ git commit -m "migration: agent_session_replays table"
 - Modify: `src/config.ts` (add `persistReplay`)
 - Modify: `src/agent-session/service.ts` (call writer on finish)
 
-- [ ] **Step 1: Run impact analysis before touching agent-session service**
+- [x] **Step 1: Run impact analysis before touching agent-session service**
 
 Run: `gitnexus_impact({target: "AgentSessionService", direction: "upstream"})`
 Expected: surfaced blast radius. If HIGH/CRITICAL, surface to the user and pause for approval.
 
-- [ ] **Step 2: Add config flag**
+- [x] **Step 2: Add config flag**
 
 In `src/config.ts`, locate the `AppConfig` interface and the `loadConfig()` function. Add the field and parsing alongside the existing booleans:
 
@@ -513,7 +532,7 @@ persistReplay: env.TUBEROSA_PERSIST_REPLAY === 'true',
 
 Update the default test config used in `test/browser/workbench-v2-browser.test.ts` (created later) and any other tests that construct `AppConfig` literals to include `persistReplay: false`. Search for `AppConfig = {` to find them — there are 3 currently.
 
-- [ ] **Step 3: Write the failing replay-service test**
+- [x] **Step 3: Write the failing replay-service test**
 
 Create `test/workbench-v2/session-replay.test.ts`:
 ```ts
@@ -555,7 +574,7 @@ test('readReplay returns null for unknown id', async () => {
 Run: `node --test --import tsx test/workbench-v2/session-replay.test.ts`
 Expected: FAIL — module doesn't exist yet.
 
-- [ ] **Step 4: Implement the service**
+- [x] **Step 4: Implement the service**
 
 Create `src/operations/session-replay.ts`:
 ```ts
@@ -602,7 +621,7 @@ In `src/storage/postgres-store.ts`, implement against the new table with `INSERT
 Run: `node --test --import tsx test/workbench-v2/session-replay.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Wire opt-in write on session finish**
+- [x] **Step 5: Wire opt-in write on session finish**
 
 In `src/agent-session/service.ts`, locate `finishSession()`. Where it currently records the learning signal, also (when `config.persistReplay`) build a `SessionReplayBundle` from the last retrieval debug bundle stored on the session and call `SessionReplayService.writeReplay`.
 
@@ -620,7 +639,7 @@ if (this.config.persistReplay && session.lastSearchDebug) {
 
 Wire `SessionReplayService` into the service constructor (in `src/app.ts` where services are composed). Add it to `AppServices`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/operations/session-replay.ts src/config.ts src/storage/ src/agent-session/service.ts src/app.ts test/workbench-v2/session-replay.test.ts
@@ -634,7 +653,7 @@ git commit -m "feat(replay): opt-in session replay persistence"
 **Files:**
 - Modify: `src/http/server.ts`
 
-- [ ] **Step 1: Write the failing HTTP test**
+- [x] **Step 1: Write the failing HTTP test**
 
 Add this test to `test/workbench-v2/session-replay.test.ts`:
 ```ts
@@ -656,7 +675,7 @@ test('GET /operations/workbench/session/:id/replay returns 404 for unknown, 200 
 
 (The engineer can copy the listen/fetch helpers from `test/browser/workbench-browser.test.ts` — do not import them; copy to keep tests self-contained.)
 
-- [ ] **Step 2: Register the route**
+- [x] **Step 2: Register the route**
 
 In `src/http/server.ts`, after the existing `/operations/workbench/summary` route, add:
 ```ts
@@ -673,7 +692,7 @@ In `src/http/server.ts`, after the existing `/operations/workbench/summary` rout
 
 (Use the existing `jsonResponse` helper and the same `services` accessor as adjacent routes.)
 
-- [ ] **Step 3: Run the test, then full unit suite**
+- [x] **Step 3: Run the test, then full unit suite**
 
 Run: `node --test --import tsx test/workbench-v2/session-replay.test.ts`
 Expected: PASS.
@@ -681,7 +700,7 @@ Expected: PASS.
 Run: `pnpm test`
 Expected: all green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/http/server.ts test/workbench-v2/session-replay.test.ts
@@ -696,7 +715,7 @@ git commit -m "feat(http): /operations/workbench/session/:id/replay"
 - Create: `src/http/workbench-v2.ts`
 - Modify: `src/http/server.ts`
 
-- [ ] **Step 1: Copy + retitle**
+- [x] **Step 1: Copy + retitle**
 
 Create `src/http/workbench-v2.ts` as a 1:1 port of the existing `src/http/workbench.ts` (read it first), with:
 - `bundleRoot` still resolves to `dist/workbench` (same on-disk path; only the source moved).
@@ -704,7 +723,7 @@ Create `src/http/workbench-v2.ts` as a 1:1 port of the existing `src/http/workbe
 
 The point of this task is not new behavior — it's reseating the imports onto a name that won't clash when we delete the old file at the very end. Do **not** delete `src/http/workbench.ts` yet (Task 28).
 
-- [ ] **Step 2: Switch the server import**
+- [x] **Step 2: Switch the server import**
 
 In `src/http/server.ts`:
 ```ts
@@ -714,7 +733,7 @@ import { readWorkbenchAsset, workbenchHtml } from './workbench.js';
 import { readWorkbenchAsset, workbenchHtml } from './workbench-v2.js';
 ```
 
-- [ ] **Step 3: Smoke test the route**
+- [x] **Step 3: Smoke test the route**
 
 Run: `pnpm run build:workbench && pnpm run dev` (background) then:
 ```bash
@@ -723,7 +742,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3027/workbench/static/
 ```
 Expected: `<!doctype html>` and `200`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/http/workbench-v2.ts src/http/server.ts
