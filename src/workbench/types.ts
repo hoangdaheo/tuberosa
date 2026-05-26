@@ -444,6 +444,37 @@ export interface SessionResultViewModel {
   nextActions: SessionNextActionView[];
 }
 
+export type ReviewQueueFilter = 'all' | 'drafts' | 'quality' | 'gaps' | 'proposals' | 'conflicts' | 'risky' | 'errors' | 'maintenance';
+export type ReviewQueueItemType = 'draft' | 'quality' | 'gap' | 'proposal' | 'conflict' | 'risky_memory' | 'error_log' | 'maintenance';
+
+export interface ReviewQueueFilterView {
+  key: ReviewQueueFilter;
+  label: string;
+  count: number;
+}
+
+export interface ReviewQueueItemView {
+  id: string;
+  type: ReviewQueueItemType;
+  priority: number;
+  tone: EvidenceGraphTone;
+  title: string;
+  summary: string;
+  whyItMatters: string;
+  evidence: string[];
+  primaryAction: string;
+  secondaryActions: string[];
+  createdAt?: string;
+}
+
+export interface ReviewQueueViewModel {
+  activeFilter: ReviewQueueFilter;
+  filters: ReviewQueueFilterView[];
+  items: ReviewQueueItemView[];
+  emptyTitle: string;
+  emptyHint: string;
+}
+
 export type WorkbenchSummary = import('../types.js').WorkbenchSummary;
 export type WorkbenchCounts = import('../types.js').WorkbenchSummaryCounts;
 export type WorkbenchRecommendedActionTarget = import('../types.js').WorkbenchRecommendedActionTarget;
