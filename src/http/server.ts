@@ -44,7 +44,7 @@ import {
   validateStartAgentSessionInput,
   validateWorkbenchSummaryInput,
 } from '../validation.js';
-import { readWorkbenchAsset, workbenchHtml } from './workbench.js';
+import { readWorkbenchAsset, workbenchHtml } from './workbench-v2.js';
 
 type RouteParams = Record<string, string>;
 type RouteMatcher = (url: URL) => RouteParams | undefined;
