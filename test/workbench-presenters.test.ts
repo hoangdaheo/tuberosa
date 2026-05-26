@@ -22,6 +22,17 @@ test('workbench metrics and actions deep-link to direct route targets', () => {
   deepEqual(actionTarget('context_quality'), 'quality');
 });
 
+test('new workbench presenters support guided shell surfaces', () => {
+  const summary = makeSummary();
+  const view = presentSummary(summary);
+
+  equal(view.metrics.some((metric) => metric.label === 'Sessions'), true);
+  equal(view.recommendedActions.length > 0, true);
+  equal(view.queues.pendingDrafts.length, 1);
+  equal(view.queues.gaps.length, 1);
+  equal(view.queues.errorLogs.length, 1);
+});
+
 test('workbench presenter provides beginner-friendly empty states', () => {
   const summary = makeSummary({
     openGaps: [],
