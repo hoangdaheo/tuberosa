@@ -39,6 +39,7 @@ export function workbenchHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tuberosa Workbench</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/workbench/static/app.css">
 </head>
 <body>
   <div id="app"></div>

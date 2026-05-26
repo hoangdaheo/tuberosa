@@ -92,6 +92,26 @@ test('workbench v2 browser smoke', async (t) => {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       await page.goto(`${baseUrl}/workbench`);
 
+      // Stylesheet must actually load — without it the whole page renders unstyled.
+      const stylesheetLoaded = await page.evaluate(() => {
+        const g = globalThis as unknown as {
+          document: {
+            querySelectorAll(selector: string): Array<{ href: string; sheet: unknown }>;
+          };
+        };
+        const links = Array.from(g.document.querySelectorAll('link[rel="stylesheet"]'));
+        return links.some((l) => l.sheet !== null && l.href.endsWith('/workbench/static/app.css'));
+      });
+      ok(stylesheetLoaded, 'workbench shell must load app.css');
+      const bodyBg = await page.evaluate(() => {
+        const g = globalThis as unknown as {
+          document: { body: object };
+          getComputedStyle(el: object): { backgroundColor: string };
+        };
+        return g.getComputedStyle(g.document.body).backgroundColor;
+      });
+      ok(bodyBg && bodyBg !== 'rgba(0, 0, 0, 0)', `body background should come from tokens, got ${bodyBg}`);
+
       // Ch1 hello
       await page.waitForSelector('section#ch1');
       await page.locator('section#ch1 button.primary').first().click();
