@@ -5,6 +5,10 @@ import { pipelineSteps } from '../viz/pipeline-flow-vm.js';
 import { GraphCanvas } from '../viz/GraphCanvas.js';
 import { acmeBilling } from '../data/fixtures.js';
 import type { GraphInput } from '../viz/graph-data.js';
+import { GraphLegend } from '../viz/GraphLegend.js';
+import { FitMeter } from '../viz/FitMeter.js';
+import { PackTimeline } from '../viz/PackTimeline.js';
+import { toPackVM } from '../viz/pack-timeline-vm.js';
 
 const TIMINGS = {
   receive: 1,
@@ -17,6 +21,15 @@ const TIMINGS = {
   fit: 1,
   assemble: 2,
   deep: 0,
+};
+
+const ASSEMBLE_PACK = {
+  essential: [
+    { id: 'cr-paywall-001', title: 'PaywallSelectionModal', tokens: 220 },
+    { id: 'cr-paywall-002', title: 'paywall guard in src/billing/guard.ts', tokens: 180 },
+  ],
+  supporting: [{ id: 'spec-subscription-tiers', title: 'Subscription tiers', tokens: 180 }],
+  optional: [],
 };
 
 function fromItems(ids: string[], score = 0.5): GraphInput['items'] {
@@ -129,7 +142,11 @@ export default function Ch04_Pipeline() {
             {steps.find((s) => s.id === sel)?.title.replace(/^\d+\s*·\s*/, '')}
             <span style="color:var(--paper-3);font-weight:400"> · produced</span>
           </h3>
-          {stageInput.items.length === 0 ? (
+          {sel === 'fit' ? (
+            <FitMeter score={0.78} status="ready" missing={[]} />
+          ) : sel === 'assemble' ? (
+            <PackTimeline vm={toPackVM(ASSEMBLE_PACK)} />
+          ) : stageInput.items.length === 0 ? (
             <div
               class="card"
               style="height:460px;display:grid;place-items:center;color:var(--paper-3);font-style:italic"
@@ -137,10 +154,13 @@ export default function Ch04_Pipeline() {
               this stage produced no candidates
             </div>
           ) : (
-            <GraphCanvas
-              input={stageInput}
-              layout={sel === 'fuse' || sel === 'rerank' ? 'dagre' : 'cose'}
-            />
+            <>
+              <GraphCanvas
+                input={stageInput}
+                layout={sel === 'fuse' || sel === 'rerank' ? 'dagre' : 'cose'}
+              />
+              <GraphLegend types={stageInput.items.map((i) => i.itemType)} />
+            </>
           )}
         </div>
       </div>
