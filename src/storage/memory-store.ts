@@ -1199,9 +1199,18 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     });
   }
 
-  async searchAtomsByEmbedding(): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
-    // Memory store has no real embeddings; tests use trigger search instead.
-    return [];
+  async searchAtomsByEmbedding(
+    _embedding: number[],
+    options: { project?: string; limit: number; threshold?: number },
+  ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
+    // Memory store has no real embeddings. Return all project atoms with cosine
+    // 1.0 so that threshold-based dedup checks work deterministically in tests.
+    const threshold = options.threshold ?? 0.92;
+    return [...this.atoms.values()]
+      .filter((atom) => !options.project || atom.project === options.project)
+      .filter((atom) => 1.0 >= threshold)
+      .slice(0, options.limit)
+      .map((atom) => ({ atom, cosine: 1.0 }));
   }
 
   async searchAtomsByTrigger(
