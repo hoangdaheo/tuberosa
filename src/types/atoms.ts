@@ -1,6 +1,6 @@
 export type AtomType = 'fact' | 'procedure' | 'decision' | 'gotcha' | 'convention';
 export type AtomTier = 'draft' | 'verified' | 'canonical';
-export type AtomStatus = 'active' | 'legacy_archived' | 'superseded';
+export type AtomStatus = 'active' | 'legacy_archived' | 'superseded' | 'archived';
 export type AtomProducer = 'agent_session' | 'user' | 'migration_llm';
 export type AtomLinkKind = 'supersedes' | 'refines' | 'depends_on' | 'co_changes_with' | 'related_to';
 
