@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { observeChapter } from '../state/scrollController.js';
-import { setRoute, route } from '../state/store.js';
+import { startTour } from '../shell/AutoTour.js';
 
 export default function Ch01_Hello() {
   const ref = useRef<HTMLElement>(null);
@@ -93,14 +93,13 @@ export default function Ch01_Hello() {
         <button
           class="primary"
           onClick={() => {
-            setRoute({ ...route.value, chapter: 2 });
-            document.getElementById('ch2')?.scrollIntoView({ behavior: 'smooth' });
+            startTour();
           }}
         >
           Start the tour →
         </button>
         <span style="color:var(--paper-3);font-size:var(--fs-small)">
-          Or scroll. Ten short chapters.
+          Or just scroll. Ten short chapters.
         </span>
       </div>
     </section>
