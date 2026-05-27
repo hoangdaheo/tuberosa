@@ -153,3 +153,27 @@ test('selected feedback on a pack increments reuseCount on contained atoms', asy
 
   resetRetrievalPolicyCache();
 });
+
+test('retrieval: archived atoms do not appear in default context packs', async () => {
+  resetRetrievalPolicyCache();
+  setRetrievalPolicy(DEFAULT_POLICY);
+  const store = new MemoryKnowledgeStore();
+  const cache = new MemoryCache();
+  const models = new HashModelProvider();
+  const service = new RetrievalService(store, cache, models, loadConfig());
+
+  const atom = await store.createAtom({
+    project: 'tuberosa', claim: 'should not surface',
+    type: 'fact', evidence: [{ kind: 'file', path: 'x.ts' }],
+    trigger: { errors: ['baz error'] }, producedBy: 'agent_session',
+  });
+  await store.updateAtom(atom.id, { status: 'archived' });
+
+  const pack = await service.searchContext({
+    project: 'tuberosa', prompt: 'baz error', errors: ['baz error'],
+  });
+  const ids = pack.sections.flatMap((s) => s.items.map((i) => i.knowledgeId));
+  assert.ok(!ids.includes(atom.id));
+
+  resetRetrievalPolicyCache();
+});
