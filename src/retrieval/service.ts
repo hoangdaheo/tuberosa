@@ -693,6 +693,8 @@ export class RetrievalService {
     const onSuppression = debug ? (event: SuppressionEvent) => debug.recordSuppressionEvent(event) : undefined;
 
     return candidates
+      .filter((candidate) => readLegacyStatus(candidate) !== 'legacy_archived')
+      .map((candidate) => applyLegacyReplacedDownweight(candidate))
       .map((candidate) => applyFeedbackSummary(candidate, summaries.get(candidate.knowledgeId), onSuppression))
       .map((candidate) => applyIntentSuppression(candidate, classified, supersededBy.get(candidate.knowledgeId) ?? [], onSuppression))
       .map((candidate) => applyAtomTierMultiplier(candidate))
@@ -1149,6 +1151,19 @@ function applyAtomTierMultiplier(candidate: RankedCandidate): RankedCandidate {
     return candidate;
   }
   return { ...candidate, finalScore: candidate.finalScore * TIER_RANK_MULTIPLIERS[tier] };
+}
+
+const LEGACY_REPLACED_GRACE_MULTIPLIER = 0.2;
+
+function readLegacyStatus(candidate: RankedCandidate): string | undefined {
+  return (candidate.metadata as { legacyStatus?: string } | undefined)?.legacyStatus;
+}
+
+function applyLegacyReplacedDownweight(candidate: RankedCandidate): RankedCandidate {
+  if (readLegacyStatus(candidate) !== 'legacy_replaced') {
+    return candidate;
+  }
+  return { ...candidate, finalScore: candidate.finalScore * LEGACY_REPLACED_GRACE_MULTIPLIER };
 }
 
 function redactSearchInput(input: ContextSearchInput, safety: KnowledgeSafetyService): ContextSearchInput {
