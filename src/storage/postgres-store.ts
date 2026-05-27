@@ -50,6 +50,12 @@ import type {
   SearchOptions,
   StoredKnowledge,
 } from '../types.js';
+import type {
+  KnowledgeAtom,
+  KnowledgeAtomInput,
+  KnowledgeAtomPatch,
+  ListAtomsOptions,
+} from '../types/atoms.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
@@ -1577,6 +1583,177 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     };
   }
 
+  async createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom> {
+    const projectId = await this.ensureProject(this.pool, input.project);
+    const result = await this.pool.query(
+      `INSERT INTO knowledge_atoms
+        (project_id, parent_knowledge_id, claim, type, evidence, trigger,
+         verification, pitfalls, links, produced_by, produced_session_id)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11)
+       RETURNING *`,
+      [
+        projectId,
+        input.parentKnowledgeId ?? null,
+        input.claim,
+        input.type,
+        JSON.stringify(input.evidence),
+        JSON.stringify(input.trigger),
+        input.verification ? JSON.stringify(input.verification) : null,
+        input.pitfalls ? JSON.stringify(input.pitfalls) : null,
+        input.links ? JSON.stringify(input.links) : null,
+        input.producedBy,
+        input.producedAtSessionId ?? null,
+      ],
+    );
+    return rowToAtom(result.rows[0], input.project);
+  }
+
+  async getAtom(id: string): Promise<KnowledgeAtom | undefined> {
+    const result = await this.pool.query(
+      `SELECT a.*, p.name AS project_name
+       FROM knowledge_atoms a
+       LEFT JOIN projects p ON p.id = a.project_id
+       WHERE a.id = $1`,
+      [id],
+    );
+    if (result.rows.length === 0) return undefined;
+    return rowToAtom(result.rows[0], String(result.rows[0].project_name));
+  }
+
+  async listAtoms(options: ListAtomsOptions): Promise<KnowledgeAtom[]> {
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    if (options.project) {
+      values.push(options.project);
+      filters.push(`p.name = $${values.length}`);
+    }
+    if (options.tier) {
+      values.push(options.tier);
+      filters.push(`a.tier = $${values.length}`);
+    }
+    if (options.status) {
+      values.push(options.status);
+      filters.push(`a.status = $${values.length}`);
+    }
+    if (options.parentKnowledgeId) {
+      values.push(options.parentKnowledgeId);
+      filters.push(`a.parent_knowledge_id = $${values.length}`);
+    }
+    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+    values.push(options.limit);
+    const result = await this.pool.query(
+      `SELECT a.*, p.name AS project_name
+       FROM knowledge_atoms a
+       LEFT JOIN projects p ON p.id = a.project_id
+       ${where}
+       ORDER BY a.created_at DESC
+       LIMIT $${values.length}`,
+      values,
+    );
+    return result.rows.map((row) => rowToAtom(row, String(row.project_name)));
+  }
+
+  async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
+    const sets: string[] = ['updated_at = now()'];
+    const values: unknown[] = [];
+    if (patch.tier !== undefined)         { values.push(patch.tier);         sets.push(`tier = $${values.length}`); }
+    if (patch.status !== undefined)       { values.push(patch.status);       sets.push(`status = $${values.length}`); }
+    if (patch.reuseCount !== undefined)   { values.push(patch.reuseCount);   sets.push(`reuse_count = $${values.length}`); }
+    if (patch.lastReusedAt !== undefined) { values.push(patch.lastReusedAt); sets.push(`last_reused_at = $${values.length}`); }
+    if (patch.verification !== undefined) { values.push(JSON.stringify(patch.verification)); sets.push(`verification = $${values.length}::jsonb`); }
+    if (patch.pitfalls !== undefined)     { values.push(JSON.stringify(patch.pitfalls));     sets.push(`pitfalls = $${values.length}::jsonb`); }
+    if (patch.links !== undefined)        { values.push(JSON.stringify(patch.links));        sets.push(`links = $${values.length}::jsonb`); }
+    values.push(id);
+    const result = await this.pool.query(
+      `UPDATE knowledge_atoms SET ${sets.join(', ')} WHERE id = $${values.length} RETURNING *`,
+      values,
+    );
+    if (result.rows.length === 0) return undefined;
+    const projectResult = await this.pool.query(
+      `SELECT name FROM projects WHERE id = $1`,
+      [result.rows[0].project_id],
+    );
+    return rowToAtom(result.rows[0], String(projectResult.rows[0]?.name ?? ''));
+  }
+
+  async deleteAtom(id: string): Promise<boolean> {
+    const result = await this.pool.query(`DELETE FROM knowledge_atoms WHERE id = $1`, [id]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined> {
+    const result = await this.pool.query(
+      `UPDATE knowledge_atoms
+       SET reuse_count = reuse_count + 1, last_reused_at = $2, updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [id, when],
+    );
+    if (result.rows.length === 0) return undefined;
+    const projectResult = await this.pool.query(
+      `SELECT name FROM projects WHERE id = $1`,
+      [result.rows[0].project_id],
+    );
+    return rowToAtom(result.rows[0], String(projectResult.rows[0]?.name ?? ''));
+  }
+
+  async searchAtomsByEmbedding(
+    embedding: number[],
+    options: { project?: string; limit: number; threshold?: number },
+  ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
+    const threshold = options.threshold ?? 0.0;
+    const projectFilter = options.project ? `AND p.name = $3` : '';
+    const params: unknown[] = [`[${embedding.join(',')}]`, options.limit];
+    if (options.project) params.push(options.project);
+    const result = await this.pool.query(
+      `SELECT a.*, p.name AS project_name,
+              1 - (a.embedding <=> $1::vector) AS cosine
+       FROM knowledge_atoms a
+       LEFT JOIN projects p ON p.id = a.project_id
+       WHERE a.embedding IS NOT NULL
+         AND a.status = 'active'
+         ${projectFilter}
+       ORDER BY a.embedding <=> $1::vector
+       LIMIT $2`,
+      params,
+    );
+    return result.rows
+      .map((row) => ({ atom: rowToAtom(row, String(row.project_name)), cosine: Number(row.cosine) }))
+      .filter((entry) => entry.cosine >= threshold);
+  }
+
+  async searchAtomsByTrigger(
+    trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] },
+    options: { project?: string; limit: number },
+  ): Promise<KnowledgeAtom[]> {
+    const filters: string[] = ["a.status = 'active'"];
+    const values: unknown[] = [];
+    if (options.project) {
+      values.push(options.project);
+      filters.push(`p.name = $${values.length}`);
+    }
+    const triggerFilters: string[] = [];
+    for (const key of ['errors', 'files', 'symbols', 'taskTypes'] as const) {
+      const arr = trigger[key];
+      if (!arr || arr.length === 0) continue;
+      values.push(JSON.stringify(arr));
+      triggerFilters.push(`a.trigger->'${key}' ?| ARRAY(SELECT lower(value::text) FROM jsonb_array_elements_text($${values.length}::jsonb))`);
+    }
+    if (triggerFilters.length) {
+      filters.push(`(${triggerFilters.join(' OR ')})`);
+    }
+    values.push(options.limit);
+    const result = await this.pool.query(
+      `SELECT a.*, p.name AS project_name
+       FROM knowledge_atoms a
+       LEFT JOIN projects p ON p.id = a.project_id
+       WHERE ${filters.join(' AND ')}
+       LIMIT $${values.length}`,
+      values,
+    );
+    return result.rows.map((row) => rowToAtom(row, String(row.project_name)));
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
@@ -2459,6 +2636,31 @@ function mapAgentContextDecisionRow(row: Record<string, unknown>): AgentContextD
     retryContextPackId: row.retry_context_pack_id ? String(row.retry_context_pack_id) : undefined,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
     createdAt: toIso(row.created_at),
+  };
+}
+
+function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom {
+  return {
+    id: String(row.id),
+    project,
+    parentKnowledgeId: row.parent_knowledge_id ? String(row.parent_knowledge_id) : undefined,
+    claim: String(row.claim),
+    type: row.type as KnowledgeAtom['type'],
+    evidence: (row.evidence ?? []) as KnowledgeAtom['evidence'],
+    trigger: (row.trigger ?? {}) as KnowledgeAtom['trigger'],
+    verification: (row.verification ?? undefined) as KnowledgeAtom['verification'],
+    pitfalls: (row.pitfalls ?? undefined) as KnowledgeAtom['pitfalls'],
+    links: (row.links ?? undefined) as KnowledgeAtom['links'],
+    tier: row.tier as KnowledgeAtom['tier'],
+    reuseCount: Number(row.reuse_count ?? 0),
+    lastReusedAt: row.last_reused_at ? new Date(row.last_reused_at as string).toISOString() : undefined,
+    status: row.status as KnowledgeAtom['status'],
+    audit: {
+      producedBy: row.produced_by as KnowledgeAtom['audit']['producedBy'],
+      producedAtSessionId: row.produced_session_id ? String(row.produced_session_id) : undefined,
+      createdAt: new Date(row.created_at as string).toISOString(),
+      updatedAt: new Date(row.updated_at as string).toISOString(),
+    },
   };
 }
 
