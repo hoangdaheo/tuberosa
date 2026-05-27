@@ -774,6 +774,9 @@ const SANDBOX_CONFIG: AppConfig = {
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
+  llmCriticEnabled: false,
+  archivalEnabled: false,
+  archivalIntervalHours: 24,
 };
 
 main().catch((error: unknown) => {

@@ -57,6 +57,9 @@ const config: AppConfig = {
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
+  llmCriticEnabled: false,
+  archivalEnabled: false,
+  archivalIntervalHours: 24,
 };
 
 test('classifier extracts concrete repo context from prompt', () => {

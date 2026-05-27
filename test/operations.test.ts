@@ -56,6 +56,9 @@ const config: AppConfig = {
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
+  llmCriticEnabled: false,
+  archivalEnabled: false,
+  archivalIntervalHours: 24,
 };
 
 test('operations API reviews, updates, imports, and lists audit records', async () => {

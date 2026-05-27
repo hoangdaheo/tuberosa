@@ -42,6 +42,9 @@ const config: AppConfig = {
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
+  llmCriticEnabled: false,
+  archivalEnabled: false,
+  archivalIntervalHours: 24,
 };
 
 test('startup brief proceeds and recommends reading current worktree handoff first', async () => {
