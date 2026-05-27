@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { observeChapter } from '../state/scrollController.js';
 import { api } from '../data/api.js';
-import { apiKey, currentProject, setApiKey } from '../state/store.js';
+import { apiKey, currentProject, setApiKey, pushToast } from '../state/store.js';
 
 interface WorkbenchSummary {
   counts: Record<string, number>;
@@ -10,7 +10,7 @@ interface WorkbenchSummary {
   modelProvider?: string;
   durability?: string;
   recentSessions?: Array<{ id: string; prompt?: string }>;
-  pendingDrafts?: Array<{ id: string; title?: string }>;
+  pendingDrafts?: Array<{ id: string; title?: string; summary?: string; itemType?: string }>;
   openConflicts?: Array<{ id: string; title?: string }>;
   openGaps?: Array<{ id: string; title?: string }>;
   openProposals?: Array<{ id: string; title?: string }>;
@@ -26,6 +26,27 @@ export default function Ch10_TuneOps() {
   const [loading, setLoading] = useState(false);
   const [project, setProject] = useState(currentProject.value);
   const [limit, setLimit] = useState(10);
+  const [acting, setActing] = useState<string | null>(null);
+
+  async function actOnDraft(id: string, action: 'approve' | 'reject'): Promise<void> {
+    setActing(id);
+    try {
+      if (action === 'approve') {
+        await api(`/reflection-drafts/${encodeURIComponent(id)}/approve`, { method: 'POST', body: '{}' });
+      } else {
+        await api(`/reflection-drafts/${encodeURIComponent(id)}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ decision: 'reject' }),
+        });
+      }
+      pushToast(`Draft ${action === 'approve' ? 'approved' : 'rejected'}`, 'good');
+      refresh();
+    } catch {
+      // api() already toasts the error
+    } finally {
+      setActing(null);
+    }
+  }
 
   function refresh(): void {
     setLoading(true);
@@ -61,6 +82,26 @@ export default function Ch10_TuneOps() {
               <Row label="open knowledge gaps" n={summary.counts?.openGaps ?? 0} />
               <Row label="learning proposals" n={summary.counts?.openProposals ?? 0} />
               <Row label="risky auto-memories" n={summary.counts?.riskyAutoMemories ?? 0} />
+              {summary.pendingDrafts && summary.pendingDrafts.length > 0 && (
+                <ul style="margin:12px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px">
+                  {summary.pendingDrafts.map((d) => (
+                    <li key={d.id} class="card" style="padding:10px 12px">
+                      <strong style="font-size:13px;display:block;overflow:hidden;text-overflow:ellipsis">{d.title ?? d.id}</strong>
+                      {d.summary && (
+                        <span style="color:var(--fg-muted);font-size:12px;display:block;margin-top:2px">{d.summary}</span>
+                      )}
+                      <div style="display:flex;gap:8px;margin-top:8px">
+                        <button class="primary" disabled={acting === d.id} onClick={() => actOnDraft(d.id, 'approve')}>
+                          Approve
+                        </button>
+                        <button class="ghost" disabled={acting === d.id} onClick={() => actOnDraft(d.id, 'reject')}>
+                          Reject
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div class="card">
               <h3 style="margin-top:0">System</h3>
