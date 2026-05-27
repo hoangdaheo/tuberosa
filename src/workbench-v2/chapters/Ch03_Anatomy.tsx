@@ -1,91 +1,41 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import { observeChapter } from '../state/scrollController.js';
-import { SignalChips } from '../viz/SignalChips.js';
-import { toSignalChips } from '../viz/signal-chips-vm.js';
-import { PipelineFlow } from '../viz/PipelineFlow.js';
-import { pipelineSteps } from '../viz/pipeline-flow-vm.js';
-import { PackTimeline } from '../viz/PackTimeline.js';
-import { toPackVM } from '../viz/pack-timeline-vm.js';
+import { Term } from '../viz/Term.js';
 
-const TIMINGS = {
-  receive: 1,
-  classify: 12,
-  rewrite: 0,
-  search: 38,
-  fuse: 5,
-  rerank: 22,
-  adjust: 3,
-  fit: 1,
-  assemble: 2,
-  deep: 0,
-};
+const STAGES = ['classify', 'search', 'rank', 'fit', 'assemble'];
 
 export default function Ch03_Anatomy() {
   const ref = useRef<HTMLElement>(null);
-  const [shown, setShown] = useState(0);
-  useEffect(() => {
-    if (!ref.current) return;
-    const stop = observeChapter(ref.current, 3);
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) {
-          if (reduce) {
-            setShown(3);
-            return;
-          }
-          setShown(1);
-          setTimeout(() => setShown(2), 500);
-          setTimeout(() => setShown(3), 2000);
-          io.disconnect();
-        }
-      },
-      { threshold: 0.5 },
-    );
-    io.observe(ref.current);
-    return () => {
-      stop();
-      io.disconnect();
-    };
-  }, []);
-
-  const chips = toSignalChips({
-    symbols: ['paywall', 'logic'],
-    errors: [],
-    files: [],
-    businessAreas: ['subscription'],
-    technologies: [],
-    taskType: 'research',
-  });
-  const steps = pipelineSteps(TIMINGS);
-  const pack = toPackVM({
-    essential: [{ id: 'cr-paywall-001', title: 'PaywallSelectionModal', tokens: 220 }],
-    supporting: [{ id: 'spec-subscription-tiers', title: 'Subscription tiers', tokens: 180 }],
-    optional: [],
-  });
+  useEffect(() => (ref.current ? observeChapter(ref.current, 3) : undefined), []);
   return (
     <section id="ch3" class="chapter" data-numeral="03" ref={ref}>
       <span class="overline">A session, end to end</span>
-      <h2 style="margin-top:var(--space-4)">Anatomy of a session</h2>
-      <p class="lead">One prompt, about eighty milliseconds, three groups of context.</p>
+      <h2 style="margin-top:var(--space-4)">The big picture</h2>
+      <p class="lead">One prompt in. Three groups of context out. About eighty milliseconds.</p>
       <div class="card" style="margin-top:var(--space-4);display:flex;gap:var(--space-3);align-items:baseline">
         <span class="overline" style="flex:none">Prompt</span>
         <span style="font-family:var(--font-display);font-style:italic;font-size:18px;color:var(--paper-0)">
           "Where does paywall logic live?"
         </span>
       </div>
-      <div class="split-2" style="margin-top:var(--space-5)">
-        <div>
-          <h3>Signals</h3>
-          {shown >= 1 && <SignalChips chips={chips} />}
-          <h3 style="margin-top:var(--space-5)">Pipeline</h3>
-          {shown >= 2 && <PipelineFlow steps={steps} />}
-        </div>
-        <div>
-          <h3>Pack</h3>
-          {shown >= 3 && <PackTimeline vm={pack} />}
-        </div>
+      <div
+        class="fade-in"
+        style="margin-top:var(--space-5);display:flex;align-items:center;gap:10px;flex-wrap:wrap"
+      >
+        <span class="pill" data-tone="neutral">prompt</span>
+        <span style="color:var(--paper-3)">→</span>
+        {STAGES.map((s) => (
+          <span key={s} class="pill">{s}</span>
+        ))}
+        <span style="color:var(--paper-3)">→</span>
+        <span class="pill" data-tone="good">essential · supporting · optional</span>
       </div>
+      <p style="margin-top:var(--space-5);color:var(--paper-2);max-width:60ch">
+        Ten short stages turn a question into a ranked, budgeted context pack. We{' '}
+        <Term k="fuse">fuse</Term> several search sources, <Term k="rerank">rerank</Term>{' '}
+        the top slice, decide context <Term k="fit">fit</Term>, and assemble the pack. The next
+        chapter lets you click into each stage.
+      </p>
     </section>
   );
 }
