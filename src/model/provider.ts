@@ -11,10 +11,27 @@ import type {
 } from '../types.js';
 import { clamp, truncate } from '../util/text.js';
 
+export type ExtractedAtomCandidate = {
+  claim: string;
+  type: 'fact' | 'procedure' | 'decision' | 'gotcha' | 'convention';
+  evidence: Array<{ kind: 'file' | 'commit' | 'test' | 'url' | 'prior_session'; [key: string]: unknown }>;
+  trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[]; intentTags?: string[] };
+  verification?: { command?: string; testRef?: { path: string; testName: string }; assertion?: string };
+  pitfalls?: string[];
+};
+
 export interface ModelProvider {
   embed(text: string): Promise<number[]>;
   rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult | undefined>;
   rerank(input: RerankInput): Promise<RerankResult>;
+  extractAtoms?(input: {
+    project: string;
+    sessionPrompt: string;
+    summary?: string;
+    changedFiles?: string[];
+    decisions?: Array<{ decision: string; reason?: string; knowledgeIds?: string[] }>;
+    verificationCommands?: string[];
+  }): Promise<ExtractedAtomCandidate[]>;
 }
 
 export const OPENAI_RERANK_SYSTEM_PROMPT = [
@@ -29,7 +46,19 @@ export const OPENAI_RERANK_SYSTEM_PROMPT = [
 ].join(' ');
 
 export class HashModelProvider implements ModelProvider {
-  constructor(private readonly dimensions: number) {}
+  // Test seam — the hash provider has no real LLM. Tests inject deterministic
+  // atom candidates via setFixtureAtoms when they need extractor coverage.
+  private fixtureAtoms: ExtractedAtomCandidate[] = [];
+
+  constructor(private readonly dimensions: number = 1536) {}
+
+  setFixtureAtoms(atoms: ExtractedAtomCandidate[]): void {
+    this.fixtureAtoms = atoms;
+  }
+
+  async extractAtoms(): Promise<ExtractedAtomCandidate[]> {
+    return this.fixtureAtoms;
+  }
 
   async embed(text: string): Promise<number[]> {
     const vector = new Array<number>(this.dimensions).fill(0);
