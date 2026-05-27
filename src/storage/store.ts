@@ -85,6 +85,17 @@ export interface KnowledgeStore {
   incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined>;
   searchAtomsByEmbedding(embedding: number[], options: { project?: string; limit: number; threshold?: number }): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>>;
   searchAtomsByTrigger(trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] }, options: { project?: string; limit: number }): Promise<KnowledgeAtom[]>;
+  searchKnowledgeByEmbedding(
+    embedding: number[],
+    options: {
+      project?: string;
+      limit: number;
+      threshold?: number;
+      itemTypes?: string[];
+      excludeLegacyStatuses?: Array<'legacy_replaced' | 'legacy_archived'>;
+    },
+  ): Promise<Array<{ knowledge: StoredKnowledge; cosine: number }>>;
+  countNegativeFeedback(knowledgeId: string, withinDays: number): Promise<number>;
   createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation>;
   updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined>;
   deleteKnowledgeRelation(id: string): Promise<boolean>;

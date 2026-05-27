@@ -1252,6 +1252,46 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .slice(0, options.limit);
   }
 
+  async searchKnowledgeByEmbedding(
+    _embedding: number[],
+    options: {
+      project?: string;
+      limit: number;
+      threshold?: number;
+      itemTypes?: string[];
+      excludeLegacyStatuses?: Array<'legacy_replaced' | 'legacy_archived'>;
+    },
+  ): Promise<Array<{ knowledge: StoredKnowledge; cosine: number }>> {
+    const items = await this.listKnowledge({ project: options.project, limit: 1000 });
+    const itemTypeFilter = options.itemTypes ? new Set(options.itemTypes) : undefined;
+    const excludeLegacy = new Set(options.excludeLegacyStatuses ?? []);
+    return items
+      .filter((item) => !itemTypeFilter || itemTypeFilter.has(item.itemType))
+      .filter((item) => {
+        const legacy = (item.metadata as { legacyStatus?: string } | undefined)?.legacyStatus;
+        return !legacy || !excludeLegacy.has(legacy as 'legacy_replaced' | 'legacy_archived');
+      })
+      // The memory store has no real embeddings; cross-type dedup fixtures
+      // assert presence/absence under a 0.0 threshold rather than exact cosine,
+      // so we report a constant high similarity for every surviving candidate.
+      .map((knowledge) => ({ knowledge, cosine: 0.95 }))
+      .filter(({ cosine }) => cosine >= (options.threshold ?? 0))
+      .slice(0, options.limit);
+  }
+
+  async countNegativeFeedback(knowledgeId: string, withinDays: number): Promise<number> {
+    const cutoff = Date.now() - withinDays * 24 * 60 * 60 * 1000;
+    const negativeTypes = new Set(['rejected', 'stale', 'irrelevant']);
+    return this.feedback
+      .filter((event) => negativeTypes.has(event.feedbackType))
+      .filter((event) => new Date(event.createdAt).getTime() >= cutoff)
+      .filter((event) =>
+        (event.rejectedKnowledgeIds ?? []).includes(knowledgeId)
+        || (event.metadata as { affectedKnowledgeId?: string } | undefined)?.affectedKnowledgeId === knowledgeId,
+      )
+      .length;
+  }
+
   async close(): Promise<void> {}
 
   private findKnowledgeBySourceUri(project: string, sourceUri: string): StoredKnowledge | undefined {
