@@ -19,8 +19,17 @@ const CHAPTERS: ChapterId[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 export function ProgressRail() {
   const active = activeChapter.value;
+  const pct = (active / CHAPTERS.length) * 100;
   return (
     <nav class="progress-rail" aria-label="Chapters">
+      <div
+        class="progress-rail-fill"
+        role="progressbar"
+        aria-valuenow={active}
+        aria-valuemin={1}
+        aria-valuemax={CHAPTERS.length}
+        style={`position:absolute;left:0;top:0;width:2px;height:${pct}%;background:var(--copper);transition:height var(--anim-med)`}
+      />
       <ol>
         {CHAPTERS.map((n) => (
           <li key={n}>
