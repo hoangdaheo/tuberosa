@@ -1748,6 +1748,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
        FROM knowledge_atoms a
        LEFT JOIN projects p ON p.id = a.project_id
        WHERE ${filters.join(' AND ')}
+       ORDER BY
+         CASE a.tier WHEN 'canonical' THEN 2 WHEN 'verified' THEN 1 ELSE 0 END DESC,
+         a.last_reused_at DESC NULLS LAST,
+         a.id
        LIMIT $${values.length}`,
       values,
     );

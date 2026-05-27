@@ -1229,6 +1229,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     };
 
     return [...this.atoms.values()]
+      .filter((atom) => atom.status === 'active')
       .filter((atom) => !options.project || atom.project === options.project)
       .filter((atom) =>
         matchesAny(atom.trigger.errors, wantErrors)

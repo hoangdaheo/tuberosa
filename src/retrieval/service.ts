@@ -1129,12 +1129,12 @@ function atomToCandidate(atom: KnowledgeAtom, index: number): SearchCandidate {
     tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
     trustLevel: 1,
     source: 'atoms',
-    // Seed the raw score with the tier multiplier so verified/canonical atoms
-    // enter fusion ahead of drafts for the same trigger. The multiplier is also
-    // applied to finalScore in applyAtomTierMultiplier; double-application keeps
-    // the verified > draft ordering robust without destabilizing the eval (no
-    // atoms in the retrieval fixtures, so no cross-source interaction).
-    rawScore: TIER_RANK_MULTIPLIERS[atom.tier],
+    // Neutral rawScore (fusion ranks by `rank`, not rawScore — rawScore only acts
+    // as a content-collision tiebreaker, and atoms have distinct knowledgeIds).
+    // Tier weighting is applied in exactly one place: applyAtomTierMultiplier,
+    // which scales finalScore by TIER_RANK_MULTIPLIERS[atomTier] post-rerank so
+    // verified/canonical atoms outrank drafts for the same trigger.
+    rawScore: 1,
     rank: index + 1,
     metadata: { atomTier: atom.tier, atomType: atom.type },
   };
