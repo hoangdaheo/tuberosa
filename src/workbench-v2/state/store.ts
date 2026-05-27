@@ -4,7 +4,23 @@ import { parseHash, routeToHash, type Route } from './routes.js';
 export const route = signal<Route>(
   parseHash(typeof window !== 'undefined' ? window.location.hash : ''),
 );
-export const demoMode = signal<'seeded' | 'live'>('seeded');
+export type DataSource = 'seeded' | 'live';
+export const dataSource = signal<DataSource>('seeded');
+
+export type ConnectionState = 'unknown' | 'connected' | 'offline';
+export const connection = signal<ConnectionState>('unknown');
+
+let probed = false;
+export async function probeConnection(): Promise<void> {
+  if (probed) return;
+  probed = true;
+  try {
+    const res = await fetch('/health', { headers: { accept: 'application/json' } });
+    connection.value = res.ok ? 'connected' : 'offline';
+  } catch {
+    connection.value = 'offline';
+  }
+}
 export const apiKey = signal<string>(
   typeof localStorage !== 'undefined' ? localStorage.getItem('tuberosa.v2.apiKey') ?? '' : '',
 );
