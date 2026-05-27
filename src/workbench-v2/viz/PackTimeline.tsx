@@ -1,4 +1,5 @@
 import { toPackVM, type PackVM, type PackSectionVM } from './pack-timeline-vm.js';
+import { KnowledgeItem } from './KnowledgeItem.js';
 
 export { toPackVM };
 export type { Pack, PackVM, PackSectionVM, PackItem } from './pack-timeline-vm.js';
@@ -40,21 +41,10 @@ export function PackTimeline({ vm }: { vm: PackVM }) {
               />
             </div>
             {s.items.length > 0 && (
-              <ul
-                style="margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px"
-              >
+              <ul style="margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px">
                 {s.items.map((i) => (
-                  <li
-                    key={i.id}
-                    class="fade-in"
-                    style="display:flex;gap:8px;align-items:baseline;font-size:var(--fs-small);color:var(--paper-1)"
-                  >
-                    <span class="code" style="flex:none">
-                      {i.id}
-                    </span>
-                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                      {i.title}
-                    </span>
+                  <li key={i.id} class="fade-in">
+                    <KnowledgeItem id={i.id} title={i.title} tokens={i.tokens} />
                   </li>
                 ))}
               </ul>
