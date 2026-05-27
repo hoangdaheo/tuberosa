@@ -189,6 +189,7 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     metadata: 1.15,
     graph: 1.1,
     memory: 1.08,
+    atoms: 0.2,
     lexical: 1.0,
     vector: 0.92,
   },
@@ -445,6 +446,8 @@ export function rrfKFor(policy: RetrievalPolicy, taskType: TaskType): number {
 }
 
 /** Phase 4 — composite graph-hop multiplier for a single relation traversal. */
+export { TIER_RANK_MULTIPLIERS } from '../atoms/tier.js';
+
 export function graphHopMultiplier(
   policy: RetrievalPolicy,
   role: 'target' | 'seed' | 'depth2',

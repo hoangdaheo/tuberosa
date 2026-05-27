@@ -13,6 +13,7 @@ import type {
   StoredKnowledge,
   TaskType,
 } from '../types.js';
+import type { KnowledgeAtom, KnowledgeAtomInput, KnowledgeAtomPatch } from '../types/atoms.js';
 
 export interface KnowledgeIngestor {
   ingestKnowledge(input: KnowledgeInput): Promise<StoredKnowledge>;
@@ -37,6 +38,26 @@ export interface KnowledgeGapReader {
 
 export interface KnowledgeRelationCreator {
   createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation>;
+}
+
+export interface AtomCreator {
+  createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom>;
+  updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined>;
+}
+
+export interface RetrievalEvalAtom {
+  evalId: string;
+  project?: string;
+  claim: string;
+  type: KnowledgeAtomInput['type'];
+  evidence: KnowledgeAtomInput['evidence'];
+  trigger: KnowledgeAtomInput['trigger'];
+  verification?: KnowledgeAtomInput['verification'];
+  producedBy?: KnowledgeAtomInput['producedBy'];
+  /** Tier to force after creation (atoms start as draft). */
+  tier?: KnowledgeAtomPatch['tier'];
+  reuseCount?: number;
+  lastReusedAt?: string;
 }
 
 export interface RetrievalEvalRelation {
@@ -104,6 +125,7 @@ export interface RetrievalEvalFixture {
   name: string;
   project: string;
   knowledge: RetrievalEvalKnowledge[];
+  atoms?: RetrievalEvalAtom[];
   feedbackEvents?: RetrievalEvalFeedbackEvent[];
   relations?: RetrievalEvalRelation[];
   cases: RetrievalEvalCase[];
@@ -189,11 +211,13 @@ export class RetrievalEvaluator {
     private readonly feedbackRecorder: FeedbackRecorder | undefined = isFeedbackRecorder(searcher) ? searcher : undefined,
     private readonly relationCreator: KnowledgeRelationCreator | undefined = undefined,
     private readonly gapReader: KnowledgeGapReader | undefined = isKnowledgeGapReader(relationCreator) ? relationCreator : undefined,
+    private readonly atomCreator: AtomCreator | undefined = isAtomCreator(relationCreator) ? relationCreator : undefined,
   ) {}
 
   async run(fixture: RetrievalEvalFixture, options: RetrievalEvalOptions = {}): Promise<RetrievalEvalReport> {
     const topK = options.topK ?? DEFAULT_TOP_K;
     const index = await this.seedKnowledge(fixture);
+    await this.seedAtoms(fixture, index);
     await this.seedFeedback(fixture, index);
     await this.seedRelations(fixture, index);
     const cases = [];
@@ -233,6 +257,37 @@ export class RetrievalEvaluator {
     }
 
     return { byEvalId, byStoreId };
+  }
+
+  private async seedAtoms(fixture: RetrievalEvalFixture, index: SeededKnowledgeIndex): Promise<void> {
+    if (!fixture.atoms?.length) {
+      return;
+    }
+
+    if (!this.atomCreator) {
+      throw new Error('Retrieval eval fixture defines atoms but no atom creator is configured.');
+    }
+
+    for (const atom of fixture.atoms) {
+      const created = await this.atomCreator.createAtom({
+        project: atom.project ?? fixture.project,
+        claim: atom.claim,
+        type: atom.type,
+        evidence: atom.evidence,
+        trigger: atom.trigger,
+        verification: atom.verification,
+        producedBy: atom.producedBy ?? 'agent_session',
+      });
+      if (atom.tier || atom.reuseCount !== undefined || atom.lastReusedAt) {
+        await this.atomCreator.updateAtom(created.id, {
+          tier: atom.tier,
+          reuseCount: atom.reuseCount,
+          lastReusedAt: atom.lastReusedAt,
+        });
+      }
+      index.byEvalId.set(atom.evalId, created.id);
+      index.byStoreId.set(created.id, atom.evalId);
+    }
   }
 
   private async seedFeedback(fixture: RetrievalEvalFixture, index: SeededKnowledgeIndex): Promise<void> {
@@ -559,6 +614,10 @@ function isFeedbackRecorder(value: unknown): value is FeedbackRecorder {
 
 function isKnowledgeGapReader(value: unknown): value is KnowledgeGapReader {
   return Boolean(value && typeof value === 'object' && 'listKnowledgeGaps' in value);
+}
+
+function isAtomCreator(value: unknown): value is AtomCreator {
+  return Boolean(value && typeof value === 'object' && 'createAtom' in value && 'updateAtom' in value);
 }
 
 function knowledgeGapMatches(
