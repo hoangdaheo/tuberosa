@@ -32,6 +32,16 @@ export interface ModelProvider {
     decisions?: Array<{ decision: string; reason?: string; knowledgeIds?: string[] }>;
     verificationCommands?: string[];
   }): Promise<ExtractedAtomCandidate[]>;
+  /**
+   * Stage 4 of the write gate (Concern D). Optional: providers without an LLM
+   * (e.g. HashModelProvider) leave this undefined so the critic skips stage 4.
+   * Judges whether a borderline atom is generalizable enough to keep.
+   */
+  judgeAtomUtility?(input: {
+    claim: string;
+    type: 'fact' | 'procedure' | 'decision' | 'gotcha' | 'convention';
+    trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] };
+  }): Promise<{ generalizable: boolean; reason: string; confidence: number }>;
 }
 
 export const OPENAI_RERANK_SYSTEM_PROMPT = [
@@ -214,6 +224,65 @@ export class OpenAiModelProvider implements ModelProvider {
     const decisions = parseRerankResponse(await response.json());
     return applyProviderRerank(input, decisions, this.config.openAiRerankModel, this.fallback);
   }
+
+  async judgeAtomUtility(input: {
+    claim: string;
+    type: 'fact' | 'procedure' | 'decision' | 'gotcha' | 'convention';
+    trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] };
+  }): Promise<{ generalizable: boolean; reason: string; confidence: number }> {
+    // Reuse the structured-output rerank model for judgments. With no model
+    // configured we cannot judge, so we keep the candidate (fail-open) rather
+    // than silently dropping borderline atoms.
+    const model = this.config.openAiRerankModel;
+    if (!model) {
+      return { generalizable: true, reason: 'no judgment model configured', confidence: 0 };
+    }
+
+    const response = await fetchOpenAiJson(
+      this.config,
+      model,
+      ATOM_UTILITY_SYSTEM_PROMPT,
+      'atom_utility_judgement',
+      atomUtilitySchema(),
+      { claim: input.claim, type: input.type, trigger: input.trigger },
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new ModelProviderError(`OpenAI atom-utility request failed: ${response.status} ${detail}`);
+    }
+
+    const outputText = extractOutputText(await response.json());
+    if (!outputText) {
+      throw new ModelProviderError('OpenAI atom-utility response did not include output text.');
+    }
+    const parsed = parseJsonObject(outputText, 'OpenAI atom-utility response');
+    return {
+      generalizable: parsed.generalizable === true,
+      reason: typeof parsed.reason === 'string' ? truncate(parsed.reason, 200) : '',
+      confidence: typeof parsed.confidence === 'number' ? clamp(parsed.confidence, 0, 1) : 0,
+    };
+  }
+}
+
+const ATOM_UTILITY_SYSTEM_PROMPT = [
+  'You audit a candidate engineering lesson for a coding-agent memory.',
+  'Decide if it is generalizable — i.e. would help a future agent on a similar but different task.',
+  'Reject if it merely describes one-time events (test runs, commits, status updates) or restates trivia.',
+  'Return JSON only: { "generalizable": bool, "reason": string, "confidence": 0..1 }.',
+].join(' ');
+
+function atomUtilitySchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      generalizable: { type: 'boolean' },
+      reason: { type: 'string' },
+      confidence: { type: 'number', minimum: 0, maximum: 1 },
+    },
+    required: ['generalizable', 'reason', 'confidence'],
+  };
 }
 
 async function fetchOpenAiEmbedding(config: AppConfig, text: string): Promise<Response> {
