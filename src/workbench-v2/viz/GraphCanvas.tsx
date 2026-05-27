@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { GraphInput } from './graph-data.js';
 import { toGraphElements } from './graph-data.js';
+import { KNOWLEDGE_COLORS } from './knowledge-colors.js';
 
 export type LayoutKind = 'cose' | 'dagre';
 
@@ -22,10 +23,10 @@ function fingerprint(input: GraphInput): string {
 }
 
 const NODE_FILL: Record<string, string> = {
-  code_ref: '#d4a574', // copper
-  spec: '#c46a4d', // terracotta
-  memory: '#8fae7e', // sage
-  wiki: '#948b7c', // paper-2
+  code_ref: KNOWLEDGE_COLORS.code_ref.hex,
+  spec: KNOWLEDGE_COLORS.spec.hex,
+  memory: KNOWLEDGE_COLORS.memory.hex,
+  wiki: KNOWLEDGE_COLORS.wiki.hex,
 };
 
 export function GraphCanvas({
