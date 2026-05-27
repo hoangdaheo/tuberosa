@@ -7,3 +7,4 @@ export * from './types/retrieval.js';
 export * from './types/feedback.js';
 export * from './types/session.js';
 export * from './types/workbench.js';
+export * from './types/atoms.js';
