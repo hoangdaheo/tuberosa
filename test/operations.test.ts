@@ -1788,7 +1788,7 @@ function createTestServices(
   const retrieval = new RetrievalService(store, cache, models, config);
   const reflection = new ReflectionService(store, ingestion);
   const sessionReplay = new SessionReplayService(store);
-  const agentSessions = new AgentSessionService(store, retrieval, reflection, sessionReplay, config);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection, models, sessionReplay, config);
   const operations = new OperationsService(store, ingestion, {
     backupDir,
     storeKind: 'memory',

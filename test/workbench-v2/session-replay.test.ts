@@ -81,7 +81,7 @@ test('agent session start persists replay when opt-in flag is enabled', async ()
   const retrieval = new RetrievalService(store, cache, models, config);
   const reflection = new ReflectionService(store, ingestion);
   const replay = new SessionReplayService(store);
-  const agentSessions = new AgentSessionService(store, retrieval, reflection, replay, config);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection, models, replay, config);
 
   await ingestion.ingestKnowledge({
     project: 'replay-demo',
@@ -183,7 +183,7 @@ function buildTestServices(): AppServices {
   const retrieval = new RetrievalService(store, cache, models, config, safety);
   const reflection = new ReflectionService(store, ingestion, safety);
   const sessionReplay = new SessionReplayService(store);
-  const agentSessions = new AgentSessionService(store, retrieval, reflection, sessionReplay, config);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection, models, sessionReplay, config);
   const operations = new OperationsService(store, ingestion);
   const errorLogs = new ErrorLogService({ rootDir: config.errorLogDir, safety });
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);

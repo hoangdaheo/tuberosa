@@ -60,7 +60,7 @@ export async function createAppServices(): Promise<AppServices> {
   const reflection = new ReflectionService(store, ingestion, safety);
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
   const sessionReplay = new SessionReplayService(store);
-  const agentSessions = new AgentSessionService(store, retrieval, reflection, sessionReplay, config);
+  const agentSessions = new AgentSessionService(store, retrieval, reflection, models, sessionReplay, config);
   const maintenance = new MaintenanceService(store);
   const operations = new OperationsService(store, ingestion, {
     backupDir: config.backupDir,
