@@ -1,6 +1,7 @@
 import type { AppServices } from '../app.js';
 import { NotFoundError, toAppError, ValidationError, type AppError } from '../errors.js';
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
+import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   AGENT_LEARNING_MODES,
@@ -359,6 +360,13 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
           ? 'Maintenance applied. Inspect results[] for per-item outcomes; reruns are idempotent.'
           : 'No maintenance items were applied. Confirm batchId or approvedItemIds and try again.',
       });
+    }
+
+    case 'tuberosa_atom_gate_stats': {
+      const project = typeof args.project === 'string' ? args.project : undefined;
+      const windowDays = typeof args.windowDays === 'number' ? args.windowDays : 7;
+      const stats = await computeAtomGateStats(services.store, { project, windowDays });
+      return toolJson(stats);
     }
 
     case 'tuberosa_resurrect_atom': {
@@ -1241,6 +1249,18 @@ function tools() {
         type: 'object',
         required: ['atomId'],
         properties: { atomId: { type: 'string' } },
+      },
+    },
+    {
+      name: 'tuberosa_atom_gate_stats',
+      title: 'Inspect Tuberosa Atom Gate Stats',
+      description: 'Inspect write-gate acceptance/rejection rates and top triviality patterns over a window.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          windowDays: { type: 'number', description: 'Lookback window in days. Defaults to 7.' },
+        },
       },
     },
   ];
