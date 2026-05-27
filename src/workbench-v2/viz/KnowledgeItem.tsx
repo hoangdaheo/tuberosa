@@ -1,11 +1,7 @@
 import { KNOWLEDGE_COLORS, labelFor, type KnowledgeItemType } from './knowledge-colors.js';
+import { inferItemType } from './knowledge-item-vm.js';
 
-export function inferItemType(id: string): KnowledgeItemType {
-  if (id.startsWith('cr-')) return 'code_ref';
-  if (id.startsWith('spec-')) return 'spec';
-  if (id.startsWith('mem-')) return 'memory';
-  return 'wiki';
-}
+export { inferItemType };
 
 export function KnowledgeItem({
   id,

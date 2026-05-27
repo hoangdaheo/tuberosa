@@ -1,6 +1,6 @@
 import test from 'node:test';
 import { equal } from 'node:assert/strict';
-import { inferItemType } from '../../src/workbench-v2/viz/KnowledgeItem.js';
+import { inferItemType } from '../../src/workbench-v2/viz/knowledge-item-vm.js';
 
 test('inferItemType maps id prefixes', () => {
   equal(inferItemType('cr-paywall-001'), 'code_ref');
