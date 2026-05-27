@@ -14,6 +14,23 @@
 
 ---
 
+## Implementation log — deviations from the written plan
+
+These are places where the actual codebase diverged from the plan's assumptions. Captured per the executing-plans rule "do not skip/ignore specs/plan; if you do, write it into the file." None change the spec's intent — they adapt the steps to real code.
+
+- **Branch:** work done on `feat/plan-d-write-gate-dedup-decay` (B was merged to `main` via PR #9).
+- **No `as never` casts.** `KnowledgeAtomPatch` already has `status?: AtomStatus`. Extending `AtomStatus` with `'archived'` is enough; archival/resurrection use a typed patch.
+- **Memory-store feedback storage.** Feedback lives in `this.feedback` (an array), not a `feedbackEvents` map. `countNegativeFeedback` iterates `this.feedback`.
+- **Retrieval status filter already present.** Both stores' `searchAtomsByTrigger` and `searchAtomsByEmbedding` already hardcode `status = 'active'`. Adding `'archived'` automatically excludes archived atoms from retrieval and dedup. Task 8 Step 5 therefore adds only the regression test, not a new `status` option.
+- **No Ollama provider.** Only `HashModelProvider` and `OpenAiModelProvider` exist (config has an `ollama` enum value but no provider class). `judgeAtomUtility` is implemented on `OpenAiModelProvider` only; Hash leaves it `undefined`.
+- **Postgres helpers.** Project id is resolved via `ensureProject(this.pool, name)` (not `getOrCreateProjectId`). The `StoredKnowledge` row mapper is `mapKnowledgeRow` (needs aggregated labels/references and a `project` alias), not `rowToKnowledge`; `searchKnowledgeByEmbedding` reuses `knowledgeSelect()` as a CTE and joins chunk distances.
+- **MCP/HTTP registration patterns.** MCP tools are added to the tool-list array plus a `case` in the dispatch switch (no `server.registerTool`). HTTP routes are `HttpRoute` objects in `createRoutes()` with `match: exactPath()/pathPattern()` and `handle: ({ services, request, params, url }) => ...` (no `app.post`). Auth is enforced centrally (non-`public` routes require the API key); there is no per-route `requireAuth`.
+- **Critic wiring.** `AgentSessionService.extractSessionAtoms` constructs `new AtomCritic(this.store, this.models)`; it is extended to pass `{ cache, llmCriticEnabled }` from config.
+- **Stage-3 legacy dedup skips migration producers (added during Task 6).** The legacy-knowledge dedup check would otherwise block `migrateLegacyKnowledge` (which intentionally derives atoms from a legacy item) — the source item is flagged as a near-duplicate and the atom is never stored. Fix: `evaluateDedup` skips the legacy-knowledge check (but keeps atom↔atom dedup) when `input.producedBy === 'migration_llm'`. This kept the two B-era `atoms-migration` tests green.
+- **Two B-era critic tests updated (Task 6 Step 1).** `rejects atom whose claim restates the trigger` and `rejects atom whose claim is longer than 240 chars` previously used sparse claims (`'vector dimension mismatch'`, `'x'.repeat(241)`) that the new stage-1 triviality `sparse_claim` rule now rejects *before* the floor. The claims were made content-rich so they still reach and exercise the floor's restate/length rules. Rejection behavior is unchanged; only the short-circuit stage moved earlier.
+
+---
+
 ## File Structure
 
 **Create:**
