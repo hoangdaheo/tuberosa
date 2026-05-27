@@ -62,3 +62,27 @@ test('AtomExtractor: returns empty result when provider has no extractAtoms meth
   assert.equal(result.stored.length, 0);
   assert.equal(result.rejected.length, 0);
 });
+
+test('AtomExtractor: queue_legacy_migration surfaces the matched legacy item and stores no atom', async () => {
+  const store = new MemoryKnowledgeStore();
+  const models = new HashModelProvider();
+  models.setFixtureAtoms([{
+    claim: 'pgvector ivfflat lists should be rowcount over 1000.',
+    type: 'convention',
+    evidence: [{ kind: 'file', path: 'docs/pgvector.md' }],
+    trigger: { symbols: ['ivfflat'] },
+  }]);
+  // Pre-existing legacy memory that semantically matches the candidate.
+  await store.upsertKnowledge({
+    project: 'tuberosa', sourceType: 'manual', sourceUri: 'u', itemType: 'memory',
+    title: 'pgvector tuning', summary: '', content: 'pgvector ivfflat tuning uses lists = rowcount / 1000.',
+    labels: [], references: [], metadata: {},
+  }, []);
+  const critic = new AtomCritic(store, models, { legacyDedupThreshold: 0.0 });
+  const extractor = new AtomExtractor(store, models, critic);
+  const result = await extractor.extractFromSession({
+    project: 'tuberosa', sessionId: 's', sessionPrompt: 'pgvector tuning',
+  });
+  assert.equal(result.stored.length, 0);
+  assert.equal(result.queuedLegacyMigrations.length, 1);
+});
