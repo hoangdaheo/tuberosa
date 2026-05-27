@@ -1,4 +1,10 @@
 import type {
+  KnowledgeAtom,
+  KnowledgeAtomInput,
+  KnowledgeAtomPatch,
+  ListAtomsOptions,
+} from '../types/atoms.js';
+import type {
   AgentContextDecision,
   AgentSession,
   AgentSessionNote,
@@ -71,6 +77,14 @@ export interface KnowledgeStore {
   replaceInferredKnowledgeRelations(knowledgeId: string, relations: KnowledgeRelationInput[]): Promise<KnowledgeRelation[]>;
   listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]>;
   getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined>;
+  createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom>;
+  getAtom(id: string): Promise<KnowledgeAtom | undefined>;
+  listAtoms(options: ListAtomsOptions): Promise<KnowledgeAtom[]>;
+  updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined>;
+  deleteAtom(id: string): Promise<boolean>;
+  incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined>;
+  searchAtomsByEmbedding(embedding: number[], options: { project?: string; limit: number; threshold?: number }): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>>;
+  searchAtomsByTrigger(trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] }, options: { project?: string; limit: number }): Promise<KnowledgeAtom[]>;
   createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation>;
   updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined>;
   deleteKnowledgeRelation(id: string): Promise<boolean>;

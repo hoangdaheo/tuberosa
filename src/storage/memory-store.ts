@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  KnowledgeAtom,
+  KnowledgeAtomInput,
+  KnowledgeAtomPatch,
+  ListAtomsOptions,
+} from '../types/atoms.js';
+import type {
   AgentContextDecision,
   AgentSession,
   AgentSessionNote,
@@ -78,6 +84,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly agentDecisions = new Map<string, AgentContextDecision>();
   private readonly sessionReplays = new Map<string, SessionReplayBundle>();
   private readonly feedback: FeedbackEvent[] = [];
+  private readonly atoms = new Map<string, KnowledgeAtom>();
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -1124,6 +1131,103 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     }
 
     return counts;
+  }
+
+  async createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom> {
+    const now = new Date().toISOString();
+    const atom: KnowledgeAtom = {
+      id: randomUUID(),
+      project: input.project,
+      parentKnowledgeId: input.parentKnowledgeId,
+      claim: input.claim,
+      type: input.type,
+      evidence: input.evidence,
+      trigger: input.trigger,
+      verification: input.verification,
+      pitfalls: input.pitfalls,
+      links: input.links,
+      tier: 'draft',
+      reuseCount: 0,
+      lastReusedAt: undefined,
+      status: 'active',
+      audit: {
+        producedBy: input.producedBy,
+        producedAtSessionId: input.producedAtSessionId,
+        createdAt: now,
+        updatedAt: now,
+      },
+    };
+    this.atoms.set(atom.id, atom);
+    return atom;
+  }
+
+  async getAtom(id: string): Promise<KnowledgeAtom | undefined> {
+    return this.atoms.get(id);
+  }
+
+  async listAtoms(options: ListAtomsOptions): Promise<KnowledgeAtom[]> {
+    return [...this.atoms.values()]
+      .filter((atom) => !options.project || atom.project === options.project)
+      .filter((atom) => !options.tier || atom.tier === options.tier)
+      .filter((atom) => !options.status || atom.status === options.status)
+      .filter((atom) => !options.parentKnowledgeId || atom.parentKnowledgeId === options.parentKnowledgeId)
+      .slice(0, options.limit);
+  }
+
+  async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
+    const existing = this.atoms.get(id);
+    if (!existing) return undefined;
+    const updated: KnowledgeAtom = {
+      ...existing,
+      ...patch,
+      audit: { ...existing.audit, updatedAt: new Date().toISOString() },
+    };
+    this.atoms.set(id, updated);
+    return updated;
+  }
+
+  async deleteAtom(id: string): Promise<boolean> {
+    return this.atoms.delete(id);
+  }
+
+  async incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined> {
+    const existing = this.atoms.get(id);
+    if (!existing) return undefined;
+    return this.updateAtom(id, {
+      reuseCount: existing.reuseCount + 1,
+      lastReusedAt: when,
+    });
+  }
+
+  async searchAtomsByEmbedding(): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
+    // Memory store has no real embeddings; tests use trigger search instead.
+    return [];
+  }
+
+  async searchAtomsByTrigger(
+    trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] },
+    options: { project?: string; limit: number },
+  ): Promise<KnowledgeAtom[]> {
+    const wantErrors = (trigger.errors ?? []).map((s) => s.toLowerCase());
+    const wantFiles = (trigger.files ?? []).map((s) => s.toLowerCase());
+    const wantSymbols = (trigger.symbols ?? []).map((s) => s.toLowerCase());
+    const wantTaskTypes = (trigger.taskTypes ?? []).map((s) => s.toLowerCase());
+
+    const matchesAny = (haystack: string[] | undefined, needles: string[]): boolean => {
+      if (needles.length === 0) return false;
+      const lowered = (haystack ?? []).map((s) => s.toLowerCase());
+      return needles.some((n) => lowered.some((h) => h.includes(n) || n.includes(h)));
+    };
+
+    return [...this.atoms.values()]
+      .filter((atom) => !options.project || atom.project === options.project)
+      .filter((atom) =>
+        matchesAny(atom.trigger.errors, wantErrors)
+        || matchesAny(atom.trigger.files, wantFiles)
+        || matchesAny(atom.trigger.symbols, wantSymbols)
+        || matchesAny(atom.trigger.taskTypes, wantTaskTypes),
+      )
+      .slice(0, options.limit);
   }
 
   async close(): Promise<void> {}
