@@ -117,3 +117,39 @@ test('retrieval: legacy_replaced knowledge items are downweighted vs a normal it
 
   resetRetrievalPolicyCache();
 });
+
+test('selected feedback on a pack increments reuseCount on contained atoms', async () => {
+  resetRetrievalPolicyCache();
+  setRetrievalPolicy(DEFAULT_POLICY);
+  const store = new MemoryKnowledgeStore();
+  const cache = new MemoryCache();
+  const models = new HashModelProvider();
+  const service = new RetrievalService(store, cache, models, loadConfig());
+
+  const atom = await store.createAtom({
+    project: 'tuberosa',
+    claim: 'Some claim.',
+    type: 'fact',
+    evidence: [{ kind: 'file', path: 'x.ts' }],
+    trigger: { errors: ['some reuse error'] },
+    producedBy: 'agent_session',
+  });
+
+  const pack = await service.searchContext({
+    project: 'tuberosa', prompt: 'hit some reuse error', errors: ['some reuse error'],
+  });
+  assert.ok(pack.sections.flatMap((s) => s.items).some((i) => i.knowledgeId === atom.id),
+    'atom must be present in the pack');
+
+  await service.recordFeedback({
+    contextPackId: pack.id,
+    project: 'tuberosa',
+    feedbackType: 'selected',
+  });
+
+  const refreshed = await store.getAtom(atom.id);
+  assert.equal(refreshed?.reuseCount, 1);
+  assert.ok(refreshed?.lastReusedAt);
+
+  resetRetrievalPolicyCache();
+});

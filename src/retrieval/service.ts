@@ -54,6 +54,7 @@ import { fuseCandidates } from './fusion.js';
 import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint, TIER_RANK_MULTIPLIERS } from './policy.js';
 import type { QueryRewriteConfig } from './policy.js';
 import type { AtomTier, KnowledgeAtom } from '../types/atoms.js';
+import { evaluateTierTransition } from '../atoms/tier.js';
 import { WorktreeProvider, type WorktreeSearchResult } from './worktree.js';
 import {
   namespaceMatchesFilter,
@@ -81,6 +82,10 @@ const PROPOSAL_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>([
   'irrelevant',
   'stale',
   'too_much_adjacent_context',
+]);
+const ATOM_REUSE_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>([
+  'selected',
+  'selected_but_noisy',
 ]);
 
 type NormalizedContextSearchInput = ContextSearchInput & {
@@ -284,6 +289,7 @@ export class RetrievalService {
     const feedback = await this.store.recordFeedback(input);
     const pack = input.contextPackId ? await this.store.getContextPack(input.contextPackId) : undefined;
     await this.recordFeedbackLearning(input, feedback, pack);
+    await this.recordAtomReuse(input, pack);
 
     if (!shouldRetry(input.feedbackType) || !input.contextPackId || !pack) {
       return { feedback };
@@ -362,6 +368,41 @@ export class RetrievalService {
             suggestedAction: 'review auto memory status, archive it, or mark it superseded',
           },
         });
+      }
+    }
+  }
+
+  /**
+   * On positive feedback (`selected` / `selected_but_noisy`), every atom contained in the
+   * pack was demonstrably useful: bump its reuseCount and last-reused timestamp, then re-evaluate
+   * its tier and persist the new tier if it crossed a transition threshold.
+   */
+  private async recordAtomReuse(input: FeedbackInput, pack: ContextPack | undefined): Promise<void> {
+    if (!pack || !ATOM_REUSE_FEEDBACK_TYPES.has(input.feedbackType)) {
+      return;
+    }
+
+    const atomIds = new Set<string>();
+    for (const section of pack.sections) {
+      for (const item of section.items) {
+        if (item.metadata?.atomTier !== undefined) {
+          atomIds.add(item.knowledgeId);
+        }
+      }
+    }
+    if (atomIds.size === 0) {
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    for (const atomId of atomIds) {
+      const updated = await this.store.incrementAtomReuse(atomId, nowIso);
+      if (!updated) {
+        continue;
+      }
+      const nextTier = evaluateTierTransition(updated, new Date(nowIso));
+      if (nextTier !== updated.tier) {
+        await this.store.updateAtom(atomId, { tier: nextTier });
       }
     }
   }
