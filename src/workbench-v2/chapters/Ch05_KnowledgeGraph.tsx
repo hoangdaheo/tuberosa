@@ -5,6 +5,7 @@ import type { SeedKnowledgeItem } from '../data/fixtures.js';
 import { GraphCanvas } from '../viz/GraphCanvas.js';
 import type { GraphInput } from '../viz/graph-data.js';
 import { route, setRoute } from '../state/store.js';
+import { GraphLegend } from '../viz/GraphLegend.js';
 
 type ItemKind = 'wiki' | 'spec' | 'code_ref' | 'memory';
 const ALL: ItemKind[] = ['wiki', 'spec', 'code_ref', 'memory'];
@@ -81,6 +82,7 @@ export default function Ch05_KnowledgeGraph() {
             selectedNodeId={selectedId}
             onNodeClick={(id) => setRoute({ ...route.value, graphNodeId: id })}
           />
+          <GraphLegend />
         </div>
         <aside class="card" style="min-width:0">
           {selected ? (
