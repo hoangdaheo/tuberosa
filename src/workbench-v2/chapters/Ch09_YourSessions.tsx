@@ -8,6 +8,9 @@ import { PipelineFlow } from '../viz/PipelineFlow.js';
 import { pipelineSteps } from '../viz/pipeline-flow-vm.js';
 import { PackTimeline } from '../viz/PackTimeline.js';
 import { toPackVM } from '../viz/pack-timeline-vm.js';
+import { FitMeter } from '../viz/FitMeter.js';
+import { dataSource } from '../state/store.js';
+import exampleReplay from '../data/demo/replays/p1.json' with { type: 'json' };
 
 interface AgentSessionRow {
   id: string;
@@ -74,6 +77,38 @@ export default function Ch09_YourSessions() {
         else setReplayError('other');
       });
   }, [selectedId]);
+
+  const ex = exampleReplay as unknown as ReplayBundle;
+  const showExample =
+    dataSource.value === 'seeded' || (sessions !== null && sessions.length === 0) || replayError === 'missing';
+
+  const ExampleReplay = () => (
+    <div class="card" data-tone="neutral" style="margin-top:16px;border-color:var(--line)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="pill" data-tone="neutral">example</span>
+        <span style="color:var(--paper-3);font-size:var(--fs-small)">
+          Seeded sample. Enable <span class="code">TUBEROSA_PERSIST_REPLAY=true</span> and finish a session to see your own.
+        </span>
+      </div>
+      <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <h3>Signals</h3>
+          <SignalChips chips={toSignalChips(ex.classifier)} />
+          <h3 style="margin-top:16px">Pipeline</h3>
+          <PipelineFlow steps={pipelineSteps(ex.timings.stageMs)} />
+        </div>
+        <div>
+          <h3>Pack</h3>
+          <PackTimeline vm={toPackVM(ex.pack)} />
+          {ex.contextFit?.fitStatus && (
+            <div style="margin-top:12px">
+              <FitMeter score={ex.contextFit.fitStatus === 'ready' ? 0.8 : 0.5} status={ex.contextFit.fitStatus} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <section id="ch9" class="chapter" data-numeral="09" ref={ref}>
@@ -145,6 +180,7 @@ export default function Ch09_YourSessions() {
             </div>
           </div>
         )}
+        {!replay && showExample && <ExampleReplay />}
       </details>
     </section>
   );
