@@ -1190,9 +1190,15 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
     const existing = this.atoms.get(id);
     if (!existing) return undefined;
+    // Only apply defined patch keys so an explicit `undefined` (e.g. an optional
+    // field a caller didn't set) cannot clobber an existing value. Matches the
+    // Postgres store, which builds its SET clause from defined fields only.
+    const definedPatch = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    ) as KnowledgeAtomPatch;
     const updated: KnowledgeAtom = {
       ...existing,
-      ...patch,
+      ...definedPatch,
       audit: { ...existing.audit, updatedAt: new Date().toISOString() },
     };
     this.atoms.set(id, updated);

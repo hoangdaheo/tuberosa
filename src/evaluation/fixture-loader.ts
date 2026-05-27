@@ -82,6 +82,7 @@ function parseAtom(value: unknown, path: string): RetrievalEvalAtom {
     tier: optionalString(item.tier, `${path}.tier`) as RetrievalEvalAtom['tier'],
     reuseCount: optionalNumber(item.reuseCount, `${path}.reuseCount`),
     lastReusedAt: optionalString(item.lastReusedAt, `${path}.lastReusedAt`),
+    status: optionalString(item.status, `${path}.status`) as RetrievalEvalAtom['status'],
   };
 }
 

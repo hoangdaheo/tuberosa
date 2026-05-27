@@ -1,8 +1,8 @@
 {
   "status": "pass",
-  "generatedAt": "2026-05-27T17:51:50.244Z",
-  "totalCases": 21,
-  "passedCases": 21,
+  "generatedAt": "2026-05-27T17:56:48.367Z",
+  "totalCases": 22,
+  "passedCases": 22,
   "fixtureName": "default retrieval quality",
   "project": "newsletter-app",
   "metrics": {

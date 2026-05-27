@@ -548,8 +548,7 @@
           "uri": "docs/media/legacy-image-intake.md"
         }
       ]
-    }
-    ,
+    },
     {
       "evalId": "sender-queue-code-ref",
       "sourceType": "file",
@@ -633,21 +632,59 @@
       "evalId": "atom-draft-canary",
       "claim": "Draft atom: a tentative hint for the canary trigger error.",
       "type": "fact",
-      "evidence": [{ "kind": "file", "path": "src/canary/draft.ts" }],
-      "trigger": { "errors": ["atom-trigger-canary-error"] },
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "src/canary/draft.ts"
+        }
+      ],
+      "trigger": {
+        "errors": [
+          "atom-trigger-canary-error"
+        ]
+      },
       "producedBy": "agent_session"
     },
     {
       "evalId": "atom-verified-canary",
       "claim": "Verified atom: the confirmed fix for the canary trigger error.",
       "type": "fact",
-      "evidence": [{ "kind": "file", "path": "src/canary/verified.ts" }],
-      "trigger": { "errors": ["atom-trigger-canary-error"] },
-      "verification": { "command": "pnpm test" },
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "src/canary/verified.ts"
+        }
+      ],
+      "trigger": {
+        "errors": [
+          "atom-trigger-canary-error"
+        ]
+      },
+      "verification": {
+        "command": "pnpm test"
+      },
       "producedBy": "agent_session",
       "tier": "verified",
       "reuseCount": 2,
       "lastReusedAt": "2026-05-20T00:00:00.000Z"
+    },
+    {
+      "evalId": "atom-archived-canary",
+      "claim": "Archived atom: an inactive hint for the archived canary trigger error.",
+      "type": "fact",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "src/canary/archived.ts"
+        }
+      ],
+      "trigger": {
+        "errors": [
+          "atom-archived-trigger-error"
+        ]
+      },
+      "producedBy": "agent_session",
+      "status": "archived"
     }
   ],
   "feedbackEvents": [
@@ -691,8 +728,12 @@
       "prompt": "Update the React PaywallSelectionModal in src/components/paywall-selection-modal.tsx for the newsletter paywall flow.",
       "taxon": "nl_to_code",
       "expectedEntities": {
-        "files": ["src/components/paywall-selection-modal.tsx"],
-        "symbols": ["PaywallSelectionModal"]
+        "files": [
+          "src/components/paywall-selection-modal.tsx"
+        ],
+        "symbols": [
+          "PaywallSelectionModal"
+        ]
       },
       "expectedKnowledgeIds": [
         "paywall-modal"
@@ -729,8 +770,12 @@
       "prompt": "Fix TS-999 in src/components/paywall-selection-modal.tsx around PaywallSelectionModal because selected product ids reset after save.",
       "taxon": "hybrid",
       "expectedEntities": {
-        "files": ["src/components/paywall-selection-modal.tsx"],
-        "symbols": ["PaywallSelectionModal"]
+        "files": [
+          "src/components/paywall-selection-modal.tsx"
+        ],
+        "symbols": [
+          "PaywallSelectionModal"
+        ]
       },
       "expectedKnowledgeIds": [
         "paywall-ts999-fix"
@@ -765,7 +810,9 @@
       "prompt": "Which prior PaywallSelectionModal fix should guide TS-999 selected product id work?",
       "taxon": "hybrid",
       "expectedEntities": {
-        "symbols": ["PaywallSelectionModal"]
+        "symbols": [
+          "PaywallSelectionModal"
+        ]
       },
       "expectedKnowledgeIds": [
         "paywall-ts999-fix"
@@ -798,7 +845,9 @@
       "prompt": "Explain the current auth flow and token refresh behavior.",
       "taxon": "text_to_text_doc",
       "expectedEntities": {
-        "files": ["docs/auth/current.md"]
+        "files": [
+          "docs/auth/current.md"
+        ]
       },
       "expectedKnowledgeIds": [
         "current-auth-flow"
@@ -864,7 +913,10 @@
       "project": "newsletter-app",
       "taxon": "hybrid",
       "expectedEntities": {
-        "files": ["handoff.md", "docs/AGENT_CONTEXT_ROADMAP.md"]
+        "files": [
+          "handoff.md",
+          "docs/AGENT_CONTEXT_ROADMAP.md"
+        ]
       },
       "expectedKnowledgeIds": [
         "phase-handoff-context"
@@ -892,7 +944,9 @@
       "prompt": "Update src/storage/migrations.ts schema_migrations lock handling.",
       "taxon": "code_to_code",
       "expectedEntities": {
-        "files": ["src/storage/migrations.ts"]
+        "files": [
+          "src/storage/migrations.ts"
+        ]
       },
       "expectedKnowledgeIds": [
         "current-migration-lock"
@@ -922,7 +976,9 @@
       "taskType": "implementation",
       "taxon": "text_to_text_doc",
       "expectedEntities": {
-        "files": ["docs/deployment/runbook.md"]
+        "files": [
+          "docs/deployment/runbook.md"
+        ]
       },
       "expectedKnowledgeIds": [
         "current-deploy-runbook"
@@ -951,7 +1007,9 @@
       "taskType": "planning",
       "taxon": "text_to_text_doc",
       "expectedEntities": {
-        "files": ["docs/api/rate-limit.md"]
+        "files": [
+          "docs/api/rate-limit.md"
+        ]
       },
       "expectedKnowledgeIds": [
         "current-rate-limit-policy"
@@ -975,8 +1033,12 @@
       "prompt": "Find docs/email/sender-identity.md SenderIdentityPolicy onboarding steps.",
       "taxon": "nl_to_code",
       "expectedEntities": {
-        "files": ["docs/email/sender-identity.md"],
-        "symbols": ["SenderIdentityPolicy"]
+        "files": [
+          "docs/email/sender-identity.md"
+        ],
+        "symbols": [
+          "SenderIdentityPolicy"
+        ]
       },
       "expectedContextFitStatus": "insufficient",
       "expectedClassification": {
@@ -993,8 +1055,12 @@
       "prompt": "Update src/api/media-upload.ts MediaUploadHandler request checks.",
       "taxon": "code_to_code",
       "expectedEntities": {
-        "files": ["src/api/media-upload.ts"],
-        "symbols": ["MediaUploadHandler"]
+        "files": [
+          "src/api/media-upload.ts"
+        ],
+        "symbols": [
+          "MediaUploadHandler"
+        ]
       },
       "expectedKnowledgeIds": [
         "media-upload-entrypoint"
@@ -1024,8 +1090,12 @@
       "prompt": "Fix the SenderQueue retry logic in src/email/sender-queue.ts.",
       "taxon": "nl_to_code",
       "expectedEntities": {
-        "files": ["src/email/sender-queue.ts"],
-        "symbols": ["SenderQueue"]
+        "files": [
+          "src/email/sender-queue.ts"
+        ],
+        "symbols": [
+          "SenderQueue"
+        ]
       },
       "expectedKnowledgeIds": [
         "sender-queue-code-ref"
@@ -1036,7 +1106,7 @@
       ],
       "minConfidence": 0.65,
       "expectedContextFitStatus": "ready",
-      "minContextFitScore": 0.60,
+      "minContextFitScore": 0.6,
       "expectedClassification": {
         "files": [
           "src/email/sender-queue.ts"
@@ -1052,8 +1122,12 @@
       "prompt": "Refactor src/email/sender-queue.ts SenderQueue for better retry backoff.",
       "taxon": "nl_to_code",
       "expectedEntities": {
-        "files": ["src/email/sender-queue.ts"],
-        "symbols": ["SenderQueue"]
+        "files": [
+          "src/email/sender-queue.ts"
+        ],
+        "symbols": [
+          "SenderQueue"
+        ]
       },
       "expectedKnowledgeIds": [
         "sender-queue-code-ref"
@@ -1063,7 +1137,7 @@
       ],
       "minConfidence": 0.72,
       "expectedContextFitStatus": "ready",
-      "minContextFitScore": 0.60,
+      "minContextFitScore": 0.6,
       "expectedClassification": {
         "files": [
           "src/email/sender-queue.ts"
@@ -1079,8 +1153,12 @@
       "prompt": "Update the SenderQueue retry policy in src/email/sender-queue.ts.",
       "taxon": "nl_to_code",
       "expectedEntities": {
-        "files": ["src/email/sender-queue.ts"],
-        "symbols": ["SenderQueue"]
+        "files": [
+          "src/email/sender-queue.ts"
+        ],
+        "symbols": [
+          "SenderQueue"
+        ]
       },
       "expectedKnowledgeIds": [
         "sender-queue-code-ref"
@@ -1091,9 +1169,9 @@
       "unexpectedKnowledgeIds": [
         "ops-noisy-with-symbol"
       ],
-      "minConfidence": 0.70,
+      "minConfidence": 0.7,
       "expectedContextFitStatus": "ready",
-      "minContextFitScore": 0.60,
+      "minContextFitScore": 0.6,
       "expectedClassification": {
         "files": [
           "src/email/sender-queue.ts"
@@ -1147,9 +1225,26 @@
       "id": "verified-atom-outranks-draft",
       "prompt": "Debugging atom-trigger-canary-error during insert.",
       "taskType": "debugging",
-      "errors": ["atom-trigger-canary-error"],
-      "expectedKnowledgeIds": ["atom-verified-canary"],
-      "expectedSelectedKnowledgeIds": ["atom-verified-canary"]
+      "errors": [
+        "atom-trigger-canary-error"
+      ],
+      "expectedKnowledgeIds": [
+        "atom-verified-canary"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "atom-verified-canary"
+      ]
+    },
+    {
+      "id": "archived-atom-excluded",
+      "prompt": "Debugging atom-archived-trigger-error during insert.",
+      "taskType": "debugging",
+      "errors": [
+        "atom-archived-trigger-error"
+      ],
+      "unexpectedKnowledgeIds": [
+        "atom-archived-canary"
+      ]
     }
   ],
   "relations": [
