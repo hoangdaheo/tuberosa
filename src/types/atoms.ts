@@ -71,6 +71,13 @@ export interface KnowledgeAtomInput {
   links?: AtomLink[];
   producedBy: AtomProducer;
   producedAtSessionId?: string;
+  /**
+   * Optional precomputed embedding of the atom's canonical text
+   * (see atomEmbeddingText). When provided it is stored so future critic
+   * dedup queries perform real cosine similarity. Optional so direct
+   * createAtom callers/tests that don't supply it still compile.
+   */
+  embedding?: number[];
 }
 
 export interface KnowledgeAtomPatch {

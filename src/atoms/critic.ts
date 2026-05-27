@@ -2,6 +2,16 @@ import type { ModelProvider } from '../model/provider.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { KnowledgeAtomInput } from '../types/atoms.js';
 
+/**
+ * Canonical text used both as the critic's semantic-dedup query and as the
+ * text embedded and stored alongside each atom. Keeping a single definition
+ * guarantees the stored embedding matches future critic queries so dedup is
+ * consistent.
+ */
+export function atomEmbeddingText(input: { claim: string; trigger: { errors?: string[] } }): string {
+  return `${input.claim}\n${(input.trigger.errors ?? []).join(' ')}`;
+}
+
 export interface AtomCriticConfig {
   dedupCosineThreshold?: number;     // default 0.92
   maxClaimLength?: number;           // default 240
@@ -64,7 +74,7 @@ export class AtomCritic {
 
     // Semantic dedup against existing atoms in the project
     if (reasons.length === 0) {
-      const candidate = `${input.claim}\n${(input.trigger.errors ?? []).join(' ')}`;
+      const candidate = atomEmbeddingText(input);
       const embedding = await this.models.embed(candidate);
       const matches = await this.store.searchAtomsByEmbedding(embedding, {
         project: input.project,

@@ -1588,8 +1588,8 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     const result = await this.pool.query(
       `INSERT INTO knowledge_atoms
         (project_id, parent_knowledge_id, claim, type, evidence, trigger,
-         verification, pitfalls, links, produced_by, produced_session_id)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11)
+         verification, pitfalls, links, produced_by, produced_session_id, embedding)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11,$12::vector)
        RETURNING *`,
       [
         projectId,
@@ -1603,6 +1603,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         input.links ? JSON.stringify(input.links) : null,
         input.producedBy,
         input.producedAtSessionId ?? null,
+        input.embedding ? `[${input.embedding.join(',')}]` : null,
       ],
     );
     return rowToAtom(result.rows[0], input.project);

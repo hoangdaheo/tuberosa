@@ -2,7 +2,9 @@ import type { ModelProvider } from '../model/provider.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { KnowledgeAtomInput } from '../types/atoms.js';
 import type { StoredKnowledge } from '../types.js';
-import { AtomCritic } from './critic.js';
+import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
+import { AtomCritic, atomEmbeddingText } from './critic.js';
+import { redactAtomInput } from './redaction.js';
 
 export const MIGRATABLE_ITEM_TYPES = new Set(['memory', 'bugfix', 'rule']);
 
@@ -57,6 +59,7 @@ export async function migrateLegacyKnowledge(
 
   const dryRun = options.dryRun ?? false;
   const limit = options.batchSize ?? 500;
+  const safety = new KnowledgeSafetyService();
   const items = await store.listKnowledge({ project: options.project, limit });
 
   for (const item of items) {
@@ -78,7 +81,7 @@ export async function migrateLegacyKnowledge(
       });
 
       for (const candidate of candidates) {
-        const candidateInput: KnowledgeAtomInput = {
+        const rawInput: KnowledgeAtomInput = {
           project: item.project,
           parentKnowledgeId: item.id,
           claim: candidate.claim,
@@ -89,6 +92,8 @@ export async function migrateLegacyKnowledge(
           pitfalls: candidate.pitfalls,
           producedBy: 'migration_llm',
         };
+        // Redact secrets before the critic embeds and before storage.
+        const candidateInput = redactAtomInput(rawInput, safety);
         const result = await critic.evaluate(candidateInput);
         if (!result.ok) {
           continue;
@@ -96,7 +101,8 @@ export async function migrateLegacyKnowledge(
         produced += 1;
         report.atomsCreated += 1;
         if (!dryRun) {
-          await store.createAtom(candidateInput);
+          const embedding = await models.embed(atomEmbeddingText(candidateInput));
+          await store.createAtom({ ...candidateInput, embedding });
         }
       }
     } catch (error) {

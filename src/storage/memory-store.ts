@@ -85,6 +85,9 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly sessionReplays = new Map<string, SessionReplayBundle>();
   private readonly feedback: FeedbackEvent[] = [];
   private readonly atoms = new Map<string, KnowledgeAtom>();
+  // Embeddings are kept in a side map (keyed by atom id) rather than on the
+  // public KnowledgeAtom shape so getAtom/deepEqual storage tests stay green.
+  private readonly atomEmbeddings = new Map<string, number[]>();
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -1158,6 +1161,9 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       },
     };
     this.atoms.set(atom.id, atom);
+    if (input.embedding) {
+      this.atomEmbeddings.set(atom.id, input.embedding);
+    }
     return atom;
   }
 
@@ -1187,6 +1193,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   }
 
   async deleteAtom(id: string): Promise<boolean> {
+    this.atomEmbeddings.delete(id);
     return this.atoms.delete(id);
   }
 
@@ -1200,17 +1207,22 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   }
 
   async searchAtomsByEmbedding(
-    _embedding: number[],
+    queryEmbedding: number[],
     options: { project?: string; limit: number; threshold?: number },
   ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
-    // Memory store has no real embeddings. Return all project atoms with cosine
-    // 1.0 so that threshold-based dedup checks work deterministically in tests.
     const threshold = options.threshold ?? 0.92;
     return [...this.atoms.values()]
       .filter((atom) => !options.project || atom.project === options.project)
-      .filter((atom) => 1.0 >= threshold)
-      .slice(0, options.limit)
-      .map((atom) => ({ atom, cosine: 1.0 }));
+      .map((atom) => {
+        const stored = this.atomEmbeddings.get(atom.id);
+        // Atoms without a stored embedding fall back to cosine 1.0 so existing
+        // threshold-0.0 dedup checks (which seed atoms with no embedding) work.
+        const cosine = stored ? cosineSimilarity(queryEmbedding, stored) : 1.0;
+        return { atom, cosine };
+      })
+      .filter((entry) => entry.cosine >= threshold)
+      .sort((a, b) => b.cosine - a.cosine)
+      .slice(0, options.limit);
   }
 
   async searchAtomsByTrigger(
@@ -1366,6 +1378,20 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
 function tableRows(tables: BackupTableData[], name: BackupTableData['name']): Array<Record<string, unknown>> {
   return tables.find((table) => table.name === name)?.rows ?? [];
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  const len = Math.min(a.length, b.length);
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < len; i += 1) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
 }
 
 function canonicalKnowledgePair(left: string, right: string): [string, string] {
