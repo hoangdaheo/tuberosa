@@ -7,6 +7,8 @@ import { PipelineFlow } from '../viz/PipelineFlow.js';
 import { pipelineSteps } from '../viz/pipeline-flow-vm.js';
 import { PackTimeline } from '../viz/PackTimeline.js';
 import { toPackVM } from '../viz/pack-timeline-vm.js';
+import { branchLabel } from '../data/branch-labels.js';
+import { FitMeter } from '../viz/FitMeter.js';
 import p1 from '../data/demo/replays/p1.json' with { type: 'json' };
 import p2 from '../data/demo/replays/p2.json' with { type: 'json' };
 import p3 from '../data/demo/replays/p3.json' with { type: 'json' };
@@ -59,6 +61,9 @@ export default function Ch07_TryIt() {
       <span class="overline">Try it yourself</span>
       <h2 style="margin-top:var(--space-4)">Ten prompts. Every branch.</h2>
       <p class="lead">Click any card to replay it.</p>
+      <p style="color:var(--paper-3);font-size:var(--fs-small);margin-top:6px">
+        Pills show which branches each prompt exercises — search sources, ranking adjustments, and the fit verdict.
+      </p>
       <div class="split-2" style="margin-top:var(--space-4)">
         {acmeBilling.prompts.map((p, idx) => (
           <button
@@ -80,7 +85,7 @@ export default function Ch07_TryIt() {
             <div class="row-chips" style="margin-top:10px">
               {p.branches.map((b) => (
                 <span key={b} class="pill" data-tone="neutral">
-                  {b}
+                  {branchLabel(b)}
                 </span>
               ))}
             </div>
@@ -99,12 +104,16 @@ export default function Ch07_TryIt() {
             <h3>Pack</h3>
             <PackTimeline vm={toPackVM(replay.pack)} />
             <div style="margin-top:var(--space-3)">
-              <span
-                class="pill"
-                data-tone={replay.contextFit.fitStatus === 'ready' ? 'good' : 'warm'}
-              >
-                fit · {replay.contextFit.fitStatus}
-              </span>
+              <FitMeter
+                score={
+                  replay.contextFit.fitStatus === 'ready'
+                    ? 0.8
+                    : replay.contextFit.fitStatus === 'needs_confirmation'
+                      ? 0.55
+                      : 0.3
+                }
+                status={replay.contextFit.fitStatus}
+              />
             </div>
           </div>
         </div>
