@@ -361,6 +361,19 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       });
     }
 
+    case 'tuberosa_resurrect_atom': {
+      const atomId = readRequiredMcpString(args.atomId, 'tuberosa_resurrect_atom arguments.atomId');
+      const atom = await services.store.updateAtom(atomId, {
+        status: 'active',
+        lastReusedAt: new Date().toISOString(),
+      });
+      if (!atom) {
+        throw new NotFoundError(`Atom not found: ${atomId}`);
+      }
+      services.operations.requestPhysicalMirror('atom-resurrected');
+      return toolJson({ atom, instruction: 'Atom moved back to active; it competes in retrieval again.' });
+    }
+
     default:
       throw new ValidationError(`Unknown Tuberosa tool: ${name}`);
   }
@@ -1218,6 +1231,16 @@ function tools() {
           notes: { type: 'string' },
           metadata: { type: 'object' },
         },
+      },
+    },
+    {
+      name: 'tuberosa_resurrect_atom',
+      title: 'Resurrect Archived Tuberosa Atom',
+      description: 'Move an archived atom back to active so it competes in retrieval again.',
+      inputSchema: {
+        type: 'object',
+        required: ['atomId'],
+        properties: { atomId: { type: 'string' } },
       },
     },
   ];

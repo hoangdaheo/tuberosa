@@ -221,6 +221,21 @@ function createRoutes(): HttpRoute[] {
     },
     {
       method: 'POST',
+      match: pathPattern(/^\/atoms\/([^/]+)\/resurrect$/, ['id']),
+      handle: async ({ services, params }) => {
+        const atom = await services.store.updateAtom(params.id, {
+          status: 'active',
+          lastReusedAt: new Date().toISOString(),
+        });
+        if (!atom) {
+          throw new NotFoundError('Atom not found.');
+        }
+        services.operations.requestPhysicalMirror('atom-resurrected');
+        return { atom };
+      },
+    },
+    {
+      method: 'POST',
       match: exactPath('/agent-sessions'),
       handle: async ({ services, request }) => {
         const body = validateStartAgentSessionInput(await readJsonBody(request, services.config.maxRequestBytes));
