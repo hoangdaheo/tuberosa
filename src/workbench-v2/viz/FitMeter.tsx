@@ -26,8 +26,8 @@ export function FitMeter({
         <span class="overline">fit score</span>
         <span class="pill" data-tone={TONE[vm.status]}>{vm.label}</span>
       </div>
-      <div style="position:relative;height:10px;background:var(--ink-2);border-radius:5px;margin-top:12px">
-        <div style={`position:absolute;inset:0;width:${vm.percent}%;background:linear-gradient(90deg,var(--copper),var(--terracotta));border-radius:5px`} />
+      <div style="position:relative;height:10px;background:var(--ink-2);border-radius:5px;margin-top:12px;overflow:hidden">
+        <div style={`position:absolute;inset:0;width:${vm.percent}%;background:linear-gradient(90deg,var(--copper),var(--terracotta));border-radius:5px;transition:width var(--anim-med)`} />
         <span aria-hidden="true" style={`position:absolute;top:-4px;bottom:-4px;left:${ncLeft}%;width:1px;background:var(--paper-3)`} />
         <span aria-hidden="true" style={`position:absolute;top:-4px;bottom:-4px;left:${readyLeft}%;width:1px;background:var(--paper-1)`} />
       </div>

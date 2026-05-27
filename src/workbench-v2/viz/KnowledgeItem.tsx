@@ -24,7 +24,7 @@ export function KnowledgeItem({
       style="display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:baseline;font-size:var(--fs-small);color:var(--paper-1)"
     >
       <span
-        style={`flex:none;font-size:var(--fs-overline);letter-spacing:0.06em;color:var(--paper-0);padding:1px 6px;border-radius:4px;border:1px solid ${hex};background:${hex}22`}
+        style={`flex:none;font-size:var(--fs-overline);letter-spacing:0.06em;color:var(--paper-0);padding:1px 6px;border-radius:var(--radius-sm);border:1px solid ${hex};background:${hex}22`}
       >
         {labelFor(type)}
       </span>

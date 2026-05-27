@@ -15,7 +15,7 @@ export function GraphLegend({ types }: { types?: string[] }) {
         <li key={t} style="display:flex;align-items:center;gap:6px;font-size:var(--fs-overline);color:var(--paper-3);letter-spacing:0.06em">
           <span
             aria-hidden="true"
-            style={`width:10px;height:10px;border-radius:50%;background:${KNOWLEDGE_COLORS[t].hex};border:1px solid #14110d;flex:none`}
+            style={`width:10px;height:10px;border-radius:50%;background:${KNOWLEDGE_COLORS[t].hex};border:1px solid var(--ink-0);flex:none`}
           />
           {KNOWLEDGE_COLORS[t].label}
         </li>
