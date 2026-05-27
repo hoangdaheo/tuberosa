@@ -158,6 +158,7 @@ function createBrowserServices(backupDir: string, errorLogDir: string): AppServi
     store,
     retrieval,
     reflection,
+    models,
     sessionReplay,
     localConfig,
   );

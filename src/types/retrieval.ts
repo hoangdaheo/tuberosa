@@ -150,7 +150,7 @@ export interface RerankResult {
   model?: string;
 }
 
-export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph' | 'worktree';
+export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph' | 'worktree' | 'atoms';
 
 export interface SearchCandidate {
   knowledgeId: string;
@@ -188,6 +188,7 @@ export interface RankedCandidate extends SearchCandidate {
 }
 
 export type ContextEvidenceCategory =
+  | 'verifiedAtom'
   | 'directTaskEvidence'
   | 'priorLessons'
   | 'workflowGuidance'
@@ -422,9 +423,11 @@ export interface KnowledgeSearchResult {
   graph: SearchCandidate[];
   /** Phase 5 — live worktree evidence (changed files, prompt-named files, repo-root handoffs, recently-edited files). Read-through, never persisted. */
   worktree: SearchCandidate[];
+  /** Knowledge atoms matched by trigger (errors/files/symbols/taskTypes), weighted by tier. */
+  atoms: SearchCandidate[];
 }
 
-export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'fusion' | 'rerank' | 'fit';
+export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'fusion' | 'rerank' | 'fit';
 
 export type RetrievalDebugTimingName =
   | RetrievalDebugStageName
@@ -475,7 +478,7 @@ export interface RetrievalFilterDecision {
   reason: string;
 }
 
-export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree';
+export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms';
 
 export interface FusionContribution {
   source: FusionContributionStage;

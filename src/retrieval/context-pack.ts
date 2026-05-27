@@ -192,6 +192,7 @@ function filterAcceptedCandidates(input: AssembleContextPackInput): RankedCandid
     index === 0
     || candidate.finalScore >= threshold
     || isGraphEvidence(candidate)
+    || isVerifiedAtomEvidence(candidate)
   ));
   return strong.length ? strong : filtered.slice(0, 1);
 }
@@ -200,6 +201,18 @@ function isGraphEvidence(candidate: RankedCandidate): boolean {
   return candidate.source === 'graph'
     && candidate.rawScore >= GRAPH_EVIDENCE_MIN_RAW_SCORE
     && !candidate.matchReasons.some((reason) => reason.startsWith('suppression:superseded:'));
+}
+
+/**
+ * Trigger-matched verified/canonical atoms are high-precision evidence: when an atom
+ * surfaces for a query trigger it directly answers the task, so it is accepted past
+ * the final-score floor (its low fused score reflects single-source presence, not low
+ * relevance). Drafts are NOT allowlisted — they must clear the score floor on merit.
+ */
+function isVerifiedAtomEvidence(candidate: RankedCandidate): boolean {
+  return candidate.source === 'atoms'
+    && (candidate.metadata?.atomTier === 'verified' || candidate.metadata?.atomTier === 'canonical')
+    && !candidate.matchReasons.some((reason) => reason.startsWith('suppression:'));
 }
 
 function hasAnchors(classified: ClassifiedQuery): boolean {
@@ -286,6 +299,13 @@ function evidenceCategory(
   classified: ClassifiedQuery,
   directSignals: string[],
 ): ContextEvidenceCategory {
+  if (
+    candidate.source === 'atoms'
+    && (candidate.metadata?.atomTier === 'verified' || candidate.metadata?.atomTier === 'canonical')
+  ) {
+    return 'verifiedAtom';
+  }
+
   if (directSignals.length > 0 && !hasDomainMismatch(candidate, classified)) {
     return 'directTaskEvidence';
   }
@@ -462,6 +482,11 @@ function usefulnessReason(
 
   const suffix = details.length > 0 ? ` ${details.join(' ')}` : '';
 
+  if (category === 'verifiedAtom') {
+    const tier = candidate.metadata?.atomTier === 'canonical' ? 'canonical' : 'verified';
+    return `Trigger-matched ${tier} knowledge atom; prefer ahead of other evidence.${extractMatchedSignals(candidate)}${suffix}`;
+  }
+
   if (category === 'directTaskEvidence') {
     return `Direct task evidence from ${directSignals.slice(0, 3).join(', ')}.${extractMatchedSignals(candidate)}${suffix}`;
   }
@@ -615,30 +640,34 @@ function evidenceCategoryPriority(
 ): number {
   if (prefersWorkflowBeforePriorLessons(taskBriefModeFor(classified))) {
     switch (category) {
-      case 'directTaskEvidence':
+      case 'verifiedAtom':
         return 0;
-      case 'workflowGuidance':
+      case 'directTaskEvidence':
         return 1;
-      case 'priorLessons':
+      case 'workflowGuidance':
         return 2;
-      case 'adjacentContext':
+      case 'priorLessons':
         return 3;
-      default:
+      case 'adjacentContext':
         return 4;
+      default:
+        return 5;
     }
   }
 
   switch (category) {
-    case 'directTaskEvidence':
+    case 'verifiedAtom':
       return 0;
-    case 'priorLessons':
+    case 'directTaskEvidence':
       return 1;
-    case 'workflowGuidance':
+    case 'priorLessons':
       return 2;
-    case 'adjacentContext':
+    case 'workflowGuidance':
       return 3;
-    default:
+    case 'adjacentContext':
       return 4;
+    default:
+      return 5;
   }
 }
 

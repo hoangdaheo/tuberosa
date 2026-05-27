@@ -51,8 +51,10 @@ import { classifyQuery, hasDomainMismatch } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator, type ContextFitSignal } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
-import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint } from './policy.js';
+import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint, TIER_RANK_MULTIPLIERS } from './policy.js';
 import type { QueryRewriteConfig } from './policy.js';
+import type { AtomTier, KnowledgeAtom } from '../types/atoms.js';
+import { evaluateTierTransition } from '../atoms/tier.js';
 import { WorktreeProvider, type WorktreeSearchResult } from './worktree.js';
 import {
   namespaceMatchesFilter,
@@ -80,6 +82,10 @@ const PROPOSAL_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>([
   'irrelevant',
   'stale',
   'too_much_adjacent_context',
+]);
+const ATOM_REUSE_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>([
+  'selected',
+  'selected_but_noisy',
 ]);
 
 type NormalizedContextSearchInput = ContextSearchInput & {
@@ -283,6 +289,7 @@ export class RetrievalService {
     const feedback = await this.store.recordFeedback(input);
     const pack = input.contextPackId ? await this.store.getContextPack(input.contextPackId) : undefined;
     await this.recordFeedbackLearning(input, feedback, pack);
+    await this.recordAtomReuse(input, pack);
 
     if (!shouldRetry(input.feedbackType) || !input.contextPackId || !pack) {
       return { feedback };
@@ -361,6 +368,41 @@ export class RetrievalService {
             suggestedAction: 'review auto memory status, archive it, or mark it superseded',
           },
         });
+      }
+    }
+  }
+
+  /**
+   * On positive feedback (`selected` / `selected_but_noisy`), every atom contained in the
+   * pack was demonstrably useful: bump its reuseCount and last-reused timestamp, then re-evaluate
+   * its tier and persist the new tier if it crossed a transition threshold.
+   */
+  private async recordAtomReuse(input: FeedbackInput, pack: ContextPack | undefined): Promise<void> {
+    if (!pack || !ATOM_REUSE_FEEDBACK_TYPES.has(input.feedbackType)) {
+      return;
+    }
+
+    const atomIds = new Set<string>();
+    for (const section of pack.sections) {
+      for (const item of section.items) {
+        if (item.metadata?.atomTier !== undefined) {
+          atomIds.add(item.knowledgeId);
+        }
+      }
+    }
+    if (atomIds.size === 0) {
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    for (const atomId of atomIds) {
+      const updated = await this.store.incrementAtomReuse(atomId, nowIso);
+      if (!updated) {
+        continue;
+      }
+      const nextTier = evaluateTierTransition(updated, new Date(nowIso));
+      if (nextTier !== updated.tier) {
+        await this.store.updateAtom(atomId, { tier: nextTier });
       }
     }
   }
@@ -488,12 +530,13 @@ export class RetrievalService {
       debug,
     );
 
-    const [metadata, lexical, memory, vector, worktree] = await Promise.all([
+    const [metadata, lexical, memory, vector, worktree, atoms] = await Promise.all([
       timed('metadata', this.store.searchMetadata(classified, options), debug),
       timed('lexical', this.store.searchLexical(classified, options), debug),
       timed('memory', this.store.searchMemories(classified, options), debug),
       vectorResults,
       worktreeResults,
+      timed('atoms', this.searchAtomCandidates(classified, options, project), debug),
     ]);
     const namespaceFilter = input.namespace;
     const safeResults: KnowledgeSearchResult = {
@@ -505,6 +548,9 @@ export class RetrievalService {
       // WorktreeProvider already sanitizes through KnowledgeSafetyService; namespace filter
       // does not apply to worktree (live evidence has no persisted namespace by design).
       worktree: this.safety.sanitizeSearchCandidates(worktree.candidates),
+      // Atoms are synthesized SearchCandidates from atom claims; sanitize and namespace-filter
+      // them like the persisted sources. Tier weighting is applied later in fusion + adjustments.
+      atoms: applyNamespaceFilter(this.safety.sanitizeSearchCandidates(atoms), namespaceFilter),
     };
     const seedKnowledgeIds = uniqueStrings([
       ...safeResults.metadata,
@@ -534,8 +580,44 @@ export class RetrievalService {
     debug?.recordStage('vector', safeResults.vector);
     debug?.recordStage('graph', safeResults.graph);
     debug?.recordStage('worktree', safeResults.worktree);
+    debug?.recordStage('atoms', safeResults.atoms);
 
     return { candidates: safeResults, worktree };
+  }
+
+  /**
+   * Atoms as a retrieval candidate source. Matches knowledge atoms by their
+   * trigger signals (errors/files/symbols/taskType) and synthesizes
+   * SearchCandidates seeded with the tier multiplier as rawScore so verified /
+   * canonical atoms enter fusion ahead of drafts for the same trigger.
+   */
+  private async searchAtomCandidates(
+    classified: ClassifiedQuery,
+    options: SearchOptions,
+    project?: string,
+  ): Promise<SearchCandidate[]> {
+    const trigger = {
+      errors: classified.errors,
+      files: classified.files,
+      symbols: classified.symbols,
+      taskTypes: classified.taskType && classified.taskType !== 'unknown' ? [classified.taskType] : undefined,
+    };
+    if (
+      (trigger.errors?.length ?? 0) === 0
+      && (trigger.files?.length ?? 0) === 0
+      && (trigger.symbols?.length ?? 0) === 0
+      && (trigger.taskTypes?.length ?? 0) === 0
+    ) {
+      return [];
+    }
+    const atoms = await this.store.searchAtomsByTrigger(trigger, {
+      project: project ?? classified.project,
+      limit: options.limit,
+    });
+    const rejected = new Set(options.rejectedKnowledgeIds ?? []);
+    return atoms
+      .filter((atom) => atom.status === 'active' && !rejected.has(atom.id))
+      .map((atom, index) => atomToCandidate(atom, index));
   }
 
   private async rankCandidates(
@@ -552,6 +634,7 @@ export class RetrievalService {
       disabled.has('metadata') ? [] : candidates.metadata,
       disabled.has('lexical') ? [] : candidates.lexical,
       disabled.has('memory') ? [] : candidates.memory,
+      disabled.has('atoms') ? [] : candidates.atoms,
       disabled.has('vector') ? [] : candidates.vector,
       disabled.has('graph') ? [] : candidates.graph,
       disabled.has('worktree') ? [] : candidates.worktree,
@@ -651,8 +734,11 @@ export class RetrievalService {
     const onSuppression = debug ? (event: SuppressionEvent) => debug.recordSuppressionEvent(event) : undefined;
 
     return candidates
+      .filter((candidate) => readLegacyStatus(candidate) !== 'legacy_archived')
+      .map((candidate) => applyLegacyReplacedDownweight(candidate))
       .map((candidate) => applyFeedbackSummary(candidate, summaries.get(candidate.knowledgeId), onSuppression))
       .map((candidate) => applyIntentSuppression(candidate, classified, supersededBy.get(candidate.knowledgeId) ?? [], onSuppression))
+      .map((candidate) => applyAtomTierMultiplier(candidate))
       .sort((left, right) => right.finalScore - left.finalScore || left.rank - right.rank)
       .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
   }
@@ -1061,6 +1147,64 @@ async function saveCompactContextPack(
 ): Promise<void> {
   await store.saveContextPack(pack);
   await cache.setJson(cacheKey, pack, ttlSeconds);
+}
+
+function atomToCandidate(atom: KnowledgeAtom, index: number): SearchCandidate {
+  const references = atom.evidence
+    .filter((evidence): evidence is Extract<KnowledgeAtom['evidence'][number], { kind: 'file' }> => evidence.kind === 'file')
+    .map((evidence) => ({
+      type: 'file' as const,
+      uri: evidence.path,
+      lineStart: evidence.lineStart,
+      lineEnd: evidence.lineEnd,
+      commitSha: evidence.commitSha,
+    }));
+  return {
+    knowledgeId: atom.id,
+    title: atom.claim,
+    summary: atom.claim,
+    content: atom.claim,
+    contextualContent: atom.claim,
+    itemType: 'memory',
+    project: atom.project,
+    labels: [],
+    references,
+    tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
+    trustLevel: 1,
+    source: 'atoms',
+    // Neutral rawScore (fusion ranks by `rank`, not rawScore — rawScore only acts
+    // as a content-collision tiebreaker, and atoms have distinct knowledgeIds).
+    // Tier weighting is applied in exactly one place: applyAtomTierMultiplier,
+    // which scales finalScore by TIER_RANK_MULTIPLIERS[atomTier] post-rerank so
+    // verified/canonical atoms outrank drafts for the same trigger.
+    rawScore: 1,
+    rank: index + 1,
+    metadata: { atomTier: atom.tier, atomType: atom.type },
+  };
+}
+
+function applyAtomTierMultiplier(candidate: RankedCandidate): RankedCandidate {
+  if (candidate.source !== 'atoms') {
+    return candidate;
+  }
+  const tier = candidate.metadata?.atomTier as AtomTier | undefined;
+  if (!tier || !(tier in TIER_RANK_MULTIPLIERS)) {
+    return candidate;
+  }
+  return { ...candidate, finalScore: candidate.finalScore * TIER_RANK_MULTIPLIERS[tier] };
+}
+
+const LEGACY_REPLACED_GRACE_MULTIPLIER = 0.2;
+
+function readLegacyStatus(candidate: RankedCandidate): string | undefined {
+  return (candidate.metadata as { legacyStatus?: string } | undefined)?.legacyStatus;
+}
+
+function applyLegacyReplacedDownweight(candidate: RankedCandidate): RankedCandidate {
+  if (readLegacyStatus(candidate) !== 'legacy_replaced') {
+    return candidate;
+  }
+  return { ...candidate, finalScore: candidate.finalScore * LEGACY_REPLACED_GRACE_MULTIPLIER };
 }
 
 function redactSearchInput(input: ContextSearchInput, safety: KnowledgeSafetyService): ContextSearchInput {

@@ -1,5 +1,8 @@
 import { NotFoundError } from '../errors.js';
 import type { AppConfig } from '../config.js';
+import { AtomExtractor } from '../atoms/extractor.js';
+import { AtomCritic } from '../atoms/critic.js';
+import type { ModelProvider } from '../model/provider.js';
 import {
   sessionReplayFromContextPack,
   stripReplayDebug,
@@ -44,6 +47,7 @@ export class AgentSessionService {
     private readonly store: KnowledgeStore,
     private readonly retrieval: RetrievalService,
     private readonly reflection: ReflectionService,
+    private readonly models?: ModelProvider,
     private readonly replayService?: SessionReplayService,
     private readonly config: Pick<AppConfig, 'persistReplay'> = { persistReplay: false },
   ) {}
@@ -140,6 +144,8 @@ export class AgentSessionService {
       ...(learning.draft && learning.draft.id !== reflectionDraft?.id ? [learning.draft.id] : []),
     ];
 
+    await this.extractSessionAtoms(input, existingSession, decisions);
+
     const session = await this.store.finishAgentSession({
       ...input,
       metadata: {
@@ -163,6 +169,66 @@ export class AgentSessionService {
       learningDecision: learning.decision,
       compliance,
     };
+  }
+
+  /**
+   * Phase: atoms — run the AtomExtractor after the learning/reflection-draft path
+   * and before session finalization. Stored atoms are tagged with the session id;
+   * rejected candidates are recorded as knowledge gaps so failures are observable.
+   * Extraction must never abort session finalization, so failures are swallowed
+   * into an observable knowledge gap rather than thrown.
+   */
+  private async extractSessionAtoms(
+    input: FinishAgentSessionInput,
+    session: AgentSession,
+    decisions: AgentContextDecision[],
+  ): Promise<void> {
+    if (!this.models || !this.models.extractAtoms) {
+      return;
+    }
+
+    const project = session.project ?? 'unknown';
+    const extractor = new AtomExtractor(this.store, this.models, new AtomCritic(this.store, this.models));
+
+    let result;
+    try {
+      result = await extractor.extractFromSession({
+        project,
+        sessionId: input.sessionId,
+        sessionPrompt: session.prompt,
+        summary: input.summary,
+        changedFiles: input.changedFiles,
+        decisions: decisions.map((decision) => ({
+          decision: decision.decision,
+          reason: decision.reason,
+          knowledgeIds: decision.rejectedKnowledgeIds,
+        })),
+        verificationCommands: input.verificationCommands,
+      });
+    } catch (error) {
+      await this.store.createKnowledgeGap({
+        project,
+        sourceSessionId: input.sessionId,
+        contextPackId: session.initialContextPackId,
+        prompt: session.prompt,
+        missingSignals: ['atom_extraction'],
+        reason: `atom extraction failed: ${error instanceof Error ? error.message : String(error)}`,
+        metadata: { source: 'atom_extractor' },
+      });
+      return;
+    }
+
+    for (const rejected of result.rejected) {
+      await this.store.createKnowledgeGap({
+        project,
+        sourceSessionId: input.sessionId,
+        contextPackId: session.initialContextPackId,
+        prompt: session.prompt,
+        missingSignals: ['atom_evidence'],
+        reason: rejected.reasons.join('; '),
+        metadata: { source: 'atom_critic', candidate: rejected.candidate },
+      });
+    }
   }
 
   async appendSessionNote(input: AppendAgentSessionNoteInput): Promise<AppendAgentSessionNoteResult> {

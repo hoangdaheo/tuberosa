@@ -4,6 +4,7 @@ import type {
   RetrievalEvalClassificationExpectation,
   RetrievalEvalExpectedKnowledgeGap,
   RetrievalEvalFeedbackEvent,
+  RetrievalEvalAtom,
   RetrievalEvalFixture,
   RetrievalEvalKnowledge,
   RetrievalEvalRelation,
@@ -31,6 +32,11 @@ export function parseRetrievalEvalFixture(value: unknown, source = 'retrieval ev
     : expectArray(fixture.relations, `${source}.relations`).map((item, index) => (
       parseRelation(item, `${source}.relations[${index}]`)
     ));
+  const atoms = fixture.atoms === undefined
+    ? undefined
+    : expectArray(fixture.atoms, `${source}.atoms`).map((item, index) => (
+      parseAtom(item, `${source}.atoms[${index}]`)
+    ));
   const cases = expectArray(fixture.cases, `${source}.cases`).map((item, index) => (
     parseCase(item, `${source}.cases[${index}]`)
   ));
@@ -38,7 +44,7 @@ export function parseRetrievalEvalFixture(value: unknown, source = 'retrieval ev
   ensureUnique(knowledge.map((item) => item.evalId), `${source}.knowledge[].evalId`);
   ensureUnique(cases.map((item) => item.id), `${source}.cases[].id`);
 
-  return { name, project, knowledge, feedbackEvents, relations, cases };
+  return { name, project, knowledge, atoms, feedbackEvents, relations, cases };
 }
 
 function parseKnowledge(value: unknown, path: string): RetrievalEvalKnowledge {
@@ -59,6 +65,23 @@ function parseKnowledge(value: unknown, path: string): RetrievalEvalKnowledge {
     references: item.references as RetrievalEvalKnowledge['references'],
     metadata: item.metadata as RetrievalEvalKnowledge['metadata'],
     freshnessAt: optionalString(item.freshnessAt, `${path}.freshnessAt`),
+  };
+}
+
+function parseAtom(value: unknown, path: string): RetrievalEvalAtom {
+  const item = expectRecord(value, path);
+  return {
+    evalId: expectString(item.evalId, `${path}.evalId`),
+    project: optionalString(item.project, `${path}.project`),
+    claim: expectString(item.claim, `${path}.claim`),
+    type: expectString(item.type, `${path}.type`) as RetrievalEvalAtom['type'],
+    evidence: item.evidence as RetrievalEvalAtom['evidence'],
+    trigger: item.trigger as RetrievalEvalAtom['trigger'],
+    verification: item.verification as RetrievalEvalAtom['verification'],
+    producedBy: optionalString(item.producedBy, `${path}.producedBy`) as RetrievalEvalAtom['producedBy'],
+    tier: optionalString(item.tier, `${path}.tier`) as RetrievalEvalAtom['tier'],
+    reuseCount: optionalNumber(item.reuseCount, `${path}.reuseCount`),
+    lastReusedAt: optionalString(item.lastReusedAt, `${path}.lastReusedAt`),
   };
 }
 

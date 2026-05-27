@@ -628,6 +628,28 @@
       ]
     }
   ],
+  "atoms": [
+    {
+      "evalId": "atom-draft-canary",
+      "claim": "Draft atom: a tentative hint for the canary trigger error.",
+      "type": "fact",
+      "evidence": [{ "kind": "file", "path": "src/canary/draft.ts" }],
+      "trigger": { "errors": ["atom-trigger-canary-error"] },
+      "producedBy": "agent_session"
+    },
+    {
+      "evalId": "atom-verified-canary",
+      "claim": "Verified atom: the confirmed fix for the canary trigger error.",
+      "type": "fact",
+      "evidence": [{ "kind": "file", "path": "src/canary/verified.ts" }],
+      "trigger": { "errors": ["atom-trigger-canary-error"] },
+      "verification": { "command": "pnpm test" },
+      "producedBy": "agent_session",
+      "tier": "verified",
+      "reuseCount": 2,
+      "lastReusedAt": "2026-05-20T00:00:00.000Z"
+    }
+  ],
   "feedbackEvents": [
     {
       "feedbackType": "selected",
@@ -1120,6 +1142,14 @@
       "expectedClassification": {
         "symbols": []
       }
+    },
+    {
+      "id": "verified-atom-outranks-draft",
+      "prompt": "Debugging atom-trigger-canary-error during insert.",
+      "taskType": "debugging",
+      "errors": ["atom-trigger-canary-error"],
+      "expectedKnowledgeIds": ["atom-verified-canary"],
+      "expectedSelectedKnowledgeIds": ["atom-verified-canary"]
     }
   ],
   "relations": [

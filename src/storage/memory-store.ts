@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  KnowledgeAtom,
+  KnowledgeAtomInput,
+  KnowledgeAtomPatch,
+  ListAtomsOptions,
+} from '../types/atoms.js';
+import type {
   AgentContextDecision,
   AgentSession,
   AgentSessionNote,
@@ -78,6 +84,10 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly agentDecisions = new Map<string, AgentContextDecision>();
   private readonly sessionReplays = new Map<string, SessionReplayBundle>();
   private readonly feedback: FeedbackEvent[] = [];
+  private readonly atoms = new Map<string, KnowledgeAtom>();
+  // Embeddings are kept in a side map (keyed by atom id) rather than on the
+  // public KnowledgeAtom shape so getAtom/deepEqual storage tests stay green.
+  private readonly atomEmbeddings = new Map<string, number[]>();
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -1126,6 +1136,122 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return counts;
   }
 
+  async createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom> {
+    const now = new Date().toISOString();
+    const atom: KnowledgeAtom = {
+      id: randomUUID(),
+      project: input.project,
+      parentKnowledgeId: input.parentKnowledgeId,
+      claim: input.claim,
+      type: input.type,
+      evidence: input.evidence,
+      trigger: input.trigger,
+      verification: input.verification,
+      pitfalls: input.pitfalls,
+      links: input.links,
+      tier: 'draft',
+      reuseCount: 0,
+      lastReusedAt: undefined,
+      status: 'active',
+      audit: {
+        producedBy: input.producedBy,
+        producedAtSessionId: input.producedAtSessionId,
+        createdAt: now,
+        updatedAt: now,
+      },
+    };
+    this.atoms.set(atom.id, atom);
+    if (input.embedding) {
+      this.atomEmbeddings.set(atom.id, input.embedding);
+    }
+    return atom;
+  }
+
+  async getAtom(id: string): Promise<KnowledgeAtom | undefined> {
+    return this.atoms.get(id);
+  }
+
+  async listAtoms(options: ListAtomsOptions): Promise<KnowledgeAtom[]> {
+    return [...this.atoms.values()]
+      .filter((atom) => !options.project || atom.project === options.project)
+      .filter((atom) => !options.tier || atom.tier === options.tier)
+      .filter((atom) => !options.status || atom.status === options.status)
+      .filter((atom) => !options.parentKnowledgeId || atom.parentKnowledgeId === options.parentKnowledgeId)
+      .slice(0, options.limit);
+  }
+
+  async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
+    const existing = this.atoms.get(id);
+    if (!existing) return undefined;
+    const updated: KnowledgeAtom = {
+      ...existing,
+      ...patch,
+      audit: { ...existing.audit, updatedAt: new Date().toISOString() },
+    };
+    this.atoms.set(id, updated);
+    return updated;
+  }
+
+  async deleteAtom(id: string): Promise<boolean> {
+    this.atomEmbeddings.delete(id);
+    return this.atoms.delete(id);
+  }
+
+  async incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined> {
+    const existing = this.atoms.get(id);
+    if (!existing) return undefined;
+    return this.updateAtom(id, {
+      reuseCount: existing.reuseCount + 1,
+      lastReusedAt: when,
+    });
+  }
+
+  async searchAtomsByEmbedding(
+    queryEmbedding: number[],
+    options: { project?: string; limit: number; threshold?: number },
+  ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
+    const threshold = options.threshold ?? 0.92;
+    return [...this.atoms.values()]
+      .filter((atom) => !options.project || atom.project === options.project)
+      .map((atom) => {
+        const stored = this.atomEmbeddings.get(atom.id);
+        // Atoms without a stored embedding fall back to cosine 1.0 so existing
+        // threshold-0.0 dedup checks (which seed atoms with no embedding) work.
+        const cosine = stored ? cosineSimilarity(queryEmbedding, stored) : 1.0;
+        return { atom, cosine };
+      })
+      .filter((entry) => entry.cosine >= threshold)
+      .sort((a, b) => b.cosine - a.cosine)
+      .slice(0, options.limit);
+  }
+
+  async searchAtomsByTrigger(
+    trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] },
+    options: { project?: string; limit: number },
+  ): Promise<KnowledgeAtom[]> {
+    const wantErrors = (trigger.errors ?? []).map((s) => s.toLowerCase());
+    const wantFiles = (trigger.files ?? []).map((s) => s.toLowerCase());
+    const wantSymbols = (trigger.symbols ?? []).map((s) => s.toLowerCase());
+    const wantTaskTypes = (trigger.taskTypes ?? []).map((s) => s.toLowerCase());
+
+    const matchesAny = (haystack: string[] | undefined, needles: string[]): boolean => {
+      if (needles.length === 0) return false;
+      const lowered = (haystack ?? []).map((s) => s.toLowerCase());
+      return needles.some((n) => lowered.some((h) => h.includes(n) || n.includes(h)));
+    };
+
+    return [...this.atoms.values()]
+      .filter((atom) => atom.status === 'active')
+      .filter((atom) => !options.project || atom.project === options.project)
+      .filter((atom) =>
+        matchesAny(atom.trigger.errors, wantErrors)
+        || matchesAny(atom.trigger.files, wantFiles)
+        || matchesAny(atom.trigger.symbols, wantSymbols)
+        || matchesAny(atom.trigger.taskTypes, wantTaskTypes),
+      )
+      .slice(0, options.limit);
+  }
+
   async close(): Promise<void> {}
 
   private findKnowledgeBySourceUri(project: string, sourceUri: string): StoredKnowledge | undefined {
@@ -1252,6 +1378,20 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
 function tableRows(tables: BackupTableData[], name: BackupTableData['name']): Array<Record<string, unknown>> {
   return tables.find((table) => table.name === name)?.rows ?? [];
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  const len = Math.min(a.length, b.length);
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < len; i += 1) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
 }
 
 function canonicalKnowledgePair(left: string, right: string): [string, string] {
