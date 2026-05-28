@@ -14,6 +14,7 @@ import type {
   DeepContextSection,
   FeedbackEvent,
   FeedbackInput,
+  ImpactPrediction,
   KnowledgeChunkRecord,
   KnowledgeFeedbackSummary,
   KnowledgeGap,
@@ -34,6 +35,7 @@ import type {
   TaskBriefMode,
   LabelInput,
 } from '../types.js';
+import { predictImpact } from './impact-predictor.js';
 import { sha256, stableJson } from '../util/hash.js';
 import { clamp, metadataString, normalizeLabel, sameSignals, truncate, uniqueStrings } from '../util/text.js';
 import { candidateText } from './candidate-helpers.js';
@@ -71,6 +73,15 @@ const CONTINUATION_SESSION_LIMIT = 6;
 const CONTINUATION_FILE_LIMIT = 8;
 const CONTINUATION_SYMBOL_LIMIT = 8;
 const CONTINUATION_ERROR_LIMIT = 6;
+// Concern C2 — task types for which we run impact prediction. Exploration /
+// planning / review / testing read code without proposing edits, so blast
+// radius would just be noise.
+const IMPACT_PREDICTION_TASK_TYPES = new Set<ClassifiedQuery['taskType']>([
+  'implementation',
+  'refactor',
+  'debugging',
+]);
+
 const RETRY_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>(['rejected', 'irrelevant', 'stale']);
 const MISSING_CONTEXT_FEEDBACK_TYPES = new Set<FeedbackInput['feedbackType']>([
   'missing_context',
@@ -263,6 +274,10 @@ export class RetrievalService {
       ? await this.resolveReviewTargets(normalized, rewriteResult.classified, project)
       : { reviewTargets: [] as ContextReviewTarget[], omittedReviewTargetCount: 0 };
     const assemblyStartedAt = Date.now();
+    const impactPrediction = await this.computeImpactPrediction(
+      rewriteResult.classified,
+      project,
+    );
     const pack = this.buildContextPack({
       queryId,
       project,
@@ -272,6 +287,7 @@ export class RetrievalService {
       input: normalized,
       reviewTargets: reviewTargetResolution.reviewTargets,
       omittedReviewTargetCount: reviewTargetResolution.omittedReviewTargetCount,
+      impactPrediction,
     });
     if (normalized.contextMode === 'layered') {
       pack.deepContext = await this.buildDeepContext(pack, normalized.deepContextBudget);
@@ -581,6 +597,19 @@ export class RetrievalService {
         ...safeResults.vector,
       ],
     );
+
+    // Concern C2 — seed an atom-graph walk from atoms that already surfaced
+    // through any source (atoms / metadata / lexical / memory / vector / worktree)
+    // and merge depth-2 atom hits into the graph candidate group. Bounded by the
+    // policy's walkDepth, edgeWeights, and decayPerHop.
+    const atomGraphHits = await this.expandAtomGraphFromSeeds(safeResults, classified, project);
+    if (atomGraphHits.length > 0) {
+      safeResults.graph = [
+        ...safeResults.graph,
+        ...applyNamespaceFilter(this.safety.sanitizeSearchCandidates(atomGraphHits), namespaceFilter),
+      ];
+    }
+
     debug?.recordStage('metadata', safeResults.metadata);
     debug?.recordStage('lexical', safeResults.lexical);
     debug?.recordStage('memory', safeResults.memory);
@@ -882,8 +911,9 @@ export class RetrievalService {
     input: NormalizedContextSearchInput;
     reviewTargets: ContextReviewTarget[];
     omittedReviewTargetCount: number;
+    impactPrediction?: ImpactPrediction;
   }): ContextPack {
-    return assembleContextPack({
+    const pack = assembleContextPack({
       queryId: input.queryId,
       project: input.project,
       prompt: input.input.prompt,
@@ -896,6 +926,98 @@ export class RetrievalService {
       reviewTargets: input.reviewTargets,
       omittedReviewTargetCount: input.omittedReviewTargetCount,
     });
+    if (input.impactPrediction) {
+      pack.impactPrediction = input.impactPrediction;
+    }
+    return pack;
+  }
+
+  /**
+   * Concern C2 — seed `walkAtomGraph` from atom ids present in any retrieval
+   * source and synthesize SearchCandidates for the depth-2 hits, tagged with a
+   * `graphPath` metadata field so the agent can see *why* the item surfaced.
+   */
+  private async expandAtomGraphFromSeeds(
+    results: KnowledgeSearchResult,
+    classified: ClassifiedQuery,
+    project: string | undefined,
+  ): Promise<SearchCandidate[]> {
+    if (!project) return [];
+    const policy = getRetrievalPolicy().graph;
+    if (policy.walkDepth < 1) return [];
+
+    const seedIds = uniqueStrings(
+      [
+        ...results.atoms,
+        ...results.metadata,
+        ...results.lexical,
+        ...results.memory,
+        ...results.vector,
+        ...results.worktree,
+      ]
+        .filter((c) => c.itemType === 'memory')
+        .map((c) => c.knowledgeId),
+    );
+    if (seedIds.length === 0) return [];
+
+    const hits = await this.store.walkAtomGraph({
+      project,
+      seedAtomIds: seedIds,
+      depth: policy.walkDepth,
+      edgeWeights: policy.edgeWeights,
+      decayPerHop: policy.decayPerHop,
+      limit: SEARCH_LIMIT,
+    });
+    if (hits.length === 0) return [];
+
+    const seen = new Set<string>(seedIds);
+    const synthesized: SearchCandidate[] = [];
+    for (const hit of hits) {
+      if (seen.has(hit.atomId)) continue;
+      seen.add(hit.atomId);
+      const atom = await this.store.getAtom(hit.atomId);
+      if (!atom) continue;
+      if (atom.status === 'archived' || atom.status === 'legacy_archived') continue;
+      const candidate = atomToCandidate(atom, synthesized.length);
+      const edgePath = hit.path.map((s) => s.edgeKind).join('→');
+      synthesized.push({
+        ...candidate,
+        source: 'graph',
+        rawScore: hit.pathScore,
+        metadata: {
+          ...(candidate.metadata ?? {}),
+          atomGraphPath: hit.path,
+          atomGraphReason: `graph:${edgePath}`,
+        },
+      });
+    }
+    // Touch classified to keep the parameter useful when future scoring needs the
+    // task type to weight kinds — keeps the signature ready for that follow-up.
+    void classified;
+    return synthesized;
+  }
+
+  /**
+   * Concern C2 — run impact prediction for edit-like task types only. Empty
+   * predictions are dropped so the field stays out of the pack when there's
+   * nothing useful to show.
+   */
+  private async computeImpactPrediction(
+    classified: ClassifiedQuery,
+    project: string | undefined,
+  ): Promise<ImpactPrediction | undefined> {
+    if (!IMPACT_PREDICTION_TASK_TYPES.has(classified.taskType)) return undefined;
+    if (!project) return undefined;
+    const hasSeeds = classified.files.length > 0 || classified.symbols.length > 0;
+    if (!hasSeeds) return undefined;
+    const policy = getRetrievalPolicy().graph;
+    const prediction = await predictImpact(this.store, {
+      project,
+      files: classified.files,
+      symbols: classified.symbols,
+      policy,
+    });
+    return prediction.predictedAffected.length > 0 ? prediction : undefined;
   }
 
   private async buildDeepContext(pack: ContextPack, budget: number): Promise<DeepContext> {

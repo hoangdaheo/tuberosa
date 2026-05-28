@@ -72,6 +72,9 @@ import type { SessionReplayBundle } from '../operations/session-replay.js';
 import type {
   AtomGateEvent,
   AtomGateEventInput,
+  AtomGraphEdgeKind,
+  AtomGraphHit,
+  AtomGraphPathStep,
   AtomRelationInput,
   AtomRelationRow,
   AtomRelationTargetKind,
@@ -81,6 +84,7 @@ import type {
   ListAtomRelationsOptions,
   PruneStaleAtomRelationsOptions,
   StaleFileAtomCleanupInput,
+  WalkAtomGraphOptions,
 } from './store.js';
 
 type Queryable = Pool | PoolClient;
@@ -1916,6 +1920,79 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         createdAt: new Date(row.created_at).toISOString(),
       };
     });
+  }
+
+  async walkAtomGraph(options: WalkAtomGraphOptions): Promise<AtomGraphHit[]> {
+    if (options.depth < 1 || options.seedAtomIds.length === 0) return [];
+    const seeds = filterPersistedKnowledgeIds(options.seedAtomIds);
+    if (seeds.length === 0) return [];
+    const excludeArchived = options.excludeArchived ?? true;
+
+    // Hops are executed one at a time so we can carry edge-kind / decay scoring
+    // in JS without composite-type round-tripping. Each hop is one indexed
+    // query against (from_atom_id, target_atom_id) so even depth=4 is cheap.
+    type Frontier = { atomId: string; path: AtomGraphPathStep[]; score: number };
+    const visited = new Set<string>(seeds);
+    const results: AtomGraphHit[] = [];
+    let frontier: Frontier[] = seeds.map((id) => ({ atomId: id, path: [], score: 1 }));
+
+    for (let hop = 1; hop <= options.depth && frontier.length > 0; hop += 1) {
+      const fromIds = frontier.map((f) => f.atomId);
+      const result = await this.pool.query(
+        `SELECT kr.from_atom_id, kr.target_atom_id, kr.relation_type, kr.confidence
+         FROM knowledge_relations kr
+         JOIN knowledge_atoms a ON a.id = kr.target_atom_id
+         JOIN projects p ON p.id = a.project_id
+         WHERE kr.from_atom_id = ANY($1::uuid[])
+           AND kr.target_atom_id IS NOT NULL
+           AND p.name = $2
+           AND ($3::boolean = false OR a.status NOT IN ('archived', 'legacy_archived'))`,
+        [fromIds, options.project, excludeArchived],
+      );
+
+      const next: Frontier[] = [];
+      const byFrom = new Map<string, Frontier[]>();
+      for (const f of frontier) {
+        const list = byFrom.get(f.atomId) ?? [];
+        list.push(f);
+        byFrom.set(f.atomId, list);
+      }
+
+      for (const row of result.rows) {
+        const fromId = String(row.from_atom_id);
+        const targetId = String(row.target_atom_id);
+        if (visited.has(targetId)) continue;
+        const kind = row.relation_type as AtomGraphEdgeKind;
+        const weight = options.edgeWeights[kind] ?? 0;
+        if (weight <= 0) continue;
+        const parents = byFrom.get(fromId) ?? [];
+        if (parents.length === 0) continue;
+
+        const hopMultiplier = hop === 1 ? 1 : Math.pow(options.decayPerHop, hop - 1);
+        // Use the parent with the highest accumulated score (best path wins).
+        const parent = parents.reduce((best, cur) => (cur.score > best.score ? cur : best));
+        const score = parent.score * weight * hopMultiplier;
+        if (score <= 0) continue;
+
+        const step: AtomGraphPathStep = {
+          atomId: targetId,
+          edgeKind: kind,
+          edgeConfidence: Number(row.confidence),
+        };
+        const path = [...parent.path, step];
+
+        visited.add(targetId);
+        const clamped = Math.min(1, score);
+        results.push({ atomId: targetId, path, pathScore: clamped });
+        next.push({ atomId: targetId, path, score });
+      }
+
+      frontier = next;
+    }
+
+    return results
+      .sort((a, b) => b.pathScore - a.pathScore)
+      .slice(0, options.limit);
   }
 
   async pruneStaleAtomRelations(

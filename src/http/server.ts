@@ -6,6 +6,9 @@ import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, Validat
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
 import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
+import { predictImpact } from '../retrieval/impact-predictor.js';
+import { getRetrievalPolicy } from '../retrieval/policy.js';
+import { streamAtomGraphJsonl } from '../operations/atom-graph-export.js';
 import { getCatchupMetadata } from '../operations/catchup.js';
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
@@ -255,6 +258,47 @@ function createRoutes(): HttpRoute[] {
           throw new ValidationError('project query parameter is required.');
         }
         return computeAtomGraphDensity(services.store, { project });
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/organization/atom-graph.jsonl'),
+      handle: async ({ services, url }) => {
+        const project = url.searchParams.get('project');
+        if (!project) {
+          throw new ValidationError('project query parameter is required.');
+        }
+        // Buffered NDJSON. Atom graphs are bounded by listAtoms's 10k cap; the
+        // payload stays small in practice. True chunked streaming requires
+        // wider router changes — left as a follow-up.
+        const lines: string[] = [];
+        for await (const line of streamAtomGraphJsonl(services.store, { project })) {
+          lines.push(line);
+        }
+        const body = lines.length > 0 ? `${lines.join('\n')}\n` : '';
+        return rawResponse('application/x-ndjson; charset=utf-8', body);
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/atom-graph/impact'),
+      handle: async ({ services, request }) => {
+        const body = await readJsonBody(request, services.config.maxRequestBytes);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          throw new ValidationError('Request body must be a JSON object.');
+        }
+        const record = body as Record<string, unknown>;
+        const project = record.project;
+        if (typeof project !== 'string' || project.trim().length === 0) {
+          throw new ValidationError('project must be a non-empty string.');
+        }
+        const files = readImpactStringArray(record.files, 'files');
+        const symbols = readImpactStringArray(record.symbols, 'symbols');
+        const depth = typeof record.depth === 'number' && Number.isFinite(record.depth) && record.depth >= 1
+          ? Math.min(4, Math.floor(record.depth))
+          : undefined;
+        const policy = getRetrievalPolicy().graph;
+        return predictImpact(services.store, { project, files, symbols, policy, depth });
       },
     },
     {
@@ -1006,6 +1050,19 @@ function readLimit(url: URL): number {
   }
 
   return Math.min(limit, 100);
+}
+
+function readImpactStringArray(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ValidationError(`${field} must be an array of strings.`);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.trim().length === 0) {
+      throw new ValidationError(`${field}[${index}] must be a non-empty string.`);
+    }
+    return entry;
+  });
 }
 
 function readListRecordsOptions(url: URL) {

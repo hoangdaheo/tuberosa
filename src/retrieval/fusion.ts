@@ -226,5 +226,12 @@ function matchReasons(candidate: SearchCandidate, classified: ClassifiedQuery): 
     reasons.push('standing rule');
   }
 
+  // Concern C2 — surface the atom-graph traversal path so the agent sees *why*
+  // a depth-2 atom hit was pulled in (e.g. `graph:refines→related_to`).
+  const atomGraphReason = candidate.metadata?.atomGraphReason;
+  if (typeof atomGraphReason === 'string' && atomGraphReason.length > 0) {
+    reasons.push(atomGraphReason);
+  }
+
   return [...new Set(reasons)];
 }

@@ -66,6 +66,8 @@ import type { SessionReplayBundle } from '../operations/session-replay.js';
 import type {
   AtomGateEvent,
   AtomGateEventInput,
+  AtomGraphHit,
+  AtomGraphPathStep,
   AtomRelationInput,
   AtomRelationRow,
   ChunkInput,
@@ -74,6 +76,7 @@ import type {
   ListAtomRelationsOptions,
   PruneStaleAtomRelationsOptions,
   StaleFileAtomCleanupInput,
+  WalkAtomGraphOptions,
 } from './store.js';
 
 interface MemoryChunk extends ChunkInput {
@@ -1308,6 +1311,61 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .filter((r) => !options.inferenceSource || r.inferenceSource === options.inferenceSource)
       .filter((r) => !wantProject || this.atoms.get(r.fromAtomId)?.project === wantProject)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async walkAtomGraph(options: WalkAtomGraphOptions): Promise<AtomGraphHit[]> {
+    const excludeArchived = options.excludeArchived ?? true;
+    if (options.depth < 1 || options.seedAtomIds.length === 0) return [];
+
+    const visited = new Set<string>(options.seedAtomIds);
+    const results: AtomGraphHit[] = [];
+
+    interface Frontier {
+      atomId: string;
+      path: AtomGraphPathStep[];
+      score: number;
+    }
+
+    let frontier: Frontier[] = options.seedAtomIds.map((id) => ({ atomId: id, path: [], score: 1 }));
+
+    for (let hop = 1; hop <= options.depth && frontier.length > 0; hop += 1) {
+      const next: Frontier[] = [];
+      for (const node of frontier) {
+        const edges = [...this.atomRelations.values()].filter(
+          (r) => r.fromAtomId === node.atomId && (r.targetKind ?? 'atom') === 'atom',
+        );
+        for (const edge of edges) {
+          if (visited.has(edge.targetAtomId)) continue;
+          const target = this.atoms.get(edge.targetAtomId);
+          if (!target) continue;
+          if (excludeArchived && (target.status === 'archived' || target.status === 'legacy_archived')) continue;
+          if (options.project && target.project !== options.project) continue;
+          const weight = options.edgeWeights[edge.relationType] ?? 0;
+          if (weight <= 0) continue;
+
+          const hopMultiplier = hop === 1 ? 1 : Math.pow(options.decayPerHop, hop - 1);
+          const score = node.score * weight * hopMultiplier;
+          if (score <= 0) continue;
+
+          const step: AtomGraphPathStep = {
+            atomId: edge.targetAtomId,
+            edgeKind: edge.relationType,
+            edgeConfidence: edge.confidence,
+          };
+          const path = [...node.path, step];
+
+          visited.add(edge.targetAtomId);
+          const clamped = Math.min(1, score);
+          results.push({ atomId: edge.targetAtomId, path, pathScore: clamped });
+          next.push({ atomId: edge.targetAtomId, path, score });
+        }
+      }
+      frontier = next;
+    }
+
+    return results
+      .sort((a, b) => b.pathScore - a.pathScore)
       .slice(0, options.limit);
   }
 

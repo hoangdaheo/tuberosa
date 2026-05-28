@@ -407,6 +407,42 @@ export interface DeepContext {
   sections: DeepContextSection[];
 }
 
+/**
+ * Concern C2 — predicted blast radius for an upcoming edit. Populated by the
+ * `ImpactPredictor` after classification when the task type qualifies
+ * (implementation / refactor / debugging). Walks the atom graph depth ≤ N from
+ * atoms whose evidence/trigger references the classified files or symbols.
+ */
+export type ImpactPredictionEdgeKind =
+  | 'supersedes'
+  | 'refines'
+  | 'depends_on'
+  | 'co_changes_with'
+  | 'related_to';
+
+export interface ImpactPredictionVia {
+  atomId: string;
+  edgeKind: ImpactPredictionEdgeKind;
+}
+
+export interface ImpactPredictionTarget {
+  kind: 'file' | 'symbol' | 'atom';
+  value: string;
+}
+
+export interface ImpactPredictionHit {
+  target: ImpactPredictionTarget;
+  confidence: number;
+  via: ImpactPredictionVia[];
+  why: string;
+}
+
+export interface ImpactPrediction {
+  triggeredBy: { files?: string[]; symbols?: string[] };
+  predictedAffected: ImpactPredictionHit[];
+  truncated: boolean;
+}
+
 export interface ContextPack {
   id: string;
   queryId?: string;
@@ -425,6 +461,8 @@ export interface ContextPack {
   rejectedKnowledgeIds: string[];
   createdAt: string;
   debug?: RetrievalDebugTrace;
+  /** Concern C2 — blast-radius prediction surfaced for edit-like tasks. */
+  impactPrediction?: ImpactPrediction;
 }
 
 export interface SearchOptions {

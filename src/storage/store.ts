@@ -109,6 +109,36 @@ export interface PruneStaleAtomRelationsOptions {
   dryRun?: boolean;
 }
 
+/**
+ * Concern C2 — one hop on the atom graph from a recursive walk. Path is
+ * ordered seed → leaf. `pathScore` is the product of `edgeWeights[k]` along
+ * each hop, multiplied by `decayPerHop^(hop-1)` for hops ≥ 2, clamped to 0..1.
+ */
+export type AtomGraphEdgeKind = AtomRelationInput['relationType'];
+
+export interface AtomGraphPathStep {
+  atomId: string;
+  edgeKind: AtomGraphEdgeKind;
+  edgeConfidence: number;
+}
+
+export interface AtomGraphHit {
+  atomId: string;
+  path: AtomGraphPathStep[];
+  pathScore: number;
+}
+
+export interface WalkAtomGraphOptions {
+  project: string;
+  seedAtomIds: string[];
+  depth: number;
+  edgeWeights: Record<AtomGraphEdgeKind, number>;
+  decayPerHop: number;
+  limit: number;
+  /** Default true — atoms whose status is archived/legacy_archived are filtered. */
+  excludeArchived?: boolean;
+}
+
 export interface AtomGateEvent {
   id: string;
   project?: string;
@@ -157,6 +187,8 @@ export interface KnowledgeStore {
   ): Promise<AtomRelationRow[]>;
   listAtomRelations(options: ListAtomRelationsOptions): Promise<AtomRelationRow[]>;
   pruneStaleAtomRelations(options: PruneStaleAtomRelationsOptions): Promise<{ removed: number }>;
+  /** Concern C2 — recursive atom-graph walk with kind weights and hop decay. */
+  walkAtomGraph(options: WalkAtomGraphOptions): Promise<AtomGraphHit[]>;
   searchKnowledgeByEmbedding(
     embedding: number[],
     options: {

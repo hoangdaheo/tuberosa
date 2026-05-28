@@ -151,6 +151,23 @@ export interface GraphInferenceConfig {
   };
 }
 
+/**
+ * Concern C2 — read-side atom-graph walk + impact prediction.
+ * `walkDepth` caps recursive hops (≥ 1). `edgeWeights` map AtomLinkKind → weight
+ * applied to each hop. `decayPerHop` is multiplied at hop ≥ 2 (so a depth-2 hit
+ * scores edgeWeight[k1] × edgeWeight[k2] × decayPerHop). `impactPredictionLimit`
+ * caps the predictedAffected list returned to the agent.
+ */
+export interface GraphWalkConfig {
+  walkDepth: number;
+  edgeWeights: Record<
+    'supersedes' | 'refines' | 'depends_on' | 'co_changes_with' | 'related_to',
+    number
+  >;
+  decayPerHop: number;
+  impactPredictionLimit: number;
+}
+
 export interface RetrievalPolicy {
   useFreshnessMap: boolean;
   freshnessGlobal: FreshnessWindow;
@@ -219,6 +236,9 @@ export interface RetrievalPolicy {
 
   /** Concern C1 — write-side graph inference (semantic neighbor, co-change, prune). */
   graphInference: GraphInferenceConfig;
+
+  /** Concern C2 — read-side atom-graph walk + impact prediction. */
+  graph: GraphWalkConfig;
 
   /**
    * Phase 4 — optional metadata from `scripts/calibrate-fusion.ts`. Not consumed by retrieval directly,
@@ -328,6 +348,21 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     exploration: { file: 0.2, symbol: 0.18, error: 0.14, technology: 0.18, businessArea: 0.18 },
     testing: { file: 0.24, symbol: 0.22, error: 0.24, technology: 0.12, businessArea: 0.1 },
     unknown: { file: 0.24, symbol: 0.22, error: 0.22, technology: 0.12, businessArea: 0.12 },
+  },
+
+  graph: {
+    walkDepth: 2,
+    // `supersedes` is intentionally zero: a superseded atom isn't part of the
+    // active impact surface (the superseder represents it).
+    edgeWeights: {
+      supersedes: 0.0,
+      refines: 0.7,
+      depends_on: 0.6,
+      co_changes_with: 0.5,
+      related_to: 0.4,
+    },
+    decayPerHop: 0.6,
+    impactPredictionLimit: 10,
   },
 
   graphHopWeights: { target: 0.95, seed: 0.68, depth2: 0.42 },

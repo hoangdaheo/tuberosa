@@ -177,3 +177,49 @@ test('retrieval: archived atoms do not appear in default context packs', async (
 
   resetRetrievalPolicyCache();
 });
+
+test('retrieval (C2): depth-2 atom hit appears in pack with graph:* matchReason', async () => {
+  resetRetrievalPolicyCache();
+  setRetrievalPolicy(DEFAULT_POLICY);
+  const store = new MemoryKnowledgeStore();
+  const cache = new MemoryCache();
+  const models = new HashModelProvider();
+  const service = new RetrievalService(store, cache, models, loadConfig());
+
+  // Seed atom A is triggered by src/x.ts; B is one hop (refines); C is two hops (related_to).
+  const a = await store.createAtom({
+    project: 'tuberosa', claim: 'seed atom', type: 'fact',
+    evidence: [{ kind: 'file', path: 'src/x.ts' }],
+    trigger: { files: ['src/x.ts'] }, producedBy: 'agent_session',
+  });
+  const b = await store.createAtom({
+    project: 'tuberosa', claim: 'sibling atom', type: 'fact',
+    evidence: [{ kind: 'file', path: 'src/y.ts' }],
+    trigger: { files: ['src/y.ts'] }, producedBy: 'agent_session',
+  });
+  const c = await store.createAtom({
+    project: 'tuberosa', claim: 'two-hop atom', type: 'fact',
+    evidence: [{ kind: 'file', path: 'src/z.ts' }],
+    trigger: { files: ['src/z.ts'] }, producedBy: 'agent_session',
+  });
+  await store.replaceAtomRelations(a.id, [{
+    fromAtomId: a.id, targetAtomId: b.id, relationType: 'refines',
+    confidence: 0.9, inferenceSource: 'semantic',
+  }], { source: 'semantic' });
+  await store.replaceAtomRelations(b.id, [{
+    fromAtomId: b.id, targetAtomId: c.id, relationType: 'related_to',
+    confidence: 0.8, inferenceSource: 'semantic',
+  }], { source: 'semantic' });
+
+  const pack = await service.searchContext({
+    project: 'tuberosa',
+    prompt: 'something about src/x.ts',
+    files: ['src/x.ts'],
+    taskType: 'implementation',
+  });
+
+  const ids = pack.sections.flatMap((s) => s.items.map((i) => i.knowledgeId));
+  assert.ok(ids.includes(c.id), `expected depth-2 atom to surface; got ${ids.join(',')}`);
+
+  resetRetrievalPolicyCache();
+});

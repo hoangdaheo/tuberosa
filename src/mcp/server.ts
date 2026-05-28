@@ -3,6 +3,8 @@ import { NotFoundError, toAppError, ValidationError, type AppError } from '../er
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
 import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
+import { predictImpact } from '../retrieval/impact-predictor.js';
+import { getRetrievalPolicy } from '../retrieval/policy.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   AGENT_LEARNING_MODES,
@@ -376,6 +378,24 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       return toolJson(density);
     }
 
+    case 'tuberosa_predict_impact': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_predict_impact arguments.project');
+      const files = readMcpStringArray(args.files, 'tuberosa_predict_impact arguments.files');
+      const symbols = readMcpStringArray(args.symbols, 'tuberosa_predict_impact arguments.symbols');
+      const depth = typeof args.depth === 'number' && Number.isFinite(args.depth) && args.depth >= 1
+        ? Math.min(4, Math.floor(args.depth))
+        : undefined;
+      const policy = getRetrievalPolicy().graph;
+      const prediction = await predictImpact(services.store, {
+        project,
+        files,
+        symbols,
+        policy,
+        depth,
+      });
+      return toolJson(prediction);
+    }
+
     case 'tuberosa_resurrect_atom': {
       const atomId = readRequiredMcpString(args.atomId, 'tuberosa_resurrect_atom arguments.atomId');
       const atom = await services.store.updateAtom(atomId, {
@@ -442,20 +462,37 @@ function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?:
         }
       : undefined,
     ...(pack.debug ? { debug: pack.debug } : {}),
+    impactPrediction: pack.impactPrediction,
     instruction: composeSearchInstruction(
       searchInstruction(pack.contextFit?.fitStatus, deepContextReturned),
       pack.taskBrief?.followUpSearches,
+      pack.impactPrediction,
     ),
   };
 }
 
-function composeSearchInstruction(base: string, followUpSearches: string[] | undefined): string {
+function composeSearchInstruction(
+  base: string,
+  followUpSearches: string[] | undefined,
+  impactPrediction: ContextPack['impactPrediction'],
+): string {
   // Plan A — long prompts can surface sub-tasks the agent should re-search
   // for as it reaches each step. Append a follow-up hint without dropping the
   // existing fit-status instruction.
-  if (!followUpSearches || followUpSearches.length === 0) return base;
-  const note = `Detected ${followUpSearches.length} follow-up sub-task(s) (taskBrief.followUpSearches). Call tuberosa_search_context again with each sub-task as the prompt when you reach that step.`;
-  return base ? `${base}\n${note}` : note;
+  let composed = base;
+  if (followUpSearches && followUpSearches.length > 0) {
+    const note = `Detected ${followUpSearches.length} follow-up sub-task(s) (taskBrief.followUpSearches). Call tuberosa_search_context again with each sub-task as the prompt when you reach that step.`;
+    composed = composed ? `${composed}\n${note}` : note;
+  }
+  // Concern C2 — hint the agent that the upcoming edit has a predicted blast
+  // radius. Names only — for the full graph trace they call tuberosa_predict_impact.
+  if (impactPrediction && impactPrediction.predictedAffected.length > 0) {
+    const top = impactPrediction.predictedAffected.slice(0, 3).map((p) => p.target.value).join(', ');
+    const more = impactPrediction.truncated ? ' …' : '';
+    const impactNote = `May affect: ${top}${more}. Call tuberosa_predict_impact for the full list.`;
+    composed = composed ? `${composed}\n${impactNote}` : impactNote;
+  }
+  return composed;
 }
 
 function shouldReturnDeepContext(pack: ContextPack, includeDeepContext: boolean | undefined): boolean {
@@ -714,6 +751,23 @@ function readRequiredMcpString(value: unknown, path: string): string {
   }
 
   return value;
+}
+
+function readMcpStringArray(value: unknown, path: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ValidationError(`${path} must be an array of strings.`, [
+      { path, message: `${path} must be an array of strings.` },
+    ]);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.trim().length === 0) {
+      throw new ValidationError(`${path}[${index}] must be a non-empty string.`, [
+        { path: `${path}[${index}]`, message: 'must be a non-empty string.' },
+      ]);
+    }
+    return entry;
+  });
 }
 
 function tools() {
@@ -1290,6 +1344,21 @@ function tools() {
         type: 'object',
         required: ['project'],
         properties: { project: { type: 'string' } },
+      },
+    },
+    {
+      name: 'tuberosa_predict_impact',
+      title: 'Predict Edit Impact',
+      description: 'Predict which atoms are likely affected by edits to the given files or symbols. Walks the atom graph up to `depth` hops (default uses retrieval-policy.graph.walkDepth, typically 2) and aggregates the depth-bounded neighborhood.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          files: { type: 'array', items: { type: 'string' } },
+          symbols: { type: 'array', items: { type: 'string' } },
+          depth: { type: 'number', description: 'Hop depth ≥ 1. Defaults to graph.walkDepth.' },
+        },
       },
     },
   ];
