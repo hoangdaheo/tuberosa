@@ -41,6 +41,8 @@ const config: AppConfig = {
   maxRequestBytes: 10 * 1024 * 1024,
   maxIngestContentBytes: 2 * 1024 * 1024,
   backupDir: '.tuberosa/test-backups',
+  exportBaseDir: '.tuberosa/test-exports',
+  importBaseDir: '.tuberosa/test-imports',
   backupIntervalSeconds: 0,
   backupStartupDelaySeconds: 0,
   backupRetentionCount: 24,

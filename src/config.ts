@@ -26,6 +26,8 @@ export interface AppConfig {
   maxRequestBytes: number;
   maxIngestContentBytes: number;
   backupDir: string;
+  exportBaseDir: string;
+  importBaseDir: string;
   backupIntervalSeconds: number;
   backupStartupDelaySeconds: number;
   backupRetentionCount: number;
@@ -97,6 +99,8 @@ export function loadConfig(): AppConfig {
     maxRequestBytes: Number(process.env.TUBEROSA_MAX_REQUEST_BYTES ?? 10 * 1024 * 1024),
     maxIngestContentBytes: Number(process.env.TUBEROSA_MAX_INGEST_CONTENT_BYTES ?? 2 * 1024 * 1024),
     backupDir: process.env.TUBEROSA_BACKUP_DIR ?? '.tuberosa/backups',
+    exportBaseDir: process.env.TUBEROSA_EXPORT_BASE_DIR ?? '.tuberosa/exports',
+    importBaseDir: process.env.TUBEROSA_IMPORT_BASE_DIR ?? '.tuberosa/imports',
     backupIntervalSeconds: Number(process.env.TUBEROSA_BACKUP_INTERVAL_SECONDS ?? 60 * 60),
     backupStartupDelaySeconds: Number(process.env.TUBEROSA_BACKUP_STARTUP_DELAY_SECONDS ?? 60),
     backupRetentionCount: Number(process.env.TUBEROSA_BACKUP_RETENTION_COUNT ?? 24),

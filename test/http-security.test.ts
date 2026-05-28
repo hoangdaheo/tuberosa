@@ -121,6 +121,8 @@ function baseConfig(overrides: Partial<AppConfig>): AppConfig {
     maxRequestBytes: 10 * 1024 * 1024,
     maxIngestContentBytes: 2 * 1024 * 1024,
     backupDir: '.tuberosa/backups',
+    exportBaseDir: '.tuberosa/test-exports',
+    importBaseDir: '.tuberosa/test-imports',
     backupIntervalSeconds: 3600,
     backupStartupDelaySeconds: 60,
     backupRetentionCount: 24,
