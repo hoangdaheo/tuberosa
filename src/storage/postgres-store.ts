@@ -72,8 +72,14 @@ import type { SessionReplayBundle } from '../operations/session-replay.js';
 import type {
   AtomGateEvent,
   AtomGateEventInput,
+  AtomRelationInput,
+  AtomRelationRow,
+  AtomRelationTargetKind,
   ChunkInput,
+  InferenceSource,
   KnowledgeStore,
+  ListAtomRelationsOptions,
+  PruneStaleAtomRelationsOptions,
   StaleFileAtomCleanupInput,
 } from './store.js';
 
@@ -1763,6 +1769,149 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       values,
     );
     return result.rows.map((row) => rowToAtom(row, String(row.project_name)));
+  }
+
+  async replaceAtomRelations(
+    fromAtomId: string,
+    inputs: AtomRelationInput[],
+    options: { source: InferenceSource },
+  ): Promise<AtomRelationRow[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `DELETE FROM knowledge_relations
+         WHERE from_atom_id = $1 AND inference_source = $2`,
+        [fromAtomId, options.source],
+      );
+      const written: AtomRelationRow[] = [];
+      for (const input of inputs) {
+        const targetKind: AtomRelationTargetKind = input.targetKind ?? 'atom';
+        const targetAtomId = targetKind === 'atom' ? input.targetAtomId : null;
+        const targetKnowledgeId = targetKind === 'knowledge' ? input.targetAtomId : null;
+        const result = await client.query(
+          `INSERT INTO knowledge_relations
+             (from_atom_id, target_atom_id, target_knowledge_id, target_kind,
+              relation_type, confidence, inference_source, inferred)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+           RETURNING id, created_at`,
+          [
+            fromAtomId,
+            targetAtomId,
+            targetKnowledgeId,
+            targetKind,
+            input.relationType,
+            input.confidence,
+            options.source,
+          ],
+        );
+        written.push({
+          fromAtomId,
+          targetKind,
+          targetAtomId: input.targetAtomId,
+          relationType: input.relationType,
+          confidence: input.confidence,
+          inferenceSource: options.source,
+          id: String(result.rows[0].id),
+          createdAt: new Date(result.rows[0].created_at).toISOString(),
+        });
+      }
+      await client.query('COMMIT');
+      return written;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listAtomRelations(options: ListAtomRelationsOptions): Promise<AtomRelationRow[]> {
+    const filters: string[] = ['kr.from_atom_id IS NOT NULL'];
+    const values: unknown[] = [];
+    if (options.fromAtomId) {
+      values.push(options.fromAtomId);
+      filters.push(`kr.from_atom_id = $${values.length}`);
+    }
+    if (options.targetAtomId) {
+      values.push(options.targetAtomId);
+      filters.push(`(kr.target_atom_id = $${values.length} OR kr.target_knowledge_id = $${values.length})`);
+    }
+    if (options.relationType) {
+      values.push(options.relationType);
+      filters.push(`kr.relation_type = $${values.length}`);
+    }
+    if (options.inferenceSource) {
+      values.push(options.inferenceSource);
+      filters.push(`kr.inference_source = $${values.length}`);
+    }
+    if (options.project) {
+      values.push(options.project);
+      filters.push(
+        `EXISTS (
+           SELECT 1 FROM knowledge_atoms a
+           JOIN projects p ON p.id = a.project_id
+           WHERE a.id = kr.from_atom_id AND p.name = $${values.length}
+         )`,
+      );
+    }
+    values.push(options.limit);
+    const result = await this.pool.query(
+      `SELECT kr.id, kr.from_atom_id, kr.target_atom_id, kr.target_knowledge_id,
+              kr.target_kind, kr.relation_type, kr.confidence, kr.inference_source, kr.created_at
+       FROM knowledge_relations kr
+       WHERE ${filters.join(' AND ')}
+       ORDER BY kr.created_at DESC
+       LIMIT $${values.length}`,
+      values,
+    );
+    return result.rows.map((row) => {
+      const targetKind: AtomRelationTargetKind =
+        (row.target_kind as AtomRelationTargetKind | null) ?? (row.target_atom_id ? 'atom' : 'knowledge');
+      const targetAtomId =
+        targetKind === 'atom'
+          ? String(row.target_atom_id ?? row.target_knowledge_id)
+          : String(row.target_knowledge_id ?? row.target_atom_id);
+      return {
+        id: String(row.id),
+        fromAtomId: String(row.from_atom_id),
+        targetKind,
+        targetAtomId,
+        relationType: row.relation_type,
+        confidence: Number(row.confidence),
+        inferenceSource: row.inference_source as InferenceSource,
+        createdAt: new Date(row.created_at).toISOString(),
+      };
+    });
+  }
+
+  async pruneStaleAtomRelations(
+    options: PruneStaleAtomRelationsOptions,
+  ): Promise<{ removed: number }> {
+    const filters: string[] = ['kr.from_atom_id IS NOT NULL', 'kr.confidence < $1'];
+    const values: unknown[] = [options.floorConfidence];
+    if (options.project) {
+      values.push(options.project);
+      filters.push(
+        `EXISTS (
+           SELECT 1 FROM knowledge_atoms a
+           JOIN projects p ON p.id = a.project_id
+           WHERE a.id = kr.from_atom_id AND p.name = $${values.length}
+         )`,
+      );
+    }
+    if (options.dryRun) {
+      const r = await this.pool.query(
+        `SELECT COUNT(*)::int AS c FROM knowledge_relations kr WHERE ${filters.join(' AND ')}`,
+        values,
+      );
+      return { removed: Number(r.rows[0].c) };
+    }
+    const r = await this.pool.query(
+      `DELETE FROM knowledge_relations kr WHERE ${filters.join(' AND ')}`,
+      values,
+    );
+    return { removed: r.rowCount ?? 0 };
   }
 
   async searchKnowledgeByEmbedding(

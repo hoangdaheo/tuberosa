@@ -29,6 +29,8 @@
     "backfill:domains": "tsx scripts/backfill-domains.ts",
     "migrate-knowledge-to-atoms": "tsx scripts/migrate-knowledge-to-atoms.ts",
     "archival-sweep": "tsx scripts/archival-sweep.ts",
+    "infer-co-change": "tsx scripts/infer-co-change.ts",
+    "prune-stale-edges": "tsx scripts/prune-stale-edges.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "error-logs": "tsx scripts/error-logs.ts",

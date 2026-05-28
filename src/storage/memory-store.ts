@@ -66,8 +66,13 @@ import type { SessionReplayBundle } from '../operations/session-replay.js';
 import type {
   AtomGateEvent,
   AtomGateEventInput,
+  AtomRelationInput,
+  AtomRelationRow,
   ChunkInput,
+  InferenceSource,
   KnowledgeStore,
+  ListAtomRelationsOptions,
+  PruneStaleAtomRelationsOptions,
   StaleFileAtomCleanupInput,
 } from './store.js';
 
@@ -95,6 +100,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   // public KnowledgeAtom shape so getAtom/deepEqual storage tests stay green.
   private readonly atomEmbeddings = new Map<string, number[]>();
   private readonly atomGateEvents = new Map<string, AtomGateEvent>();
+  private readonly atomRelations = new Map<string, AtomRelationRow>();
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -1263,6 +1269,60 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         || matchesAny(atom.trigger.taskTypes, wantTaskTypes),
       )
       .slice(0, options.limit);
+  }
+
+  async replaceAtomRelations(
+    fromAtomId: string,
+    inputs: AtomRelationInput[],
+    options: { source: InferenceSource },
+  ): Promise<AtomRelationRow[]> {
+    for (const [id, row] of this.atomRelations.entries()) {
+      if (row.fromAtomId === fromAtomId && row.inferenceSource === options.source) {
+        this.atomRelations.delete(id);
+      }
+    }
+    const written: AtomRelationRow[] = [];
+    for (const input of inputs) {
+      const row: AtomRelationRow = {
+        id: randomUUID(),
+        fromAtomId: input.fromAtomId,
+        targetKind: input.targetKind ?? 'atom',
+        targetAtomId: input.targetAtomId,
+        relationType: input.relationType,
+        confidence: input.confidence,
+        inferenceSource: options.source,
+        createdAt: new Date().toISOString(),
+      };
+      this.atomRelations.set(row.id, row);
+      written.push(row);
+    }
+    return written;
+  }
+
+  async listAtomRelations(options: ListAtomRelationsOptions): Promise<AtomRelationRow[]> {
+    const wantProject = options.project;
+    return [...this.atomRelations.values()]
+      .filter((r) => !options.fromAtomId || r.fromAtomId === options.fromAtomId)
+      .filter((r) => !options.targetAtomId || r.targetAtomId === options.targetAtomId)
+      .filter((r) => !options.relationType || r.relationType === options.relationType)
+      .filter((r) => !options.inferenceSource || r.inferenceSource === options.inferenceSource)
+      .filter((r) => !wantProject || this.atoms.get(r.fromAtomId)?.project === wantProject)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async pruneStaleAtomRelations(
+    options: PruneStaleAtomRelationsOptions,
+  ): Promise<{ removed: number }> {
+    let removed = 0;
+    for (const [id, row] of [...this.atomRelations.entries()]) {
+      if (options.project && this.atoms.get(row.fromAtomId)?.project !== options.project) continue;
+      if (row.confidence < options.floorConfidence) {
+        if (!options.dryRun) this.atomRelations.delete(id);
+        removed += 1;
+      }
+    }
+    return { removed };
   }
 
   async searchKnowledgeByEmbedding(

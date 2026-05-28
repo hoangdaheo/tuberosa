@@ -138,6 +138,7 @@ function baseConfig(overrides: Partial<AppConfig>): AppConfig {
     worktreeMaxMtimeAgeHours: 72,
     llmCriticEnabled: false,
     archivalEnabled: false,
+  graphInferenceEnabled: false,
     archivalIntervalHours: 24,
     ...overrides,
   } as AppConfig;

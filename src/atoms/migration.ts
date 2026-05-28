@@ -5,6 +5,7 @@ import type { StoredKnowledge } from '../types.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import { AtomCritic, atomEmbeddingText } from './critic.js';
 import { redactAtomInput } from './redaction.js';
+import { syncAtomLinks } from './inference/sync.js';
 
 export const MIGRATABLE_ITEM_TYPES = new Set(['memory', 'bugfix', 'rule']);
 
@@ -102,7 +103,17 @@ export async function migrateLegacyKnowledge(
         report.atomsCreated += 1;
         if (!dryRun) {
           const embedding = await models.embed(atomEmbeddingText(candidateInput));
-          await store.createAtom({ ...candidateInput, embedding });
+          const created = await store.createAtom({ ...candidateInput, embedding });
+          // Concern C1 — mirror the implicit "atom supersedes legacy item" edge
+          // into knowledge_relations so the graph walker can follow it. The
+          // target lives in knowledge_items, not knowledge_atoms — flag it via
+          // targetKind: 'knowledge'.
+          await syncAtomLinks(
+            created.id,
+            [{ toAtomId: item.id, kind: 'supersedes', confidence: 1.0, targetKind: 'knowledge' }],
+            store,
+            'migration',
+          );
         }
       }
     } catch (error) {

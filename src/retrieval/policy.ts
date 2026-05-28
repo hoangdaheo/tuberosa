@@ -124,6 +124,33 @@ export interface PromptPreprocessingConfig {
   anchorWindow: { tokens: number };
 }
 
+/**
+ * Concern C1 — write-side graph inference. Controls inline semantic-neighbor
+ * inference at atom creation, scheduled git co-change pairing, and the
+ * stale-edge prune sweep. Read by `src/atoms/inference/*` and the C1 worker
+ * job.
+ */
+export interface GraphInferenceConfig {
+  enabled: boolean;
+  coChange: {
+    lookbackCommits: number;
+    minCoChanges: number;
+    minConfidence: number;
+  };
+  semanticNeighbor: {
+    /** Cosine floor for emitting any neighbor edge (related_to / refines). */
+    threshold: number;
+    /** Cosine ceiling — anything above is a dedup candidate, not a neighbor. */
+    duplicateCeiling: number;
+    /** Max outbound edges emitted per atom per source pass. */
+    maxOutbound: number;
+  };
+  edgePrune: {
+    floorConfidence: number;
+    runEveryHours: number;
+  };
+}
+
 export interface RetrievalPolicy {
   useFreshnessMap: boolean;
   freshnessGlobal: FreshnessWindow;
@@ -189,6 +216,9 @@ export interface RetrievalPolicy {
 
   /** Plan A — long-prompt preprocessing config. */
   promptPreprocessing: PromptPreprocessingConfig;
+
+  /** Concern C1 — write-side graph inference (semantic neighbor, co-change, prune). */
+  graphInference: GraphInferenceConfig;
 
   /**
    * Phase 4 — optional metadata from `scripts/calibrate-fusion.ts`. Not consumed by retrieval directly,
@@ -356,6 +386,24 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     },
     anchorWindow: { tokens: 1500 },
   },
+
+  graphInference: {
+    enabled: true,
+    coChange: {
+      lookbackCommits: 500,
+      minCoChanges: 3,
+      minConfidence: 0.5,
+    },
+    semanticNeighbor: {
+      threshold: 0.78,
+      duplicateCeiling: 0.92,
+      maxOutbound: 5,
+    },
+    edgePrune: {
+      floorConfidence: 0.25,
+      runEveryHours: 168,
+    },
+  },
 };
 
 let cachedPolicy: RetrievalPolicy | null = null;
@@ -437,7 +485,21 @@ function mergePolicy(base: RetrievalPolicy, override: Partial<RetrievalPolicy>):
     },
     queryRewrite: { ...base.queryRewrite, ...(override.queryRewrite ?? {}) },
     promptPreprocessing: mergePromptPreprocessing(base.promptPreprocessing, override.promptPreprocessing),
+    graphInference: mergeGraphInference(base.graphInference, override.graphInference),
     calibration: override.calibration ?? base.calibration,
+  };
+}
+
+function mergeGraphInference(
+  base: GraphInferenceConfig,
+  override: Partial<GraphInferenceConfig> | undefined,
+): GraphInferenceConfig {
+  if (!override) return base;
+  return {
+    enabled: override.enabled ?? base.enabled,
+    coChange: { ...base.coChange, ...(override.coChange ?? {}) },
+    semanticNeighbor: { ...base.semanticNeighbor, ...(override.semanticNeighbor ?? {}) },
+    edgePrune: { ...base.edgePrune, ...(override.edgePrune ?? {}) },
   };
 }
 

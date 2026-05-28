@@ -68,6 +68,47 @@ export interface StaleFileAtomCleanupInput {
   keepSourceUris: string[];
 }
 
+/**
+ * Concern C1 — provenance for an atom-edge row in `knowledge_relations`. The
+ * column also serves as the dedup key for the JSONB ↔ relations mirror:
+ * `replaceAtomRelations(fromAtomId, …, { source })` deletes only this source's
+ * rows for the given atom before inserting the new ones.
+ */
+export type InferenceSource = 'migration' | 'semantic' | 'co_change' | 'refines_detector' | 'manual';
+
+export type AtomRelationTargetKind = 'atom' | 'knowledge';
+
+export interface AtomRelationInput {
+  fromAtomId: string;
+  /** When omitted, the target is treated as an atom (default). */
+  targetKind?: AtomRelationTargetKind;
+  /** Target atom id (when targetKind='atom') or knowledge_items id (when 'knowledge'). */
+  targetAtomId: string;
+  relationType: 'supersedes' | 'refines' | 'depends_on' | 'co_changes_with' | 'related_to';
+  confidence: number;
+  inferenceSource: InferenceSource;
+}
+
+export interface AtomRelationRow extends AtomRelationInput {
+  id: string;
+  createdAt: string;
+}
+
+export interface ListAtomRelationsOptions {
+  fromAtomId?: string;
+  targetAtomId?: string;
+  project?: string;
+  relationType?: AtomRelationInput['relationType'];
+  inferenceSource?: InferenceSource;
+  limit: number;
+}
+
+export interface PruneStaleAtomRelationsOptions {
+  project?: string;
+  floorConfidence: number;
+  dryRun?: boolean;
+}
+
 export interface AtomGateEvent {
   id: string;
   project?: string;
@@ -109,6 +150,13 @@ export interface KnowledgeStore {
   incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined>;
   searchAtomsByEmbedding(embedding: number[], options: { project?: string; limit: number; threshold?: number }): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>>;
   searchAtomsByTrigger(trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] }, options: { project?: string; limit: number }): Promise<KnowledgeAtom[]>;
+  replaceAtomRelations(
+    fromAtomId: string,
+    inputs: AtomRelationInput[],
+    options: { source: InferenceSource },
+  ): Promise<AtomRelationRow[]>;
+  listAtomRelations(options: ListAtomRelationsOptions): Promise<AtomRelationRow[]>;
+  pruneStaleAtomRelations(options: PruneStaleAtomRelationsOptions): Promise<{ removed: number }>;
   searchKnowledgeByEmbedding(
     embedding: number[],
     options: {
