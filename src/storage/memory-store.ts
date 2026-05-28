@@ -1160,7 +1160,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   async createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom> {
     const now = new Date().toISOString();
     const atom: KnowledgeAtom = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       project: input.project,
       parentKnowledgeId: input.parentKnowledgeId,
       claim: input.claim,

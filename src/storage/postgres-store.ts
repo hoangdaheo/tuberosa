@@ -1638,26 +1638,35 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom> {
     const projectId = await this.ensureProject(this.pool, input.project);
+    const columns = [
+      'project_id', 'parent_knowledge_id', 'claim', 'type', 'evidence', 'trigger',
+      'verification', 'pitfalls', 'links', 'produced_by', 'produced_session_id', 'embedding',
+    ];
+    const placeholders = ['$1', '$2', '$3', '$4', '$5::jsonb', '$6::jsonb', '$7::jsonb', '$8::jsonb', '$9::jsonb', '$10', '$11', '$12::vector'];
+    const values: unknown[] = [
+      projectId,
+      input.parentKnowledgeId ?? null,
+      input.claim,
+      input.type,
+      JSON.stringify(input.evidence),
+      JSON.stringify(input.trigger),
+      input.verification ? JSON.stringify(input.verification) : null,
+      input.pitfalls ? JSON.stringify(input.pitfalls) : null,
+      input.links ? JSON.stringify(input.links) : null,
+      input.producedBy,
+      input.producedAtSessionId ?? null,
+      input.embedding ? `[${input.embedding.join(',')}]` : null,
+    ];
+    if (input.id) {
+      columns.unshift('id');
+      placeholders.unshift(`$${values.length + 1}`);
+      values.push(input.id);
+    }
     const result = await this.pool.query(
-      `INSERT INTO knowledge_atoms
-        (project_id, parent_knowledge_id, claim, type, evidence, trigger,
-         verification, pitfalls, links, produced_by, produced_session_id, embedding)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11,$12::vector)
+      `INSERT INTO knowledge_atoms (${columns.join(', ')})
+       VALUES (${placeholders.join(', ')})
        RETURNING *`,
-      [
-        projectId,
-        input.parentKnowledgeId ?? null,
-        input.claim,
-        input.type,
-        JSON.stringify(input.evidence),
-        JSON.stringify(input.trigger),
-        input.verification ? JSON.stringify(input.verification) : null,
-        input.pitfalls ? JSON.stringify(input.pitfalls) : null,
-        input.links ? JSON.stringify(input.links) : null,
-        input.producedBy,
-        input.producedAtSessionId ?? null,
-        input.embedding ? `[${input.embedding.join(',')}]` : null,
-      ],
+      values,
     );
     return rowToAtom(result.rows[0], input.project);
   }
