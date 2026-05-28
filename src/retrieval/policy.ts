@@ -124,6 +124,50 @@ export interface PromptPreprocessingConfig {
   anchorWindow: { tokens: number };
 }
 
+/**
+ * Concern C1 — write-side graph inference. Controls inline semantic-neighbor
+ * inference at atom creation, scheduled git co-change pairing, and the
+ * stale-edge prune sweep. Read by `src/atoms/inference/*` and the C1 worker
+ * job.
+ */
+export interface GraphInferenceConfig {
+  enabled: boolean;
+  coChange: {
+    lookbackCommits: number;
+    minCoChanges: number;
+    minConfidence: number;
+  };
+  semanticNeighbor: {
+    /** Cosine floor for emitting any neighbor edge (related_to / refines). */
+    threshold: number;
+    /** Cosine ceiling — anything above is a dedup candidate, not a neighbor. */
+    duplicateCeiling: number;
+    /** Max outbound edges emitted per atom per source pass. */
+    maxOutbound: number;
+  };
+  edgePrune: {
+    floorConfidence: number;
+    runEveryHours: number;
+  };
+}
+
+/**
+ * Concern C2 — read-side atom-graph walk + impact prediction.
+ * `walkDepth` caps recursive hops (≥ 1). `edgeWeights` map AtomLinkKind → weight
+ * applied to each hop. `decayPerHop` is multiplied at hop ≥ 2 (so a depth-2 hit
+ * scores edgeWeight[k1] × edgeWeight[k2] × decayPerHop). `impactPredictionLimit`
+ * caps the predictedAffected list returned to the agent.
+ */
+export interface GraphWalkConfig {
+  walkDepth: number;
+  edgeWeights: Record<
+    'supersedes' | 'refines' | 'depends_on' | 'co_changes_with' | 'related_to',
+    number
+  >;
+  decayPerHop: number;
+  impactPredictionLimit: number;
+}
+
 export interface RetrievalPolicy {
   useFreshnessMap: boolean;
   freshnessGlobal: FreshnessWindow;
@@ -189,6 +233,12 @@ export interface RetrievalPolicy {
 
   /** Plan A — long-prompt preprocessing config. */
   promptPreprocessing: PromptPreprocessingConfig;
+
+  /** Concern C1 — write-side graph inference (semantic neighbor, co-change, prune). */
+  graphInference: GraphInferenceConfig;
+
+  /** Concern C2 — read-side atom-graph walk + impact prediction. */
+  graph: GraphWalkConfig;
 
   /**
    * Phase 4 — optional metadata from `scripts/calibrate-fusion.ts`. Not consumed by retrieval directly,
@@ -300,6 +350,21 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     unknown: { file: 0.24, symbol: 0.22, error: 0.22, technology: 0.12, businessArea: 0.12 },
   },
 
+  graph: {
+    walkDepth: 2,
+    // `supersedes` is intentionally zero: a superseded atom isn't part of the
+    // active impact surface (the superseder represents it).
+    edgeWeights: {
+      supersedes: 0.0,
+      refines: 0.7,
+      depends_on: 0.6,
+      co_changes_with: 0.5,
+      related_to: 0.4,
+    },
+    decayPerHop: 0.6,
+    impactPredictionLimit: 10,
+  },
+
   graphHopWeights: { target: 0.95, seed: 0.68, depth2: 0.42 },
   relationKindMultipliers: {
     supersedes: 1.1,
@@ -355,6 +420,24 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
       cwdMatchBonus: 0.20,
     },
     anchorWindow: { tokens: 1500 },
+  },
+
+  graphInference: {
+    enabled: true,
+    coChange: {
+      lookbackCommits: 500,
+      minCoChanges: 3,
+      minConfidence: 0.5,
+    },
+    semanticNeighbor: {
+      threshold: 0.78,
+      duplicateCeiling: 0.92,
+      maxOutbound: 5,
+    },
+    edgePrune: {
+      floorConfidence: 0.25,
+      runEveryHours: 168,
+    },
   },
 };
 
@@ -437,7 +520,21 @@ function mergePolicy(base: RetrievalPolicy, override: Partial<RetrievalPolicy>):
     },
     queryRewrite: { ...base.queryRewrite, ...(override.queryRewrite ?? {}) },
     promptPreprocessing: mergePromptPreprocessing(base.promptPreprocessing, override.promptPreprocessing),
+    graphInference: mergeGraphInference(base.graphInference, override.graphInference),
     calibration: override.calibration ?? base.calibration,
+  };
+}
+
+function mergeGraphInference(
+  base: GraphInferenceConfig,
+  override: Partial<GraphInferenceConfig> | undefined,
+): GraphInferenceConfig {
+  if (!override) return base;
+  return {
+    enabled: override.enabled ?? base.enabled,
+    coChange: { ...base.coChange, ...(override.coChange ?? {}) },
+    semanticNeighbor: { ...base.semanticNeighbor, ...(override.semanticNeighbor ?? {}) },
+    edgePrune: { ...base.edgePrune, ...(override.edgePrune ?? {}) },
   };
 }
 

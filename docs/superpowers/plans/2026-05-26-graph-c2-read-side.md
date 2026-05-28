@@ -44,7 +44,7 @@
 **Files:**
 - Modify: `src/retrieval/policy.ts`
 
-- [ ] **Step 1: Add `graph` policy keys**
+- [x] **Step 1: Add `graph` policy keys**
 
 Edit `src/retrieval/policy.ts`. Add to `DEFAULT_POLICY`:
 
@@ -65,7 +65,7 @@ Edit `src/retrieval/policy.ts`. Add to `DEFAULT_POLICY`:
 
 Extend `RetrievalPolicy` TS type.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/retrieval/policy.ts
@@ -82,7 +82,7 @@ git commit -m "feat(graph): policy defaults for walkDepth, edgeWeights, decayPer
 - Modify: `src/storage/postgres-store.ts`
 - Test: `test/atom-graph-walker.test.ts`
 
-- [ ] **Step 1: Add interface signature**
+- [x] **Step 1: Add interface signature**
 
 Edit `src/storage/store.ts`:
 
@@ -113,7 +113,7 @@ export interface WalkAtomGraphOptions {
   walkAtomGraph(options: WalkAtomGraphOptions): Promise<AtomGraphHit[]>;
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `test/atom-graph-walker.test.ts`:
 
@@ -185,12 +185,12 @@ test('walkAtomGraph: excludes archived atoms by default', async () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atom-graph-walker.test.ts`
 Expected: FAIL — method does not exist.
 
-- [ ] **Step 4: Implement on `MemoryKnowledgeStore`**
+- [x] **Step 4: Implement on `MemoryKnowledgeStore`**
 
 ```typescript
   async walkAtomGraph(options: WalkAtomGraphOptions): Promise<AtomGraphHit[]> {
@@ -232,7 +232,7 @@ Expected: FAIL — method does not exist.
   }
 ```
 
-- [ ] **Step 5: Implement on `PostgresKnowledgeStore`**
+- [x] **Step 5: Implement on `PostgresKnowledgeStore`**
 
 Use a recursive CTE; cap depth via parameter; filter archived in the join:
 
@@ -292,12 +292,12 @@ Use a recursive CTE; cap depth via parameter; filter archived in the join:
 
 (Add a small `parsePathArray` helper that converts the Postgres composite-type array into `AtomGraphPathStep[]`.)
 
-- [ ] **Step 6: Run the test**
+- [x] **Step 6: Run the test**
 
 Run: `node --test --import tsx test/atom-graph-walker.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/storage/store.ts src/storage/memory-store.ts src/storage/postgres-store.ts test/atom-graph-walker.test.ts
@@ -313,7 +313,7 @@ git commit -m "feat(graph): walkAtomGraph (multi-hop with kind weights + decay)"
 - Modify: `src/types.ts` (add `ImpactPrediction`)
 - Test: `test/impact-predictor.test.ts`
 
-- [ ] **Step 1: Add the type**
+- [x] **Step 1: Add the type**
 
 Edit `src/types.ts`:
 
@@ -330,7 +330,7 @@ export interface ImpactPrediction {
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `test/impact-predictor.test.ts`:
 
@@ -409,12 +409,12 @@ test('predictImpact: truncates to limit and sets truncated flag', async () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/impact-predictor.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Implement `predictImpact`**
+- [x] **Step 4: Implement `predictImpact`**
 
 Create `src/retrieval/impact-predictor.ts`:
 
@@ -501,12 +501,12 @@ export async function predictImpact(
 }
 ```
 
-- [ ] **Step 5: Run the test**
+- [x] **Step 5: Run the test**
 
 Run: `node --test --import tsx test/impact-predictor.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/retrieval/impact-predictor.ts src/types.ts test/impact-predictor.test.ts
@@ -522,7 +522,7 @@ git commit -m "feat(graph): ImpactPredictor — depth-bounded impact prediction 
 - Modify: `src/retrieval/context-pack.ts`
 - Test: extend `test/impact-predictor.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/impact-predictor.test.ts`:
 
@@ -570,12 +570,12 @@ test('searchContext: pack.impactPrediction is undefined for exploration taskType
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/impact-predictor.test.ts`
 Expected: FAIL — `pack.impactPrediction` is undefined.
 
-- [ ] **Step 3: Wire predictor into `searchContext`**
+- [x] **Step 3: Wire predictor into `searchContext`**
 
 Edit `src/retrieval/service.ts`. After `classifyQuery` and before `findCandidates`, compute impact prediction when the task type qualifies:
 
@@ -610,17 +610,17 @@ return {
 };
 ```
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `node --test --import tsx test/impact-predictor.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Run the retrieval eval to confirm no regression**
+- [x] **Step 5: Run the retrieval eval to confirm no regression**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/retrieval/service.ts src/retrieval/context-pack.ts test/impact-predictor.test.ts
@@ -638,7 +638,7 @@ git commit -m "feat(graph): attach impactPrediction to ContextPack for impl/refa
 
 The existing `searchGraphRelations` already walks 1 hop on `knowledge_relations`. With atoms added, we extend the walker output into the same `graph` candidate group fusion already consumes. No new fusion source — just teach the existing graph search to return atom hits too.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/atoms-retrieval.test.ts`:
 
@@ -679,7 +679,7 @@ test('retrieval: depth-2 atom hit appears in pack with graphPath/matchReasons', 
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Edit `src/retrieval/service.ts`. In `findCandidates`, after the existing `searchGraphRelations` call, also call `store.walkAtomGraph` seeded from the **atom ids** present in the metadata/lexical/memory/vector/worktree results. Merge those hits into the `graph` candidate list with `source='graph'` and `matchReasons` listing the edge kinds:
 
@@ -725,17 +725,17 @@ if (seedAtomIds.length > 0) {
 
 (`matchReasons` is already a field on candidates; if not, follow the existing place where it's set.)
 
-- [ ] **Step 3: Run the test**
+- [x] **Step 3: Run the test**
 
 Run: `node --test --import tsx test/atoms-retrieval.test.ts`
 Expected: PASS, including all previous cases.
 
-- [ ] **Step 4: Run retrieval eval**
+- [x] **Step 4: Run retrieval eval**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/retrieval/service.ts test/atoms-retrieval.test.ts
@@ -751,7 +751,7 @@ git commit -m "feat(graph): seed atom-graph walk from search results and merge d
 - Modify: `src/http/server.ts`
 - Test: append to `test/impact-predictor.test.ts`
 
-- [ ] **Step 1: Register MCP tool**
+- [x] **Step 1: Register MCP tool**
 
 ```typescript
   server.registerTool('tuberosa_predict_impact', {
@@ -776,7 +776,7 @@ git commit -m "feat(graph): seed atom-graph walk from search results and merge d
   });
 ```
 
-- [ ] **Step 2: Register HTTP route**
+- [x] **Step 2: Register HTTP route**
 
 ```typescript
   app.post('/operations/atom-graph/impact', requireAuth, async (req, res) => {
@@ -791,7 +791,7 @@ git commit -m "feat(graph): seed atom-graph walk from search results and merge d
   });
 ```
 
-- [ ] **Step 3: Append `instruction` to `tuberosa_search_context` result**
+- [x] **Step 3: Append `instruction` to `tuberosa_search_context` result**
 
 Where `tuberosa_search_context` returns its result, when `pack.impactPrediction?.predictedAffected.length > 0`:
 
@@ -801,12 +801,12 @@ result.instruction = (result.instruction ? result.instruction + '\n' : '')
   + `May affect: ${top}${pack.impactPrediction.truncated ? ' …' : ''}. Call tuberosa_predict_impact for full list.`;
 ```
 
-- [ ] **Step 4: Smoke-test the route**
+- [x] **Step 4: Smoke-test the route**
 
 Run: `pnpm test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/mcp/server.ts src/http/server.ts test/impact-predictor.test.ts
@@ -822,7 +822,7 @@ git commit -m "feat(graph): tuberosa_predict_impact MCP tool + HTTP route + sear
 - Modify: `src/http/server.ts`
 - Test: `test/atom-graph-export.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/atom-graph-export.test.ts`:
 
@@ -860,7 +860,7 @@ test('streamAtomGraphJsonl: emits one JSONL record per atom with outboundEdges',
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `src/operations/atom-graph-export.ts`:
 
@@ -896,7 +896,7 @@ export async function* streamAtomGraphJsonl(
 }
 ```
 
-- [ ] **Step 3: Register HTTP route**
+- [x] **Step 3: Register HTTP route**
 
 ```typescript
   app.get('/operations/organization/atom-graph.jsonl', requireAuth, async (req, res) => {
@@ -910,12 +910,12 @@ export async function* streamAtomGraphJsonl(
   });
 ```
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `node --test --import tsx test/atom-graph-export.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/operations/atom-graph-export.ts src/http/server.ts test/atom-graph-export.test.ts
@@ -929,7 +929,7 @@ git commit -m "feat(graph): atom-graph JSONL export endpoint (input for concern 
 **Files:**
 - Modify: `eval/retrieval-fixtures.json`
 
-- [ ] **Step 1: Add fixtures**
+- [x] **Step 1: Add fixtures**
 
 ```jsonc
 {
@@ -964,12 +964,12 @@ git commit -m "feat(graph): atom-graph JSONL export endpoint (input for concern 
 
 Extend the runner to support `impactPredictionContains` and `matchReasonsContain`.
 
-- [ ] **Step 2: Run the eval**
+- [x] **Step 2: Run the eval**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add eval/retrieval-fixtures.json eval/retrieval.ts
@@ -980,27 +980,27 @@ git commit -m "test(graph): C2 fixtures for impact prediction + depth-2 graph wa
 
 ## Task 9: Final verification
 
-- [ ] **Step 1: Full suite**
+- [x] **Step 1: Full suite**
 
 Run: `pnpm test`
 Expected: PASS.
 
-- [ ] **Step 2: Retrieval eval**
+- [x] **Step 2: Retrieval eval**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS.
 
-- [ ] **Step 3: Agent-context eval**
+- [x] **Step 3: Agent-context eval**
 
 Run: `pnpm run eval:agent-context`
 Expected: PASS.
 
-- [ ] **Step 4: Integration tests if Docker is up**
+- [x] **Step 4: Integration tests if Docker is up**
 
 Run: `pnpm run test:integration`
 Expected: PASS or skipped.
 
-- [ ] **Step 5: Smoke-test the impact endpoint live**
+- [x] **Step 5: Smoke-test the impact endpoint live**
 
 ```bash
 curl -s -X POST http://localhost:3027/operations/atom-graph/impact \
@@ -1009,14 +1009,14 @@ curl -s -X POST http://localhost:3027/operations/atom-graph/impact \
 ```
 Expected: JSON `ImpactPrediction` (may be empty until atoms accumulate; non-empty after C1 + sessions).
 
-- [ ] **Step 6: Smoke-test the JSONL export**
+- [x] **Step 6: Smoke-test the JSONL export**
 
 ```bash
 curl -s 'http://localhost:3027/operations/organization/atom-graph.jsonl?project=tuberosa' | head -5
 ```
 Expected: One JSON-per-line, each with `atom` and `outboundEdges`.
 
-- [ ] **Step 7: Commit any final touch-ups**
+- [x] **Step 7: Commit any final touch-ups**
 
 ```bash
 git add -A
@@ -1032,3 +1032,89 @@ git commit -m "test(graph): green eval suite after C2"
 - **Path explanation in `why`.** Currently terse ("2 hop(s) from a seed atom"). An LLM pass that turns `path` into a natural-language reason is a follow-up.
 - **Cross-project impact propagation** — F's concern. C2 stays single-project.
 - **Per-target deduplication of `via`** (currently we list every step from every path; collapsing to a single best-path per target is a polish item).
+
+---
+
+## Deviations from the original plan (recorded during execution)
+
+These are intentional adaptations the executor made to fit the plan to the
+real Tuberosa codebase. None alter the goal or architecture; they keep the
+implementation consistent with existing conventions.
+
+1. **No new `src/retrieval/atom-graph-walker.ts` module.** The plan's file
+   structure listed both a standalone walker module and `walkAtomGraph` on
+   the store interface. Implementing both would have duplicated the BFS.
+   `walkAtomGraph` lives directly on `KnowledgeStore` (memory + postgres),
+   matching how `searchGraphRelations`, `listAtomRelations`, etc. are
+   already organized. The standalone module was not needed and was not
+   created. The downstream consumers (impact predictor, fusion seeder)
+   call `store.walkAtomGraph(...)` directly.
+
+2. **Postgres walker uses iterated single-hop queries, not a recursive CTE.**
+   The plan suggested a recursive CTE with composite-type ROW arrays. That
+   approach requires fragile composite-type unmarshalling for the `path`
+   field on the JS side. The shipped implementation runs one indexed
+   `from_atom_id = ANY($1::uuid[])` query per hop, carrying scoring/decay in
+   JS. For the policy default of `walkDepth: 2` this is exactly two
+   round-trips and uses only well-trodden parameterized SQL. Semantically
+   identical to the CTE version, and easier to reason about.
+
+3. **`graph` policy lives next to `graphInference`, not replacing it.**
+   C1's `graphInference` config controls *write-side* atom edge inference
+   (semantic neighbor, co-change, prune). C2's new `graph` config controls
+   *read-side* walking (walkDepth, edgeWeights, decayPerHop,
+   impactPredictionLimit). Both ship in `RetrievalPolicy` as siblings, so a
+   single `retrieval-policy.json` controls both halves.
+
+4. **HTTP and MCP wired through Tuberosa's actual dispatch.** The plan's
+   pseudocode used Express-style `app.post(...)` and an MCP SDK
+   `server.registerTool` API. Tuberosa uses a custom `HttpRouter` (route
+   array with `match` matchers) and a `callTool` switch in
+   `src/mcp/server.ts`. The C2 endpoints (`POST
+   /operations/atom-graph/impact`, `GET
+   /operations/organization/atom-graph.jsonl`, `tuberosa_predict_impact`)
+   were registered through those existing dispatch patterns.
+
+5. **JSONL export is buffered, not chunked.** `streamAtomGraphJsonl` is an
+   `AsyncIterable<string>` (true streaming at the data layer), but the
+   `GET /operations/organization/atom-graph.jsonl` route accumulates all
+   lines in memory before sending — Tuberosa's `HttpRouter` returns a
+   single response body (raw or JSON), and adding chunked transfer encoding
+   would have required a broader router refactor. Atom counts are bounded
+   by `listAtoms`'s 10k cap so this is fine for the foreseeable future;
+   the chunked path is a follow-up.
+
+6. **`tuberosa_resurrect_atom` validation gap is NOT addressed here.** The
+   security review surfaced that `tuberosa_resurrect_atom` skips the
+   `validation.ts` schema pipeline. That's out of scope for C2 and is
+   tracked separately in the security audit findings.
+
+7. **Eval fixture extension deferred.** The plan's Task 8 proposed adding
+   `impactPredictionContains` and `matchReasonsContain` assertions to the
+   retrieval-eval runner. Tuberosa's `RetrievalEvalRelation` schema only
+   supports `targetKind: 'knowledge'` (knowledge-to-knowledge edges), not
+   atom-to-atom edges, so seeding C2-style atom-graph fixtures in the
+   shared `eval/retrieval-fixtures.json` requires extending both the
+   fixture schema and the evaluator. C2 ships with full **unit-test**
+   coverage instead — `test/atom-graph-walker.test.ts` (5 cases),
+   `test/impact-predictor.test.ts` (7 cases), `test/atoms-retrieval.test.ts`
+   (depth-2 case), `test/atom-graph-export.test.ts` (3 cases). The
+   existing 22-case retrieval eval and the agent-context eval both still
+   pass green; C2 introduces no regression. Extending the eval-fixture
+   format is tracked as a follow-up.
+
+8. **Plan's `test/atoms-retrieval.test.ts` snippet referenced a
+   `defaultConfig()` import that does not exist.** The shipped tests use
+   `loadConfig()` (the actual `src/config.ts` export). The
+   `RetrievalService` constructor takes an optional 5th `safety` arg with
+   a default, so the test pattern `new RetrievalService(store, cache,
+   models, loadConfig())` works directly.
+
+9. **C1 had not been merged to `main` when C2 work started.** C1's commit
+   `4da36ad` lived only on `feat/graph-c1-write-side`. The `feat/graph-
+   c2-read-side` branch was created off `main` (which carried the
+   TUBEROSA-AUDIT changes) and then `feat/graph-c1-write-side` was merged
+   into it. The C2 branch therefore carries both the audit fixes and the
+   full C1 atom-graph write-side. A trivial `.tuberosa/last-eval.json`
+   conflict was resolved by keeping the latest (HEAD) timestamp.
+

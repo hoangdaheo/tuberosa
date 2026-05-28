@@ -5,6 +5,10 @@ import type {
   ListAtomsOptions,
 } from '../types/atoms.js';
 import type {
+  AtomImportConflict,
+  AtomImportConflictAction,
+} from '../types/export-bundle.js';
+import type {
   AgentContextDecision,
   AgentSession,
   AgentSessionNote,
@@ -68,6 +72,77 @@ export interface StaleFileAtomCleanupInput {
   keepSourceUris: string[];
 }
 
+/**
+ * Concern C1 — provenance for an atom-edge row in `knowledge_relations`. The
+ * column also serves as the dedup key for the JSONB ↔ relations mirror:
+ * `replaceAtomRelations(fromAtomId, …, { source })` deletes only this source's
+ * rows for the given atom before inserting the new ones.
+ */
+export type InferenceSource = 'migration' | 'semantic' | 'co_change' | 'refines_detector' | 'manual';
+
+export type AtomRelationTargetKind = 'atom' | 'knowledge';
+
+export interface AtomRelationInput {
+  fromAtomId: string;
+  /** When omitted, the target is treated as an atom (default). */
+  targetKind?: AtomRelationTargetKind;
+  /** Target atom id (when targetKind='atom') or knowledge_items id (when 'knowledge'). */
+  targetAtomId: string;
+  relationType: 'supersedes' | 'refines' | 'depends_on' | 'co_changes_with' | 'related_to';
+  confidence: number;
+  inferenceSource: InferenceSource;
+}
+
+export interface AtomRelationRow extends AtomRelationInput {
+  id: string;
+  createdAt: string;
+}
+
+export interface ListAtomRelationsOptions {
+  fromAtomId?: string;
+  targetAtomId?: string;
+  project?: string;
+  relationType?: AtomRelationInput['relationType'];
+  inferenceSource?: InferenceSource;
+  limit: number;
+}
+
+export interface PruneStaleAtomRelationsOptions {
+  project?: string;
+  floorConfidence: number;
+  dryRun?: boolean;
+}
+
+/**
+ * Concern C2 — one hop on the atom graph from a recursive walk. Path is
+ * ordered seed → leaf. `pathScore` is the product of `edgeWeights[k]` along
+ * each hop, multiplied by `decayPerHop^(hop-1)` for hops ≥ 2, clamped to 0..1.
+ */
+export type AtomGraphEdgeKind = AtomRelationInput['relationType'];
+
+export interface AtomGraphPathStep {
+  atomId: string;
+  edgeKind: AtomGraphEdgeKind;
+  edgeConfidence: number;
+}
+
+export interface AtomGraphHit {
+  atomId: string;
+  path: AtomGraphPathStep[];
+  pathScore: number;
+}
+
+export interface WalkAtomGraphOptions {
+  project: string;
+  seedAtomIds: string[];
+  depth: number;
+  edgeWeights: Record<AtomGraphEdgeKind, number>;
+  decayPerHop: number;
+  limit: number;
+  /** Default true — atoms whose status is archived/legacy_archived are filtered. */
+  excludeArchived?: boolean;
+}
+
 export interface AtomGateEvent {
   id: string;
   project?: string;
@@ -109,6 +184,15 @@ export interface KnowledgeStore {
   incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined>;
   searchAtomsByEmbedding(embedding: number[], options: { project?: string; limit: number; threshold?: number }): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>>;
   searchAtomsByTrigger(trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] }, options: { project?: string; limit: number }): Promise<KnowledgeAtom[]>;
+  replaceAtomRelations(
+    fromAtomId: string,
+    inputs: AtomRelationInput[],
+    options: { source: InferenceSource },
+  ): Promise<AtomRelationRow[]>;
+  listAtomRelations(options: ListAtomRelationsOptions): Promise<AtomRelationRow[]>;
+  pruneStaleAtomRelations(options: PruneStaleAtomRelationsOptions): Promise<{ removed: number }>;
+  /** Concern C2 — recursive atom-graph walk with kind weights and hop decay. */
+  walkAtomGraph(options: WalkAtomGraphOptions): Promise<AtomGraphHit[]>;
   searchKnowledgeByEmbedding(
     embedding: number[],
     options: {
@@ -189,6 +273,25 @@ export interface KnowledgeStore {
   updateReflectionDraft(id: string, patch: ReflectionDraftPatchInput): Promise<ReflectionDraft | undefined>;
   approveReflectionDraft(id: string): Promise<ReflectionDraft | undefined>;
   cleanupOperations(input: CleanupOperationsInput): Promise<CleanupOperationsResult>;
+  createAtomImportConflict(input: {
+    project: string;
+    atomId: string;
+    localSnapshot: unknown;
+    importedSnapshot: unknown;
+    bundleSource: string;
+  }): Promise<AtomImportConflict>;
+  listAtomImportConflicts(options: {
+    project?: string;
+    status?: AtomImportConflict['status'] | string;
+    limit: number;
+  }): Promise<AtomImportConflict[]>;
+  getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined>;
+  resolveAtomImportConflict(
+    id: string,
+    action: AtomImportConflictAction,
+    mergedSnapshot?: unknown,
+    notes?: string,
+  ): Promise<AtomImportConflict | undefined>;
   exportBackup(): Promise<BackupExportData>;
   restoreBackup(input: { tables: BackupTableData[]; dryRun?: boolean; replace?: boolean }): Promise<Record<string, number>>;
   close(): Promise<void>;

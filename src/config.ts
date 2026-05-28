@@ -52,6 +52,12 @@ export interface AppConfig {
   archivalEnabled: boolean;
   /** Concern D — hours between scheduled archival sweeps. */
   archivalIntervalHours: number;
+  /** Concern C1 — toggle for scheduled write-side graph inference jobs (co-change + stale-edge prune). */
+  graphInferenceEnabled: boolean;
+  /** Concern C1 — project name the worker uses for its scheduled inference jobs. Skipped when unset. */
+  defaultProject?: string;
+  /** Concern C1 — cwd used for git history scans in scheduled jobs. Defaults to process.cwd(). */
+  defaultCwd?: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -104,6 +110,9 @@ export function loadConfig(): AppConfig {
     ),
     archivalEnabled: readBoolean(process.env.TUBEROSA_ARCHIVAL_ENABLED, true),
     archivalIntervalHours: Number(process.env.TUBEROSA_ARCHIVAL_INTERVAL_HOURS ?? 24),
+    graphInferenceEnabled: readBoolean(process.env.TUBEROSA_GRAPH_INFERENCE_ENABLED, true),
+    defaultProject: process.env.TUBEROSA_DEFAULT_PROJECT || undefined,
+    defaultCwd: process.env.TUBEROSA_DEFAULT_CWD || undefined,
   };
 }
 

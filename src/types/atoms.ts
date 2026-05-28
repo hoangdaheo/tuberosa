@@ -60,6 +60,12 @@ export interface KnowledgeAtom {
 }
 
 export interface KnowledgeAtomInput {
+  /**
+   * Optional explicit id, used by import flows that need to preserve the
+   * source-bundle's identifier so subsequent merges and edge references stay
+   * consistent. When omitted, the store generates a random UUID.
+   */
+  id?: string;
   project: string;
   parentKnowledgeId?: string;
   claim: string;

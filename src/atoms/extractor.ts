@@ -4,6 +4,9 @@ import type { KnowledgeAtom, KnowledgeAtomInput } from '../types/atoms.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import { AtomCritic, atomEmbeddingText } from './critic.js';
 import { redactAtomInput } from './redaction.js';
+import { inferSemanticNeighbors } from './inference/semantic-neighbor.js';
+import { syncAtomLinks } from './inference/sync.js';
+import { getRetrievalPolicy } from '../retrieval/policy.js';
 
 export interface ExtractFromSessionInput {
   project: string;
@@ -71,7 +74,22 @@ export class AtomExtractor {
         // 'pending' means the LLM critic was unavailable for a borderline atom;
         // we keep it (fail-open) rather than dropping a potentially useful lesson.
         const embedding = await this.models.embed(atomEmbeddingText(candidateInput));
-        stored.push(await this.store.createAtom({ ...candidateInput, embedding }));
+        const created = await this.store.createAtom({ ...candidateInput, embedding });
+        // Concern C1 — inline semantic-neighbor inference. Best-effort: a
+        // failure here must not lose the atom we just accepted.
+        if (getRetrievalPolicy().graphInference.enabled) {
+          try {
+            const links = await inferSemanticNeighbors(created, this.store, this.models);
+            if (links.length) {
+              await syncAtomLinks(created.id, links, this.store, 'semantic');
+            }
+          } catch (error) {
+            process.stderr.write(
+              `[atom-inference] semantic-neighbor failed for ${created.id}: ${(error as Error).message}\n`,
+            );
+          }
+        }
+        stored.push((await this.store.getAtom(created.id)) ?? created);
       } else if (result.outcome === 'queue_legacy_migration' && result.legacyKnowledgeIdForMigration) {
         // Near-duplicate of a vague legacy memory — surface it for migration
         // instead of storing a competing atom or logging a (misleading) gap.

@@ -66,10 +66,22 @@ import type { SessionReplayBundle } from '../operations/session-replay.js';
 import type {
   AtomGateEvent,
   AtomGateEventInput,
+  AtomGraphHit,
+  AtomGraphPathStep,
+  AtomRelationInput,
+  AtomRelationRow,
   ChunkInput,
+  InferenceSource,
   KnowledgeStore,
+  ListAtomRelationsOptions,
+  PruneStaleAtomRelationsOptions,
   StaleFileAtomCleanupInput,
+  WalkAtomGraphOptions,
 } from './store.js';
+import type {
+  AtomImportConflict,
+  AtomImportConflictAction,
+} from '../types/export-bundle.js';
 
 interface MemoryChunk extends ChunkInput {
   id: string;
@@ -95,6 +107,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   // public KnowledgeAtom shape so getAtom/deepEqual storage tests stay green.
   private readonly atomEmbeddings = new Map<string, number[]>();
   private readonly atomGateEvents = new Map<string, AtomGateEvent>();
+  private readonly atomRelations = new Map<string, AtomRelationRow>();
+  private readonly atomImportConflicts = new Map<string, AtomImportConflict>();
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -1146,7 +1160,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   async createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom> {
     const now = new Date().toISOString();
     const atom: KnowledgeAtom = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       project: input.project,
       parentKnowledgeId: input.parentKnowledgeId,
       claim: input.claim,
@@ -1265,6 +1279,115 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .slice(0, options.limit);
   }
 
+  async replaceAtomRelations(
+    fromAtomId: string,
+    inputs: AtomRelationInput[],
+    options: { source: InferenceSource },
+  ): Promise<AtomRelationRow[]> {
+    for (const [id, row] of this.atomRelations.entries()) {
+      if (row.fromAtomId === fromAtomId && row.inferenceSource === options.source) {
+        this.atomRelations.delete(id);
+      }
+    }
+    const written: AtomRelationRow[] = [];
+    for (const input of inputs) {
+      const row: AtomRelationRow = {
+        id: randomUUID(),
+        fromAtomId: input.fromAtomId,
+        targetKind: input.targetKind ?? 'atom',
+        targetAtomId: input.targetAtomId,
+        relationType: input.relationType,
+        confidence: input.confidence,
+        inferenceSource: options.source,
+        createdAt: new Date().toISOString(),
+      };
+      this.atomRelations.set(row.id, row);
+      written.push(row);
+    }
+    return written;
+  }
+
+  async listAtomRelations(options: ListAtomRelationsOptions): Promise<AtomRelationRow[]> {
+    const wantProject = options.project;
+    return [...this.atomRelations.values()]
+      .filter((r) => !options.fromAtomId || r.fromAtomId === options.fromAtomId)
+      .filter((r) => !options.targetAtomId || r.targetAtomId === options.targetAtomId)
+      .filter((r) => !options.relationType || r.relationType === options.relationType)
+      .filter((r) => !options.inferenceSource || r.inferenceSource === options.inferenceSource)
+      .filter((r) => !wantProject || this.atoms.get(r.fromAtomId)?.project === wantProject)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async walkAtomGraph(options: WalkAtomGraphOptions): Promise<AtomGraphHit[]> {
+    const excludeArchived = options.excludeArchived ?? true;
+    if (options.depth < 1 || options.seedAtomIds.length === 0) return [];
+
+    const visited = new Set<string>(options.seedAtomIds);
+    const results: AtomGraphHit[] = [];
+
+    interface Frontier {
+      atomId: string;
+      path: AtomGraphPathStep[];
+      score: number;
+    }
+
+    let frontier: Frontier[] = options.seedAtomIds.map((id) => ({ atomId: id, path: [], score: 1 }));
+
+    for (let hop = 1; hop <= options.depth && frontier.length > 0; hop += 1) {
+      const next: Frontier[] = [];
+      for (const node of frontier) {
+        const edges = [...this.atomRelations.values()].filter(
+          (r) => r.fromAtomId === node.atomId && (r.targetKind ?? 'atom') === 'atom',
+        );
+        for (const edge of edges) {
+          if (visited.has(edge.targetAtomId)) continue;
+          const target = this.atoms.get(edge.targetAtomId);
+          if (!target) continue;
+          if (excludeArchived && (target.status === 'archived' || target.status === 'legacy_archived')) continue;
+          if (options.project && target.project !== options.project) continue;
+          const weight = options.edgeWeights[edge.relationType] ?? 0;
+          if (weight <= 0) continue;
+
+          const hopMultiplier = hop === 1 ? 1 : Math.pow(options.decayPerHop, hop - 1);
+          const score = node.score * weight * hopMultiplier;
+          if (score <= 0) continue;
+
+          const step: AtomGraphPathStep = {
+            atomId: edge.targetAtomId,
+            edgeKind: edge.relationType,
+            edgeConfidence: edge.confidence,
+          };
+          const path = [...node.path, step];
+
+          visited.add(edge.targetAtomId);
+          const clamped = Math.min(1, score);
+          results.push({ atomId: edge.targetAtomId, path, pathScore: clamped });
+          next.push({ atomId: edge.targetAtomId, path, score });
+        }
+      }
+      frontier = next;
+    }
+
+    return results
+      .sort((a, b) => b.pathScore - a.pathScore)
+      .slice(0, options.limit);
+  }
+
+  async pruneStaleAtomRelations(
+    options: PruneStaleAtomRelationsOptions,
+  ): Promise<{ removed: number }> {
+    let removed = 0;
+    for (const [id, row] of [...this.atomRelations.entries()]) {
+      if (options.project && this.atoms.get(row.fromAtomId)?.project !== options.project) continue;
+      if (row.confidence < options.floorConfidence) {
+        if (!options.dryRun) this.atomRelations.delete(id);
+        removed += 1;
+      }
+    }
+    return { removed };
+  }
+
   async searchKnowledgeByEmbedding(
     _embedding: number[],
     options: {
@@ -1324,6 +1447,77 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .filter((e) => new Date(e.createdAt).getTime() >= cutoff)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, options.limit);
+  }
+
+  async createAtomImportConflict(input: {
+    project: string;
+    atomId: string;
+    localSnapshot: unknown;
+    importedSnapshot: unknown;
+    bundleSource: string;
+  }): Promise<AtomImportConflict> {
+    const row: AtomImportConflict = {
+      id: randomUUID(),
+      project: input.project,
+      atomId: input.atomId,
+      localSnapshot: input.localSnapshot as AtomImportConflict['localSnapshot'],
+      importedSnapshot: input.importedSnapshot as AtomImportConflict['importedSnapshot'],
+      bundleSource: input.bundleSource,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+    };
+    this.atomImportConflicts.set(row.id, row);
+    return row;
+  }
+
+  async listAtomImportConflicts(options: {
+    project?: string;
+    status?: string;
+    limit: number;
+  }): Promise<AtomImportConflict[]> {
+    return [...this.atomImportConflicts.values()]
+      .filter((c) => !options.project || c.project === options.project)
+      .filter((c) => !options.status || c.status === options.status)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined> {
+    return this.atomImportConflicts.get(id);
+  }
+
+  async resolveAtomImportConflict(
+    id: string,
+    action: AtomImportConflictAction,
+    mergedSnapshot?: unknown,
+    notes?: string,
+  ): Promise<AtomImportConflict | undefined> {
+    const row = this.atomImportConflicts.get(id);
+    if (!row) return undefined;
+    const status: AtomImportConflict['status'] =
+      action === 'keep_local' ? 'resolved_keep_local'
+      : action === 'take_imported' ? 'resolved_take_imported'
+      : action === 'merged' ? 'resolved_merged'
+      : 'dismissed';
+    const next: AtomImportConflict = {
+      ...row,
+      status,
+      resolutionNotes: notes,
+      resolvedAt: new Date().toISOString(),
+    };
+    this.atomImportConflicts.set(id, next);
+
+    if (action === 'take_imported') {
+      const imp = next.importedSnapshot;
+      await this.updateAtom(next.atomId, {
+        tier: imp.tier,
+        status: imp.status,
+      });
+    } else if (action === 'merged' && mergedSnapshot) {
+      const m = mergedSnapshot as KnowledgeAtomPatch;
+      await this.updateAtom(next.atomId, m);
+    }
+    return next;
   }
 
   async close(): Promise<void> {}

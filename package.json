@@ -29,6 +29,8 @@
     "backfill:domains": "tsx scripts/backfill-domains.ts",
     "migrate-knowledge-to-atoms": "tsx scripts/migrate-knowledge-to-atoms.ts",
     "archival-sweep": "tsx scripts/archival-sweep.ts",
+    "infer-co-change": "tsx scripts/infer-co-change.ts",
+    "prune-stale-edges": "tsx scripts/prune-stale-edges.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "error-logs": "tsx scripts/error-logs.ts",
@@ -48,6 +50,8 @@
     "calibrate-fusion": "tsx scripts/calibrate-fusion.ts",
     "test:integration": "node --test --import tsx test/integration.test.ts",
     "test:workbench-browser": "node --test --import tsx test/browser/workbench-v2-browser.test.ts",
+    "export-pack": "node --import tsx scripts/export-pack.ts",
+    "import-pack": "node --import tsx scripts/import-pack.ts",
     "test": "node --test --import tsx test/*.test.ts"
   },
   "dependencies": {
@@ -56,6 +60,7 @@
     "cytoscape": "^3.33.4",
     "cytoscape-cose-bilkent": "^4.1.0",
     "cytoscape-dagre": "^3.0.0",
+    "js-yaml": "^4.1.1",
     "lucide-preact": "^1.16.0",
     "pg": "^8.13.1",
     "preact": "^10.29.2",
@@ -63,6 +68,7 @@
   },
   "devDependencies": {
     "@types/cytoscape": "^3.31.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "esbuild": "^0.28.0",

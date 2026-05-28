@@ -2,9 +2,13 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
 import type { AppConfig } from '../config.js';
-import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
+import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, ValidationError, toAppError } from '../errors.js';
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
+import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
+import { predictImpact } from '../retrieval/impact-predictor.js';
+import { getRetrievalPolicy } from '../retrieval/policy.js';
+import { streamAtomGraphJsonl } from '../operations/atom-graph-export.js';
 import { getCatchupMetadata } from '../operations/catchup.js';
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
@@ -246,6 +250,58 @@ function createRoutes(): HttpRoute[] {
       },
     },
     {
+      method: 'GET',
+      match: exactPath('/operations/atom-graph/density'),
+      handle: ({ services, url }) => {
+        const project = url.searchParams.get('project');
+        if (!project) {
+          throw new ValidationError('project query parameter is required.');
+        }
+        return computeAtomGraphDensity(services.store, { project });
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/organization/atom-graph.jsonl'),
+      handle: async ({ services, url }) => {
+        const project = url.searchParams.get('project');
+        if (!project) {
+          throw new ValidationError('project query parameter is required.');
+        }
+        // Buffered NDJSON. Atom graphs are bounded by listAtoms's 10k cap; the
+        // payload stays small in practice. True chunked streaming requires
+        // wider router changes — left as a follow-up.
+        const lines: string[] = [];
+        for await (const line of streamAtomGraphJsonl(services.store, { project })) {
+          lines.push(line);
+        }
+        const body = lines.length > 0 ? `${lines.join('\n')}\n` : '';
+        return rawResponse('application/x-ndjson; charset=utf-8', body);
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/atom-graph/impact'),
+      handle: async ({ services, request }) => {
+        const body = await readJsonBody(request, services.config.maxRequestBytes);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          throw new ValidationError('Request body must be a JSON object.');
+        }
+        const record = body as Record<string, unknown>;
+        const project = record.project;
+        if (typeof project !== 'string' || project.trim().length === 0) {
+          throw new ValidationError('project must be a non-empty string.');
+        }
+        const files = readImpactStringArray(record.files, 'files');
+        const symbols = readImpactStringArray(record.symbols, 'symbols');
+        const depth = typeof record.depth === 'number' && Number.isFinite(record.depth) && record.depth >= 1
+          ? Math.min(4, Math.floor(record.depth))
+          : undefined;
+        const policy = getRetrievalPolicy().graph;
+        return predictImpact(services.store, { project, files, symbols, policy, depth });
+      },
+    },
+    {
       method: 'POST',
       match: exactPath('/agent-sessions'),
       handle: async ({ services, request }) => {
@@ -453,6 +509,88 @@ function createRoutes(): HttpRoute[] {
       method: 'GET',
       match: exactPath('/operations/conflicts'),
       handle: ({ services, url }) => services.operations.listKnowledgeConflicts(readConflictListOptions(url)),
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/import-pack'),
+      handle: async ({ services, request }) => {
+        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+          from?: unknown; project?: unknown; dryRun?: unknown; onConflict?: unknown;
+        };
+        if (typeof body.from !== 'string' || body.from.length === 0) {
+          throw new ValidationError('from is required');
+        }
+        const { importPack } = await import('../export/importer.js');
+        return importPack(services.store, {
+          from: body.from,
+          project: typeof body.project === 'string' ? body.project : undefined,
+          dryRun: Boolean(body.dryRun),
+          onConflict: body.onConflict === 'skip' ? 'skip' : 'review',
+        });
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/export-pack'),
+      handle: async ({ services, request }) => {
+        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+          project?: unknown; out?: unknown; includeChunks?: unknown; includeArchived?: unknown;
+        };
+        if (typeof body.project !== 'string' || typeof body.out !== 'string') {
+          throw new ValidationError('project and out are required');
+        }
+        const { exportPack } = await import('../export/exporter.js');
+        return exportPack(services.store, {
+          project: body.project,
+          out: body.out,
+          includeChunks: body.includeChunks === undefined ? true : Boolean(body.includeChunks),
+          includeArchived: Boolean(body.includeArchived),
+        });
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/atom-import-conflicts'),
+      handle: async ({ services, url }) => {
+        const project = url.searchParams.get('project') ?? undefined;
+        const status = url.searchParams.get('status') ?? 'open';
+        return services.store.listAtomImportConflicts({ project, status, limit: 100 });
+      },
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/operations\/atom-import-conflicts\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const row = await services.store.getAtomImportConflict(params.id);
+        if (!row) throw new NotFoundError('Atom import conflict not found.');
+        return row;
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/operations\/atom-import-conflicts\/([^/]+)\/resolve$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+          action?: unknown; mergedSnapshot?: unknown; notes?: unknown;
+        };
+        const action = body.action;
+        if (
+          action !== 'keep_local'
+          && action !== 'take_imported'
+          && action !== 'merged'
+          && action !== 'dismissed'
+        ) {
+          throw new ValidationError('action must be keep_local|take_imported|merged|dismissed');
+        }
+        const updated = await services.store.resolveAtomImportConflict(
+          params.id,
+          action,
+          body.mergedSnapshot,
+          typeof body.notes === 'string' ? body.notes : undefined,
+        );
+        if (!updated) throw new NotFoundError('Atom import conflict not found.');
+        return updated;
+      },
     },
     {
       method: 'POST',
@@ -994,6 +1132,19 @@ function readLimit(url: URL): number {
   }
 
   return Math.min(limit, 100);
+}
+
+function readImpactStringArray(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ValidationError(`${field} must be an array of strings.`);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.trim().length === 0) {
+      throw new ValidationError(`${field}[${index}] must be a non-empty string.`);
+    }
+    return entry;
+  });
 }
 
 function readListRecordsOptions(url: URL) {

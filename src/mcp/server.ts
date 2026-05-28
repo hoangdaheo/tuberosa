@@ -2,6 +2,9 @@ import type { AppServices } from '../app.js';
 import { NotFoundError, toAppError, ValidationError, type AppError } from '../errors.js';
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
+import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
+import { predictImpact } from '../retrieval/impact-predictor.js';
+import { getRetrievalPolicy } from '../retrieval/policy.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   AGENT_LEARNING_MODES,
@@ -369,6 +372,84 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       return toolJson(stats);
     }
 
+    case 'tuberosa_atom_graph_density': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_atom_graph_density arguments.project');
+      const density = await computeAtomGraphDensity(services.store, { project });
+      return toolJson(density);
+    }
+
+    case 'tuberosa_predict_impact': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_predict_impact arguments.project');
+      const files = readMcpStringArray(args.files, 'tuberosa_predict_impact arguments.files');
+      const symbols = readMcpStringArray(args.symbols, 'tuberosa_predict_impact arguments.symbols');
+      const depth = typeof args.depth === 'number' && Number.isFinite(args.depth) && args.depth >= 1
+        ? Math.min(4, Math.floor(args.depth))
+        : undefined;
+      const policy = getRetrievalPolicy().graph;
+      const prediction = await predictImpact(services.store, {
+        project,
+        files,
+        symbols,
+        policy,
+        depth,
+      });
+      return toolJson(prediction);
+    }
+
+    case 'tuberosa_export_pack': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_export_pack arguments.project');
+      const out = readRequiredMcpString(args.out, 'tuberosa_export_pack arguments.out');
+      const { exportPack } = await import('../export/exporter.js');
+      const report = await exportPack(services.store, {
+        project,
+        out,
+        includeChunks: args.includeChunks === undefined ? true : Boolean(args.includeChunks),
+        includeArchived: Boolean(args.includeArchived),
+      });
+      return toolJson(report);
+    }
+
+    case 'tuberosa_import_pack': {
+      const from = readRequiredMcpString(args.from, 'tuberosa_import_pack arguments.from');
+      const project = typeof args.project === 'string' ? args.project : undefined;
+      const { importPack } = await import('../export/importer.js');
+      const report = await importPack(services.store, {
+        from,
+        project,
+        dryRun: Boolean(args.dryRun),
+        onConflict: args.onConflict === 'skip' ? 'skip' : 'review',
+      });
+      return toolJson(report);
+    }
+
+    case 'tuberosa_list_atom_import_conflicts': {
+      const project = typeof args.project === 'string' ? args.project : undefined;
+      const status = typeof args.status === 'string' ? args.status : 'open';
+      const rows = await services.store.listAtomImportConflicts({ project, status, limit: 100 });
+      return toolJson(rows);
+    }
+
+    case 'tuberosa_resolve_atom_import_conflict': {
+      const id = readRequiredMcpString(args.id, 'tuberosa_resolve_atom_import_conflict arguments.id');
+      const action = args.action;
+      if (
+        action !== 'keep_local'
+        && action !== 'take_imported'
+        && action !== 'merged'
+        && action !== 'dismissed'
+      ) {
+        throw new ValidationError('action must be keep_local|take_imported|merged|dismissed');
+      }
+      const updated = await services.store.resolveAtomImportConflict(
+        id,
+        action,
+        args.mergedSnapshot,
+        typeof args.notes === 'string' ? args.notes : undefined,
+      );
+      if (!updated) throw new NotFoundError(`Atom import conflict not found: ${id}`);
+      return toolJson(updated);
+    }
+
     case 'tuberosa_resurrect_atom': {
       const atomId = readRequiredMcpString(args.atomId, 'tuberosa_resurrect_atom arguments.atomId');
       const atom = await services.store.updateAtom(atomId, {
@@ -435,20 +516,37 @@ function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?:
         }
       : undefined,
     ...(pack.debug ? { debug: pack.debug } : {}),
+    impactPrediction: pack.impactPrediction,
     instruction: composeSearchInstruction(
       searchInstruction(pack.contextFit?.fitStatus, deepContextReturned),
       pack.taskBrief?.followUpSearches,
+      pack.impactPrediction,
     ),
   };
 }
 
-function composeSearchInstruction(base: string, followUpSearches: string[] | undefined): string {
+function composeSearchInstruction(
+  base: string,
+  followUpSearches: string[] | undefined,
+  impactPrediction: ContextPack['impactPrediction'],
+): string {
   // Plan A — long prompts can surface sub-tasks the agent should re-search
   // for as it reaches each step. Append a follow-up hint without dropping the
   // existing fit-status instruction.
-  if (!followUpSearches || followUpSearches.length === 0) return base;
-  const note = `Detected ${followUpSearches.length} follow-up sub-task(s) (taskBrief.followUpSearches). Call tuberosa_search_context again with each sub-task as the prompt when you reach that step.`;
-  return base ? `${base}\n${note}` : note;
+  let composed = base;
+  if (followUpSearches && followUpSearches.length > 0) {
+    const note = `Detected ${followUpSearches.length} follow-up sub-task(s) (taskBrief.followUpSearches). Call tuberosa_search_context again with each sub-task as the prompt when you reach that step.`;
+    composed = composed ? `${composed}\n${note}` : note;
+  }
+  // Concern C2 — hint the agent that the upcoming edit has a predicted blast
+  // radius. Names only — for the full graph trace they call tuberosa_predict_impact.
+  if (impactPrediction && impactPrediction.predictedAffected.length > 0) {
+    const top = impactPrediction.predictedAffected.slice(0, 3).map((p) => p.target.value).join(', ');
+    const more = impactPrediction.truncated ? ' …' : '';
+    const impactNote = `May affect: ${top}${more}. Call tuberosa_predict_impact for the full list.`;
+    composed = composed ? `${composed}\n${impactNote}` : impactNote;
+  }
+  return composed;
 }
 
 function shouldReturnDeepContext(pack: ContextPack, includeDeepContext: boolean | undefined): boolean {
@@ -707,6 +805,23 @@ function readRequiredMcpString(value: unknown, path: string): string {
   }
 
   return value;
+}
+
+function readMcpStringArray(value: unknown, path: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ValidationError(`${path} must be an array of strings.`, [
+      { path, message: `${path} must be an array of strings.` },
+    ]);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.trim().length === 0) {
+      throw new ValidationError(`${path}[${index}] must be a non-empty string.`, [
+        { path: `${path}[${index}]`, message: 'must be a non-empty string.' },
+      ]);
+    }
+    return entry;
+  });
 }
 
 function tools() {
@@ -1272,6 +1387,88 @@ function tools() {
         properties: {
           project: { type: 'string' },
           windowDays: { type: 'number', description: 'Lookback window in days. Defaults to 7.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_atom_graph_density',
+      title: 'Inspect Tuberosa Atom Graph Density',
+      description: 'Per-project atom graph density: atom count, edge count, edges per atom, edges by kind and by inference source.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: { project: { type: 'string' } },
+      },
+    },
+    {
+      name: 'tuberosa_export_pack',
+      title: 'Export Tuberosa Project Pack',
+      description: 'Write a portable .tuberosa-pack/ directory for the given project (atoms, knowledge, edges, manifest).',
+      inputSchema: {
+        type: 'object',
+        required: ['project', 'out'],
+        properties: {
+          project: { type: 'string' },
+          out: { type: 'string', description: 'Output directory; created if missing.' },
+          includeChunks: { type: 'boolean', description: 'Include chunks/ subtree. Defaults to true.' },
+          includeArchived: { type: 'boolean', description: 'Include archived/legacy_archived atoms. Defaults to false.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_import_pack',
+      title: 'Import Tuberosa Project Pack',
+      description: 'Import a .tuberosa-pack/ directory. Atom id conflicts queue for human review by default.',
+      inputSchema: {
+        type: 'object',
+        required: ['from'],
+        properties: {
+          from: { type: 'string' },
+          project: { type: 'string', description: 'Override the pack manifest project name.' },
+          dryRun: { type: 'boolean' },
+          onConflict: { type: 'string', enum: ['review', 'skip'], description: 'Default: review.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_list_atom_import_conflicts',
+      title: 'List Atom Import Conflicts',
+      description: 'List queued atom-import conflicts (default status=open).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          status: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_resolve_atom_import_conflict',
+      title: 'Resolve Atom Import Conflict',
+      description: 'Resolve an atom import conflict (keep_local | take_imported | merged | dismissed).',
+      inputSchema: {
+        type: 'object',
+        required: ['id', 'action'],
+        properties: {
+          id: { type: 'string' },
+          action: { type: 'string', enum: ['keep_local', 'take_imported', 'merged', 'dismissed'] },
+          mergedSnapshot: { type: 'object' },
+          notes: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_predict_impact',
+      title: 'Predict Edit Impact',
+      description: 'Predict which atoms are likely affected by edits to the given files or symbols. Walks the atom graph up to `depth` hops (default uses retrieval-policy.graph.walkDepth, typically 2) and aggregates the depth-bounded neighborhood.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          files: { type: 'array', items: { type: 'string' } },
+          symbols: { type: 'array', items: { type: 'string' } },
+          depth: { type: 'number', description: 'Hop depth ≥ 1. Defaults to graph.walkDepth.' },
         },
       },
     },
