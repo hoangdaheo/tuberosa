@@ -7,6 +7,7 @@ import { parseAtomMarkdown, toAtomInputFromParsed } from './atom-codec.js';
 import { parseKnowledgeMarkdown } from './knowledge-codec.js';
 import { parseEdgesJsonl } from './edges-codec.js';
 import { readManifest, sha256OfBuffer } from './manifest.js';
+import { assertSafeChildName } from '../security/safe-paths.js';
 
 export interface ImportOptions {
   from: string;
@@ -216,7 +217,11 @@ export async function importPack(
       continue;
     }
     const dir = join(opts.from, 'user-style', userIdDir);
-    const files = (await readdir(dir)).filter((f) => f.endsWith('.md'));
+    const allFiles = await readdir(dir);
+    const files = allFiles.filter((f) => {
+      if (!f.endsWith('.md')) return false;
+      try { assertSafeChildName(f); return true; } catch { return false; }
+    });
     for (const file of files) {
       const raw = await readFile(join(dir, file), 'utf8');
       const parsed = parseAtomMarkdown(raw, { filename: `user-style/${userIdDir}/${file}` });
@@ -271,6 +276,11 @@ async function safeListUserStyleDirs(bundleRoot: string): Promise<string[]> {
     const entries = await readdir(root);
     const dirs: string[] = [];
     for (const entry of entries) {
+      try {
+        assertSafeChildName(entry);
+      } catch {
+        continue;
+      }
       const info = await stat(join(root, entry));
       if (info.isDirectory()) dirs.push(entry);
     }

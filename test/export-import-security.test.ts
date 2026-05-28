@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { equal, match, ok } from 'node:assert/strict';
+import { deepEqual, equal, match, ok } from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -170,4 +170,14 @@ test('tuberosa_import_pack rejects /proc path via MCP', async () => {
     process.env = prev;
     await rm(base, { recursive: true, force: true });
   }
+});
+
+test('importer skips user-style entries that fail assertSafeChildName', async () => {
+  const { assertSafeChildName, ValidationError } = await import('../src/security/safe-paths.js');
+  const candidates = ['alice', '..', 'a/b', 'bob', '.', 'carol_1'];
+  const accepted: string[] = [];
+  for (const c of candidates) {
+    try { assertSafeChildName(c); accepted.push(c); } catch (e) { ok(e instanceof ValidationError); }
+  }
+  deepEqual(accepted, ['alice', 'bob', 'carol_1']);
 });
