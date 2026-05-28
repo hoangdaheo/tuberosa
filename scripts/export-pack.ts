@@ -3,6 +3,7 @@ import { createAppServices } from '../src/app.js';
 import { exportPack } from '../src/export/exporter.js';
 
 const { values } = parseArgs({
+  allowPositionals: true,
   options: {
     project: { type: 'string' },
     out: { type: 'string', default: '.tuberosa-pack' },

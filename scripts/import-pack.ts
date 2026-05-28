@@ -3,6 +3,7 @@ import { createAppServices } from '../src/app.js';
 import { importPack } from '../src/export/importer.js';
 
 const { values } = parseArgs({
+  allowPositionals: true,
   options: {
     from: { type: 'string' },
     project: { type: 'string' },
