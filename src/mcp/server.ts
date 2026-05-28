@@ -435,8 +435,20 @@ function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?:
         }
       : undefined,
     ...(pack.debug ? { debug: pack.debug } : {}),
-    instruction: searchInstruction(pack.contextFit?.fitStatus, deepContextReturned),
+    instruction: composeSearchInstruction(
+      searchInstruction(pack.contextFit?.fitStatus, deepContextReturned),
+      pack.taskBrief?.followUpSearches,
+    ),
   };
+}
+
+function composeSearchInstruction(base: string, followUpSearches: string[] | undefined): string {
+  // Plan A — long prompts can surface sub-tasks the agent should re-search
+  // for as it reaches each step. Append a follow-up hint without dropping the
+  // existing fit-status instruction.
+  if (!followUpSearches || followUpSearches.length === 0) return base;
+  const note = `Detected ${followUpSearches.length} follow-up sub-task(s) (taskBrief.followUpSearches). Call tuberosa_search_context again with each sub-task as the prompt when you reach that step.`;
+  return base ? `${base}\n${note}` : note;
 }
 
 function shouldReturnDeepContext(pack: ContextPack, includeDeepContext: boolean | undefined): boolean {
@@ -702,7 +714,7 @@ function tools() {
     {
       name: 'tuberosa_search_context',
       title: 'Search Tuberosa Context',
-      description: 'Classify a user task and return a ranked context shortlist with provenance and confidence.',
+      description: 'Classify a user task and return a ranked context shortlist with provenance and confidence. For prompts >6000 tokens, the response surfaces `taskBrief.followUpSearches` (sub-tasks) — call this tool again with each sub-task as the prompt when you reach that step.',
       inputSchema: {
         type: 'object',
         required: ['prompt'],

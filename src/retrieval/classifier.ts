@@ -55,12 +55,39 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
   const hasContinuationIntent = isContinuationIntent(lower);
   const identifierText = stripFilePaths(prompt);
   const objectHints = uniqueStrings(extractUuidHints(prompt));
-  const files = uniqueStrings([...(input.files ?? []), ...extractFiles(prompt), ...extractContinuationFiles(lower)]);
-  const symbols = uniqueStrings([...(input.symbols ?? []), ...extractSymbols(identifierText)])
-    .filter((symbol) => !objectHints.includes(symbol));
-  const errors = uniqueStrings([...(input.errors ?? []), ...extractErrors(identifierText)]);
-  const technologies = uniqueStrings(TECHNOLOGY_TERMS.filter((term) => matchesTechnology(lower, term)));
-  const businessAreas = uniqueStrings(BUSINESS_HINTS.filter((term) => lower.includes(term)));
+  // Plan A — when the preprocessor has run a scored signal sweep, honor it as
+  // the cap on classifier output. The sweep already de-duped, score-filtered,
+  // and applied per-type caps, so re-running the broad regexes here would
+  // explode the classified arrays for long prompts (the very thing the sweep
+  // exists to prevent).
+  // Only honor pre-swept signals for medium/long prompts. Short prompts run
+  // through the preprocessor too but receive an empty StructuralSignals — the
+  // regex extractors must still fire for them.
+  const swept = input.promptPreprocessing && input.promptPreprocessing.lengthClass !== 'short'
+    ? input.promptPreprocessing.structuralSignals
+    : undefined;
+  const sweptValues = (signals: Array<{ value: string }> | undefined): string[] =>
+    (signals ?? []).map((s) => s.value);
+  const files = swept
+    ? uniqueStrings([...(input.files ?? []), ...sweptValues(swept.files)])
+    : uniqueStrings([...(input.files ?? []), ...extractFiles(prompt), ...extractContinuationFiles(lower)]);
+  const symbols = (swept
+    ? uniqueStrings([...(input.symbols ?? []), ...sweptValues(swept.symbols)])
+    : uniqueStrings([...(input.symbols ?? []), ...extractSymbols(identifierText)])
+  ).filter((symbol) => !objectHints.includes(symbol));
+  const errors = swept
+    ? uniqueStrings([...(input.errors ?? []), ...sweptValues(swept.errors)])
+    : uniqueStrings([...(input.errors ?? []), ...extractErrors(identifierText)]);
+  // Technologies and business areas: when the preprocessor swept, prefer its
+  // results (run against the *original* prompt — for long prompts the local
+  // `lower` is the truncated/intent-rewritten replacement and would miss
+  // mentions). For short prompts the regex extractors fire as before.
+  const technologies = swept
+    ? uniqueStrings(sweptValues(swept.technologies))
+    : uniqueStrings(TECHNOLOGY_TERMS.filter((term) => matchesTechnology(lower, term)));
+  const businessAreas = swept
+    ? uniqueStrings(sweptValues(swept.businessAreas))
+    : uniqueStrings(BUSINESS_HINTS.filter((term) => lower.includes(term)));
   const taskType = input.taskType && input.taskType !== 'unknown' ? input.taskType : inferTaskType(lower);
   const project = input.project ?? inferProject(input);
   const domain = inferDomain(files);
@@ -97,6 +124,7 @@ export function classifyQuery(input: ContextSearchInput): ClassifiedQuery {
     exactTerms,
     domain,
     lexicalQuery: buildLexicalQuery(prompt, exactTerms),
+    preprocessing: input.promptPreprocessing,
     intent: buildRetrievalIntent({
       prompt,
       lower,

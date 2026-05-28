@@ -93,6 +93,37 @@ export interface QueryRewriteConfig {
   probeSearchLimit: number;
 }
 
+/**
+ * Plan A — long-prompt preprocessing. Routes prompts by token length and runs
+ * a deterministic structural signal sweep over medium+long prompts. Long
+ * prompts additionally extract a focused primary intent via the model
+ * provider (when supported) or fall back to a densest-signal anchor window.
+ */
+export interface PromptPreprocessingConfig {
+  thresholds: { medium: number; long: number };
+  intent: {
+    enabled: boolean;
+    cacheTtlSeconds: number;
+  };
+  signalSweep: {
+    minScore: number;
+    caps: {
+      files: number;
+      symbols: number;
+      errors: number;
+      technologies: number;
+      businessAreas: number;
+    };
+    cacheTtlSeconds: number;
+    imperativeVerbs: string[];
+    proximityTokens: number;
+    codeBlockBonus: number;
+    imperativeBonus: number;
+    cwdMatchBonus: number;
+  };
+  anchorWindow: { tokens: number };
+}
+
 export interface RetrievalPolicy {
   useFreshnessMap: boolean;
   freshnessGlobal: FreshnessWindow;
@@ -155,6 +186,9 @@ export interface RetrievalPolicy {
 
   /** Phase 7 — gated query rewrite knobs. */
   queryRewrite: QueryRewriteConfig;
+
+  /** Plan A — long-prompt preprocessing config. */
+  promptPreprocessing: PromptPreprocessingConfig;
 
   /**
    * Phase 4 — optional metadata from `scripts/calibrate-fusion.ts`. Not consumed by retrieval directly,
@@ -300,6 +334,28 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     probeConfidenceThreshold: 0.65,
     probeSearchLimit: 5,
   },
+
+  promptPreprocessing: {
+    thresholds: { medium: 800, long: 6000 },
+    intent: {
+      enabled: true,
+      cacheTtlSeconds: 7 * 24 * 60 * 60,
+    },
+    signalSweep: {
+      minScore: 0.25,
+      caps: { files: 10, symbols: 12, errors: 6, technologies: 6, businessAreas: 4 },
+      cacheTtlSeconds: 60 * 60,
+      imperativeVerbs: [
+        'update', 'refactor', 'fix', 'add', 'remove', 'rename', 'migrate',
+        'verify', 'port', 'delete', 'reorder', 'simplify', 'split', 'extract',
+      ],
+      proximityTokens: 10,
+      codeBlockBonus: 0.30,
+      imperativeBonus: 0.20,
+      cwdMatchBonus: 0.20,
+    },
+    anchorWindow: { tokens: 1500 },
+  },
 };
 
 let cachedPolicy: RetrievalPolicy | null = null;
@@ -380,7 +436,26 @@ function mergePolicy(base: RetrievalPolicy, override: Partial<RetrievalPolicy>):
       kByTaskType: { ...(base.rrf.kByTaskType ?? {}), ...(override.rrf?.kByTaskType ?? {}) },
     },
     queryRewrite: { ...base.queryRewrite, ...(override.queryRewrite ?? {}) },
+    promptPreprocessing: mergePromptPreprocessing(base.promptPreprocessing, override.promptPreprocessing),
     calibration: override.calibration ?? base.calibration,
+  };
+}
+
+function mergePromptPreprocessing(
+  base: PromptPreprocessingConfig,
+  override: Partial<PromptPreprocessingConfig> | undefined,
+): PromptPreprocessingConfig {
+  if (!override) return base;
+  return {
+    thresholds: { ...base.thresholds, ...(override.thresholds ?? {}) },
+    intent: { ...base.intent, ...(override.intent ?? {}) },
+    signalSweep: {
+      ...base.signalSweep,
+      ...(override.signalSweep ?? {}),
+      caps: { ...base.signalSweep.caps, ...(override.signalSweep?.caps ?? {}) },
+      imperativeVerbs: override.signalSweep?.imperativeVerbs ?? base.signalSweep.imperativeVerbs,
+    },
+    anchorWindow: { ...base.anchorWindow, ...(override.anchorWindow ?? {}) },
   };
 }
 

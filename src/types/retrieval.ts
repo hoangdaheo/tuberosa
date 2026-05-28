@@ -80,6 +80,12 @@ export interface ContextSearchInput {
    * redundant but allowed for symmetry with the storage shape.
    */
   namespace?: Partial<KnowledgeNamespace>;
+  /**
+   * Plan A — long-prompt preprocessing result attached upstream by
+   * `preprocessLongPrompt`. Downstream consumers (classifier, context-pack,
+   * MCP) read structural signals, length class, and detected sub-tasks here.
+   */
+  promptPreprocessing?: import('./preprocessor.js').PromptPreprocessingResult;
 }
 
 export type ContextMode = 'compact' | 'layered';
@@ -97,6 +103,12 @@ export interface ClassifiedQuery {
   domain?: string;
   lexicalQuery: string;
   intent: RetrievalIntent;
+  /**
+   * Plan A — long-prompt preprocessing result attached to the classified pack so
+   * downstream consumers (context-pack, MCP responses) can surface lengthClass,
+   * embeddingSource, structural signals, and detected sub-tasks.
+   */
+  preprocessing?: import('./preprocessor.js').PromptPreprocessingResult;
 }
 
 export interface RetrievalIntent {
@@ -313,6 +325,12 @@ export interface ContextPackTaskBrief {
   directEvidenceKnowledgeIds: string[];
   adjacentKnowledgeIds: string[];
   omittedReviewTargetCount: number;
+  /**
+   * Plan A — sub-tasks extracted from a long prompt by the preprocessor. Agents
+   * should call `tuberosa_search_context` again with each sub-task as a fresh
+   * prompt when they reach that step.
+   */
+  followUpSearches?: string[];
 }
 
 export interface StartupBrief {

@@ -42,6 +42,23 @@ export interface ModelProvider {
     type: 'fact' | 'procedure' | 'decision' | 'gotcha' | 'convention';
     trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] };
   }): Promise<{ generalizable: boolean; reason: string; confidence: number }>;
+  /**
+   * Plan A — extract a focused primary intent (and sub-tasks) from a long prompt.
+   * Optional: providers without an LLM (e.g. HashModelProvider) leave this
+   * undefined so the preprocessor falls back to the anchor-window slice.
+   */
+  extractPromptIntent?(input: {
+    prompt: string;
+    cwd?: string;
+    files?: string[];
+    symbols?: string[];
+  }): Promise<{
+    primary: string;
+    subTasks: string[];
+    detectedTaskType?: 'debugging' | 'implementation' | 'refactor' | 'review' | 'planning' | 'exploration' | 'testing' | 'unknown';
+    detectedTechnologies?: string[];
+    confidence: number;
+  }>;
 }
 
 export const OPENAI_RERANK_SYSTEM_PROMPT = [
@@ -263,6 +280,102 @@ export class OpenAiModelProvider implements ModelProvider {
       confidence: typeof parsed.confidence === 'number' ? clamp(parsed.confidence, 0, 1) : 0,
     };
   }
+
+  async extractPromptIntent(input: {
+    prompt: string;
+    cwd?: string;
+    files?: string[];
+    symbols?: string[];
+  }): Promise<{
+    primary: string;
+    subTasks: string[];
+    detectedTaskType?: 'debugging' | 'implementation' | 'refactor' | 'review' | 'planning' | 'exploration' | 'testing' | 'unknown';
+    detectedTechnologies?: string[];
+    confidence: number;
+  }> {
+    const model = this.config.openAiRewriteModel;
+    if (!model) {
+      // Fail-open: with no model configured the preprocessor will fall back to
+      // the anchor-window slice. Throwing here would force a hard error on the
+      // long-prompt path; instead we signal "no verdict" upstream.
+      throw new ModelProviderError('OpenAI prompt-intent extraction requires openAiRewriteModel.');
+    }
+
+    const response = await fetchOpenAiJson(
+      this.config,
+      model,
+      PROMPT_INTENT_SYSTEM_PROMPT,
+      'prompt_intent',
+      promptIntentSchema(),
+      {
+        prompt: input.prompt,
+        cwd: input.cwd,
+        knownFiles: input.files ?? [],
+        knownSymbols: input.symbols ?? [],
+      },
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new ModelProviderError(`OpenAI prompt-intent request failed: ${response.status} ${detail}`);
+    }
+
+    const outputText = extractOutputText(await response.json());
+    if (!outputText) {
+      throw new ModelProviderError('OpenAI prompt-intent response did not include output text.');
+    }
+    const parsed = parseJsonObject(outputText, 'OpenAI prompt-intent response');
+    const subTasks = Array.isArray(parsed.subTasks)
+      ? parsed.subTasks.filter((entry): entry is string => typeof entry === 'string').map((entry) => truncate(entry, 300))
+      : [];
+    const detectedTechnologies = Array.isArray(parsed.detectedTechnologies)
+      ? parsed.detectedTechnologies.filter((entry): entry is string => typeof entry === 'string')
+      : undefined;
+    const validTaskTypes = ['debugging', 'implementation', 'refactor', 'review', 'planning', 'exploration', 'testing', 'unknown'] as const;
+    type ValidTaskType = typeof validTaskTypes[number];
+    const detectedTaskType = typeof parsed.detectedTaskType === 'string'
+      && (validTaskTypes as readonly string[]).includes(parsed.detectedTaskType)
+      ? parsed.detectedTaskType as ValidTaskType
+      : undefined;
+    return {
+      primary: typeof parsed.primary === 'string' ? truncate(parsed.primary, 600) : '',
+      subTasks,
+      detectedTaskType,
+      detectedTechnologies,
+      confidence: typeof parsed.confidence === 'number' ? clamp(parsed.confidence, 0, 1) : 0,
+    };
+  }
+}
+
+const PROMPT_INTENT_SYSTEM_PROMPT = [
+  'You distill a long agent prompt into its primary intent and discrete sub-tasks.',
+  '`primary` is the single most important goal — what the agent should embed for retrieval.',
+  '`subTasks` lists the remaining discrete follow-up actions in execution order (max 8).',
+  'Detect the dominant task type and any concrete technology mentions when present.',
+  'Preserve exact file paths, symbols, and error tokens verbatim in primary/subTasks.',
+  'Return JSON only.',
+].join(' ');
+
+function promptIntentSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      primary: { type: 'string', minLength: 10, maxLength: 600 },
+      subTasks: {
+        type: 'array',
+        items: { type: 'string', minLength: 5, maxLength: 300 },
+        maxItems: 8,
+      },
+      detectedTaskType: {
+        type: 'string',
+        enum: ['debugging', 'implementation', 'refactor', 'review', 'planning', 'exploration', 'testing', 'unknown'],
+      },
+      detectedTechnologies: { type: 'array', items: { type: 'string' }, maxItems: 10 },
+      confidence: { type: 'number', minimum: 0, maximum: 1 },
+    },
+    required: ['primary', 'subTasks', 'confidence'],
+  };
 }
 
 const ATOM_UTILITY_SYSTEM_PROMPT = [

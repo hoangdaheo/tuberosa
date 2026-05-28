@@ -51,6 +51,7 @@ import { classifyQuery, hasDomainMismatch } from './classifier.js';
 import { RetrievalDebugBuilder, stripDebugTrace, timed } from './debug.js';
 import { ContextFitEvaluator, type ContextFitSignal } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
+import { preprocessLongPrompt } from './preprocessor.js';
 import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint, TIER_RANK_MULTIPLIERS } from './policy.js';
 import type { QueryRewriteConfig } from './policy.js';
 import type { AtomTier, KnowledgeAtom } from '../types/atoms.js';
@@ -122,8 +123,14 @@ export class RetrievalService {
   }
 
   async searchContext(input: ContextSearchInput): Promise<ContextPack> {
-    const normalized = await this.addContinuationProvenance(
-      normalizeSearchInput(redactSearchInput(input, this.safety), this.config),
+    // Plan A — preprocess after redact, before normalize. Long prompts get
+    // structural sweep + intent extraction (or anchor-window fallback) and skip
+    // the continuation walker entirely. Multi-task prompts also skip the walker
+    // because cross-task continuation noise hurts retrieval.
+    const redacted = redactSearchInput(input, this.safety);
+    const preprocessed = await preprocessLongPrompt(redacted, this.models, this.cache);
+    const normalized = await this.addContinuationProvenanceMaybe(
+      normalizeSearchInput(preprocessed, this.config),
     );
     const totalStartedAt = Date.now();
     const classificationStartedAt = Date.now();
@@ -943,6 +950,17 @@ export class RetrievalService {
       saveCompactContextPack(this.store, this.cache, cacheKey, compactPack, this.config.contextCacheTtlSeconds),
       debug,
     );
+  }
+
+  private async addContinuationProvenanceMaybe(
+    input: NormalizedContextSearchInput,
+  ): Promise<NormalizedContextSearchInput> {
+    // Plan A — gate the continuation walker so it never runs on long prompts
+    // (a long multi-task ask is a fresh start, not a continuation) or on
+    // multi-subTask prompts (cross-task continuation noise).
+    if (input.promptPreprocessing?.lengthClass === 'long') return input;
+    if ((input.promptPreprocessing?.subTasks?.length ?? 0) > 1) return input;
+    return this.addContinuationProvenance(input);
   }
 
   private async addContinuationProvenance(input: NormalizedContextSearchInput): Promise<NormalizedContextSearchInput> {

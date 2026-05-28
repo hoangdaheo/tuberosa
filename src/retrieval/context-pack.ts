@@ -718,6 +718,7 @@ function buildTaskBrief(
     mode,
   });
 
+  const followUpSearches = input.classified.preprocessing?.subTasks;
   return {
     taskBrief: {
       mode,
@@ -727,6 +728,7 @@ function buildTaskBrief(
       directEvidenceKnowledgeIds,
       adjacentKnowledgeIds,
       omittedReviewTargetCount: input.omittedReviewTargetCount ?? 0,
+      followUpSearches: followUpSearches && followUpSearches.length > 0 ? followUpSearches : undefined,
     },
     warnings,
   };
