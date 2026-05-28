@@ -512,6 +512,88 @@ function createRoutes(): HttpRoute[] {
     },
     {
       method: 'POST',
+      match: exactPath('/operations/import-pack'),
+      handle: async ({ services, request }) => {
+        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+          from?: unknown; project?: unknown; dryRun?: unknown; onConflict?: unknown;
+        };
+        if (typeof body.from !== 'string' || body.from.length === 0) {
+          throw new ValidationError('from is required');
+        }
+        const { importPack } = await import('../export/importer.js');
+        return importPack(services.store, {
+          from: body.from,
+          project: typeof body.project === 'string' ? body.project : undefined,
+          dryRun: Boolean(body.dryRun),
+          onConflict: body.onConflict === 'skip' ? 'skip' : 'review',
+        });
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/operations/export-pack'),
+      handle: async ({ services, request }) => {
+        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+          project?: unknown; out?: unknown; includeChunks?: unknown; includeArchived?: unknown;
+        };
+        if (typeof body.project !== 'string' || typeof body.out !== 'string') {
+          throw new ValidationError('project and out are required');
+        }
+        const { exportPack } = await import('../export/exporter.js');
+        return exportPack(services.store, {
+          project: body.project,
+          out: body.out,
+          includeChunks: body.includeChunks === undefined ? true : Boolean(body.includeChunks),
+          includeArchived: Boolean(body.includeArchived),
+        });
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/atom-import-conflicts'),
+      handle: async ({ services, url }) => {
+        const project = url.searchParams.get('project') ?? undefined;
+        const status = url.searchParams.get('status') ?? 'open';
+        return services.store.listAtomImportConflicts({ project, status, limit: 100 });
+      },
+    },
+    {
+      method: 'GET',
+      match: pathPattern(/^\/operations\/atom-import-conflicts\/([^/]+)$/, ['id']),
+      handle: async ({ services, params }) => {
+        const row = await services.store.getAtomImportConflict(params.id);
+        if (!row) throw new NotFoundError('Atom import conflict not found.');
+        return row;
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/operations\/atom-import-conflicts\/([^/]+)\/resolve$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+          action?: unknown; mergedSnapshot?: unknown; notes?: unknown;
+        };
+        const action = body.action;
+        if (
+          action !== 'keep_local'
+          && action !== 'take_imported'
+          && action !== 'merged'
+          && action !== 'dismissed'
+        ) {
+          throw new ValidationError('action must be keep_local|take_imported|merged|dismissed');
+        }
+        const updated = await services.store.resolveAtomImportConflict(
+          params.id,
+          action,
+          body.mergedSnapshot,
+          typeof body.notes === 'string' ? body.notes : undefined,
+        );
+        if (!updated) throw new NotFoundError('Atom import conflict not found.');
+        return updated;
+      },
+    },
+    {
+      method: 'POST',
       match: exactPath('/operations/conflicts/detect'),
       handle: ({ services, url }) => services.operations.detectKnowledgeConflicts({
         project: url.searchParams.get('project') ?? undefined,

@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { KnowledgeAtom } from '../types/atoms.js';
+import type { LabelInput, ReferenceInput } from '../types.js';
 import { parseAtomMarkdown, toAtomInputFromParsed } from './atom-codec.js';
 import { parseKnowledgeMarkdown } from './knowledge-codec.js';
 import { parseEdgesJsonl } from './edges-codec.js';
@@ -118,8 +119,8 @@ export async function importPack(
             title: parsed.frontmatter.title,
             summary: '',
             content: parsed.body.trim(),
-            labels: parsed.frontmatter.labels,
-            references: parsed.frontmatter.references,
+            labels: parsed.frontmatter.labels as LabelInput[],
+            references: parsed.frontmatter.references as ReferenceInput[],
             trustLevel: parsed.frontmatter.trustLevel,
             metadata: { importedFrom: opts.from },
           },

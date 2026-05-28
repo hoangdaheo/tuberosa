@@ -396,6 +396,60 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       return toolJson(prediction);
     }
 
+    case 'tuberosa_export_pack': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_export_pack arguments.project');
+      const out = readRequiredMcpString(args.out, 'tuberosa_export_pack arguments.out');
+      const { exportPack } = await import('../export/exporter.js');
+      const report = await exportPack(services.store, {
+        project,
+        out,
+        includeChunks: args.includeChunks === undefined ? true : Boolean(args.includeChunks),
+        includeArchived: Boolean(args.includeArchived),
+      });
+      return toolJson(report);
+    }
+
+    case 'tuberosa_import_pack': {
+      const from = readRequiredMcpString(args.from, 'tuberosa_import_pack arguments.from');
+      const project = typeof args.project === 'string' ? args.project : undefined;
+      const { importPack } = await import('../export/importer.js');
+      const report = await importPack(services.store, {
+        from,
+        project,
+        dryRun: Boolean(args.dryRun),
+        onConflict: args.onConflict === 'skip' ? 'skip' : 'review',
+      });
+      return toolJson(report);
+    }
+
+    case 'tuberosa_list_atom_import_conflicts': {
+      const project = typeof args.project === 'string' ? args.project : undefined;
+      const status = typeof args.status === 'string' ? args.status : 'open';
+      const rows = await services.store.listAtomImportConflicts({ project, status, limit: 100 });
+      return toolJson(rows);
+    }
+
+    case 'tuberosa_resolve_atom_import_conflict': {
+      const id = readRequiredMcpString(args.id, 'tuberosa_resolve_atom_import_conflict arguments.id');
+      const action = args.action;
+      if (
+        action !== 'keep_local'
+        && action !== 'take_imported'
+        && action !== 'merged'
+        && action !== 'dismissed'
+      ) {
+        throw new ValidationError('action must be keep_local|take_imported|merged|dismissed');
+      }
+      const updated = await services.store.resolveAtomImportConflict(
+        id,
+        action,
+        args.mergedSnapshot,
+        typeof args.notes === 'string' ? args.notes : undefined,
+      );
+      if (!updated) throw new NotFoundError(`Atom import conflict not found: ${id}`);
+      return toolJson(updated);
+    }
+
     case 'tuberosa_resurrect_atom': {
       const atomId = readRequiredMcpString(args.atomId, 'tuberosa_resurrect_atom arguments.atomId');
       const atom = await services.store.updateAtom(atomId, {
@@ -1344,6 +1398,63 @@ function tools() {
         type: 'object',
         required: ['project'],
         properties: { project: { type: 'string' } },
+      },
+    },
+    {
+      name: 'tuberosa_export_pack',
+      title: 'Export Tuberosa Project Pack',
+      description: 'Write a portable .tuberosa-pack/ directory for the given project (atoms, knowledge, edges, manifest).',
+      inputSchema: {
+        type: 'object',
+        required: ['project', 'out'],
+        properties: {
+          project: { type: 'string' },
+          out: { type: 'string', description: 'Output directory; created if missing.' },
+          includeChunks: { type: 'boolean', description: 'Include chunks/ subtree. Defaults to true.' },
+          includeArchived: { type: 'boolean', description: 'Include archived/legacy_archived atoms. Defaults to false.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_import_pack',
+      title: 'Import Tuberosa Project Pack',
+      description: 'Import a .tuberosa-pack/ directory. Atom id conflicts queue for human review by default.',
+      inputSchema: {
+        type: 'object',
+        required: ['from'],
+        properties: {
+          from: { type: 'string' },
+          project: { type: 'string', description: 'Override the pack manifest project name.' },
+          dryRun: { type: 'boolean' },
+          onConflict: { type: 'string', enum: ['review', 'skip'], description: 'Default: review.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_list_atom_import_conflicts',
+      title: 'List Atom Import Conflicts',
+      description: 'List queued atom-import conflicts (default status=open).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          status: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_resolve_atom_import_conflict',
+      title: 'Resolve Atom Import Conflict',
+      description: 'Resolve an atom import conflict (keep_local | take_imported | merged | dismissed).',
+      inputSchema: {
+        type: 'object',
+        required: ['id', 'action'],
+        properties: {
+          id: { type: 'string' },
+          action: { type: 'string', enum: ['keep_local', 'take_imported', 'merged', 'dismissed'] },
+          mergedSnapshot: { type: 'object' },
+          notes: { type: 'string' },
+        },
       },
     },
     {
