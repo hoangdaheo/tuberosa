@@ -589,9 +589,16 @@ function createRoutes(): HttpRoute[] {
         if (typeof body.from !== 'string' || body.from.length === 0) {
           throw new ValidationError('from is required');
         }
+        let safeFrom: string;
+        try {
+          const { assertSafeBundlePath } = await import('../security/safe-paths.js');
+          safeFrom = await assertSafeBundlePath(services.config.importBaseDir, body.from);
+        } catch (err) {
+          throw new ValidationError((err as Error).message);
+        }
         const { importPack } = await import('../export/importer.js');
         return importPack(services.store, {
-          from: body.from,
+          from: safeFrom,
           project: typeof body.project === 'string' ? body.project : undefined,
           dryRun: Boolean(body.dryRun),
           onConflict: body.onConflict === 'skip' ? 'skip' : 'review',
@@ -608,10 +615,17 @@ function createRoutes(): HttpRoute[] {
         if (typeof body.project !== 'string' || typeof body.out !== 'string') {
           throw new ValidationError('project and out are required');
         }
+        let safeOut: string;
+        try {
+          const { assertSafeBundlePath } = await import('../security/safe-paths.js');
+          safeOut = await assertSafeBundlePath(services.config.exportBaseDir, body.out);
+        } catch (err) {
+          throw new ValidationError((err as Error).message);
+        }
         const { exportPack } = await import('../export/exporter.js');
         return exportPack(services.store, {
           project: body.project,
-          out: body.out,
+          out: safeOut,
           includeChunks: body.includeChunks === undefined ? true : Boolean(body.includeChunks),
           includeArchived: Boolean(body.includeArchived),
         });
