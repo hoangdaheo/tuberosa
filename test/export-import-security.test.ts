@@ -141,3 +141,33 @@ test('tuberosa_export_pack rejects absolute out via MCP', async () => {
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test('tuberosa_import_pack rejects /proc path via MCP', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'tuberosa-mcp-imp-'));
+  const prev = { ...process.env };
+  process.env.TUBEROSA_IMPORT_BASE_DIR = base;
+  process.env.TUBEROSA_STORE = 'memory';
+  process.env.TUBEROSA_CACHE = 'memory';
+  process.env.TUBEROSA_MODEL_PROVIDER = 'hash';
+  process.env.TUBEROSA_AUTO_MIGRATE = 'false';
+  const services = await createAppServices();
+  try {
+    let threw = false;
+    try {
+      await handleMcpRequest(services, {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'tuberosa_import_pack', arguments: { from: '/proc/self/environ' } },
+      } as any);
+    } catch (err) {
+      threw = true;
+      match((err as Error).message, /absolute path is not allowed|outside the configured base/);
+    }
+    ok(threw, 'expected ValidationError');
+  } finally {
+    await services.close();
+    process.env = prev;
+    await rm(base, { recursive: true, force: true });
+  }
+});

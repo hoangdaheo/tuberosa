@@ -413,8 +413,10 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
     }
 
     case 'tuberosa_import_pack': {
-      const from = readRequiredMcpString(args.from, 'tuberosa_import_pack arguments.from');
+      const fromRaw = readRequiredMcpString(args.from, 'tuberosa_import_pack arguments.from');
       const project = typeof args.project === 'string' ? args.project : undefined;
+      const { assertSafeBundlePath } = await import('../security/safe-paths.js');
+      const from = await assertSafeBundlePath(services.config.importBaseDir, fromRaw);
       const { importPack } = await import('../export/importer.js');
       const report = await importPack(services.store, {
         from,
