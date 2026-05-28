@@ -78,6 +78,10 @@ import type {
   StaleFileAtomCleanupInput,
   WalkAtomGraphOptions,
 } from './store.js';
+import type {
+  AtomImportConflict,
+  AtomImportConflictAction,
+} from '../types/export-bundle.js';
 
 interface MemoryChunk extends ChunkInput {
   id: string;
@@ -104,6 +108,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly atomEmbeddings = new Map<string, number[]>();
   private readonly atomGateEvents = new Map<string, AtomGateEvent>();
   private readonly atomRelations = new Map<string, AtomRelationRow>();
+  private readonly atomImportConflicts = new Map<string, AtomImportConflict>();
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -1442,6 +1447,77 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .filter((e) => new Date(e.createdAt).getTime() >= cutoff)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, options.limit);
+  }
+
+  async createAtomImportConflict(input: {
+    project: string;
+    atomId: string;
+    localSnapshot: unknown;
+    importedSnapshot: unknown;
+    bundleSource: string;
+  }): Promise<AtomImportConflict> {
+    const row: AtomImportConflict = {
+      id: randomUUID(),
+      project: input.project,
+      atomId: input.atomId,
+      localSnapshot: input.localSnapshot as AtomImportConflict['localSnapshot'],
+      importedSnapshot: input.importedSnapshot as AtomImportConflict['importedSnapshot'],
+      bundleSource: input.bundleSource,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+    };
+    this.atomImportConflicts.set(row.id, row);
+    return row;
+  }
+
+  async listAtomImportConflicts(options: {
+    project?: string;
+    status?: string;
+    limit: number;
+  }): Promise<AtomImportConflict[]> {
+    return [...this.atomImportConflicts.values()]
+      .filter((c) => !options.project || c.project === options.project)
+      .filter((c) => !options.status || c.status === options.status)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, options.limit);
+  }
+
+  async getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined> {
+    return this.atomImportConflicts.get(id);
+  }
+
+  async resolveAtomImportConflict(
+    id: string,
+    action: AtomImportConflictAction,
+    mergedSnapshot?: unknown,
+    notes?: string,
+  ): Promise<AtomImportConflict | undefined> {
+    const row = this.atomImportConflicts.get(id);
+    if (!row) return undefined;
+    const status: AtomImportConflict['status'] =
+      action === 'keep_local' ? 'resolved_keep_local'
+      : action === 'take_imported' ? 'resolved_take_imported'
+      : action === 'merged' ? 'resolved_merged'
+      : 'dismissed';
+    const next: AtomImportConflict = {
+      ...row,
+      status,
+      resolutionNotes: notes,
+      resolvedAt: new Date().toISOString(),
+    };
+    this.atomImportConflicts.set(id, next);
+
+    if (action === 'take_imported') {
+      const imp = next.importedSnapshot;
+      await this.updateAtom(next.atomId, {
+        tier: imp.tier,
+        status: imp.status,
+      });
+    } else if (action === 'merged' && mergedSnapshot) {
+      const m = mergedSnapshot as KnowledgeAtomPatch;
+      await this.updateAtom(next.atomId, m);
+    }
+    return next;
   }
 
   async close(): Promise<void> {}

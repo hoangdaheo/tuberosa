@@ -56,6 +56,10 @@ import type {
   KnowledgeAtomPatch,
   ListAtomsOptions,
 } from '../types/atoms.js';
+import type {
+  AtomImportConflict,
+  AtomImportConflictAction,
+} from '../types/export-bundle.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
@@ -2127,6 +2131,152 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rows.map((row) => rowToGateEvent(row, String(row.project_name ?? '')));
   }
 
+  async createAtomImportConflict(input: {
+    project: string;
+    atomId: string;
+    localSnapshot: unknown;
+    importedSnapshot: unknown;
+    bundleSource: string;
+  }): Promise<AtomImportConflict> {
+    const projectId = await this.projectIdByName(this.pool, input.project);
+    const result = await this.pool.query(
+      `INSERT INTO atom_import_conflicts
+         (project_id, atom_id, local_snapshot, imported_snapshot, bundle_source)
+       VALUES ($1, $2, $3::jsonb, $4::jsonb, $5)
+       RETURNING id, status, created_at`,
+      [
+        projectId,
+        input.atomId,
+        JSON.stringify(input.localSnapshot),
+        JSON.stringify(input.importedSnapshot),
+        input.bundleSource,
+      ],
+    );
+    const row = result.rows[0];
+    return {
+      id: String(row.id),
+      project: input.project,
+      atomId: input.atomId,
+      localSnapshot: input.localSnapshot as AtomImportConflict['localSnapshot'],
+      importedSnapshot: input.importedSnapshot as AtomImportConflict['importedSnapshot'],
+      bundleSource: input.bundleSource,
+      status: row.status,
+      createdAt: new Date(row.created_at).toISOString(),
+    };
+  }
+
+  async listAtomImportConflicts(options: {
+    project?: string;
+    status?: string;
+    limit: number;
+  }): Promise<AtomImportConflict[]> {
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    if (options.project) {
+      values.push(options.project);
+      filters.push(`p.name = $${values.length}`);
+    }
+    if (options.status) {
+      values.push(options.status);
+      filters.push(`aic.status = $${values.length}`);
+    }
+    values.push(options.limit);
+    const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+    const result = await this.pool.query(
+      `SELECT aic.id, aic.atom_id, aic.local_snapshot, aic.imported_snapshot,
+              aic.bundle_source, aic.status, aic.resolution_notes,
+              aic.created_at, aic.resolved_at, p.name AS project_name
+         FROM atom_import_conflicts aic
+         LEFT JOIN projects p ON p.id = aic.project_id
+         ${where}
+         ORDER BY aic.created_at DESC
+         LIMIT $${values.length}`,
+      values,
+    );
+    return result.rows.map(rowToAtomImportConflict);
+  }
+
+  async getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined> {
+    const result = await this.pool.query(
+      `SELECT aic.id, aic.atom_id, aic.local_snapshot, aic.imported_snapshot,
+              aic.bundle_source, aic.status, aic.resolution_notes,
+              aic.created_at, aic.resolved_at, p.name AS project_name
+         FROM atom_import_conflicts aic
+         LEFT JOIN projects p ON p.id = aic.project_id
+         WHERE aic.id = $1`,
+      [id],
+    );
+    return result.rows[0] ? rowToAtomImportConflict(result.rows[0]) : undefined;
+  }
+
+  async resolveAtomImportConflict(
+    id: string,
+    action: AtomImportConflictAction,
+    mergedSnapshot?: unknown,
+    notes?: string,
+  ): Promise<AtomImportConflict | undefined> {
+    const status: AtomImportConflict['status'] =
+      action === 'keep_local' ? 'resolved_keep_local'
+      : action === 'take_imported' ? 'resolved_take_imported'
+      : action === 'merged' ? 'resolved_merged'
+      : 'dismissed';
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const updated = await client.query(
+        `UPDATE atom_import_conflicts
+            SET status = $1, resolution_notes = $2, resolved_at = now()
+          WHERE id = $3
+          RETURNING id, atom_id, local_snapshot, imported_snapshot,
+                    bundle_source, status, resolution_notes, created_at, resolved_at, project_id`,
+        [status, notes ?? null, id],
+      );
+      if (updated.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return undefined;
+      }
+      const row = updated.rows[0];
+
+      if (action === 'take_imported') {
+        const imp = row.imported_snapshot as { tier?: string; status?: string };
+        if (imp?.tier && imp?.status) {
+          await client.query(
+            `UPDATE knowledge_atoms SET tier = $1, status = $2, updated_at = now() WHERE id = $3`,
+            [imp.tier, imp.status, row.atom_id],
+          );
+        }
+      } else if (action === 'merged' && mergedSnapshot) {
+        const m = mergedSnapshot as KnowledgeAtomPatch;
+        const sets: string[] = [];
+        const vals: unknown[] = [];
+        if (m.tier !== undefined) { vals.push(m.tier); sets.push(`tier = $${vals.length}`); }
+        if (m.status !== undefined) { vals.push(m.status); sets.push(`status = $${vals.length}`); }
+        if (m.verification !== undefined) { vals.push(JSON.stringify(m.verification)); sets.push(`verification = $${vals.length}::jsonb`); }
+        if (m.pitfalls !== undefined) { vals.push(JSON.stringify(m.pitfalls)); sets.push(`pitfalls = $${vals.length}::jsonb`); }
+        if (m.links !== undefined) { vals.push(JSON.stringify(m.links)); sets.push(`links = $${vals.length}::jsonb`); }
+        if (sets.length > 0) {
+          vals.push(row.atom_id);
+          await client.query(
+            `UPDATE knowledge_atoms SET ${sets.join(', ')}, updated_at = now() WHERE id = $${vals.length}`,
+            vals,
+          );
+        }
+      }
+
+      const projectName = row.project_id
+        ? (await client.query<{ name: string }>('SELECT name FROM projects WHERE id = $1', [row.project_id])).rows[0]?.name ?? ''
+        : '';
+      await client.query('COMMIT');
+      return rowToAtomImportConflict({ ...row, project_name: projectName });
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
@@ -3075,6 +3225,21 @@ function buildRelationKindMultiplierSql(
 
 function formatSqlString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
+}
+
+function rowToAtomImportConflict(row: Record<string, unknown>): AtomImportConflict {
+  return {
+    id: String(row.id),
+    project: String(row.project_name ?? ''),
+    atomId: String(row.atom_id),
+    localSnapshot: row.local_snapshot as AtomImportConflict['localSnapshot'],
+    importedSnapshot: row.imported_snapshot as AtomImportConflict['importedSnapshot'],
+    bundleSource: String(row.bundle_source),
+    status: row.status as AtomImportConflict['status'],
+    resolutionNotes: row.resolution_notes ? String(row.resolution_notes) : undefined,
+    createdAt: toIso(row.created_at),
+    resolvedAt: row.resolved_at ? toIso(row.resolved_at) : undefined,
+  };
 }
 
 function toIso(value: unknown): string {

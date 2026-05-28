@@ -5,6 +5,10 @@ import type {
   ListAtomsOptions,
 } from '../types/atoms.js';
 import type {
+  AtomImportConflict,
+  AtomImportConflictAction,
+} from '../types/export-bundle.js';
+import type {
   AgentContextDecision,
   AgentSession,
   AgentSessionNote,
@@ -269,6 +273,25 @@ export interface KnowledgeStore {
   updateReflectionDraft(id: string, patch: ReflectionDraftPatchInput): Promise<ReflectionDraft | undefined>;
   approveReflectionDraft(id: string): Promise<ReflectionDraft | undefined>;
   cleanupOperations(input: CleanupOperationsInput): Promise<CleanupOperationsResult>;
+  createAtomImportConflict(input: {
+    project: string;
+    atomId: string;
+    localSnapshot: unknown;
+    importedSnapshot: unknown;
+    bundleSource: string;
+  }): Promise<AtomImportConflict>;
+  listAtomImportConflicts(options: {
+    project?: string;
+    status?: AtomImportConflict['status'] | string;
+    limit: number;
+  }): Promise<AtomImportConflict[]>;
+  getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined>;
+  resolveAtomImportConflict(
+    id: string,
+    action: AtomImportConflictAction,
+    mergedSnapshot?: unknown,
+    notes?: string,
+  ): Promise<AtomImportConflict | undefined>;
   exportBackup(): Promise<BackupExportData>;
   restoreBackup(input: { tables: BackupTableData[]; dryRun?: boolean; replace?: boolean }): Promise<Record<string, number>>;
   close(): Promise<void>;
