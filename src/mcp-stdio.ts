@@ -9,6 +9,10 @@ if (!process.env.TUBEROSA_CACHE) {
 const services = await createAppServices();
 let buffer = Buffer.alloc(0);
 
+// Hard ceiling on a single JSON-RPC frame to prevent OOM from a malformed/malicious
+// Content-Length header. 16 MiB is well above any legitimate MCP payload.
+const MAX_FRAME_BYTES = 16 * 1024 * 1024;
+
 process.stdin.on('data', (chunk: Buffer) => {
   buffer = Buffer.concat([buffer, chunk]);
   void drain();
@@ -84,6 +88,22 @@ function readContentLengthMessage(): FramedMessage | undefined {
   }
 
   const length = Number(lengthMatch[1]);
+  if (!Number.isFinite(length) || length < 0 || length > MAX_FRAME_BYTES) {
+    // Drop the offending frame header and any payload bytes already buffered.
+    // We can't safely skip the body because we'd need to trust the length we just rejected,
+    // so reset the buffer to drop suspect data — the client will resync on the next valid frame.
+    buffer = Buffer.alloc(0);
+    writeMessage({
+      jsonrpc: '2.0',
+      id: null,
+      error: {
+        code: -32600,
+        message: 'Frame too large',
+        data: { code: 'validation_error', status: 413 },
+      },
+    }, 'content-length');
+    return undefined;
+  }
   const bodyStart = headerEnd + 4;
   const bodyEnd = bodyStart + length;
   if (buffer.length < bodyEnd) {

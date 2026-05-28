@@ -120,9 +120,89 @@ const SECRET_PATTERNS: TextPattern[] = [
     name: 'credential_assignment',
     // Phase 9 — keyword may be quoted (JSON-style "password": "..."), and the
     // value is captured into a named group so the validator can vet it.
-    pattern: /(?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*["']?(?<value>[^"'\s]{12,})["']?/gi,
+    pattern: /(?:api[_-]?key|secret|token|password|passwd|pwd|bearer|client[_-]?secret|private[_-]?key|access[_-]?key|service[_-]?account|connection[_-]?string|dsn|webhook[_-]?url|auth)["']?\s*[:=]\s*["']?(?<value>[^"'\s]{12,})["']?/gi,
     issue: { type: 'secret', severity: 'medium', message: 'Credential-like assignment was redacted.', redacted: true },
     validator: (ctx) => !isCredentialAssignmentFalsePositive(ctx),
+  },
+  {
+    name: 'github_pat_fine_grained',
+    pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'GitHub fine-grained PAT was redacted.', redacted: true },
+  },
+  {
+    name: 'anthropic_api_key',
+    pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'Anthropic API key was redacted.', redacted: true },
+  },
+  {
+    name: 'google_api_key',
+    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'Google API key was redacted.', redacted: true },
+  },
+  {
+    name: 'slack_token',
+    pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'Slack token was redacted.', redacted: true },
+  },
+  {
+    name: 'slack_app_token',
+    pattern: /\bxapp-[0-9]-[A-Za-z0-9-]{10,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'Slack app token was redacted.', redacted: true },
+  },
+  {
+    name: 'stripe_live_secret',
+    pattern: /\b(?:sk|rk)_live_[0-9a-zA-Z]{20,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'Stripe live key was redacted.', redacted: true },
+  },
+  {
+    name: 'sendgrid_api_key',
+    pattern: /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'SendGrid API key was redacted.', redacted: true },
+  },
+  {
+    name: 'twilio_account_sid',
+    pattern: /\bAC[0-9a-f]{32}\b/g,
+    issue: { type: 'secret', severity: 'medium', message: 'Twilio account SID was redacted.', redacted: true },
+  },
+  {
+    name: 'mailgun_api_key',
+    pattern: /\bkey-[0-9a-f]{32}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'Mailgun API key was redacted.', redacted: true },
+  },
+  {
+    name: 'npm_token',
+    pattern: /\bnpm_[A-Za-z0-9]{36,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'npm token was redacted.', redacted: true },
+  },
+  {
+    name: 'huggingface_token',
+    pattern: /\bhf_[A-Za-z0-9]{30,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'HuggingFace token was redacted.', redacted: true },
+  },
+  {
+    name: 'aws_session_key_id',
+    pattern: /\b(?:ASIA|AGPA|AROA|AIDA|ANPA|ANVA)[0-9A-Z]{16}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'AWS session/identifier key was redacted.', redacted: true },
+  },
+  {
+    name: 'jwt_token',
+    pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'JWT was redacted.', redacted: true },
+  },
+  {
+    name: 'azure_storage_connection_string',
+    pattern: /\bDefaultEndpointsProtocol=https?;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]+(?:;[A-Za-z0-9=.]+)*\b/g,
+    issue: { type: 'secret', severity: 'high', message: 'Azure storage connection string was redacted.', redacted: true },
+  },
+  {
+    name: 'gcp_service_account_email',
+    pattern: /\b[A-Za-z0-9._-]+@[A-Za-z0-9-]+\.iam\.gserviceaccount\.com\b/g,
+    issue: { type: 'secret', severity: 'medium', message: 'GCP service account identifier was redacted.', redacted: true },
+  },
+  {
+    name: 'bearer_token_in_url_or_header',
+    pattern: /\b(?:Bearer|authorization|access_token)["']?\s*[:=]\s*["']?[A-Za-z0-9_.~+/-]{20,}={0,2}\b/gi,
+    issue: { type: 'secret', severity: 'high', message: 'Bearer/authorization token was redacted.', redacted: true },
   },
 ];
 
@@ -130,10 +210,14 @@ const PLACEHOLDER_REGEXES: readonly RegExp[] = [
   /^[<{][^>}]*[>}]$/,                                // <foo>, {foo}
   /^\$\{[^}]*\}$/,                                   // ${foo}
   /^\{\{[^}]*\}\}$/,                                 // {{foo}}
-  /^(?:your[_-]|my[_-]|test[_-]|dummy[_-]|example[_-]|sample[_-]|fake[_-])/i,
+  /^(?:your[_-]|test[_-]|dummy[_-]|example[_-]|sample[_-]|fake[_-])/i,
   /(?:[_-](?:here|placeholder|example|sample|fake|dummy|replace[_-]?me))(?:[_-][a-z0-9]+)?$/i,
   /^x{8,}$|^\.{8,}$|^-{8,}$|^\*{8,}$/i,              // xxxxxxxx, ........, --------
-  /^[A-Z]+(?:_[A-Z0-9]+)+$/,                         // SHELL_STYLE_ENV (no $ wrapper but clearly a var name)
+  // Common env-var NAMES only (short, descriptive). Long SHELL_STYLE_VALUES with
+  // digits or many segments may be real secrets, so we leave those to be
+  // redacted. Heuristic: short (<24 chars) all-uppercase tokens with at most 3
+  // segments and no digit groups longer than 2 chars.
+  /^[A-Z]{1,12}(?:_[A-Z]{1,12}){0,2}$/,
   /^\.\.\.$/,
 ];
 

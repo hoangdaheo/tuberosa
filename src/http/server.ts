@@ -888,11 +888,30 @@ function secureEqual(left: string, right: string): boolean {
   return timingSafeEqual(leftDigest, rightDigest);
 }
 
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+} as const;
+
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
-  const encoded = JSON.stringify(body, null, 2);
+  let encoded: string;
+  try {
+    encoded = JSON.stringify(body, null, 2);
+  } catch (stringifyError) {
+    // Fallback for circular refs / BigInts so the error handler never re-throws.
+    encoded = JSON.stringify({
+      code: 'internal_error',
+      status: 500,
+      message: 'Failed to serialize response body.',
+      detail: stringifyError instanceof Error ? stringifyError.message : String(stringifyError),
+    });
+    status = 500;
+  }
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(encoded),
+    ...SECURITY_HEADERS,
   });
   response.end(encoded);
 }
@@ -915,6 +934,7 @@ function sendRaw(response: ServerResponse, body: RawHttpResponse): void {
   response.writeHead(body.status, {
     'Content-Type': body.contentType,
     'Content-Length': encoded.length,
+    ...SECURITY_HEADERS,
   });
   response.end(encoded);
 }

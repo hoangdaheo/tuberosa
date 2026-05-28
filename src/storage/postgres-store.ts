@@ -89,6 +89,39 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 function isPersistedKnowledgeId(value: unknown): value is string {
   return typeof value === 'string' && UUID_PATTERN.test(value);
 }
+// Clients that were already destroyed during error handling. Used so the
+// `finally` block in transaction wrappers doesn't double-release.
+const destroyedClients = new WeakSet<PoolClient>();
+
+// Safely roll back a transaction. If ROLLBACK itself fails (e.g. the underlying
+// connection is broken), swallow the error and destroy the client so it isn't
+// returned to the pool in a half-aborted state. Never throws past the original error.
+async function rollbackAndRelease(client: PoolClient): Promise<void> {
+  try {
+    await client.query('ROLLBACK');
+  } catch (rollbackError) {
+    console.error('[postgres-store] ROLLBACK failed; destroying client.', rollbackError);
+    try {
+      client.release(new Error('ROLLBACK failed; client destroyed.'));
+    } catch (releaseError) {
+      console.error('[postgres-store] client.release threw during destroy.', releaseError);
+    }
+    destroyedClients.add(client);
+  }
+}
+
+function finalReleaseClient(client: PoolClient): void {
+  if (destroyedClients.has(client)) {
+    destroyedClients.delete(client);
+    return;
+  }
+  try {
+    client.release();
+  } catch (releaseError) {
+    console.error('[postgres-store] client.release threw.', releaseError);
+  }
+}
+
 function filterPersistedKnowledgeIds(ids: readonly string[] | undefined): string[] {
   if (!ids || ids.length === 0) return [];
   return ids.filter(isPersistedKnowledgeId);
@@ -132,10 +165,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
       return stored;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await rollbackAndRelease(client);
       throw error;
     } finally {
-      client.release();
+      finalReleaseClient(client);
     }
   }
 
@@ -277,10 +310,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
       await client.query('COMMIT');
     } catch (error) {
-      await client.query('ROLLBACK');
+      await rollbackAndRelease(client);
       throw error;
     } finally {
-      client.release();
+      finalReleaseClient(client);
     }
 
     return this.getKnowledge(id);
@@ -301,10 +334,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       await client.query('COMMIT');
       return created;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await rollbackAndRelease(client);
       throw error;
     } finally {
-      client.release();
+      finalReleaseClient(client);
     }
   }
 
@@ -1969,10 +2002,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       await client.query('COMMIT');
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await rollbackAndRelease(client);
       throw error;
     } finally {
-      client.release();
+      finalReleaseClient(client);
     }
   }
 

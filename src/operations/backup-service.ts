@@ -727,8 +727,15 @@ function resolveBackupPath(backupDir: string, backupIdOrPath: string | undefined
     throw new ValidationError('backupIdOrPath is required.');
   }
 
+  // If a path-like value is supplied, require it to resolve under the configured backupDir.
   if (isAbsolute(backupIdOrPath) || backupIdOrPath.includes(sep) || backupIdOrPath.startsWith('.')) {
-    return resolve(backupIdOrPath);
+    const resolved = resolve(backupIdOrPath);
+    const root = resolve(backupDir);
+    const rootWithSep = root.endsWith(sep) ? root : root + sep;
+    if (resolved !== root && !resolved.startsWith(rootWithSep)) {
+      throw new ValidationError('backupIdOrPath must resolve inside the configured backup directory.');
+    }
+    return resolved;
   }
 
   return join(backupDir, sanitizeBackupId(backupIdOrPath));

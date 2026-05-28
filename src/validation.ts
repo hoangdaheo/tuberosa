@@ -1141,13 +1141,25 @@ function readOptionalReviewEvaluation(value: unknown): ReflectionDraftReviewInpu
   }) as ReflectionDraftReviewInput['evaluation'];
 }
 
+// Per-field hard caps to prevent DoS via giant inputs (ReDoS / OOM) at the MCP & HTTP boundary.
+// Generous for legitimate use (reflection content, embeddings prompts) but bounded.
+const MAX_STRING_LENGTH = 2_000_000; // 2M chars (~4 MB UTF-16)
+const MAX_STRING_ARRAY_LENGTH = 4096;
+
+function enforceStringLength(value: string, path: string): string {
+  if (value.length > MAX_STRING_LENGTH) {
+    throw validationIssue(path, `must be ${MAX_STRING_LENGTH} characters or fewer.`);
+  }
+  return value;
+}
+
 function readRequiredString(record: Record<string, unknown>, key: string, path: string): string {
   const value = record[key];
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw validationIssue(`${path}.${key}`, 'must be a non-empty string.');
   }
 
-  return value;
+  return enforceStringLength(value, `${path}.${key}`);
 }
 
 function readRequiredStringWithAliases(record: Record<string, unknown>, keys: string[], path: string): string {
@@ -1170,7 +1182,7 @@ function readOptionalString(record: Record<string, unknown>, key: string, path: 
     throw validationIssue(`${path}.${key}`, 'must be a non-empty string when provided.');
   }
 
-  return value;
+  return enforceStringLength(value, `${path}.${key}`);
 }
 
 function readOptionalNullableString(record: Record<string, unknown>, key: string, path: string): string | null | undefined {
@@ -1187,7 +1199,7 @@ function readOptionalNullableString(record: Record<string, unknown>, key: string
     throw validationIssue(`${path}.${key}`, 'must be a non-empty string or null when provided.');
   }
 
-  return value;
+  return enforceStringLength(value, `${path}.${key}`);
 }
 
 function readOptionalStringArray(record: Record<string, unknown>, key: string, path: string): string[] | undefined {
@@ -1200,12 +1212,16 @@ function readOptionalStringArray(record: Record<string, unknown>, key: string, p
     throw validationIssue(`${path}.${key}`, 'must be an array.');
   }
 
+  if (value.length > MAX_STRING_ARRAY_LENGTH) {
+    throw validationIssue(`${path}.${key}`, `must contain ${MAX_STRING_ARRAY_LENGTH} or fewer entries.`);
+  }
+
   return value.map((entry, index) => {
     if (typeof entry !== 'string' || entry.trim().length === 0) {
       throw validationIssue(`${path}.${key}[${index}]`, 'must be a non-empty string.');
     }
 
-    return entry;
+    return enforceStringLength(entry, `${path}.${key}[${index}]`);
   });
 }
 
