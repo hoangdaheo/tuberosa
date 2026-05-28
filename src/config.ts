@@ -46,6 +46,12 @@ export interface AppConfig {
   worktreeMaxFiles: number;
   /** Phase 5 — recency window for mtime-based file selection. */
   worktreeMaxMtimeAgeHours: number;
+  /** Concern D — enable the stage-4 LLM critic. Defaults to whether the provider can judge. */
+  llmCriticEnabled: boolean;
+  /** Concern D — when true (default), the worker runs the atom archival sweep on a timer. */
+  archivalEnabled: boolean;
+  /** Concern D — hours between scheduled archival sweeps. */
+  archivalIntervalHours: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -92,6 +98,12 @@ export function loadConfig(): AppConfig {
     worktreeEnabled: readBoolean(process.env.TUBEROSA_WORKTREE_ENABLED, true),
     worktreeMaxFiles: Number(process.env.TUBEROSA_WORKTREE_MAX_FILES ?? 50),
     worktreeMaxMtimeAgeHours: Number(process.env.TUBEROSA_WORKTREE_MAX_MTIME_AGE_HOURS ?? 72),
+    llmCriticEnabled: readBoolean(
+      process.env.TUBEROSA_LLM_CRITIC_ENABLED,
+      (process.env.TUBEROSA_MODEL_PROVIDER ?? (process.env.OPENAI_API_KEY ? 'openai' : 'hash')) === 'openai',
+    ),
+    archivalEnabled: readBoolean(process.env.TUBEROSA_ARCHIVAL_ENABLED, true),
+    archivalIntervalHours: Number(process.env.TUBEROSA_ARCHIVAL_INTERVAL_HOURS ?? 24),
   };
 }
 

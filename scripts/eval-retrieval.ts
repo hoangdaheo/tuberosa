@@ -54,6 +54,9 @@ const defaultConfig: AppConfig = {
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
+  llmCriticEnabled: false,
+  archivalEnabled: false,
+  archivalIntervalHours: 24,
 };
 
 async function main(): Promise<void> {

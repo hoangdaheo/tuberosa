@@ -4,6 +4,7 @@ import type { AppServices } from '../app.js';
 import type { AppConfig } from '../config.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
+import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
 import { getCatchupMetadata } from '../operations/catchup.js';
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
@@ -217,6 +218,31 @@ function createRoutes(): HttpRoute[] {
         const result = await services.retrieval.recordFeedback(body);
         services.operations.requestPhysicalMirror('context-feedback-recorded');
         return result;
+      },
+    },
+    {
+      method: 'POST',
+      match: pathPattern(/^\/atoms\/([^/]+)\/resurrect$/, ['id']),
+      handle: async ({ services, params }) => {
+        const atom = await services.store.updateAtom(params.id, {
+          status: 'active',
+          lastReusedAt: new Date().toISOString(),
+        });
+        if (!atom) {
+          throw new NotFoundError('Atom not found.');
+        }
+        services.operations.requestPhysicalMirror('atom-resurrected');
+        return { atom };
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/atom-gate/stats'),
+      handle: ({ services, url }) => {
+        const project = url.searchParams.get('project') ?? undefined;
+        const window = url.searchParams.get('window');
+        const windowDays = window === '30d' ? 30 : 7;
+        return computeAtomGateStats(services.store, { project, windowDays });
       },
     },
     {

@@ -18,6 +18,8 @@ export interface ExtractFromSessionInput {
 export interface ExtractFromSessionResult {
   stored: KnowledgeAtom[];
   rejected: Array<{ candidate: KnowledgeAtomInput; reasons: string[] }>;
+  /** Legacy knowledge_item ids the critic flagged as near-duplicates to migrate. */
+  queuedLegacyMigrations: string[];
 }
 
 export class AtomExtractor {
@@ -34,7 +36,7 @@ export class AtomExtractor {
 
   async extractFromSession(input: ExtractFromSessionInput): Promise<ExtractFromSessionResult> {
     if (!this.models.extractAtoms) {
-      return { stored: [], rejected: [] };
+      return { stored: [], rejected: [], queuedLegacyMigrations: [] };
     }
     const candidates = await this.models.extractAtoms({
       project: input.project,
@@ -47,6 +49,7 @@ export class AtomExtractor {
 
     const stored: KnowledgeAtom[] = [];
     const rejected: ExtractFromSessionResult['rejected'] = [];
+    const queuedLegacyMigrations: string[] = [];
 
     for (const candidate of candidates) {
       const rawInput: KnowledgeAtomInput = {
@@ -63,15 +66,21 @@ export class AtomExtractor {
       // Redact secrets before the critic embeds and before storage so the
       // stored + embedded text never contains raw secrets.
       const candidateInput = redactAtomInput(rawInput, this.safety);
-      const result = await this.critic.evaluate(candidateInput);
-      if (result.ok) {
+      const result = await this.critic.evaluate(candidateInput, input.sessionId);
+      if (result.outcome === 'accepted' || result.outcome === 'pending') {
+        // 'pending' means the LLM critic was unavailable for a borderline atom;
+        // we keep it (fail-open) rather than dropping a potentially useful lesson.
         const embedding = await this.models.embed(atomEmbeddingText(candidateInput));
         stored.push(await this.store.createAtom({ ...candidateInput, embedding }));
+      } else if (result.outcome === 'queue_legacy_migration' && result.legacyKnowledgeIdForMigration) {
+        // Near-duplicate of a vague legacy memory — surface it for migration
+        // instead of storing a competing atom or logging a (misleading) gap.
+        queuedLegacyMigrations.push(result.legacyKnowledgeIdForMigration);
       } else {
         rejected.push({ candidate: candidateInput, reasons: result.reasons });
       }
     }
 
-    return { stored, rejected };
+    return { stored, rejected, queuedLegacyMigrations };
   }
 }

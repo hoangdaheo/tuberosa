@@ -53,6 +53,9 @@ const config: AppConfig = {
   worktreeEnabled: false,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
+  llmCriticEnabled: false,
+  archivalEnabled: false,
+  archivalIntervalHours: 24,
 };
 
 class RecordingRewriteProvider extends HashModelProvider {

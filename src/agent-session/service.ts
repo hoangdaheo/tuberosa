@@ -1,5 +1,6 @@
 import { NotFoundError } from '../errors.js';
 import type { AppConfig } from '../config.js';
+import type { Cache } from '../cache.js';
 import { AtomExtractor } from '../atoms/extractor.js';
 import { AtomCritic } from '../atoms/critic.js';
 import type { ModelProvider } from '../model/provider.js';
@@ -49,7 +50,8 @@ export class AgentSessionService {
     private readonly reflection: ReflectionService,
     private readonly models?: ModelProvider,
     private readonly replayService?: SessionReplayService,
-    private readonly config: Pick<AppConfig, 'persistReplay'> = { persistReplay: false },
+    private readonly config: Pick<AppConfig, 'persistReplay'> & { llmCriticEnabled?: boolean } = { persistReplay: false },
+    private readonly cache?: Cache,
   ) {}
 
   async startSession(input: StartAgentSessionInput): Promise<AgentSessionStartResult> {
@@ -188,7 +190,11 @@ export class AgentSessionService {
     }
 
     const project = session.project ?? 'unknown';
-    const extractor = new AtomExtractor(this.store, this.models, new AtomCritic(this.store, this.models));
+    const critic = new AtomCritic(this.store, this.models, {
+      cache: this.cache,
+      llmCriticEnabled: this.config.llmCriticEnabled,
+    });
+    const extractor = new AtomExtractor(this.store, this.models, critic);
 
     let result;
     try {

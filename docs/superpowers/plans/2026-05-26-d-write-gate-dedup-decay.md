@@ -1,6 +1,8 @@
 # Write-Gate, Dedup, and Decay Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **STATUS: ✅ COMPLETE** (branch `feat/plan-d-write-gate-dedup-decay`). All 13 tasks implemented. Verification green: unit suite 484/484, `eval:retrieval` (hitRate / staleRejection / classification = 100%), `eval:agent-context`, `test:integration` 4/4, and a live smoke test of the new endpoints. One spec item intentionally skipped — the triviality-rule *eval fixture* (covered by unit tests instead); see "Implementation log" → Task 12. All deviations recorded below.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a triviality stop-list, an optional LLM critic, cross-type dedup, time+signal archival, and gate-event telemetry on top of B's atom schema, so the corpus stops accumulating well-formed-but-useless atoms and inactive items get archived (not deleted) automatically.
 
@@ -11,6 +13,27 @@
 **Spec:** [`docs/superpowers/specs/2026-05-26-write-gate-dedup-decay-design.md`](../specs/2026-05-26-write-gate-dedup-decay-design.md)
 
 **Depends on:** B's implementation plan must be merged first ([`2026-05-26-knowledge-atom-schema.md`](2026-05-26-knowledge-atom-schema.md)).
+
+---
+
+## Implementation log — deviations from the written plan
+
+These are places where the actual codebase diverged from the plan's assumptions. Captured per the executing-plans rule "do not skip/ignore specs/plan; if you do, write it into the file." None change the spec's intent — they adapt the steps to real code.
+
+- **Branch:** work done on `feat/plan-d-write-gate-dedup-decay` (B was merged to `main` via PR #9).
+- **No `as never` casts.** `KnowledgeAtomPatch` already has `status?: AtomStatus`. Extending `AtomStatus` with `'archived'` is enough; archival/resurrection use a typed patch.
+- **Memory-store feedback storage.** Feedback lives in `this.feedback` (an array), not a `feedbackEvents` map. `countNegativeFeedback` iterates `this.feedback`.
+- **Retrieval status filter already present.** Both stores' `searchAtomsByTrigger` and `searchAtomsByEmbedding` already hardcode `status = 'active'`. Adding `'archived'` automatically excludes archived atoms from retrieval and dedup. Task 8 Step 5 therefore adds only the regression test, not a new `status` option.
+- **No Ollama provider.** Only `HashModelProvider` and `OpenAiModelProvider` exist (config has an `ollama` enum value but no provider class). `judgeAtomUtility` is implemented on `OpenAiModelProvider` only; Hash leaves it `undefined`.
+- **Postgres helpers.** Project id is resolved via `ensureProject(this.pool, name)` (not `getOrCreateProjectId`). The `StoredKnowledge` row mapper is `mapKnowledgeRow` (needs aggregated labels/references and a `project` alias), not `rowToKnowledge`; `searchKnowledgeByEmbedding` reuses `knowledgeSelect()` as a CTE and joins chunk distances.
+- **MCP/HTTP registration patterns.** MCP tools are added to the tool-list array plus a `case` in the dispatch switch (no `server.registerTool`). HTTP routes are `HttpRoute` objects in `createRoutes()` with `match: exactPath()/pathPattern()` and `handle: ({ services, request, params, url }) => ...` (no `app.post`). Auth is enforced centrally (non-`public` routes require the API key); there is no per-route `requireAuth`.
+- **Critic wiring.** `AgentSessionService.extractSessionAtoms` constructs `new AtomCritic(this.store, this.models)`; it is extended to pass `{ cache, llmCriticEnabled }` from config.
+- **Stage-3 legacy dedup skips migration producers (added during Task 6).** The legacy-knowledge dedup check would otherwise block `migrateLegacyKnowledge` (which intentionally derives atoms from a legacy item) — the source item is flagged as a near-duplicate and the atom is never stored. Fix: `evaluateDedup` skips the legacy-knowledge check (but keeps atom↔atom dedup) when `input.producedBy === 'migration_llm'`. This kept the two B-era `atoms-migration` tests green.
+- **Task 13 live smoke run non-disruptively.** A docker stack was already running an older image (it 404'd the new route). Rather than `docker compose up --build` (which restarts the user's live service), the new endpoints were verified against an ephemeral `TUBEROSA_STORE=memory` server on `PORT=3099`: `GET /operations/atom-gate/stats` returned the expected stats JSON (`totalCandidates: 0`) and `POST /atoms/:id/resurrect` returned 404 for a missing atom. Migrations 006/007 were already applied to the live Postgres during Task 1. The running docker image still needs a rebuild to serve the new routes in production.
+- **Task 12 scope + a latent bug fixed.** The retrieval eval is retrieval/classification-focused; it has no write-gate harness, so the `extractAtoms`/`atomGateEvents` triviality fixture the plan sketched would mean bolting a new gate-evaluation capability onto it. The triviality + telemetry behavior is already fully covered by unit tests (`atoms-triviality`, `atoms-gate-telemetry`, `atoms-critic`, `atom-gate-stats`), so only the **archival** fixture was added to the retrieval eval (an `archived` atom + a case asserting it never surfaces). To support it, `RetrievalEvalAtom`/`parseAtom` gained an optional `status` field. Adding `status` to the seeding patch exposed a latent bug: `MemoryKnowledgeStore.updateAtom` spread the whole patch, so an `undefined` field clobbered the existing value (an undefined `status` wiped `'active'`, hiding the atom from trigger search). Fixed `updateAtom` to apply only defined patch keys — matching the Postgres store, which already builds its SET clause from defined fields. The triviality-as-eval-fixture item is therefore intentionally **not** implemented; recorded here per the "write skipped specs into the file" rule.
+- **Task 11 extras.** Added `llmCriticEnabled` config (default: provider is openai) alongside the archival vars, and threaded the cache + `llmCriticEnabled` into `AgentSessionService` (new optional constructor params + `app.ts` wiring) so the stage-4 critic actually runs in production. `runArchivalSweep` gained a typed `{ dryRun }` option (cleaner than the plan's "swap updateAtom with a no-op stub"). The `archival-sweep` CLI strips stray `--` separators that `pnpm run ... -- --flag` forwards, otherwise `parseArgs` treats every flag as a positional. ~28 inline `AppConfig` literals in `test/` and `scripts/` were updated with the three new fields (`llmCriticEnabled/archivalEnabled` false, `archivalIntervalHours` 24).
+- **Task 7 `rejected` shape kept; `pending` stores without metadata mutation.** The plan changed `rejected` entries to `{ candidate, result }`, but `AgentSessionService` and the B-era extractor test read `rejected[].reasons`. Kept `{ candidate, reasons }` and added `queuedLegacyMigrations: string[]`. `queue_legacy_migration` outcomes go to `queuedLegacyMigrations` only (not `rejected`) so they don't create misleading `atom_evidence` knowledge gaps. `pending` outcomes store the atom (fail-open) without the proposed `KnowledgeAtom.metadata.pendingLlmCritic` field — that field would require schema/store changes across both stores and is unreachable in practice (the critic only constructs the LLM stage when `judgeAtomUtility` exists, so `judge()` never returns `undefined`). Deferred as a follow-up if pending-state surfacing is ever needed.
+- **Two B-era critic tests updated (Task 6 Step 1).** `rejects atom whose claim restates the trigger` and `rejects atom whose claim is longer than 240 chars` previously used sparse claims (`'vector dimension mismatch'`, `'x'.repeat(241)`) that the new stage-1 triviality `sparse_claim` rule now rejects *before* the floor. The claims were made content-rich so they still reach and exercise the floor's restate/length rules. Rejection behavior is unchanged; only the short-circuit stage moved earlier.
 
 ---
 
@@ -54,7 +77,7 @@
 - Create: `migrations/006_atom_archival.sql`
 - Create: `migrations/007_atom_gate_events.sql`
 
-- [ ] **Step 1: Create archival migration**
+- [x] **Step 1: Create archival migration**
 
 Create `migrations/006_atom_archival.sql`:
 
@@ -71,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_atoms_archival_scan
   ON knowledge_atoms (tier, last_reused_at) WHERE status = 'active';
 ```
 
-- [ ] **Step 2: Create gate-events migration**
+- [x] **Step 2: Create gate-events migration**
 
 Create `migrations/007_atom_gate_events.sql`:
 
@@ -96,12 +119,12 @@ CREATE INDEX IF NOT EXISTS idx_atom_gate_events_stage
   ON atom_gate_events (stage, created_at DESC);
 ```
 
-- [ ] **Step 3: Apply migrations**
+- [x] **Step 3: Apply migrations**
 
 Run: `pnpm run migrate`
 Expected: `applied 006_atom_archival.sql` and `applied 007_atom_gate_events.sql`. (Skip silently if Docker stack is not up — memory-store tests don't depend on these.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add migrations/006_atom_archival.sql migrations/007_atom_gate_events.sql
@@ -116,7 +139,7 @@ git commit -m "feat(atoms): migrations 006 archival status + 007 atom_gate_event
 - Create: `src/atoms/triviality-rules.ts`
 - Test: `test/atoms-triviality.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/atoms-triviality.test.ts`:
 
@@ -183,12 +206,12 @@ test('contentWords: filters short and stop words', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atoms-triviality.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement triviality rules**
+- [x] **Step 3: Implement triviality rules**
 
 Create `src/atoms/triviality-rules.ts`:
 
@@ -257,12 +280,12 @@ export function evaluateTriviality(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `node --test --import tsx test/atoms-triviality.test.ts`
 Expected: 8 tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/atoms/triviality-rules.ts test/atoms-triviality.test.ts
@@ -279,7 +302,7 @@ git commit -m "feat(atoms): deterministic triviality stop-list (stage 1)"
 - Modify: `src/storage/postgres-store.ts`
 - Test: `test/atoms-cross-type-dedup.test.ts`
 
-- [ ] **Step 1: Add interface signatures**
+- [x] **Step 1: Add interface signatures**
 
 Edit `src/storage/store.ts`. Add to `KnowledgeStore`:
 
@@ -298,7 +321,7 @@ Edit `src/storage/store.ts`. Add to `KnowledgeStore`:
   countNegativeFeedback(knowledgeId: string, withinDays: number): Promise<number>;
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `test/atoms-cross-type-dedup.test.ts`:
 
@@ -370,12 +393,12 @@ test('countNegativeFeedback: counts within window only', async () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atoms-cross-type-dedup.test.ts`
 Expected: FAIL — methods do not exist on memory store.
 
-- [ ] **Step 4: Implement on `MemoryKnowledgeStore`**
+- [x] **Step 4: Implement on `MemoryKnowledgeStore`**
 
 Edit `src/storage/memory-store.ts`. Add the two methods. The memory store has no real embeddings, so `searchKnowledgeByEmbedding` uses Jaccard-on-content as a stand-in (consistent with how memory-store handles other vector calls in tests):
 
@@ -415,12 +438,12 @@ Edit `src/storage/memory-store.ts`. Add the two methods. The memory store has no
 
 (`feedbackEvents` is an existing private map on `MemoryKnowledgeStore`. If the name differs in your branch, use the correct one.)
 
-- [ ] **Step 5: Run the test to verify it passes (memory store)**
+- [x] **Step 5: Run the test to verify it passes (memory store)**
 
 Run: `node --test --import tsx test/atoms-cross-type-dedup.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Implement on `PostgresKnowledgeStore`**
+- [x] **Step 6: Implement on `PostgresKnowledgeStore`**
 
 Edit `src/storage/postgres-store.ts`. Add:
 
@@ -474,17 +497,17 @@ Edit `src/storage/postgres-store.ts`. Add:
 
 (`rowToKnowledge` is the existing row-mapper in `postgres-store.ts`. Use the actual exported helper.)
 
-- [ ] **Step 7: Verify typecheck passes**
+- [x] **Step 7: Verify typecheck passes**
 
 Run: `pnpm run build`
 Expected: PASS.
 
-- [ ] **Step 8: Run the full suite**
+- [x] **Step 8: Run the full suite**
 
 Run: `pnpm test`
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/storage/store.ts src/storage/memory-store.ts src/storage/postgres-store.ts test/atoms-cross-type-dedup.test.ts
@@ -502,7 +525,7 @@ git commit -m "feat(atoms): cross-type embedding search + negative feedback coun
 - Create: `src/atoms/gate-telemetry.ts`
 - Test: `test/atoms-gate-telemetry.test.ts`
 
-- [ ] **Step 1: Add interface signatures**
+- [x] **Step 1: Add interface signatures**
 
 Edit `src/storage/store.ts`:
 
@@ -536,7 +559,7 @@ export interface AtomGateEventInput {
   listAtomGateEvents(options: { project?: string; windowDays: number; limit: number }): Promise<AtomGateEvent[]>;
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `test/atoms-gate-telemetry.test.ts`:
 
@@ -578,12 +601,12 @@ test('GateTelemetry.record: never throws on degraded write', async () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atoms-gate-telemetry.test.ts`
 Expected: FAIL — module not found and store methods missing.
 
-- [ ] **Step 4: Implement `recordAtomGateEvent` on `MemoryKnowledgeStore`**
+- [x] **Step 4: Implement `recordAtomGateEvent` on `MemoryKnowledgeStore`**
 
 ```typescript
   private readonly atomGateEvents = new Map<string, AtomGateEvent>();
@@ -608,7 +631,7 @@ Expected: FAIL — module not found and store methods missing.
   }
 ```
 
-- [ ] **Step 5: Implement on `PostgresKnowledgeStore`**
+- [x] **Step 5: Implement on `PostgresKnowledgeStore`**
 
 ```typescript
   async recordAtomGateEvent(input: AtomGateEventInput): Promise<AtomGateEvent> {
@@ -666,7 +689,7 @@ function rowToGateEvent(row: Record<string, unknown>, project: string): AtomGate
 }
 ```
 
-- [ ] **Step 6: Implement `GateTelemetry` wrapper**
+- [x] **Step 6: Implement `GateTelemetry` wrapper**
 
 Create `src/atoms/gate-telemetry.ts`:
 
@@ -690,12 +713,12 @@ export class GateTelemetry {
 }
 ```
 
-- [ ] **Step 7: Run the test to verify it passes**
+- [x] **Step 7: Run the test to verify it passes**
 
 Run: `node --test --import tsx test/atoms-gate-telemetry.test.ts`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/storage/store.ts src/storage/memory-store.ts src/storage/postgres-store.ts src/atoms/gate-telemetry.ts test/atoms-gate-telemetry.test.ts
@@ -711,7 +734,7 @@ git commit -m "feat(atoms): atom_gate_events telemetry + best-effort recorder"
 - Create: `src/atoms/llm-critic.ts`
 - Test: `test/atoms-llm-critic.test.ts`
 
-- [ ] **Step 1: Add `judgeAtomUtility` to `ModelProvider`**
+- [x] **Step 1: Add `judgeAtomUtility` to `ModelProvider`**
 
 Edit `src/model/provider.ts`:
 
@@ -763,7 +786,7 @@ Return JSON: { "generalizable": bool, "reason": string, "confidence": 0..1 }`;
 
 (Match the existing `callResponses` helper signature in the file — these are the actual existing patterns. If the file uses a different helper name, use it.)
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `test/atoms-llm-critic.test.ts`:
 
@@ -826,12 +849,12 @@ test('LlmCritic.isBorderline: true when trigger has only taskTypes', () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atoms-llm-critic.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Implement `LlmCritic`**
+- [x] **Step 4: Implement `LlmCritic`**
 
 Create `src/atoms/llm-critic.ts`:
 
@@ -886,12 +909,12 @@ export class LlmCritic {
 }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `node --test --import tsx test/atoms-llm-critic.test.ts`
 Expected: 4 tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/model/provider.ts src/atoms/llm-critic.ts test/atoms-llm-critic.test.ts
@@ -906,7 +929,7 @@ git commit -m "feat(atoms): LLM critic with Redis cache + judgeAtomUtility seam"
 - Modify: `src/atoms/critic.ts`
 - Test: extend `test/atoms-critic.test.ts` from B
 
-- [ ] **Step 1: Update the existing critic tests for new pipeline behavior**
+- [x] **Step 1: Update the existing critic tests for new pipeline behavior**
 
 Append to `test/atoms-critic.test.ts`:
 
@@ -953,12 +976,12 @@ test('AtomCritic.evaluate: cross-type dedup detects legacy memory and returns qu
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atoms-critic.test.ts`
 Expected: FAIL — current critic does not run triviality, telemetry, or cross-type dedup.
 
-- [ ] **Step 3: Refactor `AtomCritic`**
+- [x] **Step 3: Refactor `AtomCritic`**
 
 Replace `src/atoms/critic.ts`:
 
@@ -1126,17 +1149,17 @@ export class AtomCritic {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `node --test --import tsx test/atoms-critic.test.ts`
 Expected: All tests (the originals from B and the new D ones) pass.
 
-- [ ] **Step 5: Run the full suite to check downstream callers**
+- [x] **Step 5: Run the full suite to check downstream callers**
 
 Run: `pnpm test`
 Expected: PASS. The B-era extractor test uses `new AtomCritic(store, models)` without a cache; that path still works because `llmCritic` only initializes when both a cache and a `judgeAtomUtility`-capable provider are present.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/atoms/critic.ts test/atoms-critic.test.ts
@@ -1151,7 +1174,7 @@ git commit -m "feat(atoms): 4-stage critic pipeline with telemetry + cross-type 
 - Modify: `src/atoms/extractor.ts`
 - Test: extend `test/atoms-extractor.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/atoms-extractor.test.ts`:
 
@@ -1184,12 +1207,12 @@ test('AtomExtractor: queue_legacy_migration triggers migration of the matched le
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atoms-extractor.test.ts`
 Expected: FAIL — `queuedLegacyMigrations` undefined on result.
 
-- [ ] **Step 3: Update `AtomExtractor.extractFromSession`**
+- [x] **Step 3: Update `AtomExtractor.extractFromSession`**
 
 Edit `src/atoms/extractor.ts`. Extend the result shape and route `queue_legacy_migration` outcomes:
 
@@ -1219,12 +1242,12 @@ export interface ExtractFromSessionResult {
 
 (If extending `KnowledgeAtom` metadata for `pendingLlmCritic` is needed, add a `metadata?: Record<string, unknown>` field on the atom in `src/types/atoms.ts` and propagate through stores — small follow-on edit.)
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `node --test --import tsx test/atoms-extractor.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/atoms/extractor.ts test/atoms-extractor.test.ts src/types/atoms.ts
@@ -1240,7 +1263,7 @@ git commit -m "feat(atoms): extractor handles queue_legacy_migration + pending o
 - Modify: `src/retrieval/service.ts`
 - Test: `test/atoms-archival.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/atoms-archival.test.ts`:
 
@@ -1310,12 +1333,12 @@ test('archival: canonical atoms need ≥5 negative signals before signal-archive
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atoms-archival.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement archival**
+- [x] **Step 3: Implement archival**
 
 Create `src/atoms/archival.ts`:
 
@@ -1377,12 +1400,12 @@ export async function runArchivalSweep(
 
 (The `as never` casts work around the current `KnowledgeAtomPatch` not having `status` in B. Extend `KnowledgeAtomPatch` in `src/types/atoms.ts` to include `status?: AtomStatus` — it's a 1-line addition and removes the cast.)
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `node --test --import tsx test/atoms-archival.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Filter archived atoms out of default retrieval**
+- [x] **Step 5: Filter archived atoms out of default retrieval**
 
 Edit `src/retrieval/service.ts`. In `searchAtomCandidates` (from B Task 8), filter to `status: 'active'`:
 
@@ -1421,12 +1444,12 @@ test('retrieval: archived atoms do not appear in default context packs', async (
 });
 ```
 
-- [ ] **Step 6: Run the retrieval test**
+- [x] **Step 6: Run the retrieval test**
 
 Run: `node --test --import tsx test/atoms-retrieval.test.ts`
 Expected: PASS, no regressions from B's tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/atoms/archival.ts src/types/atoms.ts src/storage/memory-store.ts src/storage/postgres-store.ts src/storage/store.ts src/retrieval/service.ts test/atoms-archival.test.ts test/atoms-retrieval.test.ts
@@ -1442,7 +1465,7 @@ git commit -m "feat(atoms): archival sweep (time + signal) + retrieval status fi
 - Modify: `src/mcp/server.ts`
 - Test: extend `test/atoms-archival.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/atoms-archival.test.ts`:
 
@@ -1460,12 +1483,12 @@ test('resurrection: flipping status back to active immediately resurfaces in ret
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it passes**
+- [x] **Step 2: Run the test to verify it passes**
 
 Run: `node --test --import tsx test/atoms-archival.test.ts`
 Expected: PASS — `updateAtom` already supports `status` after Task 8.
 
-- [ ] **Step 3: Register HTTP route**
+- [x] **Step 3: Register HTTP route**
 
 Edit `src/http/server.ts`. Add to the route registration block:
 
@@ -1482,7 +1505,7 @@ Edit `src/http/server.ts`. Add to the route registration block:
 
 (Follow the actual middleware/handler pattern in the file. `requireAuth` is the existing auth guard — name may differ.)
 
-- [ ] **Step 4: Register MCP tool**
+- [x] **Step 4: Register MCP tool**
 
 Edit `src/mcp/server.ts`. Add to the tool list:
 
@@ -1498,7 +1521,7 @@ Edit `src/mcp/server.ts`. Add to the tool list:
 
 (Use the actual MCP tool-registration helper in `src/mcp/server.ts` — pattern matches existing tools like `tuberosa_append_session_note`.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/http/server.ts src/mcp/server.ts test/atoms-archival.test.ts
@@ -1515,7 +1538,7 @@ git commit -m "feat(atoms): POST /atoms/:id/resurrect + tuberosa_resurrect_atom 
 - Modify: `src/mcp/server.ts`
 - Test: `test/atom-gate-stats.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/atom-gate-stats.test.ts`:
 
@@ -1556,12 +1579,12 @@ test('computeAtomGateStats: emits "too strict" hint when acceptance < 30%', asyn
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/atom-gate-stats.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement stats**
+- [x] **Step 3: Implement stats**
 
 Create `src/operations/atom-gate-stats.ts`:
 
@@ -1639,7 +1662,7 @@ export async function computeAtomGateStats(
 }
 ```
 
-- [ ] **Step 4: Register HTTP route**
+- [x] **Step 4: Register HTTP route**
 
 Edit `src/http/server.ts`:
 
@@ -1653,7 +1676,7 @@ Edit `src/http/server.ts`:
   });
 ```
 
-- [ ] **Step 5: Register MCP tool**
+- [x] **Step 5: Register MCP tool**
 
 Edit `src/mcp/server.ts`:
 
@@ -1673,12 +1696,12 @@ Edit `src/mcp/server.ts`:
   });
 ```
 
-- [ ] **Step 6: Run the test and full suite**
+- [x] **Step 6: Run the test and full suite**
 
 Run: `node --test --import tsx test/atom-gate-stats.test.ts && pnpm test`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/operations/atom-gate-stats.ts src/http/server.ts src/mcp/server.ts test/atom-gate-stats.test.ts
@@ -1695,7 +1718,7 @@ git commit -m "feat(atoms): GET /operations/atom-gate/stats + tuberosa_atom_gate
 - Create: `scripts/archival-sweep.ts`
 - Modify: `package.json`
 
-- [ ] **Step 1: Add archival env vars to config**
+- [x] **Step 1: Add archival env vars to config**
 
 Edit `src/config.ts`. Add to `AppConfig` and `loadConfig`:
 
@@ -1711,7 +1734,7 @@ Read from env in `loadConfig`:
   archivalIntervalHours: Number(process.env.TUBEROSA_ARCHIVAL_INTERVAL_HOURS ?? 24),
 ```
 
-- [ ] **Step 2: Hook archival into the worker**
+- [x] **Step 2: Hook archival into the worker**
 
 Edit `src/worker.ts`:
 
@@ -1749,7 +1772,7 @@ process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 ```
 
-- [ ] **Step 3: Add the one-shot CLI**
+- [x] **Step 3: Add the one-shot CLI**
 
 Create `scripts/archival-sweep.ts`:
 
@@ -1787,7 +1810,7 @@ await services.close();
 
 (For `--dry-run`, we currently still write — this is a deliberate simplification because `updateAtom` is the only mutating call. Wrap it: if `--dry-run`, swap `store.updateAtom` with a no-op stub before passing to `runArchivalSweep`. Add a `dryRun` flag to `runArchivalSweep` instead of the swap — pick the simpler refactor.)
 
-- [ ] **Step 4: Add npm script**
+- [x] **Step 4: Add npm script**
 
 Edit `package.json`:
 
@@ -1795,12 +1818,12 @@ Edit `package.json`:
     "archival-sweep": "node --import tsx scripts/archival-sweep.ts"
 ```
 
-- [ ] **Step 5: Smoke-test the CLI**
+- [x] **Step 5: Smoke-test the CLI**
 
 Run: `pnpm run archival-sweep -- --report /tmp/archival.md`
 Expected: exits 0; `/tmp/archival.md` exists.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/worker.ts src/config.ts scripts/archival-sweep.ts package.json
@@ -1815,7 +1838,7 @@ git commit -m "feat(atoms): scheduled archival sweep in worker + one-shot CLI"
 - Modify: `eval/retrieval-fixtures.json`
 - Modify: `eval/retrieval.ts` (the runner, if needed)
 
-- [ ] **Step 1: Add fixture cases**
+- [x] **Step 1: Add fixture cases**
 
 Edit `eval/retrieval-fixtures.json`. Add cases:
 
@@ -1843,12 +1866,12 @@ Edit `eval/retrieval-fixtures.json`. Add cases:
 
 If the runner does not yet support `extractAtoms` or atom `status` ingest, extend it minimally — locate `eval/retrieval.ts` (the existing runner) and add the new ingest branches.
 
-- [ ] **Step 2: Run the eval**
+- [x] **Step 2: Run the eval**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS — all original cases plus the new ones.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add eval/retrieval-fixtures.json eval/retrieval.ts
@@ -1859,27 +1882,27 @@ git commit -m "test(atoms): eval fixtures for triviality rejection + archival ex
 
 ## Task 13: Final verification — full eval + integration
 
-- [ ] **Step 1: Run the full unit suite**
+- [x] **Step 1: Run the full unit suite**
 
 Run: `pnpm test`
 Expected: PASS.
 
-- [ ] **Step 2: Run retrieval eval**
+- [x] **Step 2: Run retrieval eval**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS — hitRate=1, staleRejectionRate=1, all classification rates at 1.
 
-- [ ] **Step 3: Run agent-context eval**
+- [x] **Step 3: Run agent-context eval**
 
 Run: `pnpm run eval:agent-context`
 Expected: PASS.
 
-- [ ] **Step 4: Integration tests if Docker is up**
+- [x] **Step 4: Integration tests if Docker is up**
 
 Run: `pnpm run test:integration`
 Expected: PASS or skipped.
 
-- [ ] **Step 5: Smoke-test the live stack**
+- [x] **Step 5: Smoke-test the live stack**
 
 Bring up Docker:
 
@@ -1890,7 +1913,7 @@ curl -s http://localhost:3027/operations/atom-gate/stats
 ```
 Expected: JSON response with `totalCandidates: 0` (or higher if dev data was extracted).
 
-- [ ] **Step 6: Commit final touch-ups (if any)**
+- [x] **Step 6: Commit final touch-ups (if any)**
 
 ```bash
 git add -A

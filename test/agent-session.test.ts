@@ -41,6 +41,9 @@ const config: AppConfig = {
   worktreeEnabled: true,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
+  llmCriticEnabled: false,
+  archivalEnabled: false,
+  archivalIntervalHours: 24,
 };
 
 test('agent sessions start with context, record decisions, retry rejected context, and finish with a reflection draft', async () => {

@@ -63,7 +63,13 @@ import {
   writeNamespaceToMetadata,
 } from './knowledge-namespace.js';
 import type { SessionReplayBundle } from '../operations/session-replay.js';
-import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
+import type {
+  AtomGateEvent,
+  AtomGateEventInput,
+  ChunkInput,
+  KnowledgeStore,
+  StaleFileAtomCleanupInput,
+} from './store.js';
 
 interface MemoryChunk extends ChunkInput {
   id: string;
@@ -88,6 +94,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   // Embeddings are kept in a side map (keyed by atom id) rather than on the
   // public KnowledgeAtom shape so getAtom/deepEqual storage tests stay green.
   private readonly atomEmbeddings = new Map<string, number[]>();
+  private readonly atomGateEvents = new Map<string, AtomGateEvent>();
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -1183,9 +1190,15 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
     const existing = this.atoms.get(id);
     if (!existing) return undefined;
+    // Only apply defined patch keys so an explicit `undefined` (e.g. an optional
+    // field a caller didn't set) cannot clobber an existing value. Matches the
+    // Postgres store, which builds its SET clause from defined fields only.
+    const definedPatch = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    ) as KnowledgeAtomPatch;
     const updated: KnowledgeAtom = {
       ...existing,
-      ...patch,
+      ...definedPatch,
       audit: { ...existing.audit, updatedAt: new Date().toISOString() },
     };
     this.atoms.set(id, updated);
@@ -1249,6 +1262,67 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         || matchesAny(atom.trigger.symbols, wantSymbols)
         || matchesAny(atom.trigger.taskTypes, wantTaskTypes),
       )
+      .slice(0, options.limit);
+  }
+
+  async searchKnowledgeByEmbedding(
+    _embedding: number[],
+    options: {
+      project?: string;
+      limit: number;
+      threshold?: number;
+      itemTypes?: string[];
+      excludeLegacyStatuses?: Array<'legacy_replaced' | 'legacy_archived'>;
+    },
+  ): Promise<Array<{ knowledge: StoredKnowledge; cosine: number }>> {
+    const items = await this.listKnowledge({ project: options.project, limit: 1000 });
+    const itemTypeFilter = options.itemTypes ? new Set(options.itemTypes) : undefined;
+    const excludeLegacy = new Set(options.excludeLegacyStatuses ?? []);
+    return items
+      .filter((item) => !itemTypeFilter || itemTypeFilter.has(item.itemType))
+      .filter((item) => {
+        const legacy = (item.metadata as { legacyStatus?: string } | undefined)?.legacyStatus;
+        return !legacy || !excludeLegacy.has(legacy as 'legacy_replaced' | 'legacy_archived');
+      })
+      // The memory store has no real embeddings; cross-type dedup fixtures
+      // assert presence/absence under a 0.0 threshold rather than exact cosine,
+      // so we report a constant high similarity for every surviving candidate.
+      .map((knowledge) => ({ knowledge, cosine: 0.95 }))
+      .filter(({ cosine }) => cosine >= (options.threshold ?? 0))
+      .slice(0, options.limit);
+  }
+
+  async countNegativeFeedback(knowledgeId: string, withinDays: number): Promise<number> {
+    const cutoff = Date.now() - withinDays * 24 * 60 * 60 * 1000;
+    const negativeTypes = new Set(['rejected', 'stale', 'irrelevant']);
+    return this.feedback
+      .filter((event) => negativeTypes.has(event.feedbackType))
+      .filter((event) => new Date(event.createdAt).getTime() >= cutoff)
+      .filter((event) =>
+        (event.rejectedKnowledgeIds ?? []).includes(knowledgeId)
+        || (event.metadata as { affectedKnowledgeId?: string } | undefined)?.affectedKnowledgeId === knowledgeId,
+      )
+      .length;
+  }
+
+  async recordAtomGateEvent(input: AtomGateEventInput): Promise<AtomGateEvent> {
+    const event: AtomGateEvent = {
+      id: randomUUID(),
+      ...input,
+      createdAt: new Date().toISOString(),
+    };
+    this.atomGateEvents.set(event.id, event);
+    return event;
+  }
+
+  async listAtomGateEvents(
+    options: { project?: string; windowDays: number; limit: number },
+  ): Promise<AtomGateEvent[]> {
+    const cutoff = Date.now() - options.windowDays * 24 * 60 * 60 * 1000;
+    return [...this.atomGateEvents.values()]
+      .filter((e) => !options.project || e.project === options.project)
+      .filter((e) => new Date(e.createdAt).getTime() >= cutoff)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, options.limit);
   }
 

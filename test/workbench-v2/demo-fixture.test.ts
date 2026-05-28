@@ -77,6 +77,9 @@ const TEST_CONFIG: AppConfig = {
   worktreeEnabled: false,
   worktreeMaxFiles: 50,
   worktreeMaxMtimeAgeHours: 72,
+  llmCriticEnabled: false,
+  archivalEnabled: false,
+  archivalIntervalHours: 24,
 };
 
 // ---------------------------------------------------------------------------

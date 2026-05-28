@@ -68,6 +68,30 @@ export interface StaleFileAtomCleanupInput {
   keepSourceUris: string[];
 }
 
+export interface AtomGateEvent {
+  id: string;
+  project?: string;
+  sessionId?: string;
+  atomId?: string;
+  candidateClaim: string;
+  candidateType: string;
+  stage: 'triviality' | 'floor' | 'dedup' | 'llm_critic';
+  outcome: 'accepted' | 'rejected' | 'pending' | 'queue_legacy_migration';
+  reasons: string[];
+  createdAt: string;
+}
+
+export interface AtomGateEventInput {
+  project?: string;
+  sessionId?: string;
+  atomId?: string;
+  candidateClaim: string;
+  candidateType: string;
+  stage: AtomGateEvent['stage'];
+  outcome: AtomGateEvent['outcome'];
+  reasons: string[];
+}
+
 export interface KnowledgeStore {
   upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge>;
   deleteStaleFileAtoms(input: StaleFileAtomCleanupInput): Promise<number>;
@@ -85,6 +109,19 @@ export interface KnowledgeStore {
   incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined>;
   searchAtomsByEmbedding(embedding: number[], options: { project?: string; limit: number; threshold?: number }): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>>;
   searchAtomsByTrigger(trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] }, options: { project?: string; limit: number }): Promise<KnowledgeAtom[]>;
+  searchKnowledgeByEmbedding(
+    embedding: number[],
+    options: {
+      project?: string;
+      limit: number;
+      threshold?: number;
+      itemTypes?: string[];
+      excludeLegacyStatuses?: Array<'legacy_replaced' | 'legacy_archived'>;
+    },
+  ): Promise<Array<{ knowledge: StoredKnowledge; cosine: number }>>;
+  countNegativeFeedback(knowledgeId: string, withinDays: number): Promise<number>;
+  recordAtomGateEvent(input: AtomGateEventInput): Promise<AtomGateEvent>;
+  listAtomGateEvents(options: { project?: string; windowDays: number; limit: number }): Promise<AtomGateEvent[]>;
   createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation>;
   updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined>;
   deleteKnowledgeRelation(id: string): Promise<boolean>;

@@ -58,6 +58,8 @@ export interface RetrievalEvalAtom {
   tier?: KnowledgeAtomPatch['tier'];
   reuseCount?: number;
   lastReusedAt?: string;
+  /** Status to force after creation (atoms start as active). Lets fixtures seed archived atoms. */
+  status?: KnowledgeAtomPatch['status'];
 }
 
 export interface RetrievalEvalRelation {
@@ -278,11 +280,12 @@ export class RetrievalEvaluator {
         verification: atom.verification,
         producedBy: atom.producedBy ?? 'agent_session',
       });
-      if (atom.tier || atom.reuseCount !== undefined || atom.lastReusedAt) {
+      if (atom.tier || atom.reuseCount !== undefined || atom.lastReusedAt || atom.status) {
         await this.atomCreator.updateAtom(created.id, {
           tier: atom.tier,
           reuseCount: atom.reuseCount,
           lastReusedAt: atom.lastReusedAt,
+          status: atom.status,
         });
       }
       index.byEvalId.set(atom.evalId, created.id);

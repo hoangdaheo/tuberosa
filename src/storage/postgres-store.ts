@@ -69,7 +69,13 @@ import {
   writeNamespaceToMetadata,
 } from './knowledge-namespace.js';
 import type { SessionReplayBundle } from '../operations/session-replay.js';
-import type { ChunkInput, KnowledgeStore, StaleFileAtomCleanupInput } from './store.js';
+import type {
+  AtomGateEvent,
+  AtomGateEventInput,
+  ChunkInput,
+  KnowledgeStore,
+  StaleFileAtomCleanupInput,
+} from './store.js';
 
 type Queryable = Pool | PoolClient;
 
@@ -1759,6 +1765,109 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rows.map((row) => rowToAtom(row, String(row.project_name)));
   }
 
+  async searchKnowledgeByEmbedding(
+    embedding: number[],
+    options: {
+      project?: string;
+      limit: number;
+      threshold?: number;
+      itemTypes?: string[];
+      excludeLegacyStatuses?: Array<'legacy_replaced' | 'legacy_archived'>;
+    },
+  ): Promise<Array<{ knowledge: StoredKnowledge; cosine: number }>> {
+    // Reuse knowledgeSelect() (full StoredKnowledge projection) as a CTE and join
+    // the best chunk cosine per item. legacy_status is not in that projection, so
+    // we re-join knowledge_items to filter it.
+    const filters: string[] = [];
+    const values: unknown[] = [`[${embedding.join(',')}]`, options.limit];
+    if (options.project) {
+      values.push(options.project);
+      filters.push(`base.project = $${values.length}`);
+    }
+    if (options.itemTypes && options.itemTypes.length) {
+      values.push(options.itemTypes);
+      filters.push(`base.item_type = ANY($${values.length}::text[])`);
+    }
+    if (options.excludeLegacyStatuses && options.excludeLegacyStatuses.length) {
+      values.push(options.excludeLegacyStatuses);
+      filters.push(`(ki2.legacy_status IS NULL OR NOT (ki2.legacy_status = ANY($${values.length}::text[])))`);
+    }
+    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+    const threshold = options.threshold ?? 0;
+    const result = await this.pool.query(
+      `WITH scored AS (
+         SELECT kc.knowledge_id AS id, 1 - MIN(kc.embedding <=> $1::vector) AS cosine
+         FROM knowledge_chunks kc
+         WHERE kc.embedding IS NOT NULL
+         GROUP BY kc.knowledge_id
+       ),
+       base AS (
+         ${knowledgeSelect()}
+       )
+       SELECT base.*, scored.cosine
+       FROM base
+       JOIN scored ON scored.id = base.id
+       LEFT JOIN knowledge_items ki2 ON ki2.id = base.id
+       ${where}
+       ORDER BY scored.cosine DESC
+       LIMIT $2`,
+      values,
+    );
+    return result.rows
+      .map((row) => ({ knowledge: mapKnowledgeRow(row), cosine: Number(row.cosine) }))
+      .filter((entry) => entry.cosine >= threshold);
+  }
+
+  async countNegativeFeedback(knowledgeId: string, withinDays: number): Promise<number> {
+    const result = await this.pool.query(
+      `SELECT COUNT(*) AS count
+       FROM feedback_events fe
+       WHERE fe.feedback_type IN ('rejected','stale','irrelevant')
+         AND fe.created_at >= now() - ($2 || ' days')::interval
+         AND ($1::uuid = ANY(fe.rejected_knowledge_ids)
+              OR (fe.metadata->>'affectedKnowledgeId') = $1::text)`,
+      [knowledgeId, String(withinDays)],
+    );
+    return Number(result.rows[0].count);
+  }
+
+  async recordAtomGateEvent(input: AtomGateEventInput): Promise<AtomGateEvent> {
+    const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
+    const result = await this.pool.query(
+      `INSERT INTO atom_gate_events
+         (project_id, session_id, atom_id, candidate_claim, candidate_type, stage, outcome, reasons)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+       RETURNING *`,
+      [
+        projectId, input.sessionId ?? null, input.atomId ?? null,
+        input.candidateClaim, input.candidateType,
+        input.stage, input.outcome, JSON.stringify(input.reasons),
+      ],
+    );
+    return rowToGateEvent(result.rows[0], input.project ?? '');
+  }
+
+  async listAtomGateEvents(
+    options: { project?: string; windowDays: number; limit: number },
+  ): Promise<AtomGateEvent[]> {
+    const values: unknown[] = [String(options.windowDays), options.limit];
+    let projectFilter = '';
+    if (options.project) {
+      values.push(options.project);
+      projectFilter = `AND p.name = $${values.length}`;
+    }
+    const result = await this.pool.query(
+      `SELECT e.*, p.name AS project_name
+       FROM atom_gate_events e
+       LEFT JOIN projects p ON p.id = e.project_id
+       WHERE e.created_at >= now() - ($1 || ' days')::interval ${projectFilter}
+       ORDER BY e.created_at DESC
+       LIMIT $2`,
+      values,
+    );
+    return result.rows.map((row) => rowToGateEvent(row, String(row.project_name ?? '')));
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
@@ -2666,6 +2775,21 @@ function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom
       createdAt: new Date(row.created_at as string).toISOString(),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     },
+  };
+}
+
+function rowToGateEvent(row: Record<string, unknown>, project: string): AtomGateEvent {
+  return {
+    id: String(row.id),
+    project: project || undefined,
+    sessionId: row.session_id ? String(row.session_id) : undefined,
+    atomId: row.atom_id ? String(row.atom_id) : undefined,
+    candidateClaim: String(row.candidate_claim),
+    candidateType: String(row.candidate_type),
+    stage: row.stage as AtomGateEvent['stage'],
+    outcome: row.outcome as AtomGateEvent['outcome'],
+    reasons: (row.reasons ?? []) as string[],
+    createdAt: new Date(row.created_at as string).toISOString(),
   };
 }
 
