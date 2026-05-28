@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createAppServices } from '../src/app.js';
 import { createHttpServer } from '../src/http/server.js';
+import { handleMcpRequest } from '../src/mcp/server.js';
 
 async function startServer(envOverrides: Record<string, string>) {
   const prev = { ...process.env };
@@ -107,6 +108,36 @@ test('POST /operations/import-pack rejects ../ traversal', async () => {
     equal(res.status, 400);
   } finally {
     await ctx.close();
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('tuberosa_export_pack rejects absolute out via MCP', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'tuberosa-mcp-exp-'));
+  const prev = { ...process.env };
+  process.env.TUBEROSA_EXPORT_BASE_DIR = base;
+  process.env.TUBEROSA_STORE = 'memory';
+  process.env.TUBEROSA_CACHE = 'memory';
+  process.env.TUBEROSA_MODEL_PROVIDER = 'hash';
+  process.env.TUBEROSA_AUTO_MIGRATE = 'false';
+  const services = await createAppServices();
+  try {
+    let threw = false;
+    try {
+      await handleMcpRequest(services, {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'tuberosa_export_pack', arguments: { project: 'demo', out: '/etc/cron.daily/evil' } },
+      } as any);
+    } catch (err) {
+      threw = true;
+      match((err as Error).message, /absolute path is not allowed|outside the configured base/);
+    }
+    ok(threw, 'expected ValidationError');
+  } finally {
+    await services.close();
+    process.env = prev;
     await rm(base, { recursive: true, force: true });
   }
 });
