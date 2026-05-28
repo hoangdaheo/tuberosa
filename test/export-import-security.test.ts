@@ -1,6 +1,6 @@
 import test from 'node:test';
 import { deepEqual, equal, match, ok } from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -180,4 +180,44 @@ test('importer skips user-style entries that fail assertSafeChildName', async ()
     try { assertSafeChildName(c); accepted.push(c); } catch (e) { ok(e instanceof ValidationError); }
   }
   deepEqual(accepted, ['alice', 'bob', 'carol_1']);
+});
+
+test('importer refuses to read a bundle whose user-style tree contains a symlink escape', async () => {
+  const { symlink } = await import('node:fs/promises');
+  const { MemoryKnowledgeStore } = await import('../src/storage/memory-store.js');
+  const { writeManifest, SCHEMA_VERSION } = await import('../src/export/manifest.js');
+  const bundle = await mkdtemp(join(tmpdir(), 'tuberosa-bundle-sym-'));
+  const outside = await mkdtemp(join(tmpdir(), 'tuberosa-outside-sym-'));
+  await mkdir(join(bundle, 'user-style'), { recursive: true });
+  await mkdir(join(bundle, 'atoms'), { recursive: true });
+  await mkdir(join(bundle, 'knowledge'), { recursive: true });
+  await writeFile(join(bundle, 'edges.jsonl'), '', 'utf8');
+  await writeManifest(join(bundle, 'manifest.json'), {
+    schemaVersion: SCHEMA_VERSION,
+    project: 'demo',
+    createdAt: new Date().toISOString(),
+    tool: { name: 'tuberosa', version: 'test' },
+    counts: { atoms: 0, knowledge: 0, edges: 0, userStyle: 0 },
+    integrity: {},
+  } as any);
+  // Use a normal-looking name so assertSafeChildName accepts it,
+  // but the directory itself is a symlink to a location outside the bundle.
+  await symlink(outside, join(bundle, 'user-style', 'alice'));
+  const { importPack } = await import('../src/export/importer.js');
+  const store = new MemoryKnowledgeStore();
+  let threw = false;
+  try {
+    await importPack(store, {
+      from: bundle,
+      dryRun: true,
+      targetUserId: 'alice',
+      onConflict: 'skip',
+    } as any);
+  } catch (err) {
+    const msg = (err as Error).message;
+    threw = /escapes base|outside the configured base|symlink/.test(msg);
+  }
+  ok(threw, 'expected importer to refuse symlinked subtree');
+  await rm(bundle, { recursive: true, force: true });
+  await rm(outside, { recursive: true, force: true });
 });

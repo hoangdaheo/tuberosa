@@ -7,7 +7,7 @@ import { parseAtomMarkdown, toAtomInputFromParsed } from './atom-codec.js';
 import { parseKnowledgeMarkdown } from './knowledge-codec.js';
 import { parseEdgesJsonl } from './edges-codec.js';
 import { readManifest, sha256OfBuffer } from './manifest.js';
-import { assertSafeChildName } from '../security/safe-paths.js';
+import { assertSafeBundlePath, assertSafeChildName } from '../security/safe-paths.js';
 
 export interface ImportOptions {
   from: string;
@@ -216,6 +216,7 @@ export async function importPack(
       report.userStyleSkipped += 1;
       continue;
     }
+    await assertSafeBundlePath(opts.from, join('user-style', userIdDir));
     const dir = join(opts.from, 'user-style', userIdDir);
     const allFiles = await readdir(dir);
     const files = allFiles.filter((f) => {
