@@ -78,3 +78,35 @@ test('POST /operations/export-pack accepts a relative path under base', async ()
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test('POST /operations/import-pack rejects /proc traversal', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'tuberosa-imp-'));
+  const ctx = await startServer({ TUBEROSA_IMPORT_BASE_DIR: base });
+  try {
+    const res = await fetch(`${ctx.url}/operations/import-pack`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from: '/proc/self/environ' }),
+    });
+    equal(res.status, 400);
+  } finally {
+    await ctx.close();
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('POST /operations/import-pack rejects ../ traversal', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'tuberosa-imp-'));
+  const ctx = await startServer({ TUBEROSA_IMPORT_BASE_DIR: base });
+  try {
+    const res = await fetch(`${ctx.url}/operations/import-pack`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from: '../escape' }),
+    });
+    equal(res.status, 400);
+  } finally {
+    await ctx.close();
+    await rm(base, { recursive: true, force: true });
+  }
+});
