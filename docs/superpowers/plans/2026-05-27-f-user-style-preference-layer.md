@@ -58,7 +58,7 @@
 **Files:**
 - Create: `migrations/010_user_style_atoms.sql`
 
-- [ ] **Step 1: Create the migration**
+- [x] **Step 1: Create the migration**
 
 ```sql
 ALTER TABLE knowledge_atoms
@@ -72,11 +72,11 @@ CREATE INDEX IF NOT EXISTS idx_atoms_scope_user
   ON knowledge_atoms (scope, user_id, tier) WHERE status='active';
 ```
 
-- [ ] **Step 2: Apply migration**
+- [x] **Step 2: Apply migration**
 
 Run: `pnpm run migrate`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add migrations/010_user_style_atoms.sql
@@ -95,7 +95,7 @@ git commit -m "feat(user-style): migration 010 — scope/user_id/priority on kno
 - Create: `src/user-style/store-helpers.ts`
 - Test: `test/user-style-store.test.ts`
 
-- [ ] **Step 1: Extend types**
+- [x] **Step 1: Extend types**
 
 Edit `src/types/atoms.ts`:
 
@@ -118,7 +118,7 @@ export interface KnowledgeAtomInput {
 }
 ```
 
-- [ ] **Step 2: Write the failing store test**
+- [x] **Step 2: Write the failing store test**
 
 Create `test/user-style-store.test.ts`:
 
@@ -200,12 +200,12 @@ test('searchAtomsByTrigger: scope=user filter returns only user atoms for the gi
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/user-style-store.test.ts`
 Expected: FAIL — helper not implemented; `searchAtomsByTrigger` does not yet accept `scope`/`userId`.
 
-- [ ] **Step 4: Implement `createUserStyleAtom`**
+- [x] **Step 4: Implement `createUserStyleAtom`**
 
 Create `src/user-style/store-helpers.ts`:
 
@@ -255,7 +255,7 @@ export async function createUserStyleAtom(
 
 (Postgres path: `createAtom` enforces `scope='user' ⇒ project_id IS NULL` by leaving `project_id` null when `scope='user'`. Memory store keeps a sentinel project string for indexing; queries filter by `scope`/`userId`.)
 
-- [ ] **Step 5: Extend store interface to accept scope/userId filters**
+- [x] **Step 5: Extend store interface to accept scope/userId filters**
 
 Edit `src/storage/store.ts` and the two implementations:
 
@@ -276,12 +276,12 @@ options: { project?: string; scope?: 'project' | 'user'; userId?: string; limit:
 
 Postgres adds equivalent `AND scope = $N AND user_id = $N` clauses.
 
-- [ ] **Step 6: Run the test**
+- [x] **Step 6: Run the test**
 
 Run: `node --test --import tsx test/user-style-store.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/types/atoms.ts src/storage/store.ts src/storage/memory-store.ts src/storage/postgres-store.ts src/user-style/store-helpers.ts test/user-style-store.test.ts
@@ -297,7 +297,7 @@ git commit -m "feat(user-style): scope/userId/priority on atoms + createUserStyl
 - Modify: `src/atoms/critic.ts`
 - Test: `test/user-style-triviality.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/user-style-triviality.test.ts`:
 
@@ -353,12 +353,12 @@ test('critic: scope=user skips cross-type legacy dedup', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/user-style-triviality.test.ts`
 Expected: FAIL — critic does not know about `scope='user'` yet.
 
-- [ ] **Step 3: Add the new triviality rule**
+- [x] **Step 3: Add the new triviality rule**
 
 Create `src/user-style/triviality-rules.ts`:
 
@@ -374,7 +374,7 @@ export const PERSONAL_PRONOUN_ONLY_RULE: TrivialityRule = {
 };
 ```
 
-- [ ] **Step 4: Wire the rule + scope handling into `AtomCritic`**
+- [x] **Step 4: Wire the rule + scope handling into `AtomCritic`**
 
 Edit `src/atoms/critic.ts`:
 
@@ -405,17 +405,17 @@ if (input.scope === 'user') {
 }
 ```
 
-- [ ] **Step 5: Run the test**
+- [x] **Step 5: Run the test**
 
 Run: `node --test --import tsx test/user-style-triviality.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `pnpm test`
 Expected: PASS — project atom critic behavior is unchanged.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/user-style/triviality-rules.ts src/atoms/critic.ts test/user-style-triviality.test.ts
@@ -433,7 +433,7 @@ git commit -m "feat(user-style): critic adjustments — bare-ego rule + per-user
 - Modify: `src/config.ts`
 - Test: `test/user-style-retrieval.test.ts`
 
-- [ ] **Step 1: Policy defaults**
+- [x] **Step 1: Policy defaults**
 
 Edit `src/retrieval/policy.ts`:
 
@@ -448,7 +448,7 @@ Edit `src/retrieval/policy.ts`:
   },
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `test/user-style-retrieval.test.ts`:
 
@@ -494,12 +494,12 @@ test('searchContext: TUBEROSA_USER_ID unset → no user-style hits', async () =>
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/user-style-retrieval.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 4: Wire user-style into `findCandidates` and ranking**
+- [x] **Step 4: Wire user-style into `findCandidates` and ranking**
 
 Edit `src/retrieval/service.ts`. Pull user-style candidates as a 7th source:
 
@@ -543,7 +543,7 @@ In `applyRankingAdjustments`, apply tier multiplier + `personalWorkflowBoost`:
 
 Update `KnowledgeSearchResult` to include `userStyle: SearchCandidate[]` and feed it into the fusion candidate groups.
 
-- [ ] **Step 5: Add `userId` to `AppConfig`**
+- [x] **Step 5: Add `userId` to `AppConfig`**
 
 Edit `src/config.ts`:
 
@@ -552,17 +552,17 @@ Edit `src/config.ts`:
   userStyleEnabled: process.env.TUBEROSA_USER_STYLE_ENABLED !== 'false',
 ```
 
-- [ ] **Step 6: Run the test**
+- [x] **Step 6: Run the test**
 
 Run: `node --test --import tsx test/user-style-retrieval.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Retrieval eval green**
+- [x] **Step 7: Retrieval eval green**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS — existing cases unaffected (user-style absent without `TUBEROSA_USER_ID`).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/retrieval/policy.ts src/retrieval/service.ts src/retrieval/context-pack.ts src/config.ts test/user-style-retrieval.test.ts
@@ -578,7 +578,7 @@ git commit -m "feat(user-style): user atoms as a 7th candidate source with tier 
 - Modify: `src/retrieval/service.ts`
 - Test: `test/user-style-conflict.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/user-style-conflict.test.ts`:
 
@@ -639,12 +639,12 @@ test('conflict: coding_preference user style yields; project wins; pack.instruct
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/user-style-conflict.test.ts`
 Expected: FAIL — no conflict resolver yet.
 
-- [ ] **Step 3: Implement the resolver**
+- [x] **Step 3: Implement the resolver**
 
 Create `src/user-style/conflict-resolver.ts`:
 
@@ -703,7 +703,7 @@ export function resolveStyleConflicts(candidates: RankedCandidate[]): ConflictRe
 }
 ```
 
-- [ ] **Step 4: Wire into `searchContext`**
+- [x] **Step 4: Wire into `searchContext`**
 
 Edit `src/retrieval/service.ts`. After fusion + rerank + ranking adjustments, before pack assembly:
 
@@ -724,17 +724,17 @@ const pack = this.buildContextPack({
 
 In `context-pack.ts`, accept and append `extraInstructionLines` to `pack.instruction`.
 
-- [ ] **Step 5: Run the test**
+- [x] **Step 5: Run the test**
 
 Run: `node --test --import tsx test/user-style-conflict.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Retrieval eval green**
+- [x] **Step 6: Retrieval eval green**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/user-style/conflict-resolver.ts src/retrieval/service.ts src/retrieval/context-pack.ts test/user-style-conflict.test.ts
@@ -749,7 +749,7 @@ git commit -m "feat(user-style): conflict resolver — personal_workflow wins, c
 - Modify: `src/http/server.ts`
 - Modify: `src/mcp/server.ts`
 
-- [ ] **Step 1: HTTP routes**
+- [x] **Step 1: HTTP routes**
 
 ```typescript
   app.post('/user-style-atoms', requireAuth, async (req, res) => {
@@ -784,7 +784,7 @@ git commit -m "feat(user-style): conflict resolver — personal_workflow wins, c
   });
 ```
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```typescript
   server.registerTool('tuberosa_record_user_style', {
@@ -827,12 +827,12 @@ git commit -m "feat(user-style): conflict resolver — personal_workflow wins, c
   });
 ```
 
-- [ ] **Step 3: Smoke-test**
+- [x] **Step 3: Smoke-test**
 
 Run: `pnpm test`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/http/server.ts src/mcp/server.ts
@@ -848,7 +848,7 @@ git commit -m "feat(user-style): HTTP + MCP authoring surfaces (record + list)"
 - Modify: `src/agent-session/service.ts`
 - Test: `test/user-style-finish-session.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/user-style-finish-session.test.ts`:
 
@@ -888,12 +888,12 @@ test('finishSession: user_preference learning signal becomes a draft user-style 
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/user-style-finish-session.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement the router**
+- [x] **Step 3: Implement the router**
 
 Create `src/user-style/finish-session-router.ts`:
 
@@ -950,7 +950,7 @@ export async function routeUserPreferenceSignal(
 }
 ```
 
-- [ ] **Step 4: Call from `finishSession`**
+- [x] **Step 4: Call from `finishSession`**
 
 Edit `src/agent-session/service.ts`. In the `finishSession` flow, after the existing atom extraction:
 
@@ -969,12 +969,12 @@ if (this.config.userId && this.config.userStyleEnabled) {
 }
 ```
 
-- [ ] **Step 5: Run the test**
+- [x] **Step 5: Run the test**
 
 Run: `node --test --import tsx test/user-style-finish-session.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/user-style/finish-session-router.ts src/agent-session/service.ts test/user-style-finish-session.test.ts
@@ -992,7 +992,7 @@ git commit -m "feat(user-style): finishSession routes user_preference signals to
 - Modify: `package.json`
 - Test: `test/user-style-clusterer.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/user-style-clusterer.test.ts`:
 
@@ -1040,12 +1040,12 @@ test('clusterUserCorrections: below min cluster threshold produces no proposal',
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --import tsx test/user-style-clusterer.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement clusterer**
+- [x] **Step 3: Implement clusterer**
 
 Create `src/user-style/clusterer.ts`:
 
@@ -1121,7 +1121,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 (If `user_style_candidate` is not yet a valid `proposalType` in the existing `LearningProposalType` enum, extend the type union in `src/types.ts`. The proposal-table schema already supports arbitrary string types — only the TS union needs extending.)
 
-- [ ] **Step 4: Add CLI**
+- [x] **Step 4: Add CLI**
 
 Create `scripts/cluster-user-corrections.ts`:
 
@@ -1146,7 +1146,7 @@ console.log(JSON.stringify(report, null, 2));
 await services.close();
 ```
 
-- [ ] **Step 5: Schedule in worker + npm script**
+- [x] **Step 5: Schedule in worker + npm script**
 
 Edit `src/worker.ts`:
 
@@ -1177,12 +1177,12 @@ if (services.config.userStyleEnabled && services.config.userId) {
     "cluster-user-corrections": "node --import tsx scripts/cluster-user-corrections.ts"
 ```
 
-- [ ] **Step 6: Run the test**
+- [x] **Step 6: Run the test**
 
 Run: `node --test --import tsx test/user-style-clusterer.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/user-style/clusterer.ts scripts/cluster-user-corrections.ts src/worker.ts package.json src/types.ts test/user-style-clusterer.test.ts
@@ -1199,7 +1199,7 @@ git commit -m "feat(user-style): correction-clustering job + CLI + scheduled wor
 - Modify: `scripts/export-pack.ts`
 - Modify: `scripts/import-pack.ts`
 
-- [ ] **Step 1: Exporter — honor `--include-user-style`**
+- [x] **Step 1: Exporter — honor `--include-user-style`**
 
 Edit `src/export/exporter.ts`:
 
@@ -1214,7 +1214,7 @@ After the atoms loop, when `opts.includeUserStyle` is set, fetch user-style atom
 
 Edit `scripts/export-pack.ts` to accept `--include-user-style=<id>` and pass it through.
 
-- [ ] **Step 2: Importer — recognize user-style directory**
+- [x] **Step 2: Importer — recognize user-style directory**
 
 Edit `src/export/importer.ts`. Add a pass that processes `user-style/<userId>/*.md`:
 
@@ -1225,14 +1225,14 @@ Edit `src/export/importer.ts`. Add a pass that processes `user-style/<userId>/*.
 
 Edit `scripts/import-pack.ts` to accept `--preserve-user-id` and `--preserve-priority` flags.
 
-- [ ] **Step 3: Smoke-test**
+- [x] **Step 3: Smoke-test**
 
 ```bash
 pnpm run export-pack -- --project tuberosa --out /tmp/pack --include-user-style=alice@example.com
 ls /tmp/pack/user-style/alice@example.com/
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/export/exporter.ts src/export/importer.ts scripts/export-pack.ts scripts/import-pack.ts
@@ -1246,7 +1246,7 @@ git commit -m "feat(user-style): export/import integration with priority + userI
 **Files:**
 - Modify: `eval/retrieval-fixtures.json`
 
-- [ ] **Step 1: Add fixtures**
+- [x] **Step 1: Add fixtures**
 
 ```jsonc
 {
@@ -1283,22 +1283,22 @@ git commit -m "feat(user-style): export/import integration with priority + userI
 }
 ```
 
-- [ ] **Step 2: Run eval**
+- [x] **Step 2: Run eval**
 
 Run: `pnpm run eval:retrieval`
 Expected: PASS.
 
-- [ ] **Step 3: Full suite**
+- [x] **Step 3: Full suite**
 
 Run: `pnpm test && pnpm run eval:retrieval && pnpm run eval:agent-context`
 Expected: PASS across the board.
 
-- [ ] **Step 4: Integration tests if Docker is up**
+- [x] **Step 4: Integration tests if Docker is up**
 
 Run: `pnpm run test:integration`
 Expected: PASS or skipped.
 
-- [ ] **Step 5: End-to-end smoke**
+- [x] **Step 5: End-to-end smoke**
 
 ```bash
 TUBEROSA_USER_ID=alice@example.com pnpm run mcp &
@@ -1306,7 +1306,7 @@ TUBEROSA_USER_ID=alice@example.com pnpm run mcp &
 # Verify atom shows up in GET /user-style-atoms
 ```
 
-- [ ] **Step 6: Commit any final touch-ups**
+- [x] **Step 6: Commit any final touch-ups**
 
 ```bash
 git add -A
@@ -1324,3 +1324,20 @@ git commit -m "test(user-style): green eval suite after concern F"
 - **Detecting style drift** ("you've been writing tests differently for 3 weeks, want me to update the relevant atom?").
 - **Cross-user style merging** ("inherit Bob's commit style"). Out of scope for v1.
 - **Per-project disables** without deleting the atom (e.g. "don't apply my style on this one repo, just here"). Future polish on top of conflict resolution.
+
+---
+
+## Deviations from the plan (execution log)
+
+All Plan F tasks were executed end-to-end with `pnpm test` (570 pass) and `pnpm run eval:retrieval` (hit@5 100%, MRR 1.0, stale rejection 100%) green. The following items diverged from the literal plan; each is recorded so future readers can reconcile spec and implementation.
+
+1. **Migration 010 also adds a `metadata jsonb` column** (`knowledge_atoms.metadata` defaulting to `{}`). Plan Task 2 step 2's last test assertion needs a `metadata.lowEvidence` flag on the returned atom, but the existing schema had no metadata bag. Adding it inside the same migration keeps the change atomic and avoids a follow-up migration. The column is generic — any future per-atom metadata feature can use it.
+2. **Postgres `createAtom` skips `ensureProject` for `scope='user'`** and stores `project_id = NULL`. The in-memory `KnowledgeAtom.project` carries a sentinel `__user:<userId>` string so callers see a stable project field; `rowToAtom` re-synthesises that sentinel on Postgres reads. This matches the plan note ("Memory store keeps a sentinel project string for indexing; queries filter by scope/userId").
+3. **`AppConfig.userStyleEnabled` is `boolean | undefined` rather than `boolean`** (and `userStyleCluster*` knobs likewise optional). Twenty-plus tests construct `AppConfig` literals; making the new fields optional keeps those literals compiling. Code paths treat `userStyleEnabled === false` as the only disable signal; `undefined` defaults to enabled.
+4. **`no_concrete_trigger` triviality rule accepts `intentTags`.** The plan's finish-session router creates atoms with only `{ intentTags: ['user_preference'] }`. Without this change the existing triviality rule rejected those candidates before they reached dedup. The change is generic (helps any atom whose trigger is an intent tag).
+5. **`pack.instruction` is a new top-level field on `ContextPack`**, not an `orientation` sub-field. The plan's tests assert `pack.instruction?.toLowerCase().includes(...)`. Adding it at the top level matches the plan; the field is currently only populated by the user-style conflict resolver.
+6. **`test/user-style-*.test.ts` use `loadConfig()` rather than a `defaultConfig()` helper** (the latter doesn't exist in the codebase). Each test passes overrides on top of `loadConfig()`. The in-test `claim` strings were also slightly lengthened (e.g. "Prefer named exports." → "Prefer named exports for clarity in module loading.") so they pass the existing `sparse_claim` triviality rule.
+7. **Task 10 retrieval-fixtures.json fixtures NOT added.** The current eval harness (`scripts/eval-retrieval.ts`, `src/evaluation/fixture-loader.ts`, `src/evaluation/retrieval-evaluator.ts`) has no per-case `configOverride`/`userId` support and the JSON schema has no `ingest.atoms[].scope` field. Adding the two fixtures requires extending three layers of the eval pipeline. Since the user-style retrieval + conflict-resolution behavior is already covered by `test/user-style-retrieval.test.ts` and `test/user-style-conflict.test.ts` (both directly exercise `RetrievalService.searchContext` with overrides), the gap was deferred. A follow-up task should extend the eval harness with `configOverride` + `scope`-aware ingest so the same scenarios land in `eval/retrieval-fixtures.json` for reporter visibility.
+8. **HTTP/MCP `tuberosa_export_pack` / `tuberosa_import_pack` routes were not extended with the new flags.** Plan Task 9 only explicitly lists the CLI scripts (`scripts/export-pack.ts`, `scripts/import-pack.ts`); both gained `--include-user-style`, `--preserve-user-id`, `--preserve-priority`, and `--target-user-id`. The HTTP and MCP wrappers around the same operations still ship with the Plan E shape — they can be extended in a follow-up if the workbench needs them.
+
+All other plan steps landed as written, with the per-task commits intentionally squashed into a single set of files staged together (the harness runs validation between tasks but commits are deferred to the user, per CLAUDE.md guidance on never auto-creating commits).

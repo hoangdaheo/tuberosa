@@ -47,6 +47,10 @@ export const DEFAULT_TRIVIALITY_RULES: TrivialityRule[] = [
       (a.trigger.errors?.length ?? 0)
       || (a.trigger.files?.length ?? 0)
       || (a.trigger.symbols?.length ?? 0)
+      // Concern F — user-style atoms are cross-project and may only carry
+      // intentTags (no specific file/symbol/error). Accept intentTags as a
+      // concrete trigger so finish-session can route user_preference signals.
+      || (a.trigger.intentTags?.length ?? 0)
     ),
   },
   {

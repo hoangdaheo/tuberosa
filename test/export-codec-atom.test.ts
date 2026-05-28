@@ -22,6 +22,7 @@ const A: KnowledgeAtom = {
     createdAt: '2026-05-12T00:00:00.000Z',
     updatedAt: '2026-05-26T00:00:00.000Z',
   },
+  scope: 'project',
 };
 
 test('serializeAtom + parseAtomMarkdown: round-trip preserves all fields', () => {

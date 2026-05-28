@@ -1637,12 +1637,21 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom> {
-    const projectId = await this.ensureProject(this.pool, input.project);
+    // Concern F: user-style atoms carry user_id + priority and intentionally
+    // have a null project_id so they're cross-project. Skip ensureProject in
+    // that branch — the sentinel project name on the input is only used by the
+    // in-memory store and must not pollute the projects table.
+    const isUserScope = input.scope === 'user';
+    const projectId = isUserScope ? null : await this.ensureProject(this.pool, input.project);
     const columns = [
       'project_id', 'parent_knowledge_id', 'claim', 'type', 'evidence', 'trigger',
       'verification', 'pitfalls', 'links', 'produced_by', 'produced_session_id', 'embedding',
+      'scope', 'user_id', 'priority', 'metadata',
     ];
-    const placeholders = ['$1', '$2', '$3', '$4', '$5::jsonb', '$6::jsonb', '$7::jsonb', '$8::jsonb', '$9::jsonb', '$10', '$11', '$12::vector'];
+    const placeholders = [
+      '$1', '$2', '$3', '$4', '$5::jsonb', '$6::jsonb', '$7::jsonb', '$8::jsonb', '$9::jsonb',
+      '$10', '$11', '$12::vector', '$13', '$14', '$15', '$16::jsonb',
+    ];
     const values: unknown[] = [
       projectId,
       input.parentKnowledgeId ?? null,
@@ -1656,6 +1665,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       input.producedBy,
       input.producedAtSessionId ?? null,
       input.embedding ? `[${input.embedding.join(',')}]` : null,
+      input.scope ?? 'project',
+      isUserScope ? input.userId ?? null : null,
+      isUserScope ? input.priority ?? null : null,
+      JSON.stringify(input.metadata ?? {}),
     ];
     if (input.id) {
       columns.unshift('id');
@@ -1701,6 +1714,14 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (options.parentKnowledgeId) {
       values.push(options.parentKnowledgeId);
       filters.push(`a.parent_knowledge_id = $${values.length}`);
+    }
+    if (options.scope) {
+      values.push(options.scope);
+      filters.push(`a.scope = $${values.length}`);
+    }
+    if (options.userId) {
+      values.push(options.userId);
+      filters.push(`a.user_id = $${values.length}`);
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     values.push(options.limit);
@@ -1762,38 +1783,55 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByEmbedding(
     embedding: number[],
-    options: { project?: string; limit: number; threshold?: number },
+    options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user'; userId?: string },
   ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
     const threshold = options.threshold ?? 0.0;
-    const projectFilter = options.project ? `AND p.name = $3` : '';
+    const filters: string[] = ["a.embedding IS NOT NULL", "a.status = 'active'"];
     const params: unknown[] = [`[${embedding.join(',')}]`, options.limit];
-    if (options.project) params.push(options.project);
+    if (options.project) {
+      params.push(options.project);
+      filters.push(`p.name = $${params.length}`);
+    }
+    if (options.scope) {
+      params.push(options.scope);
+      filters.push(`a.scope = $${params.length}`);
+    }
+    if (options.userId) {
+      params.push(options.userId);
+      filters.push(`a.user_id = $${params.length}`);
+    }
     const result = await this.pool.query(
       `SELECT a.*, p.name AS project_name,
               1 - (a.embedding <=> $1::vector) AS cosine
        FROM knowledge_atoms a
        LEFT JOIN projects p ON p.id = a.project_id
-       WHERE a.embedding IS NOT NULL
-         AND a.status = 'active'
-         ${projectFilter}
+       WHERE ${filters.join(' AND ')}
        ORDER BY a.embedding <=> $1::vector
        LIMIT $2`,
       params,
     );
     return result.rows
-      .map((row) => ({ atom: rowToAtom(row, String(row.project_name)), cosine: Number(row.cosine) }))
+      .map((row) => ({ atom: rowToAtom(row, String(row.project_name ?? '')), cosine: Number(row.cosine) }))
       .filter((entry) => entry.cosine >= threshold);
   }
 
   async searchAtomsByTrigger(
     trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] },
-    options: { project?: string; limit: number },
+    options: { project?: string; limit: number; scope?: 'project' | 'user'; userId?: string },
   ): Promise<KnowledgeAtom[]> {
     const filters: string[] = ["a.status = 'active'"];
     const values: unknown[] = [];
     if (options.project) {
       values.push(options.project);
       filters.push(`p.name = $${values.length}`);
+    }
+    if (options.scope) {
+      values.push(options.scope);
+      filters.push(`a.scope = $${values.length}`);
+    }
+    if (options.userId) {
+      values.push(options.userId);
+      filters.push(`a.user_id = $${values.length}`);
     }
     const triggerFilters: string[] = [];
     for (const key of ['errors', 'files', 'symbols', 'taskTypes'] as const) {
@@ -1818,7 +1856,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
        LIMIT $${values.length}`,
       values,
     );
-    return result.rows.map((row) => rowToAtom(row, String(row.project_name)));
+    return result.rows.map((row) => rowToAtom(row, String(row.project_name ?? '')));
   }
 
   async replaceAtomRelations(
@@ -3172,9 +3210,15 @@ function mapAgentContextDecisionRow(row: Record<string, unknown>): AgentContextD
 }
 
 function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom {
+  const scope = (row.scope as KnowledgeAtom['scope']) ?? 'project';
+  const userId = row.user_id ? String(row.user_id) : undefined;
+  // Concern F: user-scope atoms have null project_id and a sentinel project name
+  // for the in-memory side of the store contract. Synthesise the sentinel here
+  // so downstream consumers see a stable `project` string.
+  const resolvedProject = scope === 'user' ? `__user:${userId ?? ''}` : project;
   return {
     id: String(row.id),
-    project,
+    project: resolvedProject,
     parentKnowledgeId: row.parent_knowledge_id ? String(row.parent_knowledge_id) : undefined,
     claim: String(row.claim),
     type: row.type as KnowledgeAtom['type'],
@@ -3193,6 +3237,10 @@ function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom
       createdAt: new Date(row.created_at as string).toISOString(),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     },
+    scope,
+    userId,
+    priority: (row.priority as KnowledgeAtom['priority']) ?? undefined,
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
 }
 

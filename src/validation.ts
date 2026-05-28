@@ -197,6 +197,7 @@ const LEARNING_PROPOSAL_TYPES = [
   'missing_relation',
   'supersedes',
   'auto_memory_cleanup',
+  'user_style_candidate',
 ] as const satisfies readonly LearningProposalType[];
 export const REFLECTION_DRAFT_STATUSES = [
   'pending',

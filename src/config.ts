@@ -58,6 +58,16 @@ export interface AppConfig {
   defaultProject?: string;
   /** Concern C1 — cwd used for git history scans in scheduled jobs. Defaults to process.cwd(). */
   defaultCwd?: string;
+  /** Concern F — when set, retrieval pulls user-style atoms for this user as a 7th candidate source. */
+  userId?: string;
+  /** Concern F — master switch for the user-style preference layer. Default true. Optional so older test config literals keep compiling. */
+  userStyleEnabled?: boolean;
+  /** Concern F — interval between scheduled user-correction clustering runs (hours). */
+  userStyleClusterIntervalHours?: number;
+  /** Concern F — feedback lookback window for the clusterer (days). */
+  userStyleClusterWindowDays?: number;
+  /** Concern F — minimum events per cluster before a learning proposal is created. */
+  userStyleMinClusterEvents?: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -113,6 +123,11 @@ export function loadConfig(): AppConfig {
     graphInferenceEnabled: readBoolean(process.env.TUBEROSA_GRAPH_INFERENCE_ENABLED, true),
     defaultProject: process.env.TUBEROSA_DEFAULT_PROJECT || undefined,
     defaultCwd: process.env.TUBEROSA_DEFAULT_CWD || undefined,
+    userId: process.env.TUBEROSA_USER_ID || undefined,
+    userStyleEnabled: readBoolean(process.env.TUBEROSA_USER_STYLE_ENABLED, true),
+    userStyleClusterIntervalHours: Number(process.env.TUBEROSA_USER_STYLE_CLUSTER_INTERVAL_HOURS ?? 1),
+    userStyleClusterWindowDays: Number(process.env.TUBEROSA_USER_STYLE_CLUSTER_WINDOW_DAYS ?? 30),
+    userStyleMinClusterEvents: Number(process.env.TUBEROSA_USER_STYLE_MIN_CLUSTER_EVENTS ?? 3),
   };
 }
 

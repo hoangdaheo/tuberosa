@@ -21,12 +21,14 @@ export interface BundleManifest {
   generated: string;
   sourceCommit?: string;
   tuberosaVersion?: string;
-  counts: { atoms: number; knowledge: number; edges: number; chunks: number };
+  counts: { atoms: number; knowledge: number; edges: number; chunks: number; userStyle?: number };
   integrity: Record<string, string>;
   tierPolicy: { exportedTiers: AtomTier[]; excludedStatuses: AtomStatus[] };
   includesChunks: boolean;
   safetyRedactionVersion: string;
   notes?: string;
+  /** Concern F — user ids whose user-style atoms were exported under user-style/<id>/. */
+  userStyleScopes?: string[];
 }
 
 export interface AtomFrontmatter {
@@ -49,6 +51,11 @@ export interface AtomFrontmatter {
   };
   /** Optional override. When absent, the Markdown body is the claim. */
   claim?: string;
+  /** Concern F — user-style preference layer. */
+  scope?: 'project' | 'user';
+  userId?: string;
+  priority?: 'personal_workflow' | 'coding_preference';
+  metadata?: Record<string, unknown>;
 }
 
 export interface KnowledgeFrontmatter {

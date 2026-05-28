@@ -3,6 +3,7 @@ import type { ModelProvider } from '../model/provider.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { KnowledgeAtomInput } from '../types/atoms.js';
 import { DEFAULT_TRIVIALITY_RULES, evaluateTriviality, type TrivialityRule } from './triviality-rules.js';
+import { PERSONAL_PRONOUN_ONLY_RULE } from '../user-style/triviality-rules.js';
 import { GateTelemetry } from './gate-telemetry.js';
 import { LlmCritic } from './llm-critic.js';
 
@@ -74,7 +75,7 @@ export class AtomCritic {
 
   async evaluate(input: KnowledgeAtomInput, sessionId?: string): Promise<AtomCriticResult> {
     // Stage 1: triviality
-    const triviality = evaluateTriviality(input, this.rules);
+    const triviality = evaluateTriviality(input, this.rulesForInput(input));
     if (!triviality.ok) {
       const reasons = triviality.matched.map((m) => `triviality:${m}`);
       await this.telemetry.record({
@@ -147,6 +148,15 @@ export class AtomCritic {
     return { ok: true, reasons: [], outcome: 'accepted' };
   }
 
+  /**
+   * Concern F — user-style atoms get one extra triviality rule that rejects
+   * bare-ego claims. Project atoms keep the default rule set unchanged.
+   */
+  private rulesForInput(input: KnowledgeAtomInput): TrivialityRule[] {
+    if (input.scope === 'user') return [...this.rules, PERSONAL_PRONOUN_ONLY_RULE];
+    return this.rules;
+  }
+
   private evaluateFloor(input: KnowledgeAtomInput): string[] {
     const reasons: string[] = [];
     if (!input.claim?.trim()) {
@@ -172,6 +182,27 @@ export class AtomCritic {
     input: KnowledgeAtomInput,
   ): Promise<{ outcome: 'pass' | 'rejected' | 'queue_legacy_migration'; reason?: string; legacyKnowledgeId?: string }> {
     const embedding = await this.models.embed(atomEmbeddingText(input));
+
+    // Concern F — user-style atoms only dedup against other atoms belonging to
+    // the same user. The legacy-knowledge migration check is skipped entirely:
+    // project-scope legacy memories cannot supersede a personal preference.
+    if (input.scope === 'user') {
+      const atomMatches = await this.store.searchAtomsByEmbedding(embedding, {
+        project: undefined,
+        limit: 5,
+        threshold: this.atomDedupThreshold,
+        scope: 'user',
+        userId: input.userId,
+      });
+      if (atomMatches.length > 0) {
+        return {
+          outcome: 'rejected',
+          reason: `duplicate of user-style atom ${atomMatches[0].atom.id} (cosine ${atomMatches[0].cosine.toFixed(2)})`,
+        };
+      }
+      return { outcome: 'pass' };
+    }
+
     const atomMatches = await this.store.searchAtomsByEmbedding(embedding, {
       project: input.project, limit: 5, threshold: this.atomDedupThreshold,
     });

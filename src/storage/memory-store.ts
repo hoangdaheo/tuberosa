@@ -1159,6 +1159,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
   async createAtom(input: KnowledgeAtomInput): Promise<KnowledgeAtom> {
     const now = new Date().toISOString();
+    const scope: KnowledgeAtom['scope'] = input.scope ?? 'project';
     const atom: KnowledgeAtom = {
       id: input.id ?? randomUUID(),
       project: input.project,
@@ -1180,6 +1181,10 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
         createdAt: now,
         updatedAt: now,
       },
+      scope,
+      userId: scope === 'user' ? input.userId : undefined,
+      priority: scope === 'user' ? input.priority : undefined,
+      metadata: input.metadata ?? {},
     };
     this.atoms.set(atom.id, atom);
     if (input.embedding) {
@@ -1198,6 +1203,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .filter((atom) => !options.tier || atom.tier === options.tier)
       .filter((atom) => !options.status || atom.status === options.status)
       .filter((atom) => !options.parentKnowledgeId || atom.parentKnowledgeId === options.parentKnowledgeId)
+      .filter((atom) => !options.scope || atom.scope === options.scope)
+      .filter((atom) => !options.userId || atom.userId === options.userId)
       .slice(0, options.limit);
   }
 
@@ -1235,11 +1242,13 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByEmbedding(
     queryEmbedding: number[],
-    options: { project?: string; limit: number; threshold?: number },
+    options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user'; userId?: string },
   ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
     const threshold = options.threshold ?? 0.92;
     return [...this.atoms.values()]
       .filter((atom) => !options.project || atom.project === options.project)
+      .filter((atom) => !options.scope || atom.scope === options.scope)
+      .filter((atom) => !options.userId || atom.userId === options.userId)
       .map((atom) => {
         const stored = this.atomEmbeddings.get(atom.id);
         // Atoms without a stored embedding fall back to cosine 1.0 so existing
@@ -1254,7 +1263,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByTrigger(
     trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] },
-    options: { project?: string; limit: number },
+    options: { project?: string; limit: number; scope?: 'project' | 'user'; userId?: string },
   ): Promise<KnowledgeAtom[]> {
     const wantErrors = (trigger.errors ?? []).map((s) => s.toLowerCase());
     const wantFiles = (trigger.files ?? []).map((s) => s.toLowerCase());
@@ -1270,6 +1279,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     return [...this.atoms.values()]
       .filter((atom) => atom.status === 'active')
       .filter((atom) => !options.project || atom.project === options.project)
+      .filter((atom) => !options.scope || atom.scope === options.scope)
+      .filter((atom) => !options.userId || atom.userId === options.userId)
       .filter((atom) =>
         matchesAny(atom.trigger.errors, wantErrors)
         || matchesAny(atom.trigger.files, wantFiles)

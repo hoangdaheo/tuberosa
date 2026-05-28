@@ -3,6 +3,7 @@ import type { AppConfig } from '../config.js';
 import type { Cache } from '../cache.js';
 import { AtomExtractor } from '../atoms/extractor.js';
 import { AtomCritic } from '../atoms/critic.js';
+import { routeUserPreferenceSignal } from '../user-style/finish-session-router.js';
 import type { ModelProvider } from '../model/provider.js';
 import {
   sessionReplayFromContextPack,
@@ -50,7 +51,11 @@ export class AgentSessionService {
     private readonly reflection: ReflectionService,
     private readonly models?: ModelProvider,
     private readonly replayService?: SessionReplayService,
-    private readonly config: Pick<AppConfig, 'persistReplay'> & { llmCriticEnabled?: boolean } = { persistReplay: false },
+    private readonly config: Pick<AppConfig, 'persistReplay'> & {
+      llmCriticEnabled?: boolean;
+      userId?: string;
+      userStyleEnabled?: boolean;
+    } = { persistReplay: false },
     private readonly cache?: Cache,
   ) {}
 
@@ -147,6 +152,7 @@ export class AgentSessionService {
     ];
 
     await this.extractSessionAtoms(input, existingSession, decisions);
+    await this.routeUserPreferenceSignals(input, learningSignals);
 
     const session = await this.store.finishAgentSession({
       ...input,
@@ -234,6 +240,37 @@ export class AgentSessionService {
         reason: rejected.reasons.join('; '),
         metadata: { source: 'atom_critic', candidate: rejected.candidate },
       });
+    }
+  }
+
+  /**
+   * Concern F — for each `user_preference` learning signal, dry-run the critic
+   * and (on accept) persist a draft user-style atom for the configured user.
+   * Silently noop when TUBEROSA_USER_ID is unset or the layer is disabled.
+   */
+  private async routeUserPreferenceSignals(
+    input: FinishAgentSessionInput,
+    learningSignals: AgentLearningSignal[],
+  ): Promise<void> {
+    if (!this.config.userId || this.config.userStyleEnabled === false) return;
+    if (!this.models) return;
+    const signals = learningSignals.filter((s) => s.kind === 'user_preference');
+    if (signals.length === 0) return;
+
+    const critic = new AtomCritic(this.store, this.models, {
+      cache: this.cache,
+      llmCriticEnabled: this.config.llmCriticEnabled,
+    });
+    for (const signal of signals) {
+      try {
+        await routeUserPreferenceSignal(this.store, critic, {
+          userId: this.config.userId,
+          sessionId: input.sessionId,
+          signal: { text: signal.text },
+        });
+      } catch {
+        // Best-effort: a user-style write failure must not block finishSession.
+      }
     }
   }
 

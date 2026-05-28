@@ -332,7 +332,7 @@ function buildCalibrationOutput(
 }
 
 function newSourceMap(): Record<CandidateSource, number> {
-  return { metadata: 0, lexical: 0, vector: 0, memory: 0, graph: 0, worktree: 0, atoms: 0 };
+  return { metadata: 0, lexical: 0, vector: 0, memory: 0, graph: 0, worktree: 0, atoms: 0, userStyle: 0 };
 }
 
 function roundEntries(map: Record<CandidateSource, number>): Record<CandidateSource, number> {

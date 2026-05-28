@@ -5,6 +5,7 @@ import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
 import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import { predictImpact } from '../retrieval/impact-predictor.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
+import { createUserStyleAtom } from '../user-style/store-helpers.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   AGENT_LEARNING_MODES,
@@ -463,10 +464,66 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       return toolJson({ atom, instruction: 'Atom moved back to active; it competes in retrieval again.' });
     }
 
+    case 'tuberosa_record_user_style': {
+      const userId = readOptionalMcpString(args.userId, 'tuberosa_record_user_style arguments.userId')
+        ?? services.config.userId;
+      if (!userId) {
+        throw new ValidationError('userId required (set TUBEROSA_USER_ID or include in arguments).');
+      }
+      const claim = readRequiredMcpString(args.claim, 'tuberosa_record_user_style arguments.claim');
+      const type = readRequiredMcpString(args.type, 'tuberosa_record_user_style arguments.type');
+      if (!USER_STYLE_TYPES.includes(type as typeof USER_STYLE_TYPES[number])) {
+        throw new ValidationError(`type must be one of: ${USER_STYLE_TYPES.join(', ')}`);
+      }
+      const priority = (readOptionalMcpString(args.priority, 'tuberosa_record_user_style arguments.priority')
+        ?? 'coding_preference') as 'personal_workflow' | 'coding_preference';
+      if (!['personal_workflow', 'coding_preference'].includes(priority)) {
+        throw new ValidationError('priority must be personal_workflow or coding_preference');
+      }
+      const trigger = (args.trigger ?? {}) as Record<string, unknown>;
+      const atom = await createUserStyleAtom(services.store, {
+        userId,
+        claim,
+        type: type as 'convention' | 'gotcha' | 'decision' | 'fact',
+        priority,
+        trigger: trigger as never,
+        evidence: Array.isArray(args.evidence) ? (args.evidence as never) : undefined,
+        pitfalls: Array.isArray(args.pitfalls) ? (args.pitfalls as string[]) : undefined,
+        sessionId: readOptionalMcpString(args.sessionId, 'tuberosa_record_user_style arguments.sessionId'),
+      });
+      services.operations.requestPhysicalMirror('user-style-recorded');
+      return toolJson({
+        atom,
+        instruction: 'User-style atom recorded. It is cross-project and will surface for trigger matches on retrieval.',
+      });
+    }
+
+    case 'tuberosa_list_user_style': {
+      const userId = readOptionalMcpString(args.userId, 'tuberosa_list_user_style arguments.userId')
+        ?? services.config.userId;
+      if (!userId) {
+        throw new ValidationError('userId required (set TUBEROSA_USER_ID or include in arguments).');
+      }
+      const atoms = await services.store.listAtoms({
+        project: undefined,
+        scope: 'user',
+        userId,
+        limit: 100,
+      });
+      return toolJson({
+        atoms,
+        instruction: atoms.length === 0
+          ? 'No user-style atoms recorded yet. Use tuberosa_record_user_style to capture one.'
+          : 'User-style atoms for the configured user. They are cross-project and never tied to a single repo.',
+      });
+    }
+
     default:
       throw new ValidationError(`Unknown Tuberosa tool: ${name}`);
   }
 }
+
+const USER_STYLE_TYPES = ['convention', 'gotcha', 'decision', 'fact'] as const;
 
 function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?: boolean } = {}) {
   const deepContextReturned = shouldReturnDeepContext(pack, options.includeDeepContext);
@@ -804,6 +861,16 @@ function readRequiredMcpString(value: unknown, path: string): string {
     ]);
   }
 
+  return value;
+}
+
+function readOptionalMcpString(value: unknown, path: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ValidationError(`${path} must be a non-empty string when provided.`, [
+      { path, message: `${path} must be a non-empty string when provided.` },
+    ]);
+  }
   return value;
 }
 
@@ -1469,6 +1536,36 @@ function tools() {
           files: { type: 'array', items: { type: 'string' } },
           symbols: { type: 'array', items: { type: 'string' } },
           depth: { type: 'number', description: 'Hop depth ≥ 1. Defaults to graph.walkDepth.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_record_user_style',
+      title: 'Record User-Style Preference',
+      description: 'Record a cross-project personal style preference (scope=user atom). When userId is omitted, falls back to TUBEROSA_USER_ID.',
+      inputSchema: {
+        type: 'object',
+        required: ['claim', 'type', 'trigger'],
+        properties: {
+          userId: { type: 'string', description: 'Defaults to TUBEROSA_USER_ID when set.' },
+          claim: { type: 'string' },
+          type: { type: 'string', enum: ['convention', 'gotcha', 'decision', 'fact'] },
+          priority: { type: 'string', enum: ['personal_workflow', 'coding_preference'], description: 'Defaults to coding_preference.' },
+          trigger: { type: 'object' },
+          evidence: { type: 'array' },
+          pitfalls: { type: 'array', items: { type: 'string' } },
+          sessionId: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_list_user_style',
+      title: 'List User-Style Preferences',
+      description: 'List user-style atoms for the given user (or the configured TUBEROSA_USER_ID).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          userId: { type: 'string', description: 'Defaults to TUBEROSA_USER_ID when set.' },
         },
       },
     },

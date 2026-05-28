@@ -15,6 +15,7 @@ function atom(overrides: Partial<KnowledgeAtom> = {}): KnowledgeAtom {
     reuseCount: 0,
     status: 'active',
     audit: { producedBy: 'agent_session', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+    scope: 'project',
     ...overrides,
   };
 }
