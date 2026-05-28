@@ -39,11 +39,11 @@ filter, MCP parse guard, and an eval gate.
 
 | Surface | What's new | Risk |
 |---|---|---|
-| `POST /export/pack`, `POST /import/pack` (`src/http/server.ts:584-619`) | New HTTP routes that accept attacker-controlled filesystem paths in JSON body | **C1** — full local-FS read/write primitive |
-| `tuberosa_export_pack`, `tuberosa_import_pack` (`src/mcp/server.ts`) | New MCP tools mirroring the HTTP routes | Path traversal (local-trust mitigates) |
+| `POST /operations/export-pack`, `POST /operations/import-pack` (`src/http/server.ts:584-619`) | New HTTP routes that accept attacker-controlled filesystem paths in JSON body | ~~**C1**~~ remediated 2026-05-29 (Phase 1) |
+| `tuberosa_export_pack`, `tuberosa_import_pack` (`src/mcp/server.ts`) | New MCP tools mirroring the HTTP routes | ~~**C1**~~ remediated 2026-05-29 (Phase 1) |
 | `tuberosa_resolve_atom_import_conflict` (`src/mcp/server.ts:447`) | Conflict resolution accepts caller-supplied `mergedSnapshot` | **H8** — no Zod schema, no size cap |
 | `src/export/{atom,knowledge}-codec.ts` | YAML front-matter parse via `js-yaml.load` | Looks scary but is safe in v4 (see §8) |
-| `src/export/importer.ts` `safeListUserStyleDirs` | Reads sub-directory names from untrusted pack | **H5** — directory traversal |
+| `src/export/importer.ts` `safeListUserStyleDirs` | Reads sub-directory names from untrusted pack | ~~**H5**~~ remediated 2026-05-29 (Phase 1) |
 | Plan-1 boundary check (`src/index.ts:8`) | Already shipped | Verified correct (see §8) |
 
 Pre-existing surfaces re-audited and still relevant: retrieval pipeline,
@@ -170,7 +170,13 @@ Each finding gives **Severity / File:line / Impact / Repro or exploit / Fix**.
 
 ---
 
-### C1 — Critical: Path traversal in `/export/pack` and `/import/pack`
+### C1 — Critical: Path traversal in `/operations/export-pack` and `/operations/import-pack`
+
+**Status:** Remediated on 2026-05-29 by Phase 1 of
+`docs/superpowers/plans/2026-05-28-security-audit-remediation.md`.
+HTTP and MCP surfaces now confine `out`/`from` via `assertSafeBundlePath` against
+`TUBEROSA_EXPORT_BASE_DIR` / `TUBEROSA_IMPORT_BASE_DIR`. Tests:
+`test/safe-paths.test.ts`, `test/export-import-security.test.ts`.
 
 **File:** `src/http/server.ts` ~L584-619 (routes) →
 `src/export/exporter.ts:49`, `src/export/importer.ts:53, 78-80, 218`.
@@ -321,6 +327,12 @@ component-wise via `lstat`.
 ---
 
 ### H5 — High: Pack importer's user-style directory traversal
+
+**Status:** Remediated on 2026-05-29 by Phase 1 of
+`docs/superpowers/plans/2026-05-28-security-audit-remediation.md`.
+`safeListUserStyleDirs` and the inner `.md` filter now reject entries that fail
+`assertSafeChildName`; the per-user loop also calls `assertSafeBundlePath` to
+refuse symlinked subtrees. Tests in `test/export-import-security.test.ts`.
 
 **File:** `src/export/importer.ts:210-222`; helper `safeListUserStyleDirs`
 ~L268.
@@ -737,10 +749,11 @@ export/import bundle feature (`feat/project-export-bundle`); the
 remainder are pre-existing gaps that the new feature amplifies (H1, H2, H3,
 H7) or that operate at the filesystem boundary (H4, H6).
 
-**Recommended ship gate:** fix **C1** and **H5** before exposing
-`/export/pack` and `/import/pack` to any non-trusted caller. The other
-Highs can be sequenced as a follow-up sprint with the fixture coverage in
-§5 added in the same PR as each fix.
+**Recommended ship gate:** ~~fix **C1** and **H5**~~ closed on 2026-05-29 by
+Phase 1 of `docs/superpowers/plans/2026-05-28-security-audit-remediation.md`.
+The remaining Highs can be sequenced as follow-up sprints (one plan per
+subsystem, listed at the bottom of the remediation plan), with the fixture
+coverage in §5 added in the same PR as each fix.
 
 No code was modified during this audit.
 
