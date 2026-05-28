@@ -2,9 +2,10 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AppServices } from '../app.js';
 import type { AppConfig } from '../config.js';
-import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, toAppError } from '../errors.js';
+import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, ValidationError, toAppError } from '../errors.js';
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
+import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import { getCatchupMetadata } from '../operations/catchup.js';
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
@@ -243,6 +244,17 @@ function createRoutes(): HttpRoute[] {
         const window = url.searchParams.get('window');
         const windowDays = window === '30d' ? 30 : 7;
         return computeAtomGateStats(services.store, { project, windowDays });
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/operations/atom-graph/density'),
+      handle: ({ services, url }) => {
+        const project = url.searchParams.get('project');
+        if (!project) {
+          throw new ValidationError('project query parameter is required.');
+        }
+        return computeAtomGraphDensity(services.store, { project });
       },
     },
     {

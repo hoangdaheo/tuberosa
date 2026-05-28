@@ -2,6 +2,7 @@ import type { AppServices } from '../app.js';
 import { NotFoundError, toAppError, ValidationError, type AppError } from '../errors.js';
 import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
+import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   AGENT_LEARNING_MODES,
@@ -367,6 +368,12 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       const windowDays = typeof args.windowDays === 'number' ? args.windowDays : 7;
       const stats = await computeAtomGateStats(services.store, { project, windowDays });
       return toolJson(stats);
+    }
+
+    case 'tuberosa_atom_graph_density': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_atom_graph_density arguments.project');
+      const density = await computeAtomGraphDensity(services.store, { project });
+      return toolJson(density);
     }
 
     case 'tuberosa_resurrect_atom': {
@@ -1273,6 +1280,16 @@ function tools() {
           project: { type: 'string' },
           windowDays: { type: 'number', description: 'Lookback window in days. Defaults to 7.' },
         },
+      },
+    },
+    {
+      name: 'tuberosa_atom_graph_density',
+      title: 'Inspect Tuberosa Atom Graph Density',
+      description: 'Per-project atom graph density: atom count, edge count, edges per atom, edges by kind and by inference source.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: { project: { type: 'string' } },
       },
     },
   ];

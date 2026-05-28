@@ -50,6 +50,7 @@ const config: AppConfig = {
   worktreeMaxMtimeAgeHours: 72,
   llmCriticEnabled: false,
   archivalEnabled: false,
+  graphInferenceEnabled: false,
   archivalIntervalHours: 24,
 };
 
