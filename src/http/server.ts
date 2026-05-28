@@ -608,10 +608,17 @@ function createRoutes(): HttpRoute[] {
         if (typeof body.project !== 'string' || typeof body.out !== 'string') {
           throw new ValidationError('project and out are required');
         }
+        let safeOut: string;
+        try {
+          const { assertSafeBundlePath } = await import('../security/safe-paths.js');
+          safeOut = await assertSafeBundlePath(services.config.exportBaseDir, body.out);
+        } catch (err) {
+          throw new ValidationError((err as Error).message);
+        }
         const { exportPack } = await import('../export/exporter.js');
         return exportPack(services.store, {
           project: body.project,
-          out: body.out,
+          out: safeOut,
           includeChunks: body.includeChunks === undefined ? true : Boolean(body.includeChunks),
           includeArchived: Boolean(body.includeArchived),
         });
