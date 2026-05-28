@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { KnowledgeAtom } from '../types/atoms.js';
@@ -13,6 +13,24 @@ export interface ImportOptions {
   project?: string;
   dryRun?: boolean;
   onConflict?: 'review' | 'skip';
+  /**
+   * Concern F — when set, the importer keeps the source bundle's userId on
+   * imported user-style atoms. Default false (atoms are rebound to the
+   * importer's TUBEROSA_USER_ID when one is configured; otherwise skipped).
+   */
+  preserveUserId?: boolean;
+  /**
+   * Concern F — when set, the importer keeps the source's priority. Default
+   * false (imported user-style atoms are downgraded to coding_preference so
+   * a teammate's personal_workflow does not override the local user's project
+   * conventions unintentionally).
+   */
+  preservePriority?: boolean;
+  /**
+   * Concern F — userId to rebind imported user-style atoms to when
+   * preserveUserId is false. Falls back to TUBEROSA_USER_ID at the CLI layer.
+   */
+  targetUserId?: string;
 }
 
 export interface ImportReport {
@@ -23,6 +41,8 @@ export interface ImportReport {
   knowledgeUnchanged: number;
   edgesInserted: number;
   edgesUpdated: number;
+  userStyleInserted: number;
+  userStyleSkipped: number;
   bundleSource: string;
 }
 
@@ -40,6 +60,8 @@ export async function importPack(
     knowledgeUnchanged: 0,
     edgesInserted: 0,
     edgesUpdated: 0,
+    userStyleInserted: 0,
+    userStyleSkipped: 0,
     bundleSource: opts.from,
   };
   const onConflict = opts.onConflict ?? 'review';
@@ -180,7 +202,82 @@ export async function importPack(
     }
   }
 
+  // Concern F — import user-style atoms under user-style/<userId>/*. The
+  // resulting atoms are downgraded to tier='draft' and (by default) priority=
+  // 'coding_preference' so a teammate's personal_workflow can't override the
+  // local user's project conventions. The userId is rewritten to the
+  // importer's `targetUserId` unless `preserveUserId` is set.
+  const userStyleDirs = await safeListUserStyleDirs(opts.from);
+  for (const userIdDir of userStyleDirs) {
+    const sourceUserId = userIdDir;
+    const effectiveUserId = opts.preserveUserId ? sourceUserId : (opts.targetUserId ?? undefined);
+    if (!effectiveUserId) {
+      report.userStyleSkipped += 1;
+      continue;
+    }
+    const dir = join(opts.from, 'user-style', userIdDir);
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.md'));
+    for (const file of files) {
+      const raw = await readFile(join(dir, file), 'utf8');
+      const parsed = parseAtomMarkdown(raw, { filename: `user-style/${userIdDir}/${file}` });
+      const incoming = toAtomInputFromParsed(parsed);
+      const priority = opts.preservePriority
+        ? (parsed.frontmatter.priority ?? 'coding_preference')
+        : 'coding_preference';
+      const existing = await store.getAtom(incoming.id);
+      if (existing) {
+        report.userStyleSkipped += 1;
+        if (onConflict === 'skip') continue;
+        if (!opts.dryRun) {
+          await store.createAtomImportConflict({
+            project: `__user:${effectiveUserId}`,
+            atomId: existing.id,
+            localSnapshot: existing,
+            importedSnapshot: { ...parsed.frontmatter, body: parsed.body },
+            bundleSource: opts.from,
+          });
+        }
+        report.conflictsQueued += 1;
+        continue;
+      }
+      if (!opts.dryRun) {
+        const created = await store.createAtom({
+          project: `__user:${effectiveUserId}`,
+          claim: incoming.claim,
+          type: incoming.type,
+          evidence: incoming.evidence,
+          trigger: incoming.trigger,
+          verification: incoming.verification,
+          pitfalls: incoming.pitfalls,
+          links: incoming.links,
+          producedBy: 'user',
+          scope: 'user',
+          userId: effectiveUserId,
+          priority,
+        });
+        // Imported user-style atoms always start at draft locally.
+        await store.updateAtom(created.id, { tier: 'draft' });
+      }
+      report.userStyleInserted += 1;
+    }
+  }
+
   return report;
+}
+
+async function safeListUserStyleDirs(bundleRoot: string): Promise<string[]> {
+  try {
+    const root = join(bundleRoot, 'user-style');
+    const entries = await readdir(root);
+    const dirs: string[] = [];
+    for (const entry of entries) {
+      const info = await stat(join(root, entry));
+      if (info.isDirectory()) dirs.push(entry);
+    }
+    return dirs;
+  } catch {
+    return [];
+  }
 }
 
 function atomsEquivalent(a: KnowledgeAtom, b: KnowledgeAtom): boolean {

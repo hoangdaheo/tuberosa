@@ -10,6 +10,7 @@ import { predictImpact } from '../retrieval/impact-predictor.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
 import { streamAtomGraphJsonl } from '../operations/atom-graph-export.js';
 import { getCatchupMetadata } from '../operations/catchup.js';
+import { createUserStyleAtom } from '../user-style/store-helpers.js';
 import type { KnowledgeConflictStatus, KnowledgeRelationType } from '../types.js';
 import {
   validateAppendAgentSessionNoteInput,
@@ -237,6 +238,74 @@ function createRoutes(): HttpRoute[] {
         }
         services.operations.requestPhysicalMirror('atom-resurrected');
         return { atom };
+      },
+    },
+    {
+      method: 'POST',
+      match: exactPath('/user-style-atoms'),
+      handle: async ({ services, request }) => {
+        const body = await readJsonBody<Record<string, unknown>>(request, services.config.maxRequestBytes);
+        const userId = (typeof body.userId === 'string' && body.userId) || services.config.userId;
+        if (!userId) {
+          throw new ValidationError('userId required (set TUBEROSA_USER_ID or include in body).');
+        }
+        if (typeof body.claim !== 'string' || !body.claim.trim()) {
+          throw new ValidationError('claim is required.');
+        }
+        if (typeof body.type !== 'string' || !['convention', 'gotcha', 'decision', 'fact'].includes(body.type)) {
+          throw new ValidationError('type must be one of: convention, gotcha, decision, fact.');
+        }
+        const priority = (body.priority ?? 'coding_preference') as 'personal_workflow' | 'coding_preference';
+        if (!['personal_workflow', 'coding_preference'].includes(priority)) {
+          throw new ValidationError('priority must be personal_workflow or coding_preference.');
+        }
+        const atom = await createUserStyleAtom(services.store, {
+          userId,
+          claim: body.claim,
+          type: body.type as 'convention' | 'gotcha' | 'decision' | 'fact',
+          priority,
+          trigger: (body.trigger ?? {}) as never,
+          evidence: Array.isArray(body.evidence) ? (body.evidence as never) : undefined,
+          pitfalls: Array.isArray(body.pitfalls) ? (body.pitfalls as string[]) : undefined,
+          sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
+        });
+        services.operations.requestPhysicalMirror('user-style-recorded');
+        return { atom };
+      },
+    },
+    {
+      method: 'GET',
+      match: exactPath('/user-style-atoms'),
+      handle: async ({ services, url }) => {
+        const userId = url.searchParams.get('userId') ?? services.config.userId;
+        if (!userId) {
+          throw new ValidationError('userId query parameter required (or set TUBEROSA_USER_ID).');
+        }
+        const atoms = await services.store.listAtoms({
+          project: undefined,
+          scope: 'user',
+          userId,
+          limit: 100,
+        });
+        return { atoms };
+      },
+    },
+    {
+      method: 'PATCH',
+      match: pathPattern(/^\/user-style-atoms\/([^/]+)$/, ['id']),
+      handle: async ({ services, request, params }) => {
+        const patch = await readJsonBody<Record<string, unknown>>(request, services.config.maxRequestBytes);
+        const existing = await services.store.getAtom(params.id);
+        if (!existing || existing.scope !== 'user') {
+          throw new NotFoundError('User-style atom not found.');
+        }
+        const safePatch = {
+          tier: patch.tier as never,
+          status: patch.status as never,
+          pitfalls: Array.isArray(patch.pitfalls) ? (patch.pitfalls as string[]) : undefined,
+        };
+        const updated = await services.store.updateAtom(params.id, safePatch);
+        return { atom: updated };
       },
     },
     {

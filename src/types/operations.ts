@@ -8,7 +8,9 @@ export type LearningProposalType =
   | 'missing_reference'
   | 'missing_relation'
   | 'supersedes'
-  | 'auto_memory_cleanup';
+  | 'auto_memory_cleanup'
+  // Concern F — proposals from clustered correction/rejection feedback per user.
+  | 'user_style_candidate';
 
 export interface LearningProposalInput {
   project?: string;

@@ -162,7 +162,7 @@ export interface RerankResult {
   model?: string;
 }
 
-export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph' | 'worktree' | 'atoms';
+export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph' | 'worktree' | 'atoms' | 'userStyle';
 
 export interface SearchCandidate {
   knowledgeId: string;
@@ -463,6 +463,12 @@ export interface ContextPack {
   debug?: RetrievalDebugTrace;
   /** Concern C2 — blast-radius prediction surfaced for edit-like tasks. */
   impactPrediction?: ImpactPrediction;
+  /**
+   * Concern F — non-binding guidance text rendered above the pack. Currently
+   * populated by the user-style conflict resolver when a personal preference
+   * either overrides or yields to a project convention.
+   */
+  instruction?: string;
 }
 
 export interface SearchOptions {
@@ -481,9 +487,11 @@ export interface KnowledgeSearchResult {
   worktree: SearchCandidate[];
   /** Knowledge atoms matched by trigger (errors/files/symbols/taskTypes), weighted by tier. */
   atoms: SearchCandidate[];
+  /** Concern F — cross-project user-style atoms matched by trigger for the configured TUBEROSA_USER_ID. */
+  userStyle: SearchCandidate[];
 }
 
-export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'fusion' | 'rerank' | 'fit';
+export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'userStyle' | 'fusion' | 'rerank' | 'fit';
 
 export type RetrievalDebugTimingName =
   | RetrievalDebugStageName
@@ -534,7 +542,7 @@ export interface RetrievalFilterDecision {
   reason: string;
 }
 
-export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms';
+export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'userStyle';
 
 export interface FusionContribution {
   source: FusionContributionStage;

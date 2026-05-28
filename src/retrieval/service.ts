@@ -59,6 +59,7 @@ import type { QueryRewriteConfig } from './policy.js';
 import type { AtomTier, KnowledgeAtom } from '../types/atoms.js';
 import { evaluateTierTransition } from '../atoms/tier.js';
 import { WorktreeProvider, type WorktreeSearchResult } from './worktree.js';
+import { resolveStyleConflicts } from '../user-style/conflict-resolver.js';
 import {
   namespaceMatchesFilter,
   readNamespaceFromMetadata,
@@ -278,16 +279,25 @@ export class RetrievalService {
       rewriteResult.classified,
       project,
     );
+    // Concern F — resolve user-style ↔ project-convention contradictions before
+    // pack assembly. Suppressed knowledgeIds drop out of the pack entirely;
+    // instructionLines are appended to pack.instruction below.
+    const styleConflict = resolveStyleConflicts(fitEvaluation.candidates);
+    const suppressedByStyleConflict = new Set(styleConflict.suppressedCandidateIds);
+    const packCandidates = suppressedByStyleConflict.size > 0
+      ? fitEvaluation.candidates.filter((c) => !suppressedByStyleConflict.has(c.knowledgeId))
+      : fitEvaluation.candidates;
     const pack = this.buildContextPack({
       queryId,
       project,
       classified: rewriteResult.classified,
-      candidates: fitEvaluation.candidates,
+      candidates: packCandidates,
       contextFit,
       input: normalized,
       reviewTargets: reviewTargetResolution.reviewTargets,
       omittedReviewTargetCount: reviewTargetResolution.omittedReviewTargetCount,
       impactPrediction,
+      extraInstructionLines: styleConflict.instructionLines,
     });
     if (normalized.contextMode === 'layered') {
       pack.deepContext = await this.buildDeepContext(pack, normalized.deepContextBudget);
@@ -553,13 +563,14 @@ export class RetrievalService {
       debug,
     );
 
-    const [metadata, lexical, memory, vector, worktree, atoms] = await Promise.all([
+    const [metadata, lexical, memory, vector, worktree, atoms, userStyle] = await Promise.all([
       timed('metadata', this.store.searchMetadata(classified, options), debug),
       timed('lexical', this.store.searchLexical(classified, options), debug),
       timed('memory', this.store.searchMemories(classified, options), debug),
       vectorResults,
       worktreeResults,
       timed('atoms', this.searchAtomCandidates(classified, options, project), debug),
+      timed('userStyle', this.searchUserStyleCandidates(classified, options), debug),
     ]);
     const namespaceFilter = input.namespace;
     const safeResults: KnowledgeSearchResult = {
@@ -574,6 +585,9 @@ export class RetrievalService {
       // Atoms are synthesized SearchCandidates from atom claims; sanitize and namespace-filter
       // them like the persisted sources. Tier weighting is applied later in fusion + adjustments.
       atoms: applyNamespaceFilter(this.safety.sanitizeSearchCandidates(atoms), namespaceFilter),
+      // Concern F — user-style atoms intentionally bypass the namespace filter:
+      // the layer is cross-project and namespace filters target project scope.
+      userStyle: this.safety.sanitizeSearchCandidates(userStyle),
     };
     const seedKnowledgeIds = uniqueStrings([
       ...safeResults.metadata,
@@ -617,8 +631,45 @@ export class RetrievalService {
     debug?.recordStage('graph', safeResults.graph);
     debug?.recordStage('worktree', safeResults.worktree);
     debug?.recordStage('atoms', safeResults.atoms);
+    debug?.recordStage('userStyle', safeResults.userStyle);
 
     return { candidates: safeResults, worktree };
+  }
+
+  /**
+   * Concern F — fetch the configured user's cross-project style atoms whose
+   * trigger overlaps the classified query. Returns [] when `TUBEROSA_USER_ID`
+   * is unset or the layer is disabled.
+   */
+  private async searchUserStyleCandidates(
+    classified: ClassifiedQuery,
+    options: SearchOptions,
+  ): Promise<SearchCandidate[]> {
+    if (!this.config.userId || this.config.userStyleEnabled === false) return [];
+    const trigger = {
+      errors: classified.errors,
+      files: classified.files,
+      symbols: classified.symbols,
+      taskTypes: classified.taskType && classified.taskType !== 'unknown' ? [classified.taskType] : undefined,
+    };
+    if (
+      (trigger.errors?.length ?? 0) === 0
+      && (trigger.files?.length ?? 0) === 0
+      && (trigger.symbols?.length ?? 0) === 0
+      && (trigger.taskTypes?.length ?? 0) === 0
+    ) {
+      return [];
+    }
+    const atoms = await this.store.searchAtomsByTrigger(trigger, {
+      project: undefined,
+      scope: 'user',
+      userId: this.config.userId,
+      limit: options.limit,
+    });
+    const rejected = new Set(options.rejectedKnowledgeIds ?? []);
+    return atoms
+      .filter((atom) => atom.status === 'active' && !rejected.has(atom.id))
+      .map((atom, index) => userStyleAtomToCandidate(atom, index));
   }
 
   /**
@@ -674,6 +725,7 @@ export class RetrievalService {
       disabled.has('vector') ? [] : candidates.vector,
       disabled.has('graph') ? [] : candidates.graph,
       disabled.has('worktree') ? [] : candidates.worktree,
+      disabled.has('userStyle') ? [] : candidates.userStyle,
     ];
 
     // Phase 2 — fetch feedback summaries BEFORE fusion so the per-candidate
@@ -775,6 +827,7 @@ export class RetrievalService {
       .map((candidate) => applyFeedbackSummary(candidate, summaries.get(candidate.knowledgeId), onSuppression))
       .map((candidate) => applyIntentSuppression(candidate, classified, supersededBy.get(candidate.knowledgeId) ?? [], onSuppression))
       .map((candidate) => applyAtomTierMultiplier(candidate))
+      .map((candidate) => applyUserStyleMultiplier(candidate))
       .sort((left, right) => right.finalScore - left.finalScore || left.rank - right.rank)
       .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
   }
@@ -912,6 +965,7 @@ export class RetrievalService {
     reviewTargets: ContextReviewTarget[];
     omittedReviewTargetCount: number;
     impactPrediction?: ImpactPrediction;
+    extraInstructionLines?: string[];
   }): ContextPack {
     const pack = assembleContextPack({
       queryId: input.queryId,
@@ -928,6 +982,9 @@ export class RetrievalService {
     });
     if (input.impactPrediction) {
       pack.impactPrediction = input.impactPrediction;
+    }
+    if (input.extraInstructionLines && input.extraInstructionLines.length > 0) {
+      pack.instruction = input.extraInstructionLines.join('\n');
     }
     return pack;
   }
@@ -1275,6 +1332,8 @@ function learningProposalAction(proposal: LearningProposal): string {
       return 'Review whether the candidate should supersede affected knowledge.';
     case 'auto_memory_cleanup':
       return 'Review the auto-memory cleanup action before changing memory status.';
+    case 'user_style_candidate':
+      return 'Review the clustered user-style candidate before promoting it to a user-style atom.';
   }
 }
 
@@ -1332,6 +1391,58 @@ function applyAtomTierMultiplier(candidate: RankedCandidate): RankedCandidate {
     return candidate;
   }
   return { ...candidate, finalScore: candidate.finalScore * TIER_RANK_MULTIPLIERS[tier] };
+}
+
+/**
+ * Concern F — user-style atoms get a tier-aware multiplier plus a
+ * personal_workflow boost. Project atoms use applyAtomTierMultiplier; the two
+ * paths stay separate so tier multipliers can diverge (drafts of a personal
+ * preference are weaker signals than verified project conventions).
+ */
+function userStyleAtomToCandidate(atom: KnowledgeAtom, index: number): SearchCandidate {
+  return {
+    knowledgeId: atom.id,
+    title: atom.claim,
+    summary: atom.claim,
+    content: atom.claim,
+    contextualContent: atom.claim,
+    itemType: 'memory',
+    project: atom.project,
+    labels: [],
+    references: [],
+    tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
+    trustLevel: 1,
+    source: 'userStyle',
+    rawScore: 1,
+    rank: index + 1,
+    metadata: {
+      userStyleAtomId: atom.id,
+      userStyleTier: atom.tier,
+      userStylePriority: atom.priority,
+      userId: atom.userId,
+    },
+  };
+}
+
+function applyUserStyleMultiplier(candidate: RankedCandidate): RankedCandidate {
+  if (candidate.source !== 'userStyle') return candidate;
+  const meta = candidate.metadata as {
+    userStyleTier?: AtomTier;
+    userStylePriority?: 'personal_workflow' | 'coding_preference';
+  } | undefined;
+  const tier = meta?.userStyleTier;
+  if (!tier) return candidate;
+  const policy = getRetrievalPolicy();
+  let multiplier = policy.userStyle.tierMultipliers[tier];
+  if (typeof multiplier !== 'number') return candidate;
+  if (meta?.userStylePriority === 'personal_workflow') {
+    multiplier *= policy.userStyle.personalWorkflowBoost;
+  }
+  const matchReason = `userStyle:${meta?.userStylePriority ?? 'coding_preference'}:`;
+  const matchReasons = candidate.matchReasons?.includes(matchReason)
+    ? candidate.matchReasons
+    : [...(candidate.matchReasons ?? []), matchReason];
+  return { ...candidate, finalScore: candidate.finalScore * multiplier, matchReasons };
 }
 
 const LEGACY_REPLACED_GRACE_MULTIPLIER = 0.2;

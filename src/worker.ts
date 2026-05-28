@@ -2,6 +2,7 @@ import { createAppServices } from './app.js';
 import { runArchivalSweep } from './atoms/archival.js';
 import { inferCoChangeLinks } from './atoms/inference/co-change.js';
 import { pruneStaleEdges } from './atoms/inference/prune.js';
+import { clusterUserCorrections } from './user-style/clusterer.js';
 
 const services = await createAppServices();
 
@@ -56,11 +57,35 @@ if (services.config.graphInferenceEnabled && services.config.defaultProject) {
   pruneTimer = setInterval(() => void runPrune(), pruneIntervalMs);
 }
 
+// Concern F — scheduled user-correction clustering. Skipped when the layer is
+// disabled or TUBEROSA_USER_ID is unset.
+let userStyleClusterTimer: NodeJS.Timeout | undefined;
+if (services.config.userStyleEnabled !== false && services.config.userId) {
+  const intervalMs = (services.config.userStyleClusterIntervalHours ?? 1) * 60 * 60 * 1000;
+  const userId = services.config.userId;
+  const windowDays = services.config.userStyleClusterWindowDays ?? 30;
+  const minClusterEvents = services.config.userStyleMinClusterEvents ?? 3;
+  const run = async () => {
+    try {
+      const report = await clusterUserCorrections(services.store, services.models, {
+        userId,
+        windowDays,
+        minClusterEvents,
+      });
+      process.stderr.write(`[user-style-clusterer] ${JSON.stringify(report)}\n`);
+    } catch (error) {
+      process.stderr.write(`[user-style-clusterer] failed: ${(error as Error).message}\n`);
+    }
+  };
+  userStyleClusterTimer = setInterval(() => void run(), intervalMs);
+}
+
 async function shutdown(signal: string) {
   console.log(`Worker received ${signal}, shutting down.`);
   if (archivalTimer) clearInterval(archivalTimer);
   if (coChangeTimer) clearInterval(coChangeTimer);
   if (pruneTimer) clearInterval(pruneTimer);
+  if (userStyleClusterTimer) clearInterval(userStyleClusterTimer);
   await services.close();
   process.exit(0);
 }

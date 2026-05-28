@@ -52,6 +52,10 @@ export function serializeAtom(
       createdAt: atom.audit.createdAt,
       updatedAt: atom.audit.updatedAt,
     },
+    scope: atom.scope,
+    userId: atom.userId,
+    priority: atom.priority,
+    metadata: atom.metadata && Object.keys(atom.metadata).length > 0 ? atom.metadata : undefined,
   };
   const yamlBlock = yaml.dump(frontmatter, { lineWidth: 100, noRefs: true, sortKeys: false });
   const content = `---\n${yamlBlock}---\n\n${atom.claim}\n`;
@@ -96,5 +100,9 @@ export function toAtomInputFromParsed(parsed: ParsedAtomMarkdown): KnowledgeAtom
       createdAt: fm.audit.createdAt,
       updatedAt: fm.audit.updatedAt,
     },
+    scope: (fm.scope as KnowledgeAtom['scope'] | undefined) ?? 'project',
+    userId: fm.userId,
+    priority: fm.priority as KnowledgeAtom['priority'] | undefined,
+    metadata: (fm.metadata as Record<string, unknown> | undefined) ?? {},
   };
 }

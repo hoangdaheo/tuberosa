@@ -19,6 +19,12 @@ export interface ExportOptions {
   maxChunkTokens?: number;
   sourceCommit?: string;
   dryRun?: boolean;
+  /**
+   * Concern F — when set, also export user-style atoms for this userId under
+   * `user-style/<userId>/`. The project filter does NOT apply to user-style
+   * atoms; they are cross-project by construction.
+   */
+  includeUserStyle?: string;
 }
 
 export interface ExportReport {
@@ -118,6 +124,31 @@ export async function exportPack(
     }
   }
 
+  // Concern F — emit user-style atoms under user-style/<userId>/ when requested.
+  let userStyleCount = 0;
+  if (opts.includeUserStyle) {
+    const userStyleAtoms = await store.listAtoms({
+      project: undefined,
+      scope: 'user',
+      userId: opts.includeUserStyle,
+      limit: 10_000,
+    });
+    const filtered = opts.includeArchived
+      ? userStyleAtoms
+      : userStyleAtoms.filter((a) => a.status === 'active');
+    if (!opts.dryRun) {
+      await mkdir(join(opts.out, 'user-style', opts.includeUserStyle), { recursive: true });
+    }
+    for (const atom of filtered) {
+      const safe: KnowledgeAtom = { ...atom, claim: safety.redactSecrets(atom.claim) };
+      const { content, filename } = serializeAtom(safe, { revision: atom.reuseCount + 1 });
+      if (!opts.dryRun) {
+        await writeFile(join(opts.out, 'user-style', opts.includeUserStyle, filename), content, 'utf8');
+      }
+      userStyleCount += 1;
+    }
+  }
+
   if (!opts.dryRun) {
     await writeFile(join(opts.out, 'README.md'), README_TEMPLATE, 'utf8');
   }
@@ -132,6 +163,7 @@ export async function exportPack(
       knowledge: knowledge.length,
       edges: bundleEdges.length,
       chunks,
+      userStyle: userStyleCount,
     },
     integrity: { 'edges.jsonl': sha256OfBuffer(edgesContent) },
     tierPolicy: {
@@ -140,6 +172,7 @@ export async function exportPack(
     },
     includesChunks: opts.includeChunks !== false,
     safetyRedactionVersion: '1',
+    userStyleScopes: opts.includeUserStyle ? [opts.includeUserStyle] : undefined,
   };
   if (!opts.dryRun) {
     await writeManifest(join(opts.out, 'manifest.json'), manifest);

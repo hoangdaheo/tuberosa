@@ -493,7 +493,7 @@ function blankMetrics(): SandboxRunMetrics {
       E: { selected: 0, suppressed: 0, expectedSelected: 0, expectedSuppressed: 0 },
       F: { selected: 0, suppressed: 0, expectedSelected: 0, expectedSuppressed: 0 },
     },
-    perSourceContribution: { metadata: 0, lexical: 0, memory: 0, vector: 0, graph: 0, worktree: 0, atoms: 0 },
+    perSourceContribution: { metadata: 0, lexical: 0, memory: 0, vector: 0, graph: 0, worktree: 0, atoms: 0, userStyle: 0 },
     perFilter: {},
     latency: { p50: 0, p95: 0, max: 0, samples: 0 },
     itemTypeDiagonalRate: 0,

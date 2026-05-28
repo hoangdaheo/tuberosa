@@ -31,6 +31,7 @@
     "archival-sweep": "tsx scripts/archival-sweep.ts",
     "infer-co-change": "tsx scripts/infer-co-change.ts",
     "prune-stale-edges": "tsx scripts/prune-stale-edges.ts",
+    "cluster-user-corrections": "tsx scripts/cluster-user-corrections.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "error-logs": "tsx scripts/error-logs.ts",

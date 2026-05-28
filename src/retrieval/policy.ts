@@ -168,6 +168,16 @@ export interface GraphWalkConfig {
   impactPredictionLimit: number;
 }
 
+/**
+ * Concern F — user-style atoms get a tier-aware multiplier on their final
+ * fused score, with an extra boost when the atom is tagged personal_workflow
+ * (the priority that wins over project conventions).
+ */
+export interface UserStyleScoringConfig {
+  tierMultipliers: { draft: number; verified: number; canonical: number };
+  personalWorkflowBoost: number;
+}
+
 export interface RetrievalPolicy {
   useFreshnessMap: boolean;
   freshnessGlobal: FreshnessWindow;
@@ -240,6 +250,9 @@ export interface RetrievalPolicy {
   /** Concern C2 — read-side atom-graph walk + impact prediction. */
   graph: GraphWalkConfig;
 
+  /** Concern F — user-style preference layer scoring. */
+  userStyle: UserStyleScoringConfig;
+
   /**
    * Phase 4 — optional metadata from `scripts/calibrate-fusion.ts`. Not consumed by retrieval directly,
    * but checked in to make the file self-describing for reviewers.
@@ -276,6 +289,7 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     atoms: 0.2,
     lexical: 1.0,
     vector: 0.92,
+    userStyle: 0.12,
   },
   hardSignalBoost: { sources: ['metadata', 'lexical', 'graph', 'worktree'], bonus: 0.18 },
   hardSignalVectorPenalty: -0.08,
@@ -348,6 +362,11 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     exploration: { file: 0.2, symbol: 0.18, error: 0.14, technology: 0.18, businessArea: 0.18 },
     testing: { file: 0.24, symbol: 0.22, error: 0.24, technology: 0.12, businessArea: 0.1 },
     unknown: { file: 0.24, symbol: 0.22, error: 0.22, technology: 0.12, businessArea: 0.12 },
+  },
+
+  userStyle: {
+    tierMultipliers: { draft: 0.4, verified: 0.8, canonical: 1.1 },
+    personalWorkflowBoost: 1.3,
   },
 
   graph: {
@@ -521,6 +540,10 @@ function mergePolicy(base: RetrievalPolicy, override: Partial<RetrievalPolicy>):
     queryRewrite: { ...base.queryRewrite, ...(override.queryRewrite ?? {}) },
     promptPreprocessing: mergePromptPreprocessing(base.promptPreprocessing, override.promptPreprocessing),
     graphInference: mergeGraphInference(base.graphInference, override.graphInference),
+    userStyle: {
+      tierMultipliers: { ...base.userStyle.tierMultipliers, ...(override.userStyle?.tierMultipliers ?? {}) },
+      personalWorkflowBoost: override.userStyle?.personalWorkflowBoost ?? base.userStyle.personalWorkflowBoost,
+    },
     calibration: override.calibration ?? base.calibration,
   };
 }
