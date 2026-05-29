@@ -70,6 +70,16 @@ docker compose down       # keeps Postgres data
 docker compose down -v    # wipes Postgres data
 ```
 
+## Bootstrap a real repo (fastest first run)
+
+To turn an actual repository into project knowledge in one command — ingest every file, build a readable atlas, and print a health summary — run:
+
+```bash
+tuberosa bootstrap --project myapp
+```
+
+That's the recommended starting point for a real project. See [17-bootstrap-and-export-v2.md](17-bootstrap-and-export-v2.md). The manual `curl` walkthrough below is for understanding the primitives one call at a time.
+
 ## First ingest + search + feedback
 
 ```bash
@@ -128,5 +138,5 @@ Then in Claude Code: ask the agent to call `tuberosa_start_session` with `projec
 
 - New to the data model? [03-knowledge-model.md](03-knowledge-model.md).
 - Want to understand how a search becomes a context pack? [04-retrieval-pipeline.md](04-retrieval-pipeline.md).
-- Want to ingest your own repo? [13-operations-runbook.md](13-operations-runbook.md#self-ingest).
+- Want to ingest your own repo? [17-bootstrap-and-export-v2.md](17-bootstrap-and-export-v2.md) (`tuberosa bootstrap`) or [13-operations-runbook.md](13-operations-runbook.md#self-ingest).
 - Running into a problem? [13-operations-runbook.md#troubleshooting](13-operations-runbook.md#troubleshooting).

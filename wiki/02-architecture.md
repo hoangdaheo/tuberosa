@@ -40,11 +40,14 @@ src/
 │
 ├─ agent-session/        start/finish/decision/learning-signal
 ├─ atoms/                Atom critic, tier, archival, gate-telemetry, inference/
+├─ atlas/                Deterministic 5-file project atlas (inputs, builders, service)
+├─ bootstrap/            BootstrapService — one-command first run (sync+atlas+health+export)
 ├─ evaluation/           Eval runners (retrieval, agent-context, safety, …)
-├─ export/               Exporter, importer, atom/knowledge codecs, manifest
+├─ export/               Exporter, importer, codecs, manifest, bootstrap-pack (Export V2)
 ├─ http/                 server.ts (routes), workbench-v2, error mapping
 ├─ ingest/               IngestionService, document atomizer, relations/inference
 ├─ knowledge/            classifier, deduplication helpers
+├─ knowledge-areas/      area-model.ts — partition knowledge into areas (atlas/export/health spine)
 ├─ maintenance/          dedup, decay, write-gate
 ├─ mcp/                  server.ts (tools + resources + prompts), schemas
 ├─ migrations/           SQL migrations (also at top-level migrations/ for the migrate script)
@@ -53,6 +56,7 @@ src/
 ├─ reflection/           draft lifecycle, write-gate, safety/taxonomy
 ├─ retrieval/            classifier, fusion, context-fit, context-pack, service
 ├─ security/             knowledge-safety (redaction + injection guard), safe-paths
+├─ source-sync/          SourceSyncService — detect add/change/rename/delete, plan, apply
 ├─ storage/              postgres-store, memory-store, factory
 ├─ types/                shared TS types (atoms, knowledge, references)
 └─ user-style/           clusterer, conflict-resolver, finish-session-router
@@ -106,6 +110,22 @@ Selected by `TUBEROSA_MODEL_PROVIDER`.
 ## Physical mirror
 
 When `TUBEROSA_PHYSICAL_MIRROR_ENABLED=true` (default), every write to the store schedules a debounced sync to `.tuberosa/current/`. The mirror is Markdown + JSONL — human-readable, grep-friendly. The MCP server also exposes the mirror as resources (`tuberosa://knowledge/{id}`, `tuberosa://packs/{id}`, …).
+
+## Knowledge lifecycle
+
+Three subsystems keep a project's knowledge in step with its files and make it understandable. They share one backbone — `buildAreaModel` (`src/knowledge-areas/`) — and chain together:
+
+```
+files change → SourceSyncService (src/source-sync/)   → plan → apply (ingest / re-point / archive)
+                                  │
+                                  └─ on apply → AtlasService (src/atlas/) regenerates .tuberosa/atlas/*.md
+
+BootstrapService (src/bootstrap/) = sync (additive) + atlas + health + optional Export V2, in one command
+```
+
+- **Source sync** — [15-source-lifecycle-sync.md](15-source-lifecycle-sync.md).
+- **Atlas & area model** — [16-project-atlas.md](16-project-atlas.md).
+- **Bootstrap & Export V2** — [17-bootstrap-and-export-v2.md](17-bootstrap-and-export-v2.md).
 
 ## What runs where
 

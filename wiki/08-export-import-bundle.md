@@ -26,6 +26,8 @@ A `.tuberosa-pack` is a portable, human-readable snapshot of a project's atoms, 
 
 Slug rule: alphanumeric + `.`, `_`, `-` only. Path-traversal characters are stripped during export and rejected on import.
 
+> **Two layouts.** The flat layout above (`manifest.layout` absent or `"flat"`) is what `tuberosa_export_pack` writes. `tuberosa bootstrap --export` writes a richer **categorized** layout (`manifest.layout: "categorized-v2"`) where atoms/knowledge live under `pack/areas/<slug>/`, alongside a human-readable handoff layer. The import flow, conflict handling, and path confinement on this page apply to **both**. See [17-bootstrap-and-export-v2.md](17-bootstrap-and-export-v2.md#export-v2-layout) for the categorized layout. Importing is backward compatible: old flat packs always keep working.
+
 ## Atom Markdown shape
 
 ```markdown
@@ -183,10 +185,12 @@ When `onConflict: "review"` (default) and an imported atom/knowledge collides wi
    ```jsonc
    {
      "conflictId":      "<id>",
-     "resolution":      "keep_local" | "keep_imported" | "keep_merged",
-     "mergedSnapshot":  { /* only when resolution=keep_merged */ }
+     "resolution":      "keep_local" | "take_imported" | "merged" | "dismiss",
+     "mergedSnapshot":  { /* only when resolution=merged */ }
    }
    ```
+
+   `take_imported` overwrites local with the imported atom's **content fields** (claim, type, evidence, trigger, verification, pitfalls, links) plus tier/status — not just metadata. `merged` applies any of those fields from `mergedSnapshot`. Local state never changes until you resolve.
 
 When `onConflict: "skip"`, the import just bumps `atomsSkipped` and moves on. No conflict row is created.
 
@@ -239,3 +243,4 @@ If you touch the codec or importer, this test is the one to keep green.
 - [09-mcp-reference.md](09-mcp-reference.md#bundles) — full MCP tool args.
 - [10-http-api-reference.md](10-http-api-reference.md#export-import) — HTTP routes.
 - [12-security-model.md](12-security-model.md#path-confinement) — confinement details.
+- [17-bootstrap-and-export-v2.md](17-bootstrap-and-export-v2.md) — the categorized two-layer handoff pack.
