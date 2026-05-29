@@ -93,6 +93,8 @@ import type {
   RenameSourceFileInput,
   CreateSyncRunInput,
   WalkAtomGraphOptions,
+  AtlasRunInput,
+  AtlasRunRecord,
 } from './store.js';
 import type {
   SourceFileRecord,
@@ -374,6 +376,43 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       [id],
     );
     return rows[0] ? this.mapSyncRunRow(rows[0]) : undefined;
+  }
+
+  async createAtlasRun(input: AtlasRunInput): Promise<AtlasRunRecord> {
+    const projectId = await this.ensureProject(this.pool, input.project);
+    const { rows } = await this.pool.query<{ id: string }>(
+      `
+        INSERT INTO atlas_runs (project_id, input_hash, files, generated_at)
+        VALUES ($1, $2, $3::jsonb, $4)
+        RETURNING id
+      `,
+      [projectId, input.inputHash, JSON.stringify(input.files), input.generatedAt],
+    );
+    return { ...input, id: rows[0].id };
+  }
+
+  async getLatestAtlasRun(project: string): Promise<AtlasRunRecord | undefined> {
+    const { rows } = await this.pool.query(
+      `
+        SELECT ar.id, ar.input_hash, ar.files, ar.generated_at
+        FROM atlas_runs ar JOIN projects p ON p.id = ar.project_id
+        WHERE p.name = $1
+        ORDER BY ar.generated_at DESC
+        LIMIT 1
+      `,
+      [project],
+    );
+    if (rows.length === 0) {
+      return undefined;
+    }
+    const row = rows[0];
+    return {
+      id: row.id as string,
+      project,
+      inputHash: row.input_hash as string,
+      files: row.files as { name: string; bytes: number }[],
+      generatedAt: new Date(row.generated_at as string).toISOString(),
+    };
   }
 
   async listKnowledge(options: ListKnowledgeOptions): Promise<StoredKnowledge[]> {

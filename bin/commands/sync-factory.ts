@@ -4,6 +4,7 @@ import { createModelProvider } from '../../src/model/factory.js';
 import { KnowledgeSafetyService } from '../../src/security/knowledge-safety.js';
 import { IngestionService } from '../../src/ingest/service.js';
 import { SourceSyncService } from '../../src/source-sync/service.js';
+import { AtlasService } from '../../src/atlas/service.js';
 import type { SyncServiceLike } from './sync.js';
 
 /**
@@ -19,5 +20,6 @@ export async function makeSyncService(): Promise<SyncServiceLike> {
     safety,
     maxContentBytes: config.maxIngestContentBytes,
   });
-  return new SourceSyncService({ store, ingestion });
+  const atlas = new AtlasService(store, { atlasDir: config.atlasDir ?? '.tuberosa/atlas' });
+  return new SourceSyncService({ store, ingestion, atlas, atlasAutoRegen: config.atlasAutoRegen ?? true });
 }
