@@ -6,6 +6,7 @@ import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import { predictImpact } from '../retrieval/impact-predictor.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
 import { createUserStyleAtom } from '../user-style/store-helpers.js';
+import { SourceSyncService } from '../source-sync/service.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   AGENT_LEARNING_MODES,
@@ -519,6 +520,28 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
         instruction: atoms.length === 0
           ? 'No user-style atoms recorded yet. Use tuberosa_record_user_style to capture one.'
           : 'User-style atoms for the configured user. They are cross-project and never tied to a single repo.',
+      });
+    }
+
+    case 'tuberosa_sync_sources': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_sync_sources arguments.project');
+      const repoPath = readOptionalMcpString(args.path, 'tuberosa_sync_sources arguments.path')
+        ?? services.config.defaultCwd
+        ?? process.cwd();
+      const service = new SourceSyncService({ store: services.store, ingestion: services.ingestion });
+      if (args.apply === true) {
+        const planId = readRequiredMcpString(args.planId, 'tuberosa_sync_sources arguments.planId');
+        const result = await service.apply({ planId, allowDestructive: true });
+        services.operations.requestPhysicalMirror('sources-synced');
+        return toolJson({ applied: true, result });
+      }
+      const { planId, plan } = await service.sync({ project, repoPath, trigger: 'mcp' });
+      return toolJson({
+        planId,
+        plan,
+        instruction: plan.destructive
+          ? 'This plan archives knowledge for deleted files. Surface the deletions to the user and only re-call with apply:true + planId after they confirm.'
+          : 'Additive plan (no deletions). Re-call with apply:true + planId to apply.',
       });
     }
 
@@ -1570,6 +1593,21 @@ function tools() {
         type: 'object',
         properties: {
           userId: { type: 'string', description: 'Defaults to TUBEROSA_USER_ID when set.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_sync_sources',
+      title: 'Sync Project Sources',
+      description: 'Detect added/changed/renamed/deleted files for a project and return a reviewable cleanup plan. Pass apply:true with a planId to apply it (archives for deleted files are always surfaced for the user to confirm).',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          path: { type: 'string', description: 'Repo root; defaults to the server cwd.' },
+          apply: { type: 'boolean', description: 'Apply a previously returned planId.' },
+          planId: { type: 'string' },
         },
       },
     },
