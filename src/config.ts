@@ -37,8 +37,8 @@ export interface AppConfig {
   physicalMirrorEnabled?: boolean;
   physicalMirrorDir?: string;
   physicalMirrorDebounceMs: number;
-  atlasDir: string;
-  atlasAutoRegen: boolean;
+  atlasDir?: string;
+  atlasAutoRegen?: boolean;
   errorLogDir: string;
   errorLogMaxBytes: number;
   errorLogAutoCapture: boolean;

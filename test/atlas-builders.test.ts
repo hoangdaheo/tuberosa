@@ -119,7 +119,7 @@ test('buildOpenGaps: flags undocumented/thin areas, gaps, and unverified atoms',
     }],
     knowledgeGaps: [{
       id: 'gp', project: 'p', prompt: 'how does X work', missingSignals: ['file:x'],
-      status: 'pending', metadata: {}, createdAt: 't',
+      status: 'open', metadata: {}, createdAt: 't',
     } as AtlasInputs['knowledgeGaps'][number]],
     atoms: [{
       id: 'a1', project: 'p', claim: 'unverified claim', type: 'fact', evidence: [], trigger: {},

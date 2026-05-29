@@ -556,7 +556,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       const project = readRequiredMcpString(args.project, 'tuberosa_get_atlas arguments.project');
       const file = readOptionalMcpString(args.file, 'tuberosa_get_atlas arguments.file');
       const repoPath = services.config.defaultCwd ?? process.cwd();
-      const atlas = new AtlasService(services.store, { atlasDir: services.config.atlasDir });
+      const atlas = new AtlasService(services.store, { atlasDir: services.config.atlasDir ?? '.tuberosa/atlas' });
       const result = await atlas.regenerate({
         project,
         repoPath,
@@ -725,7 +725,7 @@ async function readResource(services: AppServices, params: Record<string, unknow
     }
     const project = rest.slice(0, slash);
     const file = rest.slice(slash + 1);
-    const atlas = new AtlasService(services.store, { atlasDir: services.config.atlasDir });
+    const atlas = new AtlasService(services.store, { atlasDir: services.config.atlasDir ?? '.tuberosa/atlas' });
     const result = await atlas.regenerate({
       project,
       repoPath: services.config.defaultCwd ?? process.cwd(),

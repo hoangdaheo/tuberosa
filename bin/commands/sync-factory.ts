@@ -20,6 +20,6 @@ export async function makeSyncService(): Promise<SyncServiceLike> {
     safety,
     maxContentBytes: config.maxIngestContentBytes,
   });
-  const atlas = new AtlasService(store, { atlasDir: config.atlasDir });
-  return new SourceSyncService({ store, ingestion, atlas, atlasAutoRegen: config.atlasAutoRegen });
+  const atlas = new AtlasService(store, { atlasDir: config.atlasDir ?? '.tuberosa/atlas' });
+  return new SourceSyncService({ store, ingestion, atlas, atlasAutoRegen: config.atlasAutoRegen ?? true });
 }

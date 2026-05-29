@@ -10,5 +10,5 @@ import type { AtlasServiceLike } from './atlas.js';
 export async function makeAtlasService(): Promise<AtlasServiceLike> {
   const config = loadConfig();
   const store = createKnowledgeStore(config);
-  return new AtlasService(store, { atlasDir: config.atlasDir });
+  return new AtlasService(store, { atlasDir: config.atlasDir ?? '.tuberosa/atlas' });
 }
