@@ -1951,6 +1951,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
     const sets: string[] = ['updated_at = now()'];
     const values: unknown[] = [];
+    if (patch.claim !== undefined)    { values.push(patch.claim);    sets.push(`claim = $${values.length}`); }
+    if (patch.type !== undefined)     { values.push(patch.type);     sets.push(`type = $${values.length}`); }
+    if (patch.evidence !== undefined) { values.push(JSON.stringify(patch.evidence)); sets.push(`evidence = $${values.length}::jsonb`); }
+    if (patch.trigger !== undefined)  { values.push(JSON.stringify(patch.trigger));  sets.push(`trigger = $${values.length}::jsonb`); }
     if (patch.tier !== undefined)         { values.push(patch.tier);         sets.push(`tier = $${values.length}`); }
     if (patch.status !== undefined)       { values.push(patch.status);       sets.push(`status = $${values.length}`); }
     if (patch.reuseCount !== undefined)   { values.push(patch.reuseCount);   sets.push(`reuse_count = $${values.length}`); }

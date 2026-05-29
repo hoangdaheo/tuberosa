@@ -109,6 +109,11 @@ export interface KnowledgeAtomInput {
 }
 
 export interface KnowledgeAtomPatch {
+  /** Export V2 — content fields, updated only on conflict take_imported / merged. */
+  claim?: string;
+  type?: AtomType;
+  evidence?: Evidence[];
+  trigger?: Trigger;
   tier?: AtomTier;
   status?: AtomStatus;
   reuseCount?: number;
