@@ -48,7 +48,8 @@ export function parseArgs(argv: string[]): CliInvocation {
     if (!commandResolved) {
       if (
         token === 'init' || token === 'doctor' || token === 'mcp'
-        || token === 'sync' || token === 'hook' || token === 'atlas' || token === 'help'
+        || token === 'sync' || token === 'hook' || token === 'atlas'
+        || token === 'bootstrap' || token === 'help'
       ) {
         command = token;
       } else {
@@ -75,6 +76,7 @@ export function usage(): string {
     '  mcp       Run the MCP stdio server with embedded-mode defaults (memory store + cache + hash provider).',
     '  sync      Detect added/changed/renamed/deleted files and review/apply a cleanup plan.',
     '  hook      Manage git hooks (e.g. `tuberosa hook install`) for additive-only auto-sync.',
+    '  bootstrap First-run project knowledge: sync (additive) + atlas + health summary, optional --export / --deep.',
     '  help      Show this help message.',
     '',
     'Common options:',

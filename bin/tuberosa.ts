@@ -8,6 +8,8 @@ import { syncCommand, hookCommand } from './commands/sync.js';
 import { makeSyncService } from './commands/sync-factory.js';
 import { atlasCommand } from './commands/atlas.js';
 import { makeAtlasService } from './commands/atlas-factory.js';
+import { bootstrapCommand } from './commands/bootstrap.js';
+import { makeBootstrapService } from './commands/bootstrap-factory.js';
 import type { CliInvocation, CommandIo, CommandResult } from './commands/types.js';
 
 /**
@@ -39,6 +41,8 @@ export async function dispatch(invocation: CliInvocation, io: CommandIo): Promis
       return hookCommand(invocation, io);
     case 'atlas':
       return atlasCommand(invocation, io, { makeService: () => makeAtlasService() });
+    case 'bootstrap':
+      return bootstrapCommand(invocation, io, { makeService: () => makeBootstrapService() });
     case 'help':
     default:
       io.out(usage());
