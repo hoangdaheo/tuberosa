@@ -57,9 +57,11 @@ import type {
   ListAtomsOptions,
 } from '../types/atoms.js';
 import type {
+  AtomFrontmatter,
   AtomImportConflict,
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
+import { importedSnapshotToPatch } from './atom-import-patch.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
@@ -150,6 +152,28 @@ function finalReleaseClient(client: PoolClient): void {
 function filterPersistedKnowledgeIds(ids: readonly string[] | undefined): string[] {
   if (!ids || ids.length === 0) return [];
   return ids.filter(isPersistedKnowledgeId);
+}
+
+/** Apply a KnowledgeAtomPatch's content+meta fields to one atom inside an open transaction. */
+async function applyAtomPatchInTx(
+  client: PoolClient,
+  atomId: string,
+  patch: KnowledgeAtomPatch,
+): Promise<void> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  if (patch.claim !== undefined)        { vals.push(patch.claim);        sets.push(`claim = $${vals.length}`); }
+  if (patch.type !== undefined)         { vals.push(patch.type);         sets.push(`type = $${vals.length}`); }
+  if (patch.evidence !== undefined)     { vals.push(JSON.stringify(patch.evidence));     sets.push(`evidence = $${vals.length}::jsonb`); }
+  if (patch.trigger !== undefined)      { vals.push(JSON.stringify(patch.trigger));      sets.push(`trigger = $${vals.length}::jsonb`); }
+  if (patch.verification !== undefined) { vals.push(JSON.stringify(patch.verification)); sets.push(`verification = $${vals.length}::jsonb`); }
+  if (patch.pitfalls !== undefined)     { vals.push(JSON.stringify(patch.pitfalls));     sets.push(`pitfalls = $${vals.length}::jsonb`); }
+  if (patch.links !== undefined)        { vals.push(JSON.stringify(patch.links));        sets.push(`links = $${vals.length}::jsonb`); }
+  if (patch.tier !== undefined)         { vals.push(patch.tier);         sets.push(`tier = $${vals.length}`); }
+  if (patch.status !== undefined)       { vals.push(patch.status);       sets.push(`status = $${vals.length}`); }
+  if (sets.length === 0) return;
+  vals.push(atomId);
+  await client.query(`UPDATE knowledge_atoms SET ${sets.join(', ')}, updated_at = now() WHERE id = $${vals.length}`, vals);
 }
 
 export class PostgresKnowledgeStore implements KnowledgeStore {
@@ -1951,6 +1975,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
     const sets: string[] = ['updated_at = now()'];
     const values: unknown[] = [];
+    if (patch.claim !== undefined)    { values.push(patch.claim);    sets.push(`claim = $${values.length}`); }
+    if (patch.type !== undefined)     { values.push(patch.type);     sets.push(`type = $${values.length}`); }
+    if (patch.evidence !== undefined) { values.push(JSON.stringify(patch.evidence)); sets.push(`evidence = $${values.length}::jsonb`); }
+    if (patch.trigger !== undefined)  { values.push(JSON.stringify(patch.trigger));  sets.push(`trigger = $${values.length}::jsonb`); }
     if (patch.tier !== undefined)         { values.push(patch.tier);         sets.push(`tier = $${values.length}`); }
     if (patch.status !== undefined)       { values.push(patch.status);       sets.push(`status = $${values.length}`); }
     if (patch.reuseCount !== undefined)   { values.push(patch.reuseCount);   sets.push(`reuse_count = $${values.length}`); }
@@ -2497,29 +2525,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       const row = updated.rows[0];
 
       if (action === 'take_imported') {
-        const imp = row.imported_snapshot as { tier?: string; status?: string };
-        if (imp?.tier && imp?.status) {
-          await client.query(
-            `UPDATE knowledge_atoms SET tier = $1, status = $2, updated_at = now() WHERE id = $3`,
-            [imp.tier, imp.status, row.atom_id],
-          );
-        }
+        const patch = importedSnapshotToPatch(row.imported_snapshot as AtomFrontmatter & { body: string });
+        await applyAtomPatchInTx(client, row.atom_id, patch);
       } else if (action === 'merged' && mergedSnapshot) {
-        const m = mergedSnapshot as KnowledgeAtomPatch;
-        const sets: string[] = [];
-        const vals: unknown[] = [];
-        if (m.tier !== undefined) { vals.push(m.tier); sets.push(`tier = $${vals.length}`); }
-        if (m.status !== undefined) { vals.push(m.status); sets.push(`status = $${vals.length}`); }
-        if (m.verification !== undefined) { vals.push(JSON.stringify(m.verification)); sets.push(`verification = $${vals.length}::jsonb`); }
-        if (m.pitfalls !== undefined) { vals.push(JSON.stringify(m.pitfalls)); sets.push(`pitfalls = $${vals.length}::jsonb`); }
-        if (m.links !== undefined) { vals.push(JSON.stringify(m.links)); sets.push(`links = $${vals.length}::jsonb`); }
-        if (sets.length > 0) {
-          vals.push(row.atom_id);
-          await client.query(
-            `UPDATE knowledge_atoms SET ${sets.join(', ')}, updated_at = now() WHERE id = $${vals.length}`,
-            vals,
-          );
-        }
+        await applyAtomPatchInTx(client, row.atom_id, mergedSnapshot as KnowledgeAtomPatch);
       }
 
       const projectName = row.project_id

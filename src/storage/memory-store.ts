@@ -88,6 +88,7 @@ import type {
   AtomImportConflict,
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
+import { importedSnapshotToPatch } from './atom-import-patch.js';
 import type {
   SourceFileRecord,
   SourceFileStatus,
@@ -1663,11 +1664,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     this.atomImportConflicts.set(id, next);
 
     if (action === 'take_imported') {
-      const imp = next.importedSnapshot;
-      await this.updateAtom(next.atomId, {
-        tier: imp.tier,
-        status: imp.status,
-      });
+      await this.updateAtom(next.atomId, importedSnapshotToPatch(next.importedSnapshot));
     } else if (action === 'merged' && mergedSnapshot) {
       const m = mergedSnapshot as KnowledgeAtomPatch;
       await this.updateAtom(next.atomId, m);
