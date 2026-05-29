@@ -110,6 +110,17 @@ export interface CreateSyncRunInput {
   toSha?: string | null;
 }
 
+export interface AtlasRunInput {
+  project: string;
+  inputHash: string;
+  files: { name: string; bytes: number }[];
+  generatedAt: string;
+}
+
+export interface AtlasRunRecord extends AtlasRunInput {
+  id: string;
+}
+
 /**
  * Concern C1 — provenance for an atom-edge row in `knowledge_relations`. The
  * column also serves as the dedup key for the JSONB ↔ relations mirror:
@@ -218,6 +229,8 @@ export interface KnowledgeStore {
   createSyncRun(input: CreateSyncRunInput): Promise<SyncRunRecord>;
   getSyncRun(id: string): Promise<SyncRunRecord | undefined>;
   markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined>;
+  createAtlasRun(input: AtlasRunInput): Promise<AtlasRunRecord>;
+  getLatestAtlasRun(project: string): Promise<AtlasRunRecord | undefined>;
   listKnowledge(options: ListKnowledgeOptions): Promise<StoredKnowledge[]>;
   getKnowledge(id: string): Promise<StoredKnowledge | undefined>;
   updateKnowledge(id: string, patch: KnowledgePatchInput): Promise<StoredKnowledge | undefined>;

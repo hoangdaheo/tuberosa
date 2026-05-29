@@ -81,6 +81,8 @@ import type {
   RenameSourceFileInput,
   CreateSyncRunInput,
   WalkAtomGraphOptions,
+  AtlasRunInput,
+  AtlasRunRecord,
 } from './store.js';
 import type {
   AtomImportConflict,
@@ -120,6 +122,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly atomImportConflicts = new Map<string, AtomImportConflict>();
   private readonly sourceFiles = new Map<string, SourceFileRecord>(); // key: `${project} ${path}`
   private readonly syncRuns = new Map<string, SyncRunRecord>();
+  private readonly atlasRuns: AtlasRunRecord[] = [];
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -298,6 +301,18 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     const updated: SyncRunRecord = { ...run, applied: true, appliedAt: new Date().toISOString() };
     this.syncRuns.set(id, updated);
     return { ...updated };
+  }
+
+  async createAtlasRun(input: AtlasRunInput): Promise<AtlasRunRecord> {
+    const record: AtlasRunRecord = { ...input, id: randomUUID() };
+    this.atlasRuns.push(record);
+    return { ...record };
+  }
+
+  async getLatestAtlasRun(project: string): Promise<AtlasRunRecord | undefined> {
+    const forProject = this.atlasRuns.filter((r) => r.project === project);
+    const latest = forProject[forProject.length - 1];
+    return latest ? { ...latest } : undefined;
   }
 
   async listKnowledge(options: ListKnowledgeOptions): Promise<StoredKnowledge[]> {
