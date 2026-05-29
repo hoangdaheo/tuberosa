@@ -254,11 +254,45 @@ Optionally include `learningSignals: [...]` or an explicit `reflectionDraft: {..
   "name": "tuberosa_resolve_atom_import_conflict",
   "arguments": {
     "conflictId":     "<id>",
-    "resolution":     "keep_merged",                  // "keep_local" | "keep_imported" | "keep_merged"
-    "mergedSnapshot": { /* required when keep_merged */ }
+    "resolution":     "merged",                       // "keep_local" | "take_imported" | "merged" | "dismiss"
+    "mergedSnapshot": { /* required when merged */ }
   }
 }
 ```
+
+`take_imported` and `merged` update the atom's content fields (claim, type, evidence, trigger, verification, pitfalls, links), not just tier/status. Categorized Export V2 packs (`manifest.layout: "categorized-v2"`) import through the same `tuberosa_import_pack` tool — point `from` at the pack's `pack/` subdirectory. See [17-bootstrap-and-export-v2.md](17-bootstrap-and-export-v2.md).
+
+---
+
+## Project lifecycle
+
+### `tuberosa_sync_sources`
+
+Detect added/changed/renamed/deleted files and return a reviewable plan. Two-call apply: first get a `planId`, then re-call with `apply: true`. Archives for deleted files are always surfaced for the user to confirm.
+
+```jsonc
+// 1. Plan (writes nothing)
+{ "name": "tuberosa_sync_sources", "arguments": { "project": "tuberosa", "path": "/repo" } }
+// → { "planId": "...", "plan": { added, changed, renamed, deleted, ignored, summary, destructive }, "instruction": "..." }
+
+// 2. Apply (after confirming any deletions)
+{ "name": "tuberosa_sync_sources",
+  "arguments": { "project": "tuberosa", "apply": true, "planId": "<planId>" } }
+```
+
+Full details: [15-source-lifecycle-sync.md](15-source-lifecycle-sync.md).
+
+### `tuberosa_get_atlas`
+
+Return the synthesized project atlas (five files), regenerated in-memory from current knowledge.
+
+```jsonc
+{ "name": "tuberosa_get_atlas", "arguments": { "project": "tuberosa" } }            // all five
+{ "name": "tuberosa_get_atlas", "arguments": { "project": "tuberosa", "file": "project-map.md" } }
+// → { "inputHash": "...", "files": [{ "name": "project-map.md", "content": "..." }, ...] }
+```
+
+The files are also registered as MCP resources (`tuberosa://atlas/project-map.md`, …). Full details: [16-project-atlas.md](16-project-atlas.md).
 
 ---
 

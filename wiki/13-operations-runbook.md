@@ -150,6 +150,36 @@ curl -sX POST http://localhost:3027/operations/maintenance/apply -d '{"planId":"
 
 Plans are previewed first (no writes), then applied separately. The workbench surfaces queued plans.
 
+## Project lifecycle (sync / atlas / bootstrap)
+
+Keep a project's knowledge in step with its files, then make it readable. Full guides: [15](15-source-lifecycle-sync.md), [16](16-project-atlas.md), [17](17-bootstrap-and-export-v2.md).
+
+```bash
+# First run on a fresh repo — sync + atlas + health + next actions in one go
+tuberosa bootstrap --project tuberosa
+
+# Hand another team a readable + importable pack
+tuberosa bootstrap --project tuberosa --export        # → .tuberosa/exports/tuberosa-bootstrap/
+
+# Day-to-day: keep knowledge current
+tuberosa sync --project tuberosa                      # dry-run plan (safe)
+tuberosa sync --project tuberosa --apply              # apply additive ops; deletions deferred
+tuberosa sync --project tuberosa --apply --yes        # also archive deleted-file knowledge
+
+# Auto-sync on every commit/merge (additive only; deletions queued for review)
+tuberosa hook install --project tuberosa
+
+# Regenerate the readable atlas on demand
+tuberosa atlas --project tuberosa --write             # → .tuberosa/atlas/*.md
+```
+
+Two files to know:
+
+- `.tuberosa/pending-sync.json` — deletions detected but **not** archived (from the git hook or `--apply` without `--yes`). Clear it by running `tuberosa sync --apply --yes` after review.
+- `.tuberosa/atlas/*.md` — the five atlas files; auto-refreshed after every `sync --apply` (toggle with `TUBEROSA_ATLAS_AUTO_REGEN`).
+
+> **Safety:** sync never hard-deletes. Deleted-file knowledge is *archived* (tombstoned) and resurrectable via `tuberosa_resurrect_atom`. Archiving always needs explicit confirmation; the git hook never archives.
+
 ## Common commands cheat-sheet
 
 ```bash
@@ -159,6 +189,10 @@ pnpm run dev             # HTTP server in watch mode
 pnpm run mcp             # MCP stdio server
 pnpm run migrate         # apply SQL migrations
 pnpm run worker          # background worker
+
+tuberosa bootstrap --project tuberosa            # first-run: sync + atlas + health
+tuberosa sync --project tuberosa [--apply --yes] # source lifecycle sync
+tuberosa atlas --project tuberosa --write        # regenerate the project atlas
 
 pnpm run backup
 pnpm run restore -- --backup <path>

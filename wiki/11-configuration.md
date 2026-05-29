@@ -79,6 +79,15 @@ Full security model: [12-security-model.md](12-security-model.md).
 | `TUBEROSA_PHYSICAL_MIRROR_DIR` | `.tuberosa/current` | Mirror directory. |
 | `TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS` | `500` | Coalesce rapid writes into one sync. |
 
+## Atlas & lifecycle
+
+| Variable | Default | Notes |
+|---|---|---|
+| `TUBEROSA_ATLAS_DIR` | `.tuberosa/atlas` | Where the five atlas files are written. See [16-project-atlas.md](16-project-atlas.md). |
+| `TUBEROSA_ATLAS_AUTO_REGEN` | `true` | Regenerate the atlas automatically after `tuberosa sync --apply`. Non-fatal if it fails. |
+
+Source sync (`tuberosa sync` / `tuberosa_sync_sources`) and `tuberosa bootstrap` need no env of their own — they reuse `TUBEROSA_EXPORT_BASE_DIR` (export destination), `TUBEROSA_ATLAS_DIR`, and the store/cache settings above. Deferred deletions are written to `.tuberosa/pending-sync.json`. See [15](15-source-lifecycle-sync.md) and [17](17-bootstrap-and-export-v2.md).
+
 ## Error logs
 
 | Variable | Default | Notes |

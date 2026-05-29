@@ -18,6 +18,9 @@ Full guides for Tuberosa. Start with [01-getting-started](01-getting-started.md)
 | 12 | [Security Model](12-security-model.md) | Threat model, redaction, prompt-injection, path confinement, residual risks. |
 | 13 | [Operations Runbook](13-operations-runbook.md) | Backups, mirror, evals, integration tests, common ops. |
 | 14 | [Development & Extension](14-development-and-extension.md) | Sandbox, calibrate-fusion, adding tools/routes, hooks. |
+| 15 | [Source Lifecycle Sync](15-source-lifecycle-sync.md) | Detect add/change/rename/delete; archive-not-delete; sync CLI / MCP / git hook. |
+| 16 | [Project Atlas & Area Model](16-project-atlas.md) | The area model + the five deterministic atlas files. |
+| 17 | [Bootstrap & Export V2](17-bootstrap-and-export-v2.md) | One-command first run + the categorized two-layer handoff pack. |
 
 Cross-cutting documents in the main repo:
 
