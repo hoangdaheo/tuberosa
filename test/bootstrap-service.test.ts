@@ -44,3 +44,34 @@ test('BootstrapService.run: applies additive sync and regenerates atlas', async 
   assert.ok(report.nextActions.length >= 1);
   assert.equal(report.export, undefined, 'no export without --export');
 });
+
+test('BootstrapService.run: --export writes a two-layer pack', async () => {
+  const repo = await fixtureRepo();
+  const store = new MemoryKnowledgeStore();
+  const atlasDir = await mkdtemp(join(tmpdir(), 'atlas-'));
+  const service = makeService(store, atlasDir);
+
+  const report = await service.run({
+    project: 'p',
+    repoPath: repo,
+    generatedAt: '2026-05-29T00:00:00.000Z',
+    export: true,
+  });
+
+  assert.ok(report.export, 'export present');
+  assert.ok(report.export!.out.endsWith('p-bootstrap'));
+  await (await import('node:fs/promises')).readFile(join(report.export!.out, 'START-HERE.md'), 'utf8');
+  await (await import('node:fs/promises')).readFile(join(report.export!.out, 'pack', 'manifest.json'), 'utf8');
+});
+
+test('BootstrapService.run: --export rejects unsafe --out', async () => {
+  const repo = await fixtureRepo();
+  const store = new MemoryKnowledgeStore();
+  const atlasDir = await mkdtemp(join(tmpdir(), 'atlas-'));
+  const service = makeService(store, atlasDir);
+
+  await assert.rejects(
+    () => service.run({ project: 'p', repoPath: repo, generatedAt: '2026-05-29T00:00:00.000Z', export: true, out: '../../etc/evil' }),
+    /.*/,
+  );
+});

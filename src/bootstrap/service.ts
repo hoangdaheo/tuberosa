@@ -5,6 +5,7 @@ import type { AtlasService } from '../atlas/service.js';
 import type { MaintenanceService } from '../maintenance/service.js';
 import type { ApplyResult } from '../source-sync/types.js';
 import { assertSafeBundlePath } from '../security/safe-paths.js';
+import { exportBootstrapPack } from '../export/bootstrap-pack.js';
 import { buildBootstrapHealthSummary } from './health.js';
 import type { BootstrapHealth, BootstrapReport, BootstrapRunArgs } from './types.js';
 
@@ -42,6 +43,8 @@ export class BootstrapService {
 
     // 4. Atlas regeneration (non-fatal after sync succeeds).
     let atlas: BootstrapReport['atlas'];
+    let atlasContents: { name: string; content: string }[] = [];
+    let atlasInputHash: string | undefined;
     try {
       const result = await this.deps.atlas.regenerate({
         project: args.project,
@@ -50,6 +53,8 @@ export class BootstrapService {
         write: true,
       });
       atlas = { inputHash: result.inputHash, files: result.files };
+      atlasContents = result.contents;
+      atlasInputHash = result.inputHash;
     } catch (err) {
       warnings.push(`atlas regeneration failed (non-fatal): ${(err as Error).message}`);
     }
@@ -65,6 +70,28 @@ export class BootstrapService {
       warnings.push(`health summary failed (non-fatal): ${(err as Error).message}`);
     }
 
+    // 6. Optional Export V2. Unlike atlas/health, a requested export that fails
+    //    FAILS the bootstrap (the user explicitly asked for it).
+    let exportResult: BootstrapReport['export'];
+    if (args.export) {
+      const out = await this.resolveExportOut(args);
+      const report = await exportBootstrapPack(this.deps.store, {
+        project: args.project,
+        out,
+        atlasContents,
+        atlasInputHash,
+        health,
+      });
+      exportResult = {
+        out: report.out,
+        atoms: report.atoms,
+        knowledge: report.knowledge,
+        edges: report.edges,
+        chunks: report.chunks,
+        areas: report.areas,
+      };
+    }
+
     const nextActions = this.buildNextActions(args, applied, health);
 
     return {
@@ -73,6 +100,7 @@ export class BootstrapService {
       sync: { planId, summary: plan.summary, applied },
       atlas,
       health,
+      export: exportResult,
       warnings,
       nextActions,
     };
