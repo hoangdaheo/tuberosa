@@ -1,10 +1,12 @@
 node_modules/
 .pnpm-store/
 .superpowers/
+.tuberosa/*
 .tuberosa/backups/
 .tuberosa/current/
 .tuberosa/error-logs/
 .tuberosa/test-error-logs/
+.tuberosa/exports/
 dist/
 .env
 .cache/
@@ -14,3 +16,4 @@ npm-debug.log*
 *.tsbuildinfo
 .mcp.json
 nash*
+snapshot-1/*

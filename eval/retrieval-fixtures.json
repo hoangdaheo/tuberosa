@@ -625,6 +625,63 @@
           "weight": 1
         }
       ]
+    },
+    {
+      "evalId": "current-widget-runbook",
+      "sourceType": "wiki",
+      "sourceUri": "docs/widget/current.md",
+      "itemType": "wiki",
+      "title": "Current widget calibration runbook",
+      "summary": "How to calibrate the telemetry widget today.",
+      "content": "The current telemetry widget calibration runbook describes the supported telemetry widget calibration steps and thresholds used in production today.",
+      "trustLevel": 80,
+      "metadata": {
+        "sourcePath": "docs/widget/current.md"
+      },
+      "labels": [
+        {
+          "type": "business_area",
+          "value": "telemetry",
+          "weight": 1
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "docs/widget/current.md"
+        }
+      ]
+    },
+    {
+      "evalId": "deleted-widget-doc",
+      "sourceType": "wiki",
+      "sourceUri": "docs/widget/legacy.md",
+      "itemType": "wiki",
+      "title": "Telemetry widget calibration steps (removed)",
+      "summary": "Where the telemetry widget calibration steps were documented before the file was deleted.",
+      "content": "This documented where the telemetry widget calibration steps were documented. Telemetry widget calibration steps documented here covered every calibration threshold. It lived in a now-deleted source file and must not surface in retrieval after the file was archived by source lifecycle sync.",
+      "trustLevel": 85,
+      "status": "archived",
+      "metadata": {
+        "sourcePath": "docs/widget/legacy.md",
+        "archive": {
+          "reason": "source_deleted",
+          "sourcePath": "docs/widget/legacy.md"
+        }
+      },
+      "labels": [
+        {
+          "type": "business_area",
+          "value": "telemetry",
+          "weight": 1
+        }
+      ],
+      "references": [
+        {
+          "type": "file",
+          "uri": "docs/widget/legacy.md"
+        }
+      ]
     }
   ],
   "atoms": [
@@ -1244,6 +1301,16 @@
       ],
       "unexpectedKnowledgeIds": [
         "atom-archived-canary"
+      ]
+    },
+    {
+      "id": "deleted-source-archived-excluded",
+      "prompt": "Where are the telemetry widget calibration steps documented?",
+      "expectedKnowledgeIds": [
+        "current-widget-runbook"
+      ],
+      "unexpectedKnowledgeIds": [
+        "deleted-widget-doc"
       ]
     }
   ],

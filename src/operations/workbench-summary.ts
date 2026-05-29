@@ -24,12 +24,15 @@ import type {
   WorkbenchReflectionDraftSummary,
   WorkbenchRecommendedAction,
   WorkbenchSessionSummary,
+  WorkbenchSourceHealth,
   WorkbenchSummary,
   WorkbenchSummaryCountKey,
   WorkbenchSummaryCounts,
   WorkbenchSummaryInput,
 } from '../types.js';
 import type { OperationsService } from './service.js';
+import type { KnowledgeStore } from '../storage/store.js';
+import type { SourceFileStatus } from '../source-sync/types.js';
 
 const COUNT_LIMIT = 100;
 const SHORT_TEXT_LIMIT = 240;
@@ -52,6 +55,24 @@ export interface WorkbenchSummaryServices {
   errorLogInsights: Pick<ErrorLogInsightService, 'collect'>;
   /** Phase 10 — optional maintenance scanner. Workbench renders an empty preview when omitted. */
   maintenance?: Pick<MaintenanceService, 'propose'>;
+  /** P0 source lifecycle sync — optional store for ledger health. Omitted → no sourceHealth in summary. */
+  store?: Pick<KnowledgeStore, 'listSourceFiles'>;
+}
+
+export async function buildSourceHealth(
+  store: Pick<KnowledgeStore, 'listSourceFiles'>,
+  options: { project?: string; limit: number },
+): Promise<WorkbenchSourceHealth> {
+  const files = await store.listSourceFiles({ project: options.project, limit: options.limit });
+  const counts: Record<SourceFileStatus, number> = { tracked: 0, changed: 0, missing: 0, archived: 0, ignored: 0 };
+  const tombstones: WorkbenchSourceHealth['tombstones'] = [];
+  for (const file of files) {
+    counts[file.status] += 1;
+    if (file.status === 'archived') {
+      tombstones.push({ path: file.path, archivedAt: file.archivedAt });
+    }
+  }
+  return { counts, tombstones };
 }
 
 export async function buildWorkbenchSummary(
@@ -131,6 +152,10 @@ export async function buildWorkbenchSummary(
     riskyAutoMemoryCandidates,
   });
 
+  const sourceHealth = services.store
+    ? await buildSourceHealth(services.store, { project, limit: listLimit }).catch(() => undefined)
+    : undefined;
+
   return {
     generatedAt: new Date().toISOString(),
     filters,
@@ -167,6 +192,7 @@ export async function buildWorkbenchSummary(
       riskyAutoMemories,
       project,
     }),
+    ...(sourceHealth ? { sourceHealth } : {}),
   };
 }
 

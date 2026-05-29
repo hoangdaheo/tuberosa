@@ -207,7 +207,7 @@ export class IngestionService {
       trustLevel: 70,
       labels,
       references: [{ type: 'file', uri: file.path }],
-      metadata: file.metadata ?? {},
+      metadata: { sourcePath: file.path, ...(file.metadata ?? {}) },
     };
   }
 
@@ -326,7 +326,7 @@ function safePolicy() {
   }
 }
 
-function inferItemTypeFromPath(path: string): KnowledgeItemType {
+export function inferItemTypeFromPath(path: string): KnowledgeItemType {
   const lower = path.toLowerCase();
   if (lower.endsWith('.md') || lower.includes('/docs/') || lower.includes('/wiki/')) {
     return 'wiki';

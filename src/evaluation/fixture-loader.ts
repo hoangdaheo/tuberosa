@@ -65,6 +65,7 @@ function parseKnowledge(value: unknown, path: string): RetrievalEvalKnowledge {
     references: item.references as RetrievalEvalKnowledge['references'],
     metadata: item.metadata as RetrievalEvalKnowledge['metadata'],
     freshnessAt: optionalString(item.freshnessAt, `${path}.freshnessAt`),
+    status: optionalString(item.status, `${path}.status`) as RetrievalEvalKnowledge['status'],
   };
 }
 

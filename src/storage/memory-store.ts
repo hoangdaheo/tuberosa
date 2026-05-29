@@ -76,12 +76,21 @@ import type {
   ListAtomRelationsOptions,
   PruneStaleAtomRelationsOptions,
   StaleFileAtomCleanupInput,
+  UpsertSourceFileInput,
+  ListSourceFilesOptions,
+  RenameSourceFileInput,
+  CreateSyncRunInput,
   WalkAtomGraphOptions,
 } from './store.js';
 import type {
   AtomImportConflict,
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
+import type {
+  SourceFileRecord,
+  SourceFileStatus,
+  SyncRunRecord,
+} from '../source-sync/types.js';
 
 interface MemoryChunk extends ChunkInput {
   id: string;
@@ -109,6 +118,8 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly atomGateEvents = new Map<string, AtomGateEvent>();
   private readonly atomRelations = new Map<string, AtomRelationRow>();
   private readonly atomImportConflicts = new Map<string, AtomImportConflict>();
+  private readonly sourceFiles = new Map<string, SourceFileRecord>(); // key: `${project} ${path}`
+  private readonly syncRuns = new Map<string, SyncRunRecord>();
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
@@ -169,6 +180,124 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     }
 
     return deleted;
+  }
+
+  private sourceKey(project: string, path: string): string {
+    return `${project} ${path}`;
+  }
+
+  async upsertSourceFile(input: UpsertSourceFileInput): Promise<SourceFileRecord> {
+    const key = this.sourceKey(input.project, input.path);
+    const now = new Date().toISOString();
+    const existing = this.sourceFiles.get(key);
+    const record: SourceFileRecord = existing
+      ? {
+          ...existing,
+          contentHash: input.contentHash,
+          status: input.status ?? existing.status,
+          lastSyncedSha: input.lastSyncedSha ?? existing.lastSyncedSha,
+          metadata: input.metadata ?? existing.metadata,
+          lastSeenAt: now,
+        }
+      : {
+          id: randomUUID(),
+          project: input.project,
+          path: input.path,
+          contentHash: input.contentHash,
+          status: input.status ?? 'tracked',
+          lastSyncedSha: input.lastSyncedSha ?? null,
+          priorPaths: [],
+          knowledgeCount: 0,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          archivedAt: null,
+          metadata: input.metadata ?? {},
+        };
+    this.sourceFiles.set(key, record);
+    return { ...record };
+  }
+
+  async getSourceFile(options: { project: string; path: string }): Promise<SourceFileRecord | undefined> {
+    const record = this.sourceFiles.get(this.sourceKey(options.project, options.path));
+    return record ? { ...record } : undefined;
+  }
+
+  async listSourceFiles(options: ListSourceFilesOptions): Promise<SourceFileRecord[]> {
+    return [...this.sourceFiles.values()]
+      .filter((record) => (!options.project || record.project === options.project) && (!options.status || record.status === options.status))
+      .slice(0, options.limit)
+      .map((record) => ({ ...record }));
+  }
+
+  async renameSourceFile(input: RenameSourceFileInput): Promise<SourceFileRecord | undefined> {
+    const fromKey = this.sourceKey(input.project, input.from);
+    const record = this.sourceFiles.get(fromKey);
+    if (!record) {
+      return undefined;
+    }
+    this.sourceFiles.delete(fromKey);
+    const moved: SourceFileRecord = {
+      ...record,
+      path: input.to,
+      priorPaths: [...record.priorPaths, input.from],
+      lastSeenAt: new Date().toISOString(),
+    };
+    this.sourceFiles.set(this.sourceKey(input.project, input.to), moved);
+    return { ...moved };
+  }
+
+  async setSourceFileStatus(options: { project: string; path: string; status: SourceFileStatus }): Promise<SourceFileRecord | undefined> {
+    const key = this.sourceKey(options.project, options.path);
+    const record = this.sourceFiles.get(key);
+    if (!record) {
+      return undefined;
+    }
+    const updated: SourceFileRecord = {
+      ...record,
+      status: options.status,
+      archivedAt: options.status === 'archived' ? new Date().toISOString() : record.archivedAt,
+    };
+    this.sourceFiles.set(key, updated);
+    return { ...updated };
+  }
+
+  async listKnowledgeBySourcePath(options: { project: string; path: string }): Promise<StoredKnowledge[]> {
+    return [...this.knowledge.values()]
+      .filter((item) => item.project === options.project)
+      .filter((item) => (item.metadata as Record<string, unknown> | undefined)?.['sourcePath'] === options.path)
+      .map((item) => ({ ...item }));
+  }
+
+  async createSyncRun(input: CreateSyncRunInput): Promise<SyncRunRecord> {
+    const run: SyncRunRecord = {
+      id: randomUUID(),
+      project: input.project,
+      mode: input.mode,
+      fromSha: input.fromSha ?? null,
+      toSha: input.toSha ?? null,
+      plan: input.plan,
+      applied: false,
+      trigger: input.trigger,
+      createdAt: new Date().toISOString(),
+      appliedAt: null,
+    };
+    this.syncRuns.set(run.id, run);
+    return { ...run };
+  }
+
+  async getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
+    const run = this.syncRuns.get(id);
+    return run ? { ...run } : undefined;
+  }
+
+  async markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
+    const run = this.syncRuns.get(id);
+    if (!run) {
+      return undefined;
+    }
+    const updated: SyncRunRecord = { ...run, applied: true, appliedAt: new Date().toISOString() };
+    this.syncRuns.set(id, updated);
+    return { ...updated };
   }
 
   async listKnowledge(options: ListKnowledgeOptions): Promise<StoredKnowledge[]> {

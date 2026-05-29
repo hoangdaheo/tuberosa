@@ -4,6 +4,8 @@ import { createDefaultIo } from './commands/io.js';
 import { doctorCommand } from './commands/doctor.js';
 import { initCommand } from './commands/init.js';
 import { mcpCommand } from './commands/mcp.js';
+import { syncCommand, hookCommand } from './commands/sync.js';
+import { makeSyncService } from './commands/sync-factory.js';
 import type { CliInvocation, CommandIo, CommandResult } from './commands/types.js';
 
 /**
@@ -29,6 +31,10 @@ export async function dispatch(invocation: CliInvocation, io: CommandIo): Promis
       return doctorCommand(invocation, io);
     case 'mcp':
       return mcpCommand(invocation, io);
+    case 'sync':
+      return syncCommand(invocation, io, { makeService: () => makeSyncService() });
+    case 'hook':
+      return hookCommand(invocation, io);
     case 'help':
     default:
       io.out(usage());
