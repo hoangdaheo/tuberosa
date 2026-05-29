@@ -8,6 +8,7 @@ import type {
   KnowledgeInput,
   KnowledgeRelation,
   KnowledgeRelationInput,
+  KnowledgeStatus,
   LearningReviewStatus,
   RankedCandidate,
   StoredKnowledge,
@@ -45,6 +46,10 @@ export interface AtomCreator {
   updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined>;
 }
 
+export interface KnowledgeStatusUpdater {
+  updateKnowledge(id: string, patch: { status?: KnowledgeStatus }): Promise<StoredKnowledge | undefined>;
+}
+
 export interface RetrievalEvalAtom {
   evalId: string;
   project?: string;
@@ -74,6 +79,8 @@ export interface RetrievalEvalRelation {
 export type RetrievalEvalKnowledge = Omit<KnowledgeInput, 'project'> & {
   evalId: string;
   project?: string;
+  /** Optional post-ingest status (e.g. 'archived' to simulate a deleted source file). Defaults to approved. */
+  status?: KnowledgeStatus;
 };
 
 export interface RetrievalEvalClassificationExpectation {
@@ -214,6 +221,7 @@ export class RetrievalEvaluator {
     private readonly relationCreator: KnowledgeRelationCreator | undefined = undefined,
     private readonly gapReader: KnowledgeGapReader | undefined = isKnowledgeGapReader(relationCreator) ? relationCreator : undefined,
     private readonly atomCreator: AtomCreator | undefined = isAtomCreator(relationCreator) ? relationCreator : undefined,
+    private readonly statusUpdater: KnowledgeStatusUpdater | undefined = isKnowledgeStatusUpdater(relationCreator) ? relationCreator : undefined,
   ) {}
 
   async run(fixture: RetrievalEvalFixture, options: RetrievalEvalOptions = {}): Promise<RetrievalEvalReport> {
@@ -244,7 +252,7 @@ export class RetrievalEvaluator {
     const byStoreId = new Map<string, string>();
 
     for (const item of fixture.knowledge) {
-      const { evalId, project, ...knowledge } = item;
+      const { evalId, project, status, ...knowledge } = item;
       const stored = await this.ingestor.ingestKnowledge({
         ...knowledge,
         project: project ?? fixture.project,
@@ -253,6 +261,12 @@ export class RetrievalEvaluator {
           evalId,
         },
       });
+
+      // Simulate a deleted/archived source file: flip status after ingest (ingest always
+      // creates approved). Archived items must drop out of retrieval entirely.
+      if (status && status !== 'approved' && this.statusUpdater) {
+        await this.statusUpdater.updateKnowledge(stored.id, { status });
+      }
 
       byEvalId.set(evalId, stored.id);
       byStoreId.set(stored.id, evalId);
@@ -621,6 +635,10 @@ function isKnowledgeGapReader(value: unknown): value is KnowledgeGapReader {
 
 function isAtomCreator(value: unknown): value is AtomCreator {
   return Boolean(value && typeof value === 'object' && 'createAtom' in value && 'updateAtom' in value);
+}
+
+function isKnowledgeStatusUpdater(value: unknown): value is KnowledgeStatusUpdater {
+  return Boolean(value && typeof value === 'object' && 'updateKnowledge' in value);
 }
 
 function knowledgeGapMatches(

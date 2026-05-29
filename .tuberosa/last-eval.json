@@ -1,13 +1,13 @@
 {
   "status": "pass",
-  "generatedAt": "2026-05-28T14:21:42.661Z",
-  "totalCases": 22,
-  "passedCases": 22,
+  "generatedAt": "2026-05-29T07:49:29.297Z",
+  "totalCases": 23,
+  "passedCases": 23,
   "fixtureName": "default retrieval quality",
   "project": "newsletter-app",
   "metrics": {
     "hitRate": 1,
-    "meanReciprocalRank": 1,
+    "meanReciprocalRank": 0.9688,
     "selectedCoverageRate": 1,
     "staleRejectionRate": 1,
     "exactFileMatchRate": 1,
