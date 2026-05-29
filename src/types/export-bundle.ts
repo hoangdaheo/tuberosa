@@ -29,6 +29,19 @@ export interface BundleManifest {
   notes?: string;
   /** Concern F — user ids whose user-style atoms were exported under user-style/<id>/. */
   userStyleScopes?: string[];
+  /** Export V2 — present only on categorized packs; absent/`'flat'` means legacy flat layout. */
+  layout?: 'flat' | 'categorized-v2';
+  /** Export V2 — per-area counts for human orientation. */
+  areas?: Array<{ key: string; label: string; atomCount: number; knowledgeCount: number }>;
+  /** Export V2 — atlas files copied alongside the pack. */
+  atlas?: { files: Array<{ name: string; bytes: number }>; inputHash?: string };
+  /** Export V2 — health snapshot at export time. */
+  healthSummary?: {
+    sourceCounts: Record<string, number>;
+    openImportConflicts: number;
+    maintenanceItems: number;
+    gaps: number;
+  };
 }
 
 export interface AtomFrontmatter {
