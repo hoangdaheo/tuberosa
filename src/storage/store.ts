@@ -56,6 +56,14 @@ import type {
   StoredKnowledge,
 } from '../types.js';
 import type { SessionReplayBundle } from '../operations/session-replay.js';
+import type {
+  SourceFileRecord,
+  SourceFileStatus,
+  SyncMode,
+  SyncPlan,
+  SyncRunRecord,
+  SyncTrigger,
+} from '../source-sync/types.js';
 
 export interface ChunkInput {
   index: number;
@@ -70,6 +78,36 @@ export interface StaleFileAtomCleanupInput {
   project: string;
   sourcePath: string;
   keepSourceUris: string[];
+}
+
+export interface UpsertSourceFileInput {
+  project: string;
+  path: string;
+  contentHash: string | null;
+  status?: SourceFileStatus;
+  lastSyncedSha?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListSourceFilesOptions {
+  project?: string;
+  status?: SourceFileStatus;
+  limit: number;
+}
+
+export interface RenameSourceFileInput {
+  project: string;
+  from: string;
+  to: string;
+}
+
+export interface CreateSyncRunInput {
+  project: string;
+  mode: SyncMode;
+  plan: SyncPlan;
+  trigger: SyncTrigger;
+  fromSha?: string | null;
+  toSha?: string | null;
 }
 
 /**
@@ -170,6 +208,16 @@ export interface AtomGateEventInput {
 export interface KnowledgeStore {
   upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge>;
   deleteStaleFileAtoms(input: StaleFileAtomCleanupInput): Promise<number>;
+  // --- Source lifecycle sync (P0) ---
+  upsertSourceFile(input: UpsertSourceFileInput): Promise<SourceFileRecord>;
+  getSourceFile(options: { project: string; path: string }): Promise<SourceFileRecord | undefined>;
+  listSourceFiles(options: ListSourceFilesOptions): Promise<SourceFileRecord[]>;
+  renameSourceFile(input: RenameSourceFileInput): Promise<SourceFileRecord | undefined>;
+  setSourceFileStatus(options: { project: string; path: string; status: SourceFileStatus }): Promise<SourceFileRecord | undefined>;
+  listKnowledgeBySourcePath(options: { project: string; path: string }): Promise<StoredKnowledge[]>;
+  createSyncRun(input: CreateSyncRunInput): Promise<SyncRunRecord>;
+  getSyncRun(id: string): Promise<SyncRunRecord | undefined>;
+  markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined>;
   listKnowledge(options: ListKnowledgeOptions): Promise<StoredKnowledge[]>;
   getKnowledge(id: string): Promise<StoredKnowledge | undefined>;
   updateKnowledge(id: string, patch: KnowledgePatchInput): Promise<StoredKnowledge | undefined>;
