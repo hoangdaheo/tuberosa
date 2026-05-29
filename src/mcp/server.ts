@@ -7,6 +7,7 @@ import { predictImpact } from '../retrieval/impact-predictor.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
 import { createUserStyleAtom } from '../user-style/store-helpers.js';
 import { SourceSyncService } from '../source-sync/service.js';
+import { AtlasService } from '../atlas/service.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   AGENT_LEARNING_MODES,
@@ -107,6 +108,12 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
               uriTemplate: 'tuberosa://error-logs/{id}/markdown',
               name: 'Error log markdown',
               description: 'Human-readable Markdown for a filesystem-backed Tuberosa error incident.',
+              mimeType: 'text/markdown',
+            },
+            {
+              uriTemplate: 'tuberosa://atlas/{project}/{file}',
+              name: 'Project atlas file',
+              description: 'A synthesized project atlas file (project-map.md, flows.md, commands.md, risks.md, open-gaps.md).',
               mimeType: 'text/markdown',
             },
           ],
@@ -545,6 +552,21 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       });
     }
 
+    case 'tuberosa_get_atlas': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_get_atlas arguments.project');
+      const file = readOptionalMcpString(args.file, 'tuberosa_get_atlas arguments.file');
+      const repoPath = services.config.defaultCwd ?? process.cwd();
+      const atlas = new AtlasService(services.store, { atlasDir: services.config.atlasDir });
+      const result = await atlas.regenerate({
+        project,
+        repoPath,
+        generatedAt: new Date().toISOString(),
+        write: false,
+      });
+      const files = file ? result.contents.filter((c) => c.name === file) : result.contents;
+      return toolJson({ inputHash: result.inputHash, files });
+    }
+
     default:
       throw new ValidationError(`Unknown Tuberosa tool: ${name}`);
   }
@@ -694,6 +716,28 @@ function reflectionReviewInstruction(status: string): string {
 
 async function readResource(services: AppServices, params: Record<string, unknown>) {
   const uri = String(params.uri ?? '');
+
+  if (uri.startsWith('tuberosa://atlas/')) {
+    const rest = uri.replace('tuberosa://atlas/', '');
+    const slash = rest.lastIndexOf('/');
+    if (slash <= 0) {
+      throw new NotFoundError(`Atlas resource must be tuberosa://atlas/{project}/{file}: ${uri}`);
+    }
+    const project = rest.slice(0, slash);
+    const file = rest.slice(slash + 1);
+    const atlas = new AtlasService(services.store, { atlasDir: services.config.atlasDir });
+    const result = await atlas.regenerate({
+      project,
+      repoPath: services.config.defaultCwd ?? process.cwd(),
+      generatedAt: new Date().toISOString(),
+      write: false,
+    });
+    const match = result.contents.find((c) => c.name === file);
+    if (!match) {
+      throw new NotFoundError(`Atlas file not found: ${file}`);
+    }
+    return { contents: [{ uri, mimeType: 'text/markdown', text: match.content }] };
+  }
 
   if (uri.startsWith('tuberosa://packs/')) {
     const id = uri.replace('tuberosa://packs/', '');
@@ -1608,6 +1652,19 @@ function tools() {
           path: { type: 'string', description: 'Repo root; defaults to the server cwd.' },
           apply: { type: 'boolean', description: 'Apply a previously returned planId.' },
           planId: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_get_atlas',
+      title: 'Get Project Atlas',
+      description: 'Return the synthesized project atlas (project-map.md, flows.md, commands.md, risks.md, open-gaps.md) for first-time project understanding. Regenerated in-memory from current knowledge.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          file: { type: 'string', description: 'Optional single file name, e.g. project-map.md. Omit for all five.' },
         },
       },
     },
