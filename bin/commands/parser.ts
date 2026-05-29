@@ -48,7 +48,7 @@ export function parseArgs(argv: string[]): CliInvocation {
     if (!commandResolved) {
       if (
         token === 'init' || token === 'doctor' || token === 'mcp'
-        || token === 'sync' || token === 'hook' || token === 'help'
+        || token === 'sync' || token === 'hook' || token === 'atlas' || token === 'help'
       ) {
         command = token;
       } else {
