@@ -52,7 +52,7 @@ export interface FsAdapter {
 }
 
 export interface CliInvocation {
-  command: 'init' | 'doctor' | 'mcp' | 'help';
+  command: 'init' | 'doctor' | 'mcp' | 'sync' | 'hook' | 'help';
   options: Record<string, string | boolean>;
   positional: string[];
 }

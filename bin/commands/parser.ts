@@ -46,7 +46,10 @@ export function parseArgs(argv: string[]): CliInvocation {
       continue;
     }
     if (!commandResolved) {
-      if (token === 'init' || token === 'doctor' || token === 'mcp' || token === 'help') {
+      if (
+        token === 'init' || token === 'doctor' || token === 'mcp'
+        || token === 'sync' || token === 'hook' || token === 'help'
+      ) {
         command = token;
       } else {
         // Unknown command — surface via the help screen so users see the supported list.
@@ -70,10 +73,16 @@ export function usage(): string {
     '  init      Bootstrap a project-local Tuberosa stack (Docker if present, embedded fallback otherwise).',
     '  doctor    Diagnose common install issues (Node, pnpm, Docker, port 3027, Postgres reachability, MCP stdio).',
     '  mcp       Run the MCP stdio server with embedded-mode defaults (memory store + cache + hash provider).',
+    '  sync      Detect added/changed/renamed/deleted files and review/apply a cleanup plan.',
+    '  hook      Manage git hooks (e.g. `tuberosa hook install`) for additive-only auto-sync.',
     '  help      Show this help message.',
     '',
     'Common options:',
-    '  --json              Emit machine-readable JSON instead of text (doctor only).',
+    '  --json              Emit machine-readable JSON instead of text (doctor, sync).',
+    '  --project <name>    Project to sync (required for `sync` / `hook install`).',
+    '  --path <repo>       Repo root for `sync` (defaults to cwd).',
+    '  --apply             Apply the sync plan (additive ops; archives also need --yes).',
+    '  --yes               Confirm destructive archiving during `sync --apply`.',
     '  --no-docker         Force embedded-mode for `init` even when Docker is available.',
     '  --skip-migrate      Skip `pnpm run migrate` after compose comes up.',
     '  --port <number>     Override the HTTP port (default 3027).',
