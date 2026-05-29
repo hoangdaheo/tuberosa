@@ -207,7 +207,7 @@ export class IngestionService {
       trustLevel: 70,
       labels,
       references: [{ type: 'file', uri: file.path }],
-      metadata: file.metadata ?? {},
+      metadata: { sourcePath: file.path, ...(file.metadata ?? {}) },
     };
   }
 
