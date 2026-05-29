@@ -10,10 +10,19 @@ import { isGitRepo, gitHeadSha, gitLsFiles, gitDiffSince } from './git-inventory
 import { buildPlan, type ChangeSet } from './plan.js';
 import { applyPlan } from './apply.js';
 
+/** Minimal atlas regenerator surface — the real AtlasService satisfies it. */
+export interface AtlasRegenerator {
+  regenerate(args: { project: string; repoPath: string; generatedAt: string; write: boolean }): Promise<unknown>;
+}
+
 export interface SourceSyncServiceOptions {
   store: KnowledgeStore;
   ingestion: IngestionService;
   policy?: SyncPolicy;
+  /** When set, the atlas is regenerated (non-fatally) at the end of every apply. */
+  atlas?: AtlasRegenerator;
+  /** Defaults to true when an atlas regenerator is provided. */
+  atlasAutoRegen?: boolean;
 }
 
 export interface SyncArgs {
@@ -31,11 +40,15 @@ export class SourceSyncService {
   private readonly store: KnowledgeStore;
   private readonly ingestion: IngestionService;
   private readonly policy: SyncPolicy;
+  private readonly atlas?: AtlasRegenerator;
+  private readonly atlasAutoRegen: boolean;
 
   constructor(opts: SourceSyncServiceOptions) {
     this.store = opts.store;
     this.ingestion = opts.ingestion;
     this.policy = opts.policy ?? DEFAULT_SYNC_POLICY;
+    this.atlas = opts.atlas;
+    this.atlasAutoRegen = opts.atlasAutoRegen ?? true;
   }
 
   async sync(args: SyncArgs): Promise<{ planId: string; plan: SyncPlan }> {
@@ -153,6 +166,21 @@ export class SourceSyncService {
       readFile: (path) => readFile(join(run.plan.repoPath, path), 'utf8'),
     });
     await this.store.markSyncRunApplied(run.id);
+
+    if (this.atlas && this.atlasAutoRegen) {
+      try {
+        await this.atlas.regenerate({
+          project: run.plan.project,
+          repoPath: run.plan.repoPath,
+          generatedAt: new Date().toISOString(),
+          write: true,
+        });
+      } catch (err) {
+        // Atlas is derived, never authoritative — a failed regen must not fail the sync.
+        process.stderr.write(`[atlas] regenerate after sync failed (non-fatal): ${(err as Error).message}\n`);
+      }
+    }
+
     return result;
   }
 }
