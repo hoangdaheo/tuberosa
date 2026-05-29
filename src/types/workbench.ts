@@ -198,6 +198,17 @@ export interface WorkbenchBackupStatus {
   scheduler: BackupSchedulerStatus;
 }
 
+export interface WorkbenchSourceHealth {
+  counts: {
+    tracked: number;
+    changed: number;
+    missing: number;
+    archived: number;
+    ignored: number;
+  };
+  tombstones: Array<{ path: string; archivedAt: string | null }>;
+}
+
 export interface WorkbenchSummaryHealth {
   ok: true;
   service: 'tuberosa';
@@ -294,4 +305,6 @@ export interface WorkbenchSummary {
   /** Phase 10 — preview of preview-first maintenance proposals. */
   pendingMaintenance: WorkbenchMaintenancePreview;
   recommendedActions: WorkbenchRecommendedAction[];
+  /** P0 source lifecycle sync — ledger status counts + tombstones. Omitted when no store is wired. */
+  sourceHealth?: WorkbenchSourceHealth;
 }
