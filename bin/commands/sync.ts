@@ -52,14 +52,20 @@ export async function syncCommand(
     io.out('Dry-run. Re-run with --apply to execute (archives also need --yes).');
     return { exitCode: 0 };
   }
-  if (plan.destructive && !yes) {
-    io.err('Plan archives knowledge for deleted files. Re-run with --apply --yes to confirm.');
-    return { exitCode: 1 };
-  }
+  // Additive ops always apply; archives need --yes. A destructive plan without --yes still applies
+  // the additions and queues the deletions to .tuberosa/pending-sync.json (no silent drop).
   const result = await service.apply({ planId, allowDestructive: plan.destructive && yes });
   io.out(
     `Applied: ingested ${result.ingested}, reingested ${result.reingested}, repointed ${result.repointed}, archived ${result.archived}, skipped ${result.skipped.length}.`,
   );
+  if (result.deferredDeletions.length > 0) {
+    io.out(
+      `Deferred ${result.deferredDeletions.length} deletion(s) to .tuberosa/pending-sync.json — re-run with --apply --yes to archive:`,
+    );
+    for (const d of result.deferredDeletions) {
+      io.out(`  - ${d.path} (${d.knowledgeIds.length} knowledge)`);
+    }
+  }
   return { exitCode: 0 };
 }
 
@@ -78,10 +84,15 @@ export async function hookCommand(invocation: CliInvocation, io: CommandIo): Pro
     io.err('tuberosa hook install requires --project <name>');
     return { exitCode: 1 };
   }
+  // `--no-install` keeps npx from silently fetching a package named "tuberosa" from the public
+  // registry when the local CLI is not linked (supply-chain guard). `|| true` keeps the hook
+  // non-blocking; deletions are deferred to .tuberosa/pending-sync.json, never auto-archived.
   const script = [
     '#!/bin/sh',
-    '# Tuberosa source-sync hook (additive-only; deletes are queued for review).',
-    `npx tuberosa sync --project ${project} --apply --json > .tuberosa/last-sync.json 2>/dev/null || true`,
+    '# Tuberosa source-sync hook: applies additive ops; deletions are queued to',
+    '# .tuberosa/pending-sync.json for review (never auto-archived).',
+    'mkdir -p .tuberosa',
+    `npx --no-install tuberosa sync --project ${project} --apply --json > .tuberosa/last-sync.json || true`,
     '',
   ].join('\n');
   for (const hook of ['post-commit', 'post-merge']) {
@@ -89,6 +100,9 @@ export async function hookCommand(invocation: CliInvocation, io: CommandIo): Pro
     await io.fs.writeFile(path, script);
     io.out(`Wrote ${path}`);
   }
-  io.out('Note: the hook applies additive changes; deleted-file cleanup is left for `tuberosa sync --apply --yes`.');
+  io.out(
+    'Note: the hook applies additive changes automatically; deletions are queued to ' +
+      '.tuberosa/pending-sync.json — review and archive with `tuberosa sync --apply --yes`.',
+  );
   return { exitCode: 0 };
 }

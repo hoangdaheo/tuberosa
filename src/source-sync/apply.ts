@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { IngestionService } from '../ingest/service.js';
 import type { ApplyResult, SyncPlan } from './types.js';
@@ -10,14 +11,35 @@ export interface ApplyOptions {
   /** Reads a repo-relative path → file content. */
   readFile: (path: string) => Promise<string>;
   syncRunId?: string;
+  /**
+   * When false (default), deletions are NOT archived — they are collected into
+   * `result.deferredDeletions` for review. Additive ops (add/change/rename) always apply.
+   * Set true only after explicit human/agent confirmation.
+   */
+  allowDestructive?: boolean;
+}
+
+/**
+ * A plan path is unsafe if it is absolute or escapes the repo root via a `..` segment.
+ * Repo-relative paths from `git ls-files` / the FS walk never do; this guards a persisted,
+ * later-replayed plan against path traversal outside the repo.
+ */
+function hasUnsafeSegment(path: string): boolean {
+  if (isAbsolute(path)) return true;
+  return path.split(/[\\/]/).some((segment) => segment === '..');
 }
 
 export async function applyPlan(opts: ApplyOptions): Promise<ApplyResult> {
   const { store, ingestion, plan, readFile } = opts;
-  const result: ApplyResult = { ingested: 0, reingested: 0, repointed: 0, archived: 0, skipped: [] };
+  const allowDestructive = opts.allowDestructive ?? false;
+  const result: ApplyResult = { ingested: 0, reingested: 0, repointed: 0, archived: 0, skipped: [], deferredDeletions: [] };
 
   // 1. added → ingest + ledger row
   for (const add of plan.added) {
+    if (hasUnsafeSegment(add.path)) {
+      result.skipped.push({ path: add.path, reason: 'unsafe_path' });
+      continue;
+    }
     let content: string;
     try {
       content = await readFile(add.path);
@@ -38,6 +60,10 @@ export async function applyPlan(opts: ApplyOptions): Promise<ApplyResult> {
 
   // 2. changed → re-validate hash, re-ingest, update ledger
   for (const change of plan.changed) {
+    if (hasUnsafeSegment(change.path)) {
+      result.skipped.push({ path: change.path, reason: 'unsafe_path' });
+      continue;
+    }
     let content: string;
     try {
       content = await readFile(change.path);
@@ -62,6 +88,10 @@ export async function applyPlan(opts: ApplyOptions): Promise<ApplyResult> {
 
   // 3. renamed → re-point ledger + knowledge metadata (preserve knowledge)
   for (const ren of plan.renamed) {
+    if (hasUnsafeSegment(ren.from) || hasUnsafeSegment(ren.to)) {
+      result.skipped.push({ path: ren.to, reason: 'unsafe_path' });
+      continue;
+    }
     await store.renameSourceFile({ project: plan.project, from: ren.from, to: ren.to });
     const linked = await store.listKnowledgeBySourcePath({ project: plan.project, path: ren.from });
     for (const knowledge of linked) {
@@ -72,11 +102,21 @@ export async function applyPlan(opts: ApplyOptions): Promise<ApplyResult> {
     result.repointed += 1;
   }
 
-  // 4. deleted → archive knowledge + atoms, tombstone ledger row (never hard-delete)
+  // 4. deleted → archive knowledge + atoms, tombstone ledger row (never hard-delete).
+  //    When not allowed to be destructive, DEFER (queue for review) instead of archiving;
+  //    additive ops above have already been applied.
   for (const del of plan.deleted) {
+    if (hasUnsafeSegment(del.path)) {
+      result.skipped.push({ path: del.path, reason: 'unsafe_path' });
+      continue;
+    }
     const linkedIds = del.knowledgeIds.length
       ? del.knowledgeIds
       : (await store.listKnowledgeBySourcePath({ project: plan.project, path: del.path })).map((k) => k.id);
+    if (!allowDestructive) {
+      result.deferredDeletions.push({ path: del.path, knowledgeIds: linkedIds });
+      continue;
+    }
     for (const id of linkedIds) {
       const current = await store.getKnowledge(id);
       if (!current) {

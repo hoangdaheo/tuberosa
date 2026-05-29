@@ -28,7 +28,7 @@ test('applyPlan: archives knowledge for a deleted file and excludes it from appr
   };
 
   const reader = async () => { throw new Error('no reads expected for delete-only plan'); };
-  const result = await applyPlan({ store, ingestion, plan, readFile: reader });
+  const result = await applyPlan({ store, ingestion, plan, readFile: reader, allowDestructive: true });
   assert.equal(result.archived, linked.length);
 
   const approved = await store.listKnowledge({ project: 'p', status: 'approved', limit: 100 });
@@ -37,6 +37,43 @@ test('applyPlan: archives knowledge for a deleted file and excludes it from appr
   assert.ok(archived.find((k) => k.id === linked[0].id), 'item is preserved under archived status (tombstone)');
   const sf = await store.getSourceFile({ project: 'p', path: 'src/gone.ts' });
   assert.equal(sf?.status, 'archived');
+});
+
+test('applyPlan: defers deletions (does not archive) when allowDestructive is false', async () => {
+  const store = new MemoryKnowledgeStore();
+  const ingestion = newIngestion(store);
+  await ingestion.ingestFiles('p', [{ project: 'p', path: 'src/gone.ts', content: 'export const gone = 1;\n' }]);
+  await store.upsertSourceFile({ project: 'p', path: 'src/gone.ts', contentHash: 'h', status: 'tracked' });
+  const linked = await store.listKnowledgeBySourcePath({ project: 'p', path: 'src/gone.ts' });
+
+  const plan: SyncPlan = {
+    project: 'p', repoPath: '/r', mode: 'git',
+    added: [], changed: [], renamed: [],
+    deleted: [{ path: 'src/gone.ts', knowledgeIds: linked.map((k) => k.id), atomIds: [], chunkCount: 0 }],
+    ignored: [], summary: { added: 0, changed: 0, renamed: 0, deleted: 1, ignored: 0 }, destructive: true,
+  };
+
+  // allowDestructive omitted → defaults to false → defer, never archive.
+  const result = await applyPlan({ store, ingestion, plan, readFile: async () => '' });
+  assert.equal(result.archived, 0, 'nothing archived without explicit allowDestructive');
+  assert.deepEqual(result.deferredDeletions, [{ path: 'src/gone.ts', knowledgeIds: linked.map((k) => k.id) }]);
+  const approved = await store.listKnowledge({ project: 'p', status: 'approved', limit: 100 });
+  assert.ok(approved.find((k) => k.id === linked[0].id), 'knowledge still retrievable (not tombstoned)');
+});
+
+test('applyPlan: skips path-traversal entries instead of reading outside the repo', async () => {
+  const store = new MemoryKnowledgeStore();
+  const ingestion = newIngestion(store);
+  const plan: SyncPlan = {
+    project: 'p', repoPath: '/r', mode: 'git',
+    added: [{ path: '../../etc/passwd', sizeBytes: 1, willIngestAs: 'code_ref' }],
+    changed: [], renamed: [], deleted: [], ignored: [],
+    summary: { added: 1, changed: 0, renamed: 0, deleted: 0, ignored: 0 }, destructive: false,
+  };
+  const reader = async () => { throw new Error('reader must not be called for an unsafe path'); };
+  const result = await applyPlan({ store, ingestion, plan, readFile: reader });
+  assert.equal(result.ingested, 0);
+  assert.deepEqual(result.skipped, [{ path: '../../etc/passwd', reason: 'unsafe_path' }]);
 });
 
 test('applyPlan: ingests added files and records a ledger row', async () => {

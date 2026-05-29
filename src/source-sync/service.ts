@@ -1,6 +1,7 @@
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KnowledgeStore } from '../storage/store.js';
+import type { KnowledgeAtom } from '../types/atoms.js';
 import type { IngestionService } from '../ingest/service.js';
 import { inferItemTypeFromPath } from '../ingest/service.js';
 import type { SyncMode, SyncPlan, SyncTrigger, ApplyResult } from './types.js';
@@ -34,6 +35,16 @@ export interface SyncArgs {
 export interface ApplyArgs {
   planId: string;
   allowDestructive: boolean;
+}
+
+/** Best-effort source path for an atom: first non-empty trigger file, else first file evidence. */
+function atomSourcePath(atom: KnowledgeAtom): string | undefined {
+  const triggered = atom.trigger.files?.find((f) => f.length > 0);
+  if (triggered) return triggered;
+  for (const ev of atom.evidence) {
+    if (ev.kind === 'file' && ev.path) return ev.path;
+  }
+  return undefined;
 }
 
 export class SourceSyncService {
@@ -125,6 +136,24 @@ export class SourceSyncService {
       }
     }
 
+    // Link atoms to deleted paths so apply can tombstone them (P0 §5 step 4). Done once, only
+    // when there are deletions, by matching each atom's source path against the deleted set.
+    if (deleted.length > 0) {
+      const atoms = await this.store.listAtoms({ project: args.project, limit: 100_000 });
+      const atomsByPath = new Map<string, string[]>();
+      for (const atom of atoms) {
+        if (atom.status === 'archived') continue;
+        const p = atomSourcePath(atom);
+        if (!p) continue;
+        const list = atomsByPath.get(p) ?? [];
+        list.push(atom.id);
+        atomsByPath.set(p, list);
+      }
+      for (const del of deleted) {
+        del.atomIds = atomsByPath.get(del.path) ?? [];
+      }
+    }
+
     const toSha = mode === 'git' ? gitHeadSha(args.repoPath) : undefined;
     const changes: ChangeSet = {
       project: args.project,
@@ -155,17 +184,23 @@ export class SourceSyncService {
     if (!run) {
       throw new Error(`sync run ${args.planId} not found`);
     }
-    if (run.plan.destructive && !args.allowDestructive) {
-      throw new Error('Plan is destructive (archives knowledge for deleted files); pass allowDestructive to apply.');
-    }
+    // Additive ops (add/change/rename) always apply. Deletions archive only when explicitly
+    // allowed; otherwise applyPlan defers them and we queue them for review. This is the
+    // structural form of the "no silent destructive cleanup" invariant — and it ensures a mixed
+    // add+delete commit still ingests the additions instead of aborting the whole sync.
     const result = await applyPlan({
       store: this.store,
       ingestion: this.ingestion,
       plan: run.plan,
       syncRunId: run.id,
+      allowDestructive: args.allowDestructive,
       readFile: (path) => readFile(join(run.plan.repoPath, path), 'utf8'),
     });
     await this.store.markSyncRunApplied(run.id);
+
+    if (result.deferredDeletions.length > 0) {
+      await this.queuePendingDeletions(run.plan.repoPath, run.id, result.deferredDeletions);
+    }
 
     if (this.atlas && this.atlasAutoRegen) {
       try {
@@ -182,5 +217,39 @@ export class SourceSyncService {
     }
 
     return result;
+  }
+
+  /**
+   * Append deferred deletions to `.tuberosa/pending-sync.json` (deduped by path) so the git hook
+   * and CLI never archive silently — the queue is the human/agent review surface for cleanup.
+   * Best-effort: a write failure must not fail the sync.
+   */
+  private async queuePendingDeletions(
+    repoPath: string,
+    planId: string,
+    deletions: ApplyResult['deferredDeletions'],
+  ): Promise<void> {
+    interface PendingDeletion { path: string; knowledgeIds: string[]; planId: string; detectedAt: string }
+    const dir = join(repoPath, '.tuberosa');
+    const file = join(dir, 'pending-sync.json');
+    try {
+      const byPath = new Map<string, PendingDeletion>();
+      try {
+        const existing = JSON.parse(await readFile(file, 'utf8')) as { deferredDeletions?: PendingDeletion[] };
+        for (const entry of existing.deferredDeletions ?? []) {
+          if (entry?.path) byPath.set(entry.path, entry);
+        }
+      } catch {
+        // No prior queue (or unreadable) — start fresh.
+      }
+      const detectedAt = new Date().toISOString();
+      for (const del of deletions) {
+        byPath.set(del.path, { path: del.path, knowledgeIds: del.knowledgeIds, planId, detectedAt });
+      }
+      await mkdir(dir, { recursive: true });
+      await writeFile(file, `${JSON.stringify({ deferredDeletions: [...byPath.values()] }, null, 2)}\n`, 'utf8');
+    } catch (err) {
+      process.stderr.write(`[source-sync] failed to write pending-sync queue (non-fatal): ${(err as Error).message}\n`);
+    }
   }
 }
