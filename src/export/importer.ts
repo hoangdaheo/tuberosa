@@ -76,10 +76,13 @@ export async function importPack(
     );
   }
 
-  const atomFiles = (await readdir(join(opts.from, 'atoms'))).filter((f) => f.endsWith('.md'));
-  for (const file of atomFiles) {
-    const raw = await readFile(join(opts.from, 'atoms', file), 'utf8');
-    const parsed = parseAtomMarkdown(raw, { filename: `atoms/${file}` });
+  const layout = (manifest as { layout?: string }).layout;
+  const atomRel = layout === 'categorized-v2'
+    ? await listAreaFiles(opts.from, 'atoms')
+    : (await readdir(join(opts.from, 'atoms'))).filter((f) => f.endsWith('.md')).map((f) => join('atoms', f));
+  for (const rel of atomRel) {
+    const raw = await readFile(join(opts.from, rel), 'utf8');
+    const parsed = parseAtomMarkdown(raw, { filename: rel });
     const incoming = toAtomInputFromParsed(parsed);
     incoming.project = project;
 
@@ -126,10 +129,12 @@ export async function importPack(
     report.conflictsQueued += 1;
   }
 
-  const kFiles = (await readdir(join(opts.from, 'knowledge'))).filter((f) => f.endsWith('.md'));
-  for (const file of kFiles) {
-    const raw = await readFile(join(opts.from, 'knowledge', file), 'utf8');
-    const parsed = parseKnowledgeMarkdown(raw, { filename: `knowledge/${file}` });
+  const kRel = layout === 'categorized-v2'
+    ? await listAreaFiles(opts.from, 'knowledge')
+    : (await readdir(join(opts.from, 'knowledge'))).filter((f) => f.endsWith('.md')).map((f) => join('knowledge', f));
+  for (const rel of kRel) {
+    const raw = await readFile(join(opts.from, rel), 'utf8');
+    const parsed = parseKnowledgeMarkdown(raw, { filename: rel });
     const existing = await store.getKnowledge(parsed.frontmatter.id);
     if (!existing) {
       if (!opts.dryRun) {
@@ -137,7 +142,7 @@ export async function importPack(
           {
             project,
             sourceType: 'imported',
-            sourceUri: `bundle://${opts.from}/${file}`,
+            sourceUri: `bundle://${opts.from}/${rel}`,
             itemType: parsed.frontmatter.itemType,
             title: parsed.frontmatter.title,
             summary: '',
@@ -289,6 +294,30 @@ async function safeListUserStyleDirs(bundleRoot: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/** List relative paths to atom/knowledge markdown for a categorized-v2 pack: areas/<slug>/<kind>/*.md. */
+async function listAreaFiles(from: string, kind: 'atoms' | 'knowledge'): Promise<string[]> {
+  const root = join(from, 'areas');
+  const rel: string[] = [];
+  let areaDirs: string[];
+  try {
+    areaDirs = await readdir(root);
+  } catch {
+    return rel;
+  }
+  for (const area of areaDirs) {
+    try { assertSafeChildName(area); } catch { continue; }
+    const kindDir = join(root, area, kind);
+    let files: string[];
+    try { files = await readdir(kindDir); } catch { continue; }
+    for (const f of files) {
+      if (!f.endsWith('.md')) continue;
+      try { assertSafeChildName(f); } catch { continue; }
+      rel.push(join('areas', area, kind, f));
+    }
+  }
+  return rel.sort();
 }
 
 function atomsEquivalent(a: KnowledgeAtom, b: KnowledgeAtom): boolean {
