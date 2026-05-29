@@ -6,6 +6,8 @@ import type { MaintenanceService } from '../maintenance/service.js';
 import type { ApplyResult } from '../source-sync/types.js';
 import { assertSafeBundlePath } from '../security/safe-paths.js';
 import { exportBootstrapPack } from '../export/bootstrap-pack.js';
+import { inferCoChangeLinks } from '../atoms/inference/co-change.js';
+import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import { buildBootstrapHealthSummary } from './health.js';
 import type { BootstrapHealth, BootstrapReport, BootstrapRunArgs } from './types.js';
 
@@ -40,6 +42,12 @@ export class BootstrapService {
       trigger: 'cli',
     });
     const applied = await this.deps.sync.apply({ planId, allowDestructive: false });
+
+    // Deep graph enrichment runs before atlas so density is reflected in generated docs.
+    let deep: BootstrapReport['deep'];
+    if (args.deep) {
+      deep = await this.runDeep(args);
+    }
 
     // 4. Atlas regeneration (non-fatal after sync succeeds).
     let atlas: BootstrapReport['atlas'];
@@ -100,10 +108,34 @@ export class BootstrapService {
       sync: { planId, summary: plan.summary, applied },
       atlas,
       health,
+      deep,
       export: exportResult,
       warnings,
       nextActions,
     };
+  }
+
+  /**
+   * Bounded graph enrichment for --deep: co-change inference + density snapshot.
+   * Non-fatal — failures become warnings; standard bootstrap still completes.
+   * Stale-edge pruning is intentionally deferred to the Graph RAG Deepening spec.
+   */
+  private async runDeep(args: BootstrapRunArgs): Promise<NonNullable<BootstrapReport['deep']>> {
+    const warnings: string[] = ['stale-edge pruning skipped (deferred to Graph RAG Deepening)'];
+    let coChangeEdgesEmitted: number | undefined;
+    try {
+      const report = await inferCoChangeLinks(this.deps.store, { project: args.project, cwd: args.repoPath });
+      coChangeEdgesEmitted = report.edgesEmitted;
+    } catch (err) {
+      warnings.push(`co-change inference failed (non-fatal): ${(err as Error).message}`);
+    }
+    let graphDensity;
+    try {
+      graphDensity = await computeAtomGraphDensity(this.deps.store, { project: args.project });
+    } catch (err) {
+      warnings.push(`graph density failed (non-fatal): ${(err as Error).message}`);
+    }
+    return { coChangeEdgesEmitted, graphDensity, warnings };
   }
 
   private buildNextActions(args: BootstrapRunArgs, applied: ApplyResult, health: BootstrapHealth): string[] {
