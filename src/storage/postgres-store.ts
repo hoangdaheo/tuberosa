@@ -63,6 +63,7 @@ import type {
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
 import { importedSnapshotToPatch } from './atom-import-patch.js';
+import { canonicalKnowledgePair, shouldDropInferredRelationsForStatus } from './shared.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
@@ -3232,10 +3233,6 @@ function mapLearningProposalRow(row: Record<string, unknown>): LearningProposal 
   };
 }
 
-function canonicalKnowledgePair(left: string, right: string): [string, string] {
-  return left.localeCompare(right) <= 0 ? [left, right] : [right, left];
-}
-
 function knowledgeReviewSql(
   review: ListKnowledgeOptions['review'],
 ): string | undefined {
@@ -3334,10 +3331,6 @@ function feedbackExistsSql(type: FeedbackEvent['feedbackType']): string {
         AND ki.id = ANY(fe.rejected_knowledge_ids)
     )
   `;
-}
-
-function shouldDropInferredRelationsForStatus(status: StoredKnowledge['status'] | undefined): boolean {
-  return status === 'archived' || status === 'blocked';
 }
 
 function mapCandidateRow(row: Record<string, unknown>, index: number): SearchCandidate {
