@@ -1,6 +1,5 @@
 import type { AppServices } from '../app.js';
 import { NotFoundError, toAppError, ValidationError, type AppError } from '../errors.js';
-import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
 import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import { predictImpact } from '../retrieval/impact-predictor.js';
@@ -45,7 +44,6 @@ import {
   validateStartAgentSessionInput,
   validateReflectionDraftReviewInput,
   validateResolveErrorLogInput,
-  validateWorkbenchSummaryInput,
 } from '../validation.js';
 
 interface JsonRpcRequest {
@@ -223,14 +221,6 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
         instruction: report.records.length > 0
           ? 'Review linked gaps, proposals, and adjacent item summaries before changing labels, relations, or ranking.'
           : 'No matching context-quality feedback found.',
-      });
-    }
-
-    case 'tuberosa_get_workbench_summary': {
-      const summary = await buildWorkbenchSummary(services, validateWorkbenchSummaryInput(args));
-      return toolJson({
-        ...summary,
-        instruction: 'Use tuberosa_start_session before substantial work, inspect contextFit and taskBrief, then record a context decision before finishing the session.',
       });
     }
 
@@ -1288,18 +1278,6 @@ function tools() {
         properties: {
           project: { type: 'string' },
           feedbackType: { type: 'string', enum: [...CONTEXT_QUALITY_FEEDBACK_TYPES] },
-          limit: { type: 'number' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_get_workbench_summary',
-      title: 'Get Tuberosa Workbench Summary',
-      description: 'Read the local V1 workbench review queues, health, recent sessions, risky auto memories, and recommended next actions.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          project: { type: 'string' },
           limit: { type: 'number' },
         },
       },
