@@ -518,7 +518,7 @@ export function validateContextSearchInput(value: unknown): ContextSearchInput {
     files: readOptionalStringArray(record, 'files', 'context search input'),
     symbols: readOptionalStringArray(record, 'symbols', 'context search input'),
     errors: readOptionalStringArray(record, 'errors', 'context search input'),
-    tokenBudget: readOptionalPositiveNumber(record, 'tokenBudget', 'context search input'),
+    tokenBudget: clampOptional(readOptionalPositiveNumber(record, 'tokenBudget', 'context search input'), 200_000),
     contextMode: readOptionalEnum(record, 'contextMode', CONTEXT_MODES, 'context search input'),
     noiseTolerance: readOptionalEnum(record, 'noiseTolerance', CONTEXT_NOISE_TOLERANCES, 'context search input'),
     deepContextBudget: readOptionalPositiveNumber(record, 'deepContextBudget', 'context search input'),
@@ -1234,6 +1234,10 @@ function readOptionalNumber(record: Record<string, unknown>, key: string, path: 
   }
 
   return value;
+}
+
+function clampOptional(value: number | undefined, max: number): number | undefined {
+  return value === undefined ? value : Math.min(value, max);
 }
 
 function readOptionalPositiveNumber(record: Record<string, unknown>, key: string, path: string): number | undefined {
