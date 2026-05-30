@@ -1,4 +1,4 @@
-const TOKEN_CHARS = 4;
+import { TOKEN_CHARS } from '../util/text.js';
 
 const SIGNAL_REGEXES: RegExp[] = [
   /(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+/g,

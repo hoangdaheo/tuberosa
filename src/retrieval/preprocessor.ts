@@ -6,12 +6,11 @@ import type {
   LengthClass,
   PreprocessedInput,
 } from '../types/preprocessor.js';
+import { TOKEN_CHARS } from '../util/text.js';
 import { pickAnchorWindow } from './anchor-window.js';
 import { LlmIntentExtractor } from './llm-intent.js';
 import { getRetrievalPolicy } from './policy.js';
 import { sweepSignals } from './signal-sweep.js';
-
-const TOKEN_CHARS = 4;
 
 function estimateTokens(s: string): number {
   return Math.ceil(s.length / TOKEN_CHARS);

@@ -37,7 +37,7 @@ import type {
 } from '../types.js';
 import { predictImpact } from './impact-predictor.js';
 import { sha256, stableJson } from '../util/hash.js';
-import { clamp, metadataString, normalizeLabel, sameSignals, truncate, uniqueStrings } from '../util/text.js';
+import { clamp, estimateTokens, metadataString, normalizeLabel, sameSignals, truncate, uniqueStrings } from '../util/text.js';
 import { candidateText } from './candidate-helpers.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
@@ -1378,7 +1378,7 @@ function atomToCandidate(atom: KnowledgeAtom, index: number): SearchCandidate {
     project: atom.project,
     labels: [],
     references,
-    tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
+    tokenEstimate: estimateTokens(atom.claim),
     trustLevel: 1,
     source: 'atoms',
     // Neutral rawScore (fusion ranks by `rank`, not rawScore — rawScore only acts
@@ -1420,7 +1420,7 @@ function userStyleAtomToCandidate(atom: KnowledgeAtom, index: number): SearchCan
     project: atom.project,
     labels: [],
     references: [],
-    tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
+    tokenEstimate: estimateTokens(atom.claim),
     trustLevel: 1,
     source: 'userStyle',
     rawScore: 1,
