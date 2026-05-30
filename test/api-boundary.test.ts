@@ -972,7 +972,7 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
         references: [],
         createdAt: new Date().toISOString(),
       }),
-      ingestFiles: async () => [],
+      ingestFiles: async () => ({ results: [], errors: [] }),
     },
     reflection: {
       createDraft: async () => {
