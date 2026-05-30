@@ -180,7 +180,13 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   private readonly labels: PostgresLabelStore;
 
   constructor(databaseUrl: string) {
-    this.pool = new Pool({ connectionString: databaseUrl });
+    this.pool = new Pool({
+      connectionString: databaseUrl,
+      max: 10,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+      statement_timeout: 30_000,
+    });
     this.backups = new PostgresBackupStore(this.pool);
     this.contextPacks = new PostgresContextStore(this.pool);
     this.labels = new PostgresLabelStore(this.pool);
