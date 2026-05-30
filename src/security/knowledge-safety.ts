@@ -436,20 +436,39 @@ export class KnowledgeSafetyService {
       .filter((candidate): candidate is T => Boolean(candidate));
   }
 
-  sanitizeContextPack<T extends { sections: Array<{ items: RankedCandidate[]; tokenEstimate: number }> }>(
+  sanitizeContextPack<T extends { sections: Array<{ items: RankedCandidate[]; tokenEstimate: number }>; deepContext?: unknown }>(
     pack: T,
     options: SafetySanitizeOptions = {},
   ): T {
+    const sanitizedSections = pack.sections.map((section) => {
+      const items = this.sanitizeSearchCandidates(section.items, options);
+      return { ...section, items, tokenEstimate: items.reduce((sum, item) => sum + item.tokenEstimate, 0) };
+    });
+    const deepContext = this.sanitizeDeepContext(pack.deepContext);
+    return { ...pack, sections: sanitizedSections, ...(deepContext !== undefined ? { deepContext } : {}) };
+  }
+
+  private redactText(value: string): string {
+    return this.scanAndRedactText(value).text;
+  }
+
+  private sanitizeDeepContext(deepContext: unknown): unknown {
+    if (!deepContext || typeof deepContext !== 'object') return deepContext;
+    const dc = deepContext as { sections?: Array<{ items?: Array<Record<string, unknown>> }> };
+    if (!Array.isArray(dc.sections)) return deepContext;
     return {
-      ...pack,
-      sections: pack.sections.map((section) => {
-        const items = this.sanitizeSearchCandidates(section.items, options);
-        return {
-          ...section,
-          items,
-          tokenEstimate: items.reduce((sum, item) => sum + item.tokenEstimate, 0),
-        };
-      }),
+      ...dc,
+      sections: dc.sections.map((section) => ({
+        ...section,
+        items: (section.items ?? []).map((item) => ({
+          ...item,
+          title: typeof item.title === 'string' ? this.redactText(item.title) : item.title,
+          summary: typeof item.summary === 'string' ? this.redactText(item.summary) : item.summary,
+          content: typeof item.content === 'string' ? this.redactText(item.content) : item.content,
+          contextualContent: typeof item.contextualContent === 'string'
+            ? this.redactText(item.contextualContent) : item.contextualContent,
+        })),
+      })),
     };
   }
 
