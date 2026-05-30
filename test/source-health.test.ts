@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
-import { buildSourceHealth } from '../src/operations/workbench-summary.js';
+import { buildSourceHealth } from '../src/source-sync/source-health.js';
 
 test('buildSourceHealth: counts ledger statuses and lists tombstones', async () => {
   const store = new MemoryKnowledgeStore();

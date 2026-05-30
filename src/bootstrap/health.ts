@@ -1,6 +1,6 @@
 import type { KnowledgeStore } from '../storage/store.js';
 import type { MaintenanceService } from '../maintenance/service.js';
-import { buildSourceHealth } from '../operations/workbench-summary.js';
+import { buildSourceHealth } from '../source-sync/source-health.js';
 import type { BootstrapHealth } from './types.js';
 
 export interface HealthDeps {
