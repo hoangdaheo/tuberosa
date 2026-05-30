@@ -162,9 +162,7 @@ function gateContextFit(input: EvaluateGatesInput): GateResult {
   const key: GateKey = 'context_fit';
   const severity: GateSeverity = 'soft';
   const fitFromPack = input.selectedPack?.contextFit?.fitStatus;
-  const fitFromMetadata = typeof (input.draft.metadata as { contextFit?: { fitStatus?: string } })?.contextFit?.fitStatus === 'string'
-    ? (input.draft.metadata as { contextFit?: { fitStatus?: string } }).contextFit!.fitStatus
-    : undefined;
+  const fitFromMetadata = (input.draft.metadata as { contextFit?: { fitStatus?: string } })?.contextFit?.fitStatus;
   const fit = fitFromPack ?? fitFromMetadata;
 
   if (!fit) {

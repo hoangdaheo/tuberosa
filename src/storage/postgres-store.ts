@@ -63,6 +63,7 @@ import type {
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
 import { importedSnapshotToPatch } from './atom-import-patch.js';
+import { canonicalKnowledgePair, shouldDropInferredRelationsForStatus } from './shared.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
@@ -242,35 +243,35 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rowCount ?? 0;
   }
 
-  private mapSourceFileRow(row: any): SourceFileRecord {
+  private mapSourceFileRow(row: Record<string, unknown>): SourceFileRecord {
     return {
-      id: row.id,
-      project: row.project_name,
-      path: row.path,
-      contentHash: row.content_hash,
-      status: row.status,
-      lastSyncedSha: row.last_synced_sha,
-      priorPaths: row.prior_paths ?? [],
-      knowledgeCount: row.knowledge_count ?? 0,
-      firstSeenAt: row.first_seen_at?.toISOString?.() ?? row.first_seen_at,
-      lastSeenAt: row.last_seen_at?.toISOString?.() ?? row.last_seen_at,
-      archivedAt: row.archived_at ? (row.archived_at.toISOString?.() ?? row.archived_at) : null,
-      metadata: row.metadata ?? {},
+      id: String(row.id),
+      project: String(row.project_name),
+      path: String(row.path),
+      contentHash: (row.content_hash as string | null) ?? null,
+      status: row.status as SourceFileRecord['status'],
+      lastSyncedSha: (row.last_synced_sha as string | null) ?? null,
+      priorPaths: (row.prior_paths as string[] | null) ?? [],
+      knowledgeCount: Number(row.knowledge_count ?? 0),
+      firstSeenAt: toIso(row.first_seen_at),
+      lastSeenAt: toIso(row.last_seen_at),
+      archivedAt: row.archived_at ? toIso(row.archived_at) : null,
+      metadata: (row.metadata as Record<string, unknown> | null) ?? {},
     };
   }
 
-  private mapSyncRunRow(row: any): SyncRunRecord {
+  private mapSyncRunRow(row: Record<string, unknown>): SyncRunRecord {
     return {
-      id: row.id,
-      project: row.project_name,
-      mode: row.mode,
-      fromSha: row.from_sha,
-      toSha: row.to_sha,
-      plan: typeof row.plan === 'string' ? JSON.parse(row.plan) : row.plan,
-      applied: row.applied,
-      trigger: row.trigger,
-      createdAt: row.created_at?.toISOString?.() ?? row.created_at,
-      appliedAt: row.applied_at ? (row.applied_at.toISOString?.() ?? row.applied_at) : null,
+      id: String(row.id),
+      project: String(row.project_name),
+      mode: row.mode as SyncRunRecord['mode'],
+      fromSha: (row.from_sha as string | null) ?? null,
+      toSha: (row.to_sha as string | null) ?? null,
+      plan: typeof row.plan === 'string' ? JSON.parse(row.plan) : (row.plan as SyncRunRecord['plan']),
+      applied: row.applied as boolean,
+      trigger: row.trigger as SyncRunRecord['trigger'],
+      createdAt: toIso(row.created_at),
+      appliedAt: row.applied_at ? toIso(row.applied_at) : null,
     };
   }
 
@@ -3232,10 +3233,6 @@ function mapLearningProposalRow(row: Record<string, unknown>): LearningProposal 
   };
 }
 
-function canonicalKnowledgePair(left: string, right: string): [string, string] {
-  return left.localeCompare(right) <= 0 ? [left, right] : [right, left];
-}
-
 function knowledgeReviewSql(
   review: ListKnowledgeOptions['review'],
 ): string | undefined {
@@ -3334,10 +3331,6 @@ function feedbackExistsSql(type: FeedbackEvent['feedbackType']): string {
         AND ki.id = ANY(fe.rejected_knowledge_ids)
     )
   `;
-}
-
-function shouldDropInferredRelationsForStatus(status: StoredKnowledge['status'] | undefined): boolean {
-  return status === 'archived' || status === 'blocked';
 }
 
 function mapCandidateRow(row: Record<string, unknown>, index: number): SearchCandidate {

@@ -1,6 +1,7 @@
 import type { ModelProvider } from '../model/provider.js';
 import type { LabelInput, ReferenceInput } from '../types.js';
 import { normalizeLabel } from '../util/text.js';
+import { cosineSimilarity } from '../util/vector.js';
 
 /**
  * Phase 6b — Local-heuristic write gate (Mem0 pattern, NO LLM call).
@@ -206,23 +207,6 @@ function clampCosine(rawScore: number | undefined): number {
   if (rawScore < 0) return 0;
   if (rawScore > 1) return 1;
   return rawScore;
-}
-
-function cosineSimilarity(left: number[], right: number[]): number {
-  const length = Math.min(left.length, right.length);
-  if (length === 0) return 0;
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-  for (let i = 0; i < length; i += 1) {
-    const l = left[i];
-    const r = right[i];
-    dot += l * r;
-    leftNorm += l * l;
-    rightNorm += r * r;
-  }
-  if (leftNorm === 0 || rightNorm === 0) return 0;
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
 
 function jaccardLabelOverlap(left: LabelInput[], right: LabelInput[]): number {

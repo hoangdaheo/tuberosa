@@ -55,6 +55,7 @@ import type {
   StoredKnowledge,
 } from '../types.js';
 import { estimateTokens, normalizeLabel, uniqueStrings } from '../util/text.js';
+import { cosineSimilarity } from '../util/vector.js';
 import { getRetrievalPolicy, graphHopMultiplier } from '../retrieval/policy.js';
 import {
   deriveNamespace,
@@ -89,6 +90,7 @@ import type {
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
 import { importedSnapshotToPatch } from './atom-import-patch.js';
+import { canonicalKnowledgePair, shouldDropInferredRelationsForStatus } from './shared.js';
 import type {
   SourceFileRecord,
   SourceFileStatus,
@@ -1800,24 +1802,6 @@ function tableRows(tables: BackupTableData[], name: BackupTableData['name']): Ar
   return tables.find((table) => table.name === name)?.rows ?? [];
 }
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  const len = Math.min(a.length, b.length);
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < len; i += 1) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
-}
-
-function canonicalKnowledgePair(left: string, right: string): [string, string] {
-  return left.localeCompare(right) <= 0 ? [left, right] : [right, left];
-}
-
 function uniqueProjectRows(
   knowledge: StoredKnowledge[],
   packs: ContextPack[],
@@ -1966,10 +1950,6 @@ function keepBestGraphScore(
   if (score === existing.score) {
     scored.set(knowledgeId, { ...existing, paths: [...existing.paths, path].slice(0, 3) });
   }
-}
-
-function shouldDropInferredRelationsForStatus(status: StoredKnowledge['status'] | undefined): boolean {
-  return status === 'archived' || status === 'blocked';
 }
 
 function graphTargetTerms(classified: ClassifiedQuery): Set<string> {

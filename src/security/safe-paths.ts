@@ -1,12 +1,6 @@
 import { realpath, mkdir, lstat } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
-
-export class ValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ValidationError';
-  }
-}
+import { ValidationError } from '../errors.js';
 
 const SAFE_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 const FORBIDDEN_NAMES = new Set(['.', '..']);

@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AppServices } from '../app.js';
 import type { AppConfig } from '../config.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, ValidationError, toAppError } from '../errors.js';
+import { shouldAutoCapture } from '../error-log/auto-capture.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
 import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import { predictImpact } from '../retrieval/impact-predictor.js';
@@ -1346,14 +1347,6 @@ async function maybeCaptureHttpError(
   } catch (captureError) {
     console.error('[error-log]', captureError instanceof Error ? captureError.message : String(captureError));
   }
-}
-
-function shouldAutoCapture(services: AppServices, error: AppError): boolean {
-  if (!services.config.errorLogAutoCapture) {
-    return false;
-  }
-
-  return services.config.errorLogCaptureClientErrors || error.status >= 500;
 }
 
 function categoryForAppError(error: AppError) {

@@ -173,7 +173,8 @@ test('tuberosa_import_pack rejects /proc path via MCP', async () => {
 });
 
 test('importer skips user-style entries that fail assertSafeChildName', async () => {
-  const { assertSafeChildName, ValidationError } = await import('../src/security/safe-paths.js');
+  const { assertSafeChildName } = await import('../src/security/safe-paths.js');
+  const { ValidationError } = await import('../src/errors.js');
   const candidates = ['alice', '..', 'a/b', 'bob', '.', 'carol_1'];
   const accepted: string[] = [];
   for (const c of candidates) {
