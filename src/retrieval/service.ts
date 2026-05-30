@@ -38,6 +38,7 @@ import type {
 import { predictImpact } from './impact-predictor.js';
 import { sha256, stableJson } from '../util/hash.js';
 import { clamp, estimateTokens, metadataString, normalizeLabel, sameSignals, truncate, uniqueStrings } from '../util/text.js';
+import { isRfc4122Uuid } from '../util/uuid.js';
 import { candidateText } from './candidate-helpers.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
@@ -2406,9 +2407,7 @@ function hasMetadataTaxonomy(candidate: RankedCandidate, taxonomy: string): bool
 
 function metadataUuidString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadataString(metadata, key);
-  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-    ? value
-    : undefined;
+  return value && isRfc4122Uuid(value) ? value : undefined;
 }
 
 function feedbackStatusFromCandidate(candidate: RankedCandidate): string | undefined {
