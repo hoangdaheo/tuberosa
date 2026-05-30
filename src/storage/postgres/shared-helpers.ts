@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
+import { isPersistedKnowledgeId } from '../../util/uuid.js';
 import type { KnowledgeRelation, KnowledgeRelationInput } from '../../types.js';
 
 /**
@@ -30,6 +31,15 @@ export async function ensureProject(client: Queryable, name: string): Promise<st
 export async function projectIdByName(client: Queryable, name: string): Promise<string | null> {
   const result = await client.query<{ id: string }>('SELECT id FROM projects WHERE name = $1', [name]);
   return result.rows[0]?.id ?? null;
+}
+
+/**
+ * Drop synthetic (non-persisted) knowledge ids — e.g. the worktree provider's
+ * `worktree:<sha>` ids — so they never reach a Postgres `::uuid[]` cast.
+ */
+export function filterPersistedKnowledgeIds(ids: readonly string[] | undefined): string[] {
+  if (!ids || ids.length === 0) return [];
+  return ids.filter(isPersistedKnowledgeId);
 }
 
 /** Normalize a Postgres timestamp value to an ISO-8601 string. */
