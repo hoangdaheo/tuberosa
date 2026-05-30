@@ -72,7 +72,15 @@ import { PostgresBackupStore } from './postgres/backup-store.js';
 import { PostgresContextStore } from './postgres/context-store.js';
 import { PostgresLabelStore } from './postgres/label-store.js';
 import { PostgresSourceSyncStore } from './postgres/source-sync-store.js';
-import { type Queryable, ensureProject, projectIdByName, toIso } from './postgres/shared-helpers.js';
+import { PostgresRelationStore } from './postgres/relation-store.js';
+import {
+  type Queryable,
+  ensureProject,
+  projectIdByName,
+  toIso,
+  insertKnowledgeRelation,
+  expireRelationsFromKnowledge,
+} from './postgres/shared-helpers.js';
 import {
   deriveNamespace,
   readNamespaceFromMetadata,
@@ -183,6 +191,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   private readonly contextPacks: PostgresContextStore;
   private readonly labels: PostgresLabelStore;
   private readonly sourceSync: PostgresSourceSyncStore;
+  private readonly relations: PostgresRelationStore;
 
   constructor(databaseUrl: string) {
     this.pool = new Pool({
@@ -197,6 +206,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     this.contextPacks = new PostgresContextStore(this.pool);
     this.labels = new PostgresLabelStore(this.pool);
     this.sourceSync = new PostgresSourceSyncStore(this.pool);
+    this.relations = new PostgresRelationStore(this.pool);
   }
 
   async withTransaction<T>(fn: (tx: KnowledgeStore) => Promise<T>): Promise<T> {
@@ -501,7 +511,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       await client.query('DELETE FROM knowledge_relations WHERE from_knowledge_id = $1 AND inferred = true', [knowledgeId]);
       const created: KnowledgeRelation[] = [];
       for (const relation of relations) {
-        created.push(await this.insertKnowledgeRelation(client, { ...relation, inferred: true }));
+        created.push(await insertKnowledgeRelation(client, { ...relation, inferred: true }));
       }
       await client.query('COMMIT');
       return created;
@@ -513,93 +523,24 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
   }
 
-  async listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]> {
-    // Phase 5 follow-up: filter synthetic ids (e.g. worktree:<sha>) so a caller that
-    // walks worktree candidates into listKnowledgeRelations does not crash the uuid cast.
-    if (options.fromKnowledgeId && !isPersistedKnowledgeId(options.fromKnowledgeId)) return [];
-    if (options.targetKnowledgeId && !isPersistedKnowledgeId(options.targetKnowledgeId)) return [];
-    const result = await this.db.query(
-      `
-        ${relationSelect()}
-        WHERE ($2::text IS NULL OR p.name = $2)
-          AND ($3::uuid IS NULL OR kr.from_knowledge_id = $3)
-          AND ($4::uuid IS NULL OR kr.target_knowledge_id = $4)
-          AND ($5::text IS NULL OR kr.target_value = $5)
-          AND ($6::text IS NULL OR kr.relation_type = $6)
-          AND ($7::boolean IS NULL OR kr.inferred = $7)
-        ORDER BY kr.created_at DESC
-        LIMIT $1
-      `,
-      [
-        options.limit,
-        options.project ?? null,
-        options.fromKnowledgeId ?? null,
-        options.targetKnowledgeId ?? null,
-        options.targetValue ?? null,
-        options.relationType ?? null,
-        options.inferred ?? null,
-      ],
-    );
-
-    return result.rows.map(mapRelationRow);
+  listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]> {
+    return this.relations.listKnowledgeRelations(options);
   }
 
-  async getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
-    if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.db.query(
-      `
-        ${relationSelect()}
-        WHERE kr.id = $1
-      `,
-      [id],
-    );
-
-    return result.rows[0] ? mapRelationRow(result.rows[0]) : undefined;
+  getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
+    return this.relations.getKnowledgeRelation(id);
   }
 
-  async createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation> {
-    return this.insertKnowledgeRelation(this.pool, input);
+  createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation> {
+    return this.relations.createKnowledgeRelation(input);
   }
 
-  async updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined> {
-    const current = await this.getKnowledgeRelation(id);
-    if (!current) {
-      return undefined;
-    }
-
-    const result = await this.db.query(
-      `
-        UPDATE knowledge_relations
-        SET relation_type = $2,
-          target_kind = $3,
-          target_knowledge_id = $4,
-          target_value = $5,
-          confidence = $6,
-          inferred = $7,
-          metadata = $8,
-          updated_at = now()
-        WHERE id = $1
-        RETURNING id
-      `,
-      [
-        id,
-        patch.relationType ?? current.relationType,
-        patch.targetKind ?? current.targetKind,
-        patch.targetKnowledgeId === null ? null : patch.targetKnowledgeId ?? current.targetKnowledgeId ?? null,
-        patch.targetValue === null ? null : patch.targetValue ?? current.targetValue ?? null,
-        patch.confidence ?? current.confidence,
-        patch.inferred ?? current.inferred,
-        patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
-      ],
-    );
-
-    return result.rowCount ? this.getKnowledgeRelation(id) : undefined;
+  updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined> {
+    return this.relations.updateKnowledgeRelation(id, patch);
   }
 
-  async deleteKnowledgeRelation(id: string): Promise<boolean> {
-    if (!isPersistedKnowledgeId(id)) return false;
-    const result = await this.db.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
-    return Boolean(result.rowCount);
+  deleteKnowledgeRelation(id: string): Promise<boolean> {
+    return this.relations.deleteKnowledgeRelation(id);
   }
 
   async listKnowledgeConflicts(options: ListKnowledgeConflictsOptions): Promise<KnowledgeConflict[]> {
@@ -1250,7 +1191,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     const createdAtIso = toIso(result.rows[0].created_at);
     if (input.feedbackType === 'stale' && persistedRejectedIds.length) {
       for (const knowledgeId of persistedRejectedIds) {
-        await this.expireRelationsFromKnowledge(this.pool, knowledgeId, createdAtIso);
+        await expireRelationsFromKnowledge(this.pool, knowledgeId, createdAtIso);
       }
     }
 
@@ -2788,82 +2729,6 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
   }
 
-  private async insertKnowledgeRelation(
-    client: Queryable,
-    input: KnowledgeRelationInput,
-  ): Promise<KnowledgeRelation> {
-    const projectId = input.project
-      ? await this.ensureProject(client, input.project)
-      : null;
-    // Phase 6c — stamp metadata.validFrom on every new relation (mirror inference.ts).
-    const baseMetadata = input.metadata ?? {};
-    const metadataWithValidity = typeof baseMetadata.validFrom === 'string'
-      ? baseMetadata
-      : { validFrom: new Date().toISOString(), ...baseMetadata };
-    const result = await client.query(
-      `
-        WITH inserted AS (
-          INSERT INTO knowledge_relations (
-            project_id, from_knowledge_id, relation_type, target_kind,
-            target_knowledge_id, target_value, confidence, inferred, metadata
-          )
-          VALUES (
-            COALESCE($1, (SELECT project_id FROM knowledge_items WHERE id = $2)),
-            $2, $3, $4, $5, $6, $7, $8, $9
-          )
-          RETURNING *
-        )
-        SELECT inserted.*, p.name AS project
-        FROM inserted
-        LEFT JOIN projects p ON p.id = inserted.project_id
-      `,
-      [
-        projectId,
-        input.fromKnowledgeId,
-        input.relationType,
-        input.targetKind,
-        input.targetKnowledgeId ?? null,
-        input.targetValue ?? null,
-        input.confidence ?? 0.7,
-        input.inferred ?? false,
-        metadataWithValidity,
-      ],
-    );
-    const created = mapRelationRow(result.rows[0]);
-
-    // Phase 6c — when memory A supersedes memory B, stamp validUntil on B's
-    // other inferred outgoing relations. Idempotent: skip relations that
-    // already carry a validUntil.
-    if (created.relationType === 'supersedes' && created.targetKnowledgeId) {
-      await this.expireRelationsFromKnowledge(
-        client,
-        created.targetKnowledgeId,
-        new Date().toISOString(),
-        created.id,
-      );
-    }
-    return created;
-  }
-
-  private async expireRelationsFromKnowledge(
-    client: Queryable,
-    knowledgeId: string,
-    expiredAt: string,
-    excludeRelationId?: string,
-  ): Promise<void> {
-    await client.query(
-      `
-        UPDATE knowledge_relations
-        SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{validUntil}', to_jsonb($2::text), true),
-            updated_at = now()
-        WHERE from_knowledge_id = $1
-          AND inferred = true
-          AND (metadata->>'validUntil') IS NULL
-          AND ($3::uuid IS NULL OR id <> $3)
-      `,
-      [knowledgeId, expiredAt, excludeRelationId ?? null],
-    );
-  }
 }
 
 function knowledgeSelect(): string {
@@ -2949,26 +2814,6 @@ function candidateSelect(source: string, scoreExpression: string, graphPathsExpr
     FROM knowledge_chunks kc
     JOIN knowledge_items ki ON ki.id = kc.knowledge_id
     JOIN projects p ON p.id = ki.project_id
-  `;
-}
-
-function relationSelect(): string {
-  return `
-    SELECT
-      kr.id,
-      p.name AS project,
-      kr.from_knowledge_id,
-      kr.relation_type,
-      kr.target_kind,
-      kr.target_knowledge_id,
-      kr.target_value,
-      kr.confidence,
-      kr.inferred,
-      kr.metadata,
-      kr.created_at,
-      kr.updated_at
-    FROM knowledge_relations kr
-    LEFT JOIN projects p ON p.id = kr.project_id
   `;
 }
 
@@ -3063,23 +2908,6 @@ function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
     namespace,
-  };
-}
-
-function mapRelationRow(row: Record<string, unknown>): KnowledgeRelation {
-  return {
-    id: String(row.id),
-    project: row.project ? String(row.project) : undefined,
-    fromKnowledgeId: String(row.from_knowledge_id),
-    relationType: row.relation_type as KnowledgeRelation['relationType'],
-    targetKind: row.target_kind as KnowledgeRelation['targetKind'],
-    targetKnowledgeId: row.target_knowledge_id ? String(row.target_knowledge_id) : undefined,
-    targetValue: row.target_value ? String(row.target_value) : undefined,
-    confidence: Number(row.confidence ?? 0.7),
-    inferred: Boolean(row.inferred),
-    metadata: (row.metadata ?? {}) as Record<string, unknown>,
-    createdAt: toIso(row.created_at),
-    updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
   };
 }
 
