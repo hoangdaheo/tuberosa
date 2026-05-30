@@ -807,7 +807,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async createKnowledgeGap(input: KnowledgeGapInput): Promise<KnowledgeGap> {
-    const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
+    const projectId = input.project ? await this.ensureProject(this.db, input.project) : null;
     const result = await this.db.query(
       `
         WITH inserted AS (
@@ -908,7 +908,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async createLearningProposal(input: LearningProposalInput): Promise<LearningProposal> {
-    const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
+    const projectId = input.project ? await this.ensureProject(this.db, input.project) : null;
     const result = await this.db.query(
       `
         WITH inserted AS (
