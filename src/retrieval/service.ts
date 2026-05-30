@@ -444,7 +444,13 @@ export class RetrievalService {
     cacheKey: string,
     input: NormalizedContextSearchInput,
   ): Promise<ContextPack | undefined> {
-    return input.bypassCache || input.debug ? undefined : this.cache.getJson<ContextPack>(cacheKey);
+    if (input.bypassCache || input.debug) return undefined;
+    try {
+      return await this.cache.getJson<ContextPack>(cacheKey);
+    } catch (error) {
+      console.error('[retrieval] context-pack cache read failed; continuing uncached.', error);
+      return undefined;
+    }
   }
 
   private async createContextQuery(
@@ -1345,7 +1351,11 @@ async function saveCompactContextPack(
   ttlSeconds: number,
 ): Promise<void> {
   await store.saveContextPack(pack);
-  await cache.setJson(cacheKey, pack, ttlSeconds);
+  try {
+    await cache.setJson(cacheKey, pack, ttlSeconds);
+  } catch (error) {
+    console.error('[retrieval] context-pack cache write failed; pack persisted to store.', error);
+  }
 }
 
 function atomToCandidate(atom: KnowledgeAtom, index: number): SearchCandidate {

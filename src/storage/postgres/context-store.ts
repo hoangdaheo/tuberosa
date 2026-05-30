@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { ClassifiedQuery, ContextPack, ListRecordsOptions } from '../../types.js';
+import { isPersistedKnowledgeId } from '../../util/uuid.js';
 
 export class PostgresContextStore {
   constructor(private readonly pool: Pool) {}
@@ -57,6 +58,7 @@ export class PostgresContextStore {
   }
 
   async getContextPack(id: string): Promise<ContextPack | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query<{ pack: ContextPack; status: ContextPack['status'] }>(
       'SELECT pack, status FROM context_packs WHERE id = $1',
       [id],

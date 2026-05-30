@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { doesNotThrow, throws } from 'node:assert/strict';
+import { doesNotThrow, equal, throws } from 'node:assert/strict';
 import {
   validateContextSearchInput,
   validateFeedbackInput,
@@ -181,3 +181,11 @@ for (const row of CASES) {
     }
   });
 }
+
+test('validation: tokenBudget is clamped to the 200k ceiling', () => {
+  const clamped = validateContextSearchInput({ prompt: 'x', tokenBudget: 5_000_000 });
+  equal(clamped.tokenBudget, 200_000);
+
+  const passthrough = validateContextSearchInput({ prompt: 'x', tokenBudget: 4000 });
+  equal(passthrough.tokenBudget, 4000);
+});

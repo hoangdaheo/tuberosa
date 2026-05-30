@@ -411,6 +411,7 @@ async function fetchOpenAiEmbedding(config: AppConfig, text: string): Promise<Re
         input: text,
         dimensions: config.embeddingDimensions,
       }),
+      signal: AbortSignal.timeout(config.openAiTimeoutMs),
     });
   } catch (error) {
     throw new ModelProviderError('OpenAI embedding request failed.', error);
@@ -453,6 +454,7 @@ async function fetchOpenAiJson(
           },
         },
       }),
+      signal: AbortSignal.timeout(config.openAiTimeoutMs),
     });
   } catch (error) {
     throw new ModelProviderError('OpenAI Responses request failed.', error);

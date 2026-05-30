@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
 import { StoreError } from '../errors.js';
+import { isPersistedKnowledgeId } from '../util/uuid.js';
 import type {
   AgentContextDecision,
   AgentSession,
@@ -109,13 +110,9 @@ type Queryable = Pool | PoolClient;
 // Phase 5 follow-up: Postgres uuid[] casts crash on synthetic knowledge ids such as
 // the Phase-5 worktree provider's `worktree:<sha256>` ids (live-evidence only, never
 // persisted). Every method that takes a knowledge id from outside the store filters
-// through this predicate before the id reaches a `::uuid` / `::uuid[]` cast — the
-// MemoryKnowledgeStore is permissive (returns empty for unknown ids), so this brings
-// Postgres in line.
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isPersistedKnowledgeId(value: unknown): value is string {
-  return typeof value === 'string' && UUID_PATTERN.test(value);
-}
+// through the shared `isPersistedKnowledgeId` predicate before the id reaches a
+// `::uuid` / `::uuid[]` cast — the MemoryKnowledgeStore is permissive (returns empty
+// for unknown ids), so this brings Postgres in line.
 // Clients that were already destroyed during error handling. Used so the
 // `finally` block in transaction wrappers doesn't double-release.
 const destroyedClients = new WeakSet<PoolClient>();
@@ -183,7 +180,13 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   private readonly labels: PostgresLabelStore;
 
   constructor(databaseUrl: string) {
-    this.pool = new Pool({ connectionString: databaseUrl });
+    this.pool = new Pool({
+      connectionString: databaseUrl,
+      max: 10,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+      statement_timeout: 30_000,
+    });
     this.backups = new PostgresBackupStore(this.pool);
     this.contextPacks = new PostgresContextStore(this.pool);
     this.labels = new PostgresLabelStore(this.pool);
@@ -377,6 +380,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const { rows } = await this.pool.query(
       `
         SELECT sr.*, p.name AS project_name
@@ -389,6 +393,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const { rows } = await this.pool.query(
       `
         UPDATE sync_runs sr
@@ -622,6 +627,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${relationSelect()}
@@ -673,6 +679,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async deleteKnowledgeRelation(id: string): Promise<boolean> {
+    if (!isPersistedKnowledgeId(id)) return false;
     const result = await this.pool.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
     return Boolean(result.rowCount);
   }
@@ -730,6 +737,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   private async getKnowledgeConflict(id: string): Promise<KnowledgeConflict | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${conflictSelect()}
@@ -830,6 +838,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${knowledgeGapSelect()}
@@ -943,6 +952,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getLearningProposal(id: string): Promise<LearningProposal | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${learningProposalSelect()}
@@ -1502,6 +1512,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAgentSession(id: string): Promise<AgentSession | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
@@ -1688,6 +1699,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         SELECT d.id, p.name AS project, d.title, d.summary, d.content, d.item_type,
@@ -1920,6 +1932,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAtom(id: string): Promise<KnowledgeAtom | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `SELECT a.*, p.name AS project_name
        FROM knowledge_atoms a
@@ -1973,6 +1986,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const sets: string[] = ['updated_at = now()'];
     const values: unknown[] = [];
     if (patch.claim !== undefined)    { values.push(patch.claim);    sets.push(`claim = $${values.length}`); }
@@ -2000,6 +2014,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async deleteAtom(id: string): Promise<boolean> {
+    if (!isPersistedKnowledgeId(id)) return false;
     const result = await this.pool.query(`DELETE FROM knowledge_atoms WHERE id = $1`, [id]);
     return (result.rowCount ?? 0) > 0;
   }
@@ -2483,6 +2498,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `SELECT aic.id, aic.atom_id, aic.local_snapshot, aic.imported_snapshot,
               aic.bundle_source, aic.status, aic.resolution_notes,

@@ -92,11 +92,12 @@ async function main(): Promise<void> {
 
     console.log(`Ingesting ${allFiles.length} files for project '${PROJECT}'...`);
 
-    const stored = await services.ingestion.ingestFiles(PROJECT, allFiles);
+    const { results: stored, errors } = await services.ingestion.ingestFiles(PROJECT, allFiles);
 
     console.log(JSON.stringify({
       project: PROJECT,
       ingested: stored.length,
+      errors,
       items: stored.map((item) => ({
         id: item.id,
         title: item.title,

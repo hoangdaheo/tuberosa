@@ -20,6 +20,7 @@ const config: AppConfig = {
   cache: 'memory',
   autoMigrate: false,
   modelProvider: 'hash',
+  openAiTimeoutMs: 30_000,
   embeddingDimensions: 1536,
   openAiEmbeddingModel: 'text-embedding-3-small',
   contextCacheTtlSeconds: 60,
@@ -972,7 +973,7 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
         references: [],
         createdAt: new Date().toISOString(),
       }),
-      ingestFiles: async () => [],
+      ingestFiles: async () => ({ results: [], errors: [] }),
     },
     reflection: {
       createDraft: async () => {

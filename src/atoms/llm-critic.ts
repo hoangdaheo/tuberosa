@@ -45,10 +45,19 @@ export class LlmCritic {
   }): Promise<LlmCriticVerdict | undefined> {
     if (!this.models.judgeAtomUtility) return undefined;
     const key = `atom_critic:${this.cacheKey(input)}`;
-    const cached = await this.cache.getJson<LlmCriticVerdict>(key);
+    let cached: LlmCriticVerdict | undefined;
+    try {
+      cached = await this.cache.getJson<LlmCriticVerdict>(key);
+    } catch (error) {
+      console.error('[llm-critic] cache read failed; continuing uncached.', error);
+    }
     if (cached) return cached;
     const verdict = await this.models.judgeAtomUtility(input);
-    await this.cache.setJson(key, verdict, this.ttlSeconds);
+    try {
+      await this.cache.setJson(key, verdict, this.ttlSeconds);
+    } catch (error) {
+      console.error('[llm-critic] cache write failed; ignoring.', error);
+    }
     return verdict;
   }
 

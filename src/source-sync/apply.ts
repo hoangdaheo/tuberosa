@@ -47,7 +47,11 @@ export async function applyPlan(opts: ApplyOptions): Promise<ApplyResult> {
       result.skipped.push({ path: add.path, reason: 'missing_on_disk' });
       continue;
     }
-    await ingestion.ingestFiles(plan.project, [{ project: plan.project, path: add.path, content }]);
+    const { errors } = await ingestion.ingestFiles(plan.project, [{ project: plan.project, path: add.path, content }]);
+    if (errors.length > 0) {
+      result.skipped.push({ path: add.path, reason: 'ingest_failed' });
+      continue;
+    }
     await store.upsertSourceFile({
       project: plan.project,
       path: add.path,
@@ -75,7 +79,11 @@ export async function applyPlan(opts: ApplyOptions): Promise<ApplyResult> {
       result.skipped.push({ path: change.path, reason: 'hash_mismatch' });
       continue;
     }
-    await ingestion.ingestFiles(plan.project, [{ project: plan.project, path: change.path, content }]);
+    const { errors } = await ingestion.ingestFiles(plan.project, [{ project: plan.project, path: change.path, content }]);
+    if (errors.length > 0) {
+      result.skipped.push({ path: change.path, reason: 'ingest_failed' });
+      continue;
+    }
     await store.upsertSourceFile({
       project: plan.project,
       path: change.path,
