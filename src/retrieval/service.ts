@@ -322,8 +322,14 @@ export class RetrievalService {
   async recordFeedback(input: FeedbackInput): Promise<{ feedback: FeedbackEvent; retry?: ContextPack }> {
     const feedback = await this.store.recordFeedback(input);
     const pack = input.contextPackId ? await this.store.getContextPack(input.contextPackId) : undefined;
-    await this.recordFeedbackLearning(input, feedback, pack);
-    await this.recordAtomReuse(input, pack);
+    // The FeedbackEvent insert above is the anchor the dependent learning writes
+    // reference (feedback.id); it stays outside the transaction. Only the
+    // dependent fan-out (gaps/proposals/atom reuse) is wrapped so a mid-fan-out
+    // failure rolls back all of its writes atomically.
+    await this.store.withTransaction(async (tx) => {
+      await this.recordFeedbackLearning(tx, input, feedback, pack);
+      await this.recordAtomReuse(tx, input, pack);
+    });
 
     if (!shouldRetry(input.feedbackType) || !input.contextPackId || !pack) {
       return { feedback };
@@ -334,6 +340,7 @@ export class RetrievalService {
   }
 
   private async recordFeedbackLearning(
+    tx: KnowledgeStore,
     input: FeedbackInput,
     feedback: FeedbackEvent,
     pack: ContextPack | undefined,
@@ -342,7 +349,7 @@ export class RetrievalService {
     const sourceSessionId = metadataUuidString(input.metadata, 'agentSessionId');
 
     if (MISSING_CONTEXT_FEEDBACK_TYPES.has(input.feedbackType)) {
-      await this.store.createKnowledgeGap({
+      await tx.createKnowledgeGap({
         project,
         sourceFeedbackId: feedback.id,
         sourceSessionId,
@@ -365,7 +372,7 @@ export class RetrievalService {
 
     const affectedKnowledgeIds = feedbackAffectedKnowledgeIds(input, pack);
     for (const affectedKnowledgeId of affectedKnowledgeIds) {
-      await this.store.createLearningProposal({
+      await tx.createLearningProposal({
         project,
         proposalType: proposalTypeForFeedback(input.feedbackType),
         sourceFeedbackId: feedback.id,
@@ -385,9 +392,9 @@ export class RetrievalService {
         continue;
       }
 
-      const knowledge = await this.store.getKnowledge(affectedKnowledgeId);
+      const knowledge = await tx.getKnowledge(affectedKnowledgeId);
       if (knowledge?.metadata.source === 'agent_session_finish' || knowledge?.metadata.learningMode === 'auto') {
-        await this.store.createLearningProposal({
+        await tx.createLearningProposal({
           project: project ?? knowledge.project,
           proposalType: 'auto_memory_cleanup',
           sourceFeedbackId: feedback.id,
@@ -411,7 +418,7 @@ export class RetrievalService {
    * pack was demonstrably useful: bump its reuseCount and last-reused timestamp, then re-evaluate
    * its tier and persist the new tier if it crossed a transition threshold.
    */
-  private async recordAtomReuse(input: FeedbackInput, pack: ContextPack | undefined): Promise<void> {
+  private async recordAtomReuse(tx: KnowledgeStore, input: FeedbackInput, pack: ContextPack | undefined): Promise<void> {
     if (!pack || !ATOM_REUSE_FEEDBACK_TYPES.has(input.feedbackType)) {
       return;
     }
@@ -430,13 +437,13 @@ export class RetrievalService {
 
     const nowIso = new Date().toISOString();
     for (const atomId of atomIds) {
-      const updated = await this.store.incrementAtomReuse(atomId, nowIso);
+      const updated = await tx.incrementAtomReuse(atomId, nowIso);
       if (!updated) {
         continue;
       }
       const nextTier = evaluateTierTransition(updated, new Date(nowIso));
       if (nextTier !== updated.tier) {
-        await this.store.updateAtom(atomId, { tier: nextTier });
+        await tx.updateAtom(atomId, { tier: nextTier });
       }
     }
   }
