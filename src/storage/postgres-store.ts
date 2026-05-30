@@ -176,6 +176,9 @@ async function applyAtomPatchInTx(
 
 export class PostgresKnowledgeStore implements KnowledgeStore {
   private readonly pool: Pool;
+  // Query target for simple (non-connect) queries. Defaults to the pool; a
+  // transaction-bound clone (see withTransaction) swaps in a single client.
+  private db: Queryable;
   private readonly backups: PostgresBackupStore;
   private readonly contextPacks: PostgresContextStore;
   private readonly labels: PostgresLabelStore;
@@ -188,9 +191,35 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       idleTimeoutMillis: 30_000,
       statement_timeout: 30_000,
     });
+    this.db = this.pool;
     this.backups = new PostgresBackupStore(this.pool);
     this.contextPacks = new PostgresContextStore(this.pool);
     this.labels = new PostgresLabelStore(this.pool);
+  }
+
+  async withTransaction<T>(fn: (tx: KnowledgeStore) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    // Build a transaction-bound view that shares this store's pool + sub-stores
+    // (by prototype) but routes simple queries to the single client. Only the
+    // simple-query methods (those using `this.db.query`) are transaction-safe
+    // inside `fn`; methods that open their own connection are NOT bound here.
+    const tx = Object.create(this) as PostgresKnowledgeStore;
+    (tx as unknown as { db: Queryable }).db = client;
+    try {
+      await client.query('BEGIN');
+      const result = await fn(tx);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('[postgres-store] withTransaction ROLLBACK failed.', rollbackError);
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
@@ -226,7 +255,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async deleteStaleFileAtoms(input: StaleFileAtomCleanupInput): Promise<number> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         DELETE FROM knowledge_items ki
         USING projects p, knowledge_sources ks
@@ -277,7 +306,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async upsertSourceFile(input: UpsertSourceFileInput): Promise<SourceFileRecord> {
     const projectId = await this.ensureProject(this.pool, input.project);
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         INSERT INTO source_files (project_id, path, content_hash, status, last_synced_sha, metadata, last_seen_at)
         VALUES ($1, $2, $3, COALESCE($4, 'tracked'), $5, COALESCE($6, '{}'::jsonb), now())
@@ -295,7 +324,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getSourceFile(options: { project: string; path: string }): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         SELECT sf.*, p.name AS project_name
         FROM source_files sf JOIN projects p ON p.id = sf.project_id
@@ -307,7 +336,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listSourceFiles(options: ListSourceFilesOptions): Promise<SourceFileRecord[]> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         SELECT sf.*, p.name AS project_name
         FROM source_files sf JOIN projects p ON p.id = sf.project_id
@@ -321,7 +350,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async renameSourceFile(input: RenameSourceFileInput): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         UPDATE source_files sf
         SET path = $3, prior_paths = array_append(sf.prior_paths, $2), last_seen_at = now()
@@ -335,7 +364,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async setSourceFileStatus(options: { project: string; path: string; status: SourceFileStatus }): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         UPDATE source_files sf
         SET status = $3, archived_at = CASE WHEN $3 = 'archived' THEN now() ELSE sf.archived_at END
@@ -349,7 +378,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listKnowledgeBySourcePath(options: { project: string; path: string }): Promise<StoredKnowledge[]> {
-    const { rows } = await this.pool.query<{ id: string }>(
+    const { rows } = await this.db.query<{ id: string }>(
       `
         SELECT ki.id
         FROM knowledge_items ki JOIN projects p ON p.id = ki.project_id
@@ -369,7 +398,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async createSyncRun(input: CreateSyncRunInput): Promise<SyncRunRecord> {
     const projectId = await this.ensureProject(this.pool, input.project);
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         INSERT INTO sync_runs (project_id, mode, from_sha, to_sha, plan, trigger)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -382,7 +411,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         SELECT sr.*, p.name AS project_name
         FROM sync_runs sr JOIN projects p ON p.id = sr.project_id
@@ -395,7 +424,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         UPDATE sync_runs sr
         SET applied = true, applied_at = now()
@@ -410,7 +439,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async createAtlasRun(input: AtlasRunInput): Promise<AtlasRunRecord> {
     const projectId = await this.ensureProject(this.pool, input.project);
-    const { rows } = await this.pool.query<{ id: string }>(
+    const { rows } = await this.db.query<{ id: string }>(
       `
         INSERT INTO atlas_runs (project_id, input_hash, files, generated_at)
         VALUES ($1, $2, $3::jsonb, $4)
@@ -422,7 +451,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getLatestAtlasRun(project: string): Promise<AtlasRunRecord | undefined> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.db.query(
       `
         SELECT ar.id, ar.input_hash, ar.files, ar.generated_at
         FROM atlas_runs ar JOIN projects p ON p.id = ar.project_id
@@ -471,7 +500,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       filters.push(reviewFilter);
     }
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${knowledgeSelect()}
         WHERE ${filters.length ? filters.join(' AND ') : 'true'}
@@ -486,7 +515,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getKnowledge(id: string): Promise<StoredKnowledge | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${knowledgeSelect()}
         WHERE ki.id = $1
@@ -601,7 +630,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     // walks worktree candidates into listKnowledgeRelations does not crash the uuid cast.
     if (options.fromKnowledgeId && !isPersistedKnowledgeId(options.fromKnowledgeId)) return [];
     if (options.targetKnowledgeId && !isPersistedKnowledgeId(options.targetKnowledgeId)) return [];
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${relationSelect()}
         WHERE ($2::text IS NULL OR p.name = $2)
@@ -629,7 +658,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${relationSelect()}
         WHERE kr.id = $1
@@ -650,7 +679,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       return undefined;
     }
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         UPDATE knowledge_relations
         SET relation_type = $2,
@@ -681,12 +710,12 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async deleteKnowledgeRelation(id: string): Promise<boolean> {
     if (!isPersistedKnowledgeId(id)) return false;
-    const result = await this.pool.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
+    const result = await this.db.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
     return Boolean(result.rowCount);
   }
 
   async listKnowledgeConflicts(options: ListKnowledgeConflictsOptions): Promise<KnowledgeConflict[]> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${conflictSelect()}
         WHERE ($2::text IS NULL OR p.name = $2)
@@ -705,7 +734,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     const projectId = input.project
       ? await this.ensureProject(this.pool, input.project)
       : null;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         WITH inserted AS (
           INSERT INTO knowledge_conflicts (
@@ -739,7 +768,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   private async getKnowledgeConflict(id: string): Promise<KnowledgeConflict | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${conflictSelect()}
         WHERE kc.id = $1
@@ -757,7 +786,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
 
     const status = patch.status ?? current.status;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         UPDATE knowledge_conflicts
         SET status = $2,
@@ -779,7 +808,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async createKnowledgeGap(input: KnowledgeGapInput): Promise<KnowledgeGap> {
     const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         WITH inserted AS (
           INSERT INTO knowledge_gaps (
@@ -816,7 +845,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listKnowledgeGaps(options: ListKnowledgeGapsOptions): Promise<KnowledgeGap[]> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${knowledgeGapSelect()}
         WHERE ($2::text IS NULL OR p.name = $2)
@@ -840,7 +869,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${knowledgeGapSelect()}
         WHERE kg.id = $1
@@ -858,7 +887,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
 
     const status = patch.status ?? current.status;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         UPDATE knowledge_gaps
         SET status = $2,
@@ -880,7 +909,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async createLearningProposal(input: LearningProposalInput): Promise<LearningProposal> {
     const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         WITH inserted AS (
           INSERT INTO learning_proposals (
@@ -926,7 +955,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     // crash the uuid cast — return [] early since no learning proposal can reference
     // a non-persisted candidate.
     if (options.affectedKnowledgeId && !isPersistedKnowledgeId(options.affectedKnowledgeId)) return [];
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${learningProposalSelect()}
         WHERE ($2::text IS NULL OR p.name = $2)
@@ -954,7 +983,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getLearningProposal(id: string): Promise<LearningProposal | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${learningProposalSelect()}
         WHERE lp.id = $1
@@ -972,7 +1001,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
 
     const status = patch.status ?? current.status;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         UPDATE learning_proposals
         SET status = $2,
@@ -1002,7 +1031,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       return [];
     }
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT id, knowledge_id, chunk_index, content, contextual_content,
           token_estimate, metadata, created_at
@@ -1018,7 +1047,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async searchLexical(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {
     const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         WITH q AS (SELECT websearch_to_tsquery('english', $1) AS query)
         ${candidateSelect('lexical', 'ts_rank_cd(kc.search_vector, q.query)')}
@@ -1038,7 +1067,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async searchVector(embedding: number[], options: SearchOptions): Promise<SearchCandidate[]> {
     const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${candidateSelect('vector', 'GREATEST(0, 1 - (kc.embedding <=> $1::vector))')}
         WHERE ki.status = 'approved'
@@ -1078,7 +1107,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     const likes = allTerms.map((term) => `%${term.toLowerCase()}%`);
     const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         ${candidateSelect('metadata', `
           CASE
@@ -1122,7 +1151,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async searchMemories(classified: ClassifiedQuery, options: SearchOptions): Promise<SearchCandidate[]> {
     const rejectedIds = filterPersistedKnowledgeIds(options.rejectedKnowledgeIds);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         WITH q AS (SELECT websearch_to_tsquery('english', $1) AS query)
         ${candidateSelect('memory', 'ts_rank_cd(kc.search_vector, q.query) + 0.15')}
@@ -1179,7 +1208,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     // timestamp at or after now(); expired edges are excluded from every
     // branch of the UNION below.
     const validitySql = `(kr.metadata->>'validUntil' IS NULL OR (kr.metadata->>'validUntil')::timestamptz > now())`;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         WITH graph_targets AS (
           SELECT target->>'kind' AS kind, target->>'value' AS value
@@ -1298,7 +1327,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     // ids (e.g. worktree:<sha>) would crash the cast. Drop them — worktree candidates
     // are recomputed per query and cannot be persistently rejected.
     const persistedRejectedIds = filterPersistedKnowledgeIds(input.rejectedKnowledgeIds);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         INSERT INTO feedback_events (
           context_pack_id, project_id, feedback_type, reason, rejected_knowledge_ids, metadata
@@ -1321,7 +1350,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       const status = packStatusForFeedback(input.feedbackType);
       if (status) {
         const timestampColumn = status === 'selected' ? 'selected_at' : 'rejected_at';
-        await this.pool.query(
+        await this.db.query(
           `UPDATE context_packs SET status = $1, ${timestampColumn} = now() WHERE id = $2`,
           [status, input.contextPackId],
         );
@@ -1350,7 +1379,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listFeedbackEvents(options: ListRecordsOptions): Promise<FeedbackEvent[]> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT fe.id, cp.id AS context_pack_id, COALESCE(fp.name, pp.name) AS project,
           fe.feedback_type, fe.reason, fe.rejected_knowledge_ids, fe.metadata, fe.created_at
@@ -1387,7 +1416,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       return new Map();
     }
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         WITH explicit_feedback AS (
           SELECT
@@ -1468,7 +1497,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     metadata?: Record<string, unknown>;
   }): Promise<AgentSession> {
     const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         INSERT INTO agent_sessions (
           project_id, prompt, cwd, agent_name, agent_tool,
@@ -1494,7 +1523,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listAgentSessions(options: ListRecordsOptions): Promise<AgentSession[]> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
           s.status, s.initial_context_pack_id, s.outcome, s.summary,
@@ -1514,7 +1543,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getAgentSession(id: string): Promise<AgentSession | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
           s.status, s.initial_context_pack_id, s.outcome, s.summary,
@@ -1532,7 +1561,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   async recordAgentContextDecision(input: RecordAgentContextDecisionInput & {
     retryContextPackId?: string;
   }): Promise<AgentContextDecision> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         INSERT INTO agent_context_decisions (
           session_id, context_pack_id, decision, reason, rejected_knowledge_ids,
@@ -1554,13 +1583,13 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
         input.metadata ?? {},
       ],
     );
-    await this.pool.query('UPDATE agent_sessions SET updated_at = now() WHERE id = $1', [input.sessionId]);
+    await this.db.query('UPDATE agent_sessions SET updated_at = now() WHERE id = $1', [input.sessionId]);
 
     return mapAgentContextDecisionRow(result.rows[0]);
   }
 
   async listAgentContextDecisions(options: { sessionId?: string; limit: number }): Promise<AgentContextDecision[]> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT id, session_id, context_pack_id, decision, reason,
           rejected_knowledge_ids, retry_context_pack_id, metadata, created_at
@@ -1579,7 +1608,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     sessionId: string;
     note: AgentSessionNote;
   }): Promise<AgentSession | undefined> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         UPDATE agent_sessions s
         SET metadata = jsonb_set(
@@ -1602,7 +1631,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async writeSessionReplay(bundle: SessionReplayBundle): Promise<void> {
-    await this.pool.query(
+    await this.db.query(
       `
         INSERT INTO agent_session_replays (
           session_id, recorded_at, classifier, source_candidates, fusion_order,
@@ -1636,7 +1665,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async readSessionReplay(sessionId: string): Promise<SessionReplayBundle | null> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT session_id, recorded_at, classifier, source_candidates, fusion_order,
           rerank_deltas, adjustments, context_fit, pack, timings
@@ -1652,7 +1681,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   async finishAgentSession(input: FinishAgentSessionInput & {
     reflectionDraftIds?: string[];
   }): Promise<AgentSession | undefined> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         UPDATE agent_sessions s
         SET status = 'finished',
@@ -1681,7 +1710,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async listReflectionDrafts(options: ListRecordsOptions): Promise<ReflectionDraft[]> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT d.id, p.name AS project, d.title, d.summary, d.content, d.item_type,
           d.trigger_type, d.status, d.suggested_labels, d.duplicate_candidates,
@@ -1701,7 +1730,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT d.id, p.name AS project, d.title, d.summary, d.content, d.item_type,
           d.trigger_type, d.status, d.suggested_labels, d.duplicate_candidates,
@@ -1718,7 +1747,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async createReflectionDraft(input: ReflectionDraftInput, duplicateCandidates: unknown[]): Promise<ReflectionDraft> {
     const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         INSERT INTO reflection_drafts (
           project_id, title, summary, content, item_type, trigger_type,
@@ -1757,7 +1786,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       ? { ...baseMetadata, references: nextReferences }
       : baseMetadata;
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         UPDATE reflection_drafts d
         SET status = $2,
@@ -1781,7 +1810,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async approveReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         WITH updated AS (
           UPDATE reflection_drafts
@@ -1923,7 +1952,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       placeholders.unshift(`$${values.length + 1}`);
       values.push(input.id);
     }
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `INSERT INTO knowledge_atoms (${columns.join(', ')})
        VALUES (${placeholders.join(', ')})
        RETURNING *`,
@@ -1934,7 +1963,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getAtom(id: string): Promise<KnowledgeAtom | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT a.*, p.name AS project_name
        FROM knowledge_atoms a
        LEFT JOIN projects p ON p.id = a.project_id
@@ -1974,7 +2003,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     values.push(options.limit);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT a.*, p.name AS project_name
        FROM knowledge_atoms a
        LEFT JOIN projects p ON p.id = a.project_id
@@ -2002,12 +2031,12 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (patch.pitfalls !== undefined)     { values.push(JSON.stringify(patch.pitfalls));     sets.push(`pitfalls = $${values.length}::jsonb`); }
     if (patch.links !== undefined)        { values.push(JSON.stringify(patch.links));        sets.push(`links = $${values.length}::jsonb`); }
     values.push(id);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `UPDATE knowledge_atoms SET ${sets.join(', ')} WHERE id = $${values.length} RETURNING *`,
       values,
     );
     if (result.rows.length === 0) return undefined;
-    const projectResult = await this.pool.query(
+    const projectResult = await this.db.query(
       `SELECT name FROM projects WHERE id = $1`,
       [result.rows[0].project_id],
     );
@@ -2016,12 +2045,12 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async deleteAtom(id: string): Promise<boolean> {
     if (!isPersistedKnowledgeId(id)) return false;
-    const result = await this.pool.query(`DELETE FROM knowledge_atoms WHERE id = $1`, [id]);
+    const result = await this.db.query(`DELETE FROM knowledge_atoms WHERE id = $1`, [id]);
     return (result.rowCount ?? 0) > 0;
   }
 
   async incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `UPDATE knowledge_atoms
        SET reuse_count = reuse_count + 1, last_reused_at = $2, updated_at = now()
        WHERE id = $1
@@ -2029,7 +2058,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       [id, when],
     );
     if (result.rows.length === 0) return undefined;
-    const projectResult = await this.pool.query(
+    const projectResult = await this.db.query(
       `SELECT name FROM projects WHERE id = $1`,
       [result.rows[0].project_id],
     );
@@ -2055,7 +2084,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       params.push(options.userId);
       filters.push(`a.user_id = $${params.length}`);
     }
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT a.*, p.name AS project_name,
               1 - (a.embedding <=> $1::vector) AS cosine
        FROM knowledge_atoms a
@@ -2099,7 +2128,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       filters.push(`(${triggerFilters.join(' OR ')})`);
     }
     values.push(options.limit);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT a.*, p.name AS project_name
        FROM knowledge_atoms a
        LEFT JOIN projects p ON p.id = a.project_id
@@ -2199,7 +2228,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       );
     }
     values.push(options.limit);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT kr.id, kr.from_atom_id, kr.target_atom_id, kr.target_knowledge_id,
               kr.target_kind, kr.relation_type, kr.confidence, kr.inference_source, kr.created_at
        FROM knowledge_relations kr
@@ -2244,7 +2273,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
     for (let hop = 1; hop <= options.depth && frontier.length > 0; hop += 1) {
       const fromIds = frontier.map((f) => f.atomId);
-      const result = await this.pool.query(
+      const result = await this.db.query(
         `SELECT kr.from_atom_id, kr.target_atom_id, kr.relation_type, kr.confidence
          FROM knowledge_relations kr
          JOIN knowledge_atoms a ON a.id = kr.target_atom_id
@@ -2317,13 +2346,13 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       );
     }
     if (options.dryRun) {
-      const r = await this.pool.query(
+      const r = await this.db.query(
         `SELECT COUNT(*)::int AS c FROM knowledge_relations kr WHERE ${filters.join(' AND ')}`,
         values,
       );
       return { removed: Number(r.rows[0].c) };
     }
-    const r = await this.pool.query(
+    const r = await this.db.query(
       `DELETE FROM knowledge_relations kr WHERE ${filters.join(' AND ')}`,
       values,
     );
@@ -2359,7 +2388,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     const threshold = options.threshold ?? 0;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `WITH scored AS (
          SELECT kc.knowledge_id AS id, 1 - MIN(kc.embedding <=> $1::vector) AS cosine
          FROM knowledge_chunks kc
@@ -2384,7 +2413,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async countNegativeFeedback(knowledgeId: string, withinDays: number): Promise<number> {
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT COUNT(*) AS count
        FROM feedback_events fe
        WHERE fe.feedback_type IN ('rejected','stale','irrelevant')
@@ -2398,7 +2427,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async recordAtomGateEvent(input: AtomGateEventInput): Promise<AtomGateEvent> {
     const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `INSERT INTO atom_gate_events
          (project_id, session_id, atom_id, candidate_claim, candidate_type, stage, outcome, reasons)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
@@ -2421,7 +2450,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       values.push(options.project);
       projectFilter = `AND p.name = $${values.length}`;
     }
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT e.*, p.name AS project_name
        FROM atom_gate_events e
        LEFT JOIN projects p ON p.id = e.project_id
@@ -2441,7 +2470,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     bundleSource: string;
   }): Promise<AtomImportConflict> {
     const projectId = await this.projectIdByName(this.pool, input.project);
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `INSERT INTO atom_import_conflicts
          (project_id, atom_id, local_snapshot, imported_snapshot, bundle_source)
        VALUES ($1, $2, $3::jsonb, $4::jsonb, $5)
@@ -2484,7 +2513,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
     values.push(options.limit);
     const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT aic.id, aic.atom_id, aic.local_snapshot, aic.imported_snapshot,
               aic.bundle_source, aic.status, aic.resolution_notes,
               aic.created_at, aic.resolved_at, p.name AS project_name
@@ -2500,7 +2529,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined> {
     if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `SELECT aic.id, aic.atom_id, aic.local_snapshot, aic.imported_snapshot,
               aic.bundle_source, aic.status, aic.resolution_notes,
               aic.created_at, aic.resolved_at, p.name AS project_name
