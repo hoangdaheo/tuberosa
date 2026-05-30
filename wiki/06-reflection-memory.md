@@ -125,4 +125,4 @@ curl -sX POST http://localhost:3027/operations/maintenance/apply  -d '{"planId":
 
 - [05-agent-session-lifecycle.md](05-agent-session-lifecycle.md) — where drafts come from.
 - [07-atoms-and-user-style.md](07-atoms-and-user-style.md) — atoms are a parallel mechanism for finer-grained claims.
-- [13-operations-runbook.md](13-operations-runbook.md#workbench) — reviewing drafts in the workbench.
+- [13-operations-runbook.md](13-operations-runbook.md) — reviewing drafts via the reflection-review tools and HTTP routes.

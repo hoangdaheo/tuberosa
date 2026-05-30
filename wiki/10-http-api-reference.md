@@ -1,6 +1,6 @@
 # 10 — HTTP API Reference
 
-All endpoints return JSON. `/health`, `/workbench`, and `/workbench/static/*` are public. Everything else requires `Authorization: Bearer $TUBEROSA_API_KEY` when the key is set.
+All endpoints return JSON. `/health` is public. Everything else requires `Authorization: Bearer $TUBEROSA_API_KEY` when the key is set.
 
 Server: `src/http/server.ts`. Error mapping: `src/http/errors.ts` (`{error: string, code: string, ...details}`).
 
@@ -25,10 +25,6 @@ Returns service status. Public.
 ```
 
 > Note: this returns more than a typical liveness probe needs. If your deploy exposes `/health` beyond loopback, consider trimming this to `{ok:true}` — see audit finding M1 in `docs/audit-specs/SECURITY_AUDIT_2026-05-28.md`.
-
-### `GET /workbench`, `GET /workbench/static/:asset`
-
-Serve the local workbench UI. Public; data routes are authenticated.
 
 ---
 
@@ -175,8 +171,7 @@ Full guide: [08-export-import-bundle.md](08-export-import-bundle.md).
 | `GET`  | `/operations/organization/knowledge-graph.jsonl?project=<p>` | One knowledge edge per line. |
 | `GET`  | `/operations/organization/readable-summary?project=<p>` | Human-readable summary. |
 | `GET`  | `/operations/context-quality?project=<p>` | Quality scorecard. |
-| `GET`  | `/operations/workbench/summary?project=<p>` | Workbench summary (review queues, recent sessions). |
-| `GET`  | `/operations/workbench/session/{id}/replay` | Replay a session step-by-step. |
+| `GET`  | `/operations/session/{id}/replay` | Replay a session step-by-step. |
 | `GET`  | `/operations/catchup?project=<p>&since=<ts>` | Catch-up brief for an agent returning to a project. |
 
 ---
@@ -227,7 +222,7 @@ Backups land in `TUBEROSA_BACKUP_DIR` (default `.tuberosa/backups/`).
 
 ## Authentication
 
-When `TUBEROSA_API_KEY` is set, every route except `/health`, `/workbench`, and `/workbench/static/*` requires:
+When `TUBEROSA_API_KEY` is set, every route except `/health` requires:
 
 ```
 Authorization: Bearer <api-key>

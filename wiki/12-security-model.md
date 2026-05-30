@@ -20,7 +20,7 @@ The audit at [docs/audit-specs/SECURITY_AUDIT_2026-05-28.md](../docs/audit-specs
 
 ### API key
 
-Set `TUBEROSA_API_KEY` to require auth on every route except `/health`, `/workbench`, and `/workbench/static/*`:
+Set `TUBEROSA_API_KEY` to require auth on every route except `/health`:
 
 ```
 Authorization: Bearer <api-key>

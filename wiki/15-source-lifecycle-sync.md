@@ -103,7 +103,7 @@ This writes `post-commit` and `post-merge` hooks that run an **additive-only** s
 npx --no-install tuberosa sync --project tuberosa --apply --json > .tuberosa/last-sync.json || true
 ```
 
-The hook never archives. Any deletions land in `.tuberosa/pending-sync.json` and show up as a "pending cleanup" badge in the workbench, waiting for someone to run `tuberosa sync --apply --yes`.
+The hook never archives. Any deletions land in `.tuberosa/pending-sync.json` as pending cleanup, waiting for someone to run `tuberosa sync --apply --yes`.
 
 ## How detection works
 
@@ -130,7 +130,7 @@ Deleting a file doesn't erase its knowledge — it **tombstones** it:
 
 - `knowledge_items.status` → `archived` with `metadata.archive = { reason: 'source_deleted', sourcePath, syncRunId }`.
 - Atoms → `archived`.
-- Retrieval already filters `status='approved'`, so archived items drop out of agent results automatically — but stay visible in the workbench.
+- Retrieval already filters `status='approved'`, so archived items drop out of agent results automatically — but remain stored and resurrectable.
 
 Resurrect is lossless — flip the status back:
 

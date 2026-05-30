@@ -179,7 +179,6 @@ Optionally include `learningSignals: [...]` or an explicit `reflectionDraft: {..
 |---|---|
 | `tuberosa_feedback_context` | Record feedback on a context pack (same as `record_context_decision` but standalone). |
 | `tuberosa_collect_context_quality_feedback` | Aggregate noisy/missing-context feedback with linked review actions. |
-| `tuberosa_get_workbench_summary` | Workbench v2 summary: review queues, health, recent sessions, risky memories. |
 
 ---
 
