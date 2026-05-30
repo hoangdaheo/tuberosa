@@ -460,7 +460,8 @@ export function hasDomainMismatch(
   candidate: { labels: LabelInput[] },
   classified: ClassifiedQuery,
 ): boolean {
-  if (!classified.domain) {
+  const domain = classified.domain;
+  if (!domain) {
     return false;
   }
   // Phase 1: only USER-SUPPLIED or REVIEWED domain labels participate in mismatch.
@@ -470,7 +471,7 @@ export function hasDomainMismatch(
   if (domainLabels.length === 0) {
     return false;
   }
-  return !domainLabels.some((label) => isOntologyMatch('domain', label.value, classified.domain!));
+  return !domainLabels.some((label) => isOntologyMatch('domain', label.value, domain));
 }
 
 function isExplicitDomainLabel(label: LabelInput): boolean {
