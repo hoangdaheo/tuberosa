@@ -55,6 +55,7 @@ import type {
   StoredKnowledge,
 } from '../types.js';
 import { estimateTokens, normalizeLabel, uniqueStrings } from '../util/text.js';
+import { cosineSimilarity } from '../util/vector.js';
 import { getRetrievalPolicy, graphHopMultiplier } from '../retrieval/policy.js';
 import {
   deriveNamespace,
@@ -1798,20 +1799,6 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
 function tableRows(tables: BackupTableData[], name: BackupTableData['name']): Array<Record<string, unknown>> {
   return tables.find((table) => table.name === name)?.rows ?? [];
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  const len = Math.min(a.length, b.length);
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < len; i += 1) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
 }
 
 function canonicalKnowledgePair(left: string, right: string): [string, string] {
