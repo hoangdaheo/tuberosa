@@ -10,6 +10,19 @@ import { SourceSyncService } from '../source-sync/service.js';
 import { AtlasService } from '../atlas/service.js';
 import { tools } from './tool-definitions.js';
 import { getPrompt, prompts } from './prompts.js';
+import {
+  readProtocolVersion,
+  readRequiredMcpString,
+  readOptionalMcpString,
+  readMcpStringArray,
+  readToolName,
+  readToolArguments,
+  readString,
+  readStringArray,
+  toolJson,
+  resourceJson,
+  type JsonRpcRequest,
+} from './helpers.js';
 import type { ContextFitStatus, ContextPack } from '../types.js';
 import {
   expectRecord,
@@ -36,12 +49,6 @@ import {
   validateReflectionDraftReviewInput,
   validateResolveErrorLogInput,
 } from '../validation.js';
-
-interface JsonRpcRequest {
-  id?: string | number | null;
-  method: string;
-  params?: Record<string, unknown>;
-}
 
 export async function handleMcpRequest(services: AppServices, request: JsonRpcRequest): Promise<unknown> {
   try {
@@ -124,12 +131,6 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
     await maybeCaptureMcpError(services, request, error);
     throw error;
   }
-}
-
-function readProtocolVersion(params: Record<string, unknown> | undefined): string {
-  return typeof params?.protocolVersion === 'string' && params.protocolVersion.trim()
-    ? params.protocolVersion
-    : '2025-06-18';
 }
 
 async function callTool(services: AppServices, params: Record<string, unknown>) {
@@ -753,43 +754,6 @@ async function readResource(services: AppServices, params: Record<string, unknow
   throw new ValidationError(`Unsupported resource URI: ${uri}`);
 }
 
-function readRequiredMcpString(value: unknown, path: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new ValidationError(`${path} must be a non-empty string.`, [
-      { path, message: `${path} must be a non-empty string.` },
-    ]);
-  }
-
-  return value;
-}
-
-function readOptionalMcpString(value: unknown, path: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new ValidationError(`${path} must be a non-empty string when provided.`, [
-      { path, message: `${path} must be a non-empty string when provided.` },
-    ]);
-  }
-  return value;
-}
-
-function readMcpStringArray(value: unknown, path: string): string[] {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) {
-    throw new ValidationError(`${path} must be an array of strings.`, [
-      { path, message: `${path} must be an array of strings.` },
-    ]);
-  }
-  return value.map((entry, index) => {
-    if (typeof entry !== 'string' || entry.trim().length === 0) {
-      throw new ValidationError(`${path}[${index}] must be a non-empty string.`, [
-        { path: `${path}[${index}]`, message: 'must be a non-empty string.' },
-      ]);
-    }
-    return entry;
-  });
-}
-
 async function maybeCaptureMcpError(services: AppServices, request: JsonRpcRequest, error: unknown): Promise<void> {
   const appError = toAppError(error);
   if (!shouldAutoCapture(services, appError)) {
@@ -849,55 +813,4 @@ function categoryForAppError(error: AppError, request: JsonRpcRequest) {
     default:
       return 'mcp';
   }
-}
-
-function readToolName(request: JsonRpcRequest): string | undefined {
-  if (request.method !== 'tools/call') {
-    return undefined;
-  }
-  const params = request.params;
-  return typeof params?.name === 'string' ? params.name : undefined;
-}
-
-function readToolArguments(request: JsonRpcRequest): Record<string, unknown> {
-  if (request.method !== 'tools/call') {
-    return {};
-  }
-  const args = request.params?.arguments;
-  return args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : {};
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function readStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-}
-
-function toolJson(value: unknown) {
-  return {
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify(value, null, 2),
-      },
-    ],
-    structuredContent: value,
-  };
-}
-
-function resourceJson(uri: string, value: unknown) {
-  return {
-    contents: [
-      {
-        uri,
-        mimeType: 'application/json',
-        text: JSON.stringify(value, null, 2),
-      },
-    ],
-  };
 }
