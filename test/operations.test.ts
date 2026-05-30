@@ -87,9 +87,10 @@ test('operations API reviews, updates, imports, and lists audit records', async 
           'Cleanup removes old proposed context packs and orphaned audit rows.',
         ].join('\n'),
       }],
-    }) as Array<Record<string, unknown>>;
+    }) as { results: Array<Record<string, unknown>>; errors: Array<Record<string, unknown>> };
 
-    ok(imported.length >= 2);
+    ok(imported.results.length >= 2);
+    equal(imported.errors.length, 0);
 
     const lowTrust = await post(services, '/knowledge', {
       project,
@@ -122,7 +123,7 @@ test('operations API reviews, updates, imports, and lists audit records', async 
 
     const manualRelation = await post(services, '/operations/relations', {
       project,
-      fromKnowledgeId: imported[0].id,
+      fromKnowledgeId: imported.results[0].id,
       relationType: 'related_to',
       targetKind: 'knowledge',
       targetKnowledgeId: lowTrust.id,

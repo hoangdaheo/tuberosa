@@ -1,5 +1,5 @@
 import type { ModelProvider } from '../model/provider.js';
-import type { KnowledgeInput, KnowledgeItemType, LabelInput, ReferenceInput } from '../types.js';
+import type { KnowledgeInput, KnowledgeItemType, LabelInput, ReferenceInput, StoredKnowledge } from '../types.js';
 import { IngestionLimitAppError } from '../errors.js';
 import { KnowledgeRelationInference } from '../relations/inference.js';
 import { expandLabelsThroughOntology } from '../relations/ontology.js';
@@ -27,6 +27,16 @@ export interface IngestFileInput {
 
 export interface IngestFilesOptions {
   mode?: IngestionMode;
+}
+
+export interface IngestFileError {
+  path?: string;
+  error: string;
+}
+
+export interface IngestFilesResult {
+  results: StoredKnowledge[];
+  errors: IngestFileError[];
 }
 
 export interface IngestionServiceOptions {
@@ -125,19 +135,31 @@ export class IngestionService {
     };
   }
 
-  async ingestFiles(project: string, files: IngestFileInput[], options: IngestFilesOptions = {}) {
-    const results = [];
+  async ingestFiles(
+    project: string,
+    files: IngestFileInput[],
+    options: IngestFilesOptions = {},
+  ): Promise<IngestFilesResult> {
+    const results: StoredKnowledge[] = [];
+    const errors: IngestFileError[] = [];
 
     for (const file of files) {
       const mode = file.mode ?? options.mode ?? 'document';
       const inputs = this.buildKnowledgeInputs(project, file, mode);
       for (const input of inputs) {
-        results.push(await this.ingestKnowledge(input));
+        try {
+          results.push(await this.ingestKnowledge(input));
+        } catch (error) {
+          errors.push({
+            path: input.sourceUri ?? file.path,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
       await this.deleteStaleAtoms(project, file.path, mode, inputs);
     }
 
-    return results;
+    return { results, errors };
   }
 
   private async deleteStaleAtoms(

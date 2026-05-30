@@ -826,7 +826,7 @@ test('ingestion replaces existing knowledge for the same source uri', async () =
 test('atomic markdown ingestion stores labeled sections as retrievable knowledge', async () => {
   const { ingestion, retrieval } = createTestServices();
 
-  const stored = await ingestion.ingestFiles('agent-memory', [{
+  const { results: stored } = await ingestion.ingestFiles('agent-memory', [{
     project: 'agent-memory',
     path: 'docs/auth.md',
     content: [
@@ -868,7 +868,7 @@ test('atomic markdown ingestion stores labeled sections as retrievable knowledge
 test('atomic markdown re-ingestion updates sections and deletes stale atoms', async () => {
   const { ingestion, retrieval, store } = createTestServices();
 
-  const first = await ingestion.ingestFiles('agent-memory', [{
+  const { results: first } = await ingestion.ingestFiles('agent-memory', [{
     project: 'agent-memory',
     path: 'docs/auth.md',
     content: [
@@ -889,7 +889,7 @@ test('atomic markdown re-ingestion updates sections and deletes stale atoms', as
 
   ok(firstLogin);
 
-  const second = await ingestion.ingestFiles('agent-memory', [{
+  const { results: second } = await ingestion.ingestFiles('agent-memory', [{
     project: 'agent-memory',
     path: 'docs/auth.md',
     content: [
@@ -922,7 +922,7 @@ test('atomic markdown re-ingestion updates sections and deletes stale atoms', as
 test('document re-ingestion deletes previous atoms and inferred atom relations', async () => {
   const { ingestion, store } = createTestServices();
 
-  const atoms = await ingestion.ingestFiles('agent-memory', [{
+  const { results: atoms } = await ingestion.ingestFiles('agent-memory', [{
     project: 'agent-memory',
     path: 'docs/auth.md',
     content: [
@@ -940,7 +940,7 @@ test('document re-ingestion deletes previous atoms and inferred atom relations',
   ok(refreshAtom);
   ok((await store.listKnowledgeRelations({ project: 'agent-memory', fromKnowledgeId: refreshAtom.id, inferred: true, limit: 20 })).length > 0);
 
-  const documents = await ingestion.ingestFiles('agent-memory', [{
+  const { results: documents } = await ingestion.ingestFiles('agent-memory', [{
     project: 'agent-memory',
     path: 'docs/auth.md',
     content: [

@@ -178,7 +178,10 @@ async function main(): Promise<void> {
     for (const file of allFiles) {
       try {
         const result = await services.ingestion.ingestFiles(PROJECT, [file]);
-        for (const item of result) stored.push({ id: item.id, itemType: item.itemType });
+        for (const item of result.results) stored.push({ id: item.id, itemType: item.itemType });
+        for (const failure of result.errors) {
+          skipped.push({ path: failure.path ?? file.path, reason: failure.error });
+        }
       } catch (err) {
         const reason = err instanceof Error ? `${err.constructor.name}: ${err.message}` : String(err);
         skipped.push({ path: file.path, reason });
