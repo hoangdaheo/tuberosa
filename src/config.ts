@@ -96,7 +96,7 @@ export function loadConfig(): AppConfig {
     ollamaUrl: process.env.TUBEROSA_OLLAMA_URL || undefined,
     ollamaRerankModel: process.env.TUBEROSA_OLLAMA_RERANK_MODEL || undefined,
     ollamaTimeoutMs: process.env.TUBEROSA_OLLAMA_TIMEOUT_MS ? Number(process.env.TUBEROSA_OLLAMA_TIMEOUT_MS) : undefined,
-    openAiTimeoutMs: Number(process.env.TUBEROSA_OPENAI_TIMEOUT_MS ?? 30_000),
+    openAiTimeoutMs: envInt('TUBEROSA_OPENAI_TIMEOUT_MS', 30_000),
     contextCacheTtlSeconds: Number(process.env.CONTEXT_CACHE_TTL_SECONDS ?? 300),
     contextMode: readEnum(process.env.TUBEROSA_CONTEXT_MODE, ['compact', 'layered'] as Array<'compact' | 'layered'>, 'layered'),
     deepContextBudget: Number(process.env.TUBEROSA_DEEP_CONTEXT_BUDGET ?? 60_000),
