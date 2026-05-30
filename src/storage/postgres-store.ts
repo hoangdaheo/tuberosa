@@ -380,6 +380,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const { rows } = await this.pool.query(
       `
         SELECT sr.*, p.name AS project_name
@@ -392,6 +393,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const { rows } = await this.pool.query(
       `
         UPDATE sync_runs sr
@@ -677,6 +679,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async deleteKnowledgeRelation(id: string): Promise<boolean> {
+    if (!isPersistedKnowledgeId(id)) return false;
     const result = await this.pool.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
     return Boolean(result.rowCount);
   }
@@ -734,6 +737,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   private async getKnowledgeConflict(id: string): Promise<KnowledgeConflict | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${conflictSelect()}
@@ -834,6 +838,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${knowledgeGapSelect()}
@@ -947,6 +952,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getLearningProposal(id: string): Promise<LearningProposal | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${learningProposalSelect()}
@@ -1926,6 +1932,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAtom(id: string): Promise<KnowledgeAtom | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `SELECT a.*, p.name AS project_name
        FROM knowledge_atoms a
@@ -1979,6 +1986,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const sets: string[] = ['updated_at = now()'];
     const values: unknown[] = [];
     if (patch.claim !== undefined)    { values.push(patch.claim);    sets.push(`claim = $${values.length}`); }
@@ -2006,6 +2014,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async deleteAtom(id: string): Promise<boolean> {
+    if (!isPersistedKnowledgeId(id)) return false;
     const result = await this.pool.query(`DELETE FROM knowledge_atoms WHERE id = $1`, [id]);
     return (result.rowCount ?? 0) > 0;
   }
@@ -2489,6 +2498,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `SELECT aic.id, aic.atom_id, aic.local_snapshot, aic.imported_snapshot,
               aic.bundle_source, aic.status, aic.resolution_notes,

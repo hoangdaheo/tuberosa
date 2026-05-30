@@ -19,10 +19,19 @@ export class LlmIntentExtractor {
     if (!this.models.extractPromptIntent) return undefined;
     const ttl = getRetrievalPolicy().promptPreprocessing.intent.cacheTtlSeconds;
     const key = `prompt_intent:${createHash('sha256').update(input.prompt).digest('hex')}`;
-    const cached = await this.cache.getJson<PromptIntentVerdict>(key);
+    let cached: PromptIntentVerdict | undefined;
+    try {
+      cached = await this.cache.getJson<PromptIntentVerdict>(key);
+    } catch (error) {
+      console.error('[llm-intent] cache read failed; continuing uncached.', error);
+    }
     if (cached) return { ...cached, cacheHit: true };
     const verdict = await this.models.extractPromptIntent(input);
-    await this.cache.setJson(key, verdict, ttl);
+    try {
+      await this.cache.setJson(key, verdict, ttl);
+    } catch (error) {
+      console.error('[llm-intent] cache write failed; ignoring.', error);
+    }
     return { ...verdict, cacheHit: false };
   }
 }
