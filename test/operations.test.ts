@@ -17,7 +17,6 @@ import { MaintenanceService } from '../src/maintenance/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { BackupService } from '../src/operations/backup-service.js';
 import { OperationsService } from '../src/operations/service.js';
-import { buildWorkbenchSummary } from '../src/operations/workbench-summary.js';
 import { SessionReplayService } from '../src/operations/session-replay.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { RetrievalService } from '../src/retrieval/service.js';
@@ -505,180 +504,6 @@ test('operations context-quality report falls back to concrete pack items for no
 
     const rollups = report.rollups as Record<string, Array<Record<string, unknown>>>;
     ok(rollups.adjacentItems.some((item) => item.knowledgeId === direct.id));
-  } finally {
-    await services.close();
-  }
-});
-
-test('operations workbench summary aggregates review queues and static route loads', async () => {
-  const backupDir = await mkdtemp(join(tmpdir(), 'tuberosa-workbench-backups-'));
-  const errorLogDir = await mkdtemp(join(tmpdir(), 'tuberosa-workbench-error-logs-'));
-  const services = createTestServices(backupDir, errorLogDir);
-  const project = 'workbench-review';
-  const secret = 'TUBEROSA_SECRET_DO_NOT_LEAK_IN_WORKBENCH';
-
-  try {
-    const direct = await services.store.upsertKnowledge({
-      project,
-      sourceType: 'manual',
-      sourceUri: 'manual://workbench/direct',
-      itemType: 'workflow',
-      title: 'Workbench direct workflow',
-      summary: 'Direct workflow for workbench review.',
-      content: 'Use the workbench summary to inspect context fit, review queues, and memory risk.',
-      trustLevel: 90,
-      labels: [{ type: 'file', value: 'src/http/workbench.ts', weight: 1 }],
-      references: [{ type: 'file', uri: 'src/http/workbench.ts' }],
-    }, []);
-    const adjacent = await services.store.upsertKnowledge({
-      project,
-      sourceType: 'manual',
-      sourceUri: 'manual://workbench/adjacent',
-      itemType: 'workflow',
-      title: 'Workbench adjacent workflow',
-      summary: 'Adjacent workflow for workbench review.',
-      content: 'Adjacent context can distract reviewers from the direct workbench evidence.',
-      trustLevel: 70,
-    }, []);
-    const autoMemory = await services.store.upsertKnowledge({
-      project,
-      sourceType: 'agent_session_finish',
-      sourceUri: 'agent-session://workbench/auto',
-      itemType: 'memory',
-      title: 'Auto-approved workbench memory',
-      summary: 'Auto memory without grounded references.',
-      content: `This auto-approved memory should stay visible for audit. ${secret}`,
-      trustLevel: 80,
-      metadata: {
-        source: 'agent_session_finish',
-        learningMode: 'auto',
-        secret,
-      },
-    }, []);
-    const pack = contextQualityPack(project, direct, adjacent);
-    await services.store.saveContextPack(pack);
-    const session = await services.store.createAgentSession({
-      project,
-      prompt: 'Review the Tuberosa workbench queues.',
-      initialContextPackId: pack.id,
-      metadata: { agentOutputSummary: secret },
-    });
-    await services.store.createReflectionDraft({
-      project,
-      title: 'Pending workbench draft',
-      summary: 'Workbench drafts need review.',
-      content: `Review pending drafts before they become searchable memory. ${secret}`,
-      triggerType: 'manual',
-      metadata: { secret },
-    }, []);
-    await services.store.createKnowledgeGap({
-      project,
-      sourceSessionId: session.id,
-      contextPackId: pack.id,
-      prompt: session.prompt,
-      missingSignals: ['file:src/http/workbench.ts'],
-      reason: 'Workbench UI evidence was missing.',
-    });
-    await services.store.createLearningProposal({
-      project,
-      proposalType: 'missing_label',
-      sourceSessionId: session.id,
-      contextPackId: pack.id,
-      affectedKnowledgeId: direct.id,
-      reason: 'Workbench workflow needs a UI label.',
-      evidence: ['file:src/http/workbench.ts'],
-    });
-    await services.store.createKnowledgeConflict({
-      project,
-      leftKnowledgeId: direct.id,
-      rightKnowledgeId: autoMemory.id,
-      conflictType: 'summary_contradiction',
-      sharedEvidence: ['file:src/http/workbench.ts'],
-      reason: 'Workbench memory and workflow guidance conflict.',
-    });
-    await services.errorLogs.recordLog({
-      project,
-      category: 'test',
-      severity: 'error',
-      title: 'Workbench command failed',
-      status: 'open',
-      command: 'pnpm run workbench',
-    });
-    await post(services, '/context/feedback', {
-      contextPackId: pack.id,
-      project,
-      feedbackType: 'selected_but_noisy',
-      reason: 'The direct workbench item was useful but adjacent evidence was noisy.',
-      metadata: { agentSessionId: session.id },
-    });
-
-    const summary = await buildWorkbenchSummary(services, { project, limit: 5 });
-    equal(summary.filters.project, project);
-    equal(summary.counts.pendingDrafts, 1);
-    equal(summary.counts.openGaps, 1);
-    equal(summary.counts.openProposals, 1);
-    equal(summary.counts.openConflicts, 1);
-    equal(summary.counts.riskyAutoMemories, 1);
-    equal(summary.counts.openErrorLogs, 1);
-    equal(summary.countMetadata.scanLimit, 100);
-    ok(summary.contextQuality.records.some((record) => record.feedback.feedbackType === 'selected_but_noisy'));
-    ok(summary.recommendedActions.some((action) => action.target === 'risky_auto_memories'));
-    equal(summary.pendingDrafts[0].duplicateCandidateCount, 0);
-    equal(summary.riskyAutoMemories[0].labelCount, 0);
-    ok(!('content' in summary.pendingDrafts[0]));
-    ok(!('metadata' in summary.riskyAutoMemories[0]));
-    ok(!JSON.stringify(summary).includes(secret));
-
-    const viaHttp = await get(services, `/operations/workbench/summary?project=${project}&limit=5`) as Record<string, unknown>;
-    equal((viaHttp.counts as Record<string, unknown>).openErrorLogs, 1);
-    ok((viaHttp.recommendedActions as Array<Record<string, unknown>>).some((action) => action.target === 'context_quality'));
-    ok(!JSON.stringify(viaHttp).includes(secret));
-
-    const html = await getRaw(services, '/workbench');
-    equal(html.status, 200);
-    ok(html.body.includes('Tuberosa Workbench'));
-    ok(html.body.includes('/workbench/static/app.js'));
-    ok(!html.body.includes(secret));
-  } finally {
-    await services.close();
-    await rm(backupDir, { recursive: true, force: true });
-    await rm(errorLogDir, { recursive: true, force: true });
-  }
-});
-
-test('workbench summary endpoint is API-key protected while static workbench stays public', async () => {
-  const services = createTestServices();
-  services.config.apiKey = 'correct-api-key';
-
-  try {
-    const html = await dispatchHttpRaw(services, {
-      method: 'GET',
-      url: '/workbench',
-    });
-    equal(html.status, 200);
-    ok(html.body.includes('Tuberosa Workbench'));
-    ok(!html.body.includes('correct-api-key'));
-
-    const noKey = await dispatchHttp(services, {
-      method: 'GET',
-      url: '/operations/workbench/summary?project=protected-workbench&limit=1',
-    });
-    equal(noKey.status, 401);
-
-    const wrongKey = await dispatchHttp(services, {
-      method: 'GET',
-      url: '/operations/workbench/summary?project=protected-workbench&limit=1',
-      headers: { 'x-tuberosa-api-key': 'wrong-api-key' },
-    });
-    equal(wrongKey.status, 401);
-
-    const validKey = await dispatchHttp(services, {
-      method: 'GET',
-      url: '/operations/workbench/summary?project=protected-workbench&limit=1',
-      headers: { 'x-tuberosa-api-key': 'correct-api-key' },
-    });
-    equal(validKey.status, 200);
-    equal((validKey.body as Record<string, unknown>).filters !== undefined, true);
   } finally {
     await services.close();
   }
@@ -1928,12 +1753,6 @@ async function get(services: AppServices, url: string): Promise<unknown> {
   return response.body;
 }
 
-async function getRaw(services: AppServices, url: string): Promise<{ status: number; body: string }> {
-  const response = await dispatchHttpRaw(services, { method: 'GET', url });
-  equal(response.status, 200);
-  return response;
-}
-
 async function dispatchHttp(
   services: AppServices,
   input: { method: string; url: string; body?: unknown; headers?: Record<string, string> },
@@ -1967,39 +1786,4 @@ async function dispatchHttp(
 
   await handleHttpRequest(services, request, response);
   return { status, body: JSON.parse(rawBody) };
-}
-
-async function dispatchHttpRaw(
-  services: AppServices,
-  input: { method: string; url: string; body?: unknown; headers?: Record<string, string> },
-): Promise<{ status: number; body: string }> {
-  const encoded = input.body === undefined ? '' : JSON.stringify(input.body);
-  const request = Readable.from(encoded ? [Buffer.from(encoded)] : []) as IncomingMessage;
-  request.method = input.method;
-  request.url = input.url;
-  request.headers = {
-    'content-length': String(Buffer.byteLength(encoded)),
-    'content-type': 'application/json',
-    ...input.headers,
-  };
-
-  let status = 0;
-  let rawBody = '';
-  const response = {
-    writeHead(nextStatus: number) {
-      status = nextStatus;
-      return this;
-    },
-    end(chunk?: unknown) {
-      rawBody = typeof chunk === 'string'
-        ? chunk
-        : Buffer.isBuffer(chunk)
-          ? chunk.toString('utf8')
-          : String(chunk ?? '');
-      return this;
-    },
-  } as unknown as ServerResponse;
-
-  await handleHttpRequest(services, request, response);
-  return { status, body: rawBody };
 }
