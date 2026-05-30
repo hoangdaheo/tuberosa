@@ -619,6 +619,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${relationSelect()}
@@ -1499,6 +1500,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAgentSession(id: string): Promise<AgentSession | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
@@ -1685,6 +1687,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         SELECT d.id, p.name AS project, d.title, d.summary, d.content, d.item_type,
