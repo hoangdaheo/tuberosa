@@ -770,7 +770,7 @@ function createRoutes(): HttpRoute[] {
     },
     {
       method: 'GET',
-      match: pathPattern(/^\/operations\/workbench\/session\/([^/]+)\/replay$/, ['id']),
+      match: pathPattern(/^\/operations\/session\/([^/]+)\/replay$/, ['id']),
       handle: async ({ services, params }) => {
         const bundle = await services.sessionReplay.readReplay(params.id);
         if (!bundle) {
