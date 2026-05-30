@@ -18,6 +18,14 @@ test('config reads physical mirror debounce with default', () => {
   equal(configured.physicalMirrorDebounceMs, 250);
 });
 
+test('config reads OpenAI fetch timeout with default', () => {
+  const defaultConfig = withEnv({ TUBEROSA_OPENAI_TIMEOUT_MS: undefined }, () => loadConfig());
+  equal(defaultConfig.openAiTimeoutMs, 30000);
+
+  const configured = withEnv({ TUBEROSA_OPENAI_TIMEOUT_MS: '5000' }, () => loadConfig());
+  equal(configured.openAiTimeoutMs, 5000);
+});
+
 function withEnv<T>(patch: Record<string, string | undefined>, run: () => T): T {
   const previous = new Map<string, string | undefined>();
 
