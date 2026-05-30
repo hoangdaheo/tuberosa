@@ -3,7 +3,6 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AppServices } from '../app.js';
 import type { AppConfig } from '../config.js';
 import { AppError, appErrorToHttpBody, type AppErrorCode, NotFoundError, ValidationError, toAppError } from '../errors.js';
-import { buildWorkbenchSummary } from '../operations/workbench-summary.js';
 import { computeAtomGateStats } from '../operations/atom-gate-stats.js';
 import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import { predictImpact } from '../retrieval/impact-predictor.js';
@@ -48,9 +47,7 @@ import {
   validateRestoreBackupInput,
   validateResolveErrorLogInput,
   validateStartAgentSessionInput,
-  validateWorkbenchSummaryInput,
 } from '../validation.js';
-import { readWorkbenchAsset, workbenchHtml } from './workbench-v2.js';
 
 type RouteParams = Record<string, string>;
 type RouteMatcher = (url: URL) => RouteParams | undefined;
@@ -169,24 +166,6 @@ function createRoutes(): HttpRoute[] {
         cache: services.config.cache,
         modelProvider: services.config.modelProvider,
       }),
-    },
-    {
-      method: 'GET',
-      match: exactPath('/workbench'),
-      public: true,
-      handle: () => rawResponse('text/html; charset=utf-8', workbenchHtml()),
-    },
-    {
-      method: 'GET',
-      match: pathPattern(/^\/workbench\/static\/(.+)$/, ['asset']),
-      public: true,
-      handle: async ({ params }) => {
-        const asset = await readWorkbenchAsset(params.asset);
-        if (!asset) {
-          throw new NotFoundError(`Workbench asset not found: ${params.asset}`);
-        }
-        return rawResponse(asset.contentType, asset.body);
-      },
     },
     {
       method: 'POST',
@@ -765,11 +744,6 @@ function createRoutes(): HttpRoute[] {
     },
     {
       method: 'GET',
-      match: exactPath('/operations/workbench/summary'),
-      handle: ({ services, url }) => buildWorkbenchSummary(services, readWorkbenchSummaryOptions(url)),
-    },
-    {
-      method: 'GET',
       match: pathPattern(/^\/operations\/session\/([^/]+)\/replay$/, ['id']),
       handle: async ({ services, params }) => {
         const bundle = await services.sessionReplay.readReplay(params.id);
@@ -1335,13 +1309,6 @@ function readContextQualityReportOptions(url: URL) {
     project: url.searchParams.get('project') ?? undefined,
     feedbackType: url.searchParams.get('feedbackType') ?? undefined,
     limit: readLimit(url),
-  });
-}
-
-function readWorkbenchSummaryOptions(url: URL) {
-  return validateWorkbenchSummaryInput({
-    project: url.searchParams.get('project') ?? undefined,
-    limit: readOptionalQueryNumber(url, 'limit'),
   });
 }
 
