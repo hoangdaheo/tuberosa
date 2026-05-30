@@ -32,7 +32,18 @@ import { mkdtemp, mkdir, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rejects, doesNotReject } from 'node:assert/strict';
-import { assertSafeBundlePath, assertSafeChildName, ValidationError } from '../src/security/safe-paths.js';
+import { assertSafeBundlePath, assertSafeChildName } from '../src/security/safe-paths.js';
+import { ValidationError } from '../src/errors.js';
+
+test('assertSafeChildName throws canonical ValidationError with status 400', () => {
+  try {
+    assertSafeChildName('../escape');
+    throw new Error('should throw');
+  } catch (err) {
+    if (!(err instanceof ValidationError)) throw err;
+    equal((err as ValidationError).status, 400);
+  }
+});
 
 test('assertSafeChildName accepts safe POSIX names', () => {
   for (const name of ['atom-1', 'user_style.md', 'a.B-c_1']) {
