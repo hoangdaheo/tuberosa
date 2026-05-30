@@ -19,7 +19,7 @@ Everything starts with one deterministic module: `buildAreaModel` (`src/knowledg
 - **Overlays:** `domain`/`business_area` labels and atom-graph relations *annotate* an area but never define it.
 - **Fallback:** anything with no resolvable path collects under a sentinel `_unassigned` area — never silently dropped.
 
-The same partition powers three things: atlas sections, [Export V2](17-bootstrap-and-export-v2.md#export-v2-layout) area folders, and the workbench "coverage gaps per area" rows. Built once, reused three ways.
+The same partition powers two things: atlas sections and [Export V2](17-bootstrap-and-export-v2.md#export-v2-layout) area folders. Built once, reused both ways.
 
 ## The five files
 
@@ -94,7 +94,7 @@ The atlas regenerates as the final step of a sync apply, so it always tracks the
 
 ## Staleness
 
-Migration `012_atlas_runs.sql` records one `atlas_runs` row per generation, with an `input_hash` computed over the area model + source tables (but **not** the timestamp, so an unchanged project yields a stable hash). The atlas is **stale** when the current input hash differs from the last recorded run — the workbench Knowledge Health view surfaces this.
+Migration `012_atlas_runs.sql` records one `atlas_runs` row per generation, with an `input_hash` computed over the area model + source tables (but **not** the timestamp, so an unchanged project yields a stable hash). The atlas is **stale** when the current input hash differs from the last recorded run.
 
 ## Invariants
 

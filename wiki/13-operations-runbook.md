@@ -121,14 +121,13 @@ node --import tsx scripts/seed-tuberosa-knowledge.ts    # full coverage (all src
 
 The extended seed wraps each file in its own try/catch — the ingestion service is sequential and would otherwise abort the whole batch on a single rejection. **Always exclude `src/security/knowledge-safety.ts`** — its own pattern strings trip its own guard.
 
-## Workbench
+## Session replay
+
+Inspect a recorded agent session over HTTP:
 
 ```bash
-pnpm run workbench
-# opens http://localhost:3027/workbench
+curl -s http://localhost:3027/operations/session/<sessionId>/replay
 ```
-
-Review queues, session inspector, recent error logs, context-pack browser, risky-memory list. The page is public; data routes are authenticated.
 
 ## Error logs
 
@@ -148,7 +147,7 @@ curl -sX POST http://localhost:3027/operations/maintenance/preview -d '{"project
 curl -sX POST http://localhost:3027/operations/maintenance/apply -d '{"planId":"<from-preview>"}'
 ```
 
-Plans are previewed first (no writes), then applied separately. The workbench surfaces queued plans.
+Plans are previewed first (no writes), then applied separately.
 
 ## Project lifecycle (sync / atlas / bootstrap)
 
@@ -183,7 +182,7 @@ Two files to know:
 ## Common commands cheat-sheet
 
 ```bash
-pnpm run build           # TypeScript + workbench build
+pnpm run build           # TypeScript compile
 pnpm test                # full unit suite
 pnpm run dev             # HTTP server in watch mode
 pnpm run mcp             # MCP stdio server
@@ -196,7 +195,6 @@ tuberosa atlas --project tuberosa --write        # regenerate the project atlas
 
 pnpm run backup
 pnpm run restore -- --backup <path>
-pnpm run workbench
 pnpm run error-logs
 pnpm run context-quality -- --project tuberosa
 

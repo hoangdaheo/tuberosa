@@ -44,7 +44,7 @@ src/
 ├─ bootstrap/            BootstrapService — one-command first run (sync+atlas+health+export)
 ├─ evaluation/           Eval runners (retrieval, agent-context, safety, …)
 ├─ export/               Exporter, importer, codecs, manifest, bootstrap-pack (Export V2)
-├─ http/                 server.ts (routes), workbench-v2, error mapping
+├─ http/                 server.ts (routes), error mapping
 ├─ ingest/               IngestionService, document atomizer, relations/inference
 ├─ knowledge/            classifier, deduplication helpers
 ├─ knowledge-areas/      area-model.ts — partition knowledge into areas (atlas/export/health spine)
@@ -52,7 +52,7 @@ src/
 ├─ mcp/                  server.ts (tools + resources + prompts), schemas
 ├─ migrations/           SQL migrations (also at top-level migrations/ for the migrate script)
 ├─ model/                ModelProvider (hash | openai | ollama)
-├─ operations/           backup-service, physical-mirror, organization, workbench, error-logs
+├─ operations/           backup-service, physical-mirror, organization, session-replay, error-logs
 ├─ reflection/           draft lifecycle, write-gate, safety/taxonomy
 ├─ retrieval/            classifier, fusion, context-fit, context-pack, service
 ├─ security/             knowledge-safety (redaction + injection guard), safe-paths
@@ -68,7 +68,7 @@ src/
 
 - Binds to `${TUBEROSA_HTTP_HOST}:${PORT}` (default `127.0.0.1:3027`).
 - Boundary check at `src/index.ts:8` refuses to start when host is non-loopback AND no API key is set AND `TUBEROSA_REQUIRE_API_KEY_FOR_NON_LOOPBACK=false`.
-- All routes are JSON; `/health`, `/workbench`, and `/workbench/static/*` are public; everything else gates behind `TUBEROSA_API_KEY` if set.
+- All routes are JSON; `/health` is public; everything else gates behind `TUBEROSA_API_KEY` if set.
 - Errors flow through `appErrorToHttpBody` (`src/http/errors.ts`): `{error: string, code: string, ...details}`.
 
 ### MCP stdio — `src/mcp-stdio.ts` → `src/mcp/server.ts`
@@ -95,7 +95,7 @@ Orchestrates the pipeline (see [04-retrieval-pipeline.md](04-retrieval-pipeline.
 
 ## Operations service
 
-`src/operations/` holds long-running ops: scheduled backups, the physical-mirror writer, organization exports, error-log management, workbench summaries. The worker process (`src/worker.ts`) runs the same code paths as the HTTP process — they share the same `createAppServices` composition.
+`src/operations/` holds long-running ops: scheduled backups, the physical-mirror writer, organization exports, error-log management, session replay. The worker process (`src/worker.ts`) runs the same code paths as the HTTP process — they share the same `createAppServices` composition.
 
 ## Model provider
 

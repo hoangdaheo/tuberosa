@@ -188,7 +188,7 @@ When a user-style atom conflicts with a project convention, `src/user-style/conf
 - `personal_workflow` user-style → wins, project convention is annotated as overridden.
 - `coding_preference` user-style → loses, project convention surfaces first.
 
-Conflicts are surfaced in the workbench review queue.
+Conflicts are surfaced via the maintenance/conflict-detection operations and their HTTP routes.
 
 ### finish-session router
 

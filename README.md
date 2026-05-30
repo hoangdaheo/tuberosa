@@ -7,7 +7,7 @@ Tuberosa is a **local-first context broker** for coding agents. It sits between 
  │  Agent   │ ──────────────────────────▶ │  Tuberosa                │
  │ (Claude, │ ◀── ranked context pack ─── │   ├─ MCP stdio            │
  │  Codex,  │                             │   ├─ HTTP API  :3027     │
- │  Cursor) │                             │   └─ Workbench /workbench│
+ │  Cursor) │                             │   └─ MCP / HTTP surfaces │
  └──────────┘                             └────────────┬─────────────┘
                                                        │
                                        ┌───────────────┼───────────────┐
@@ -19,7 +19,7 @@ Tuberosa is a **local-first context broker** for coding agents. It sits between 
 Two surfaces:
 
 - **MCP stdio** — first-class integration for agents.
-- **HTTP API** on `:3027` — ingestion, retrieval, feedback, reflection review, session lifecycle, ops, export/import bundles, atoms, and the workbench.
+- **HTTP API** on `:3027` — ingestion, retrieval, feedback, reflection review, session lifecycle, ops, export/import bundles, and atoms.
 
 Storage: Postgres + pgvector for durable knowledge / atoms / chunks / labels / references / embeddings; Redis for short-lived pack caching; a `.tuberosa/current/` Markdown mirror for human-readable inspection; `.tuberosa/backups/` for periodic snapshots.
 
@@ -366,7 +366,7 @@ npx tuberosa mcp                # from anywhere
 
 **Reflection review** — `tuberosa_reflect`, `tuberosa_list_reflection_drafts`, `tuberosa_get_reflection_draft`, `tuberosa_review_reflection_draft`.
 
-**Feedback & quality** — `tuberosa_feedback_context`, `tuberosa_collect_context_quality_feedback`, `tuberosa_get_workbench_summary`.
+**Feedback & quality** — `tuberosa_feedback_context`, `tuberosa_collect_context_quality_feedback`.
 
 **Atoms & graph** — `tuberosa_atom_gate_stats`, `tuberosa_atom_graph_density`, `tuberosa_predict_impact`, `tuberosa_resurrect_atom`.
 
@@ -446,18 +446,6 @@ npx @modelcontextprotocol/inspector pnpm --silent --dir <repo-path> run mcp
 
 ---
 
-## Workbench UI
-
-The HTTP server ships a local workbench at `http://localhost:3027/workbench` — review queues, session inspector, recent error logs, context-pack browser, risky-memory list. Static assets at `/workbench/static/<asset>`. CLI alias:
-
-```bash
-pnpm run workbench
-```
-
-The workbench page is public; its data calls hit the same authenticated routes as the rest of the API, so `TUBEROSA_API_KEY` still applies once set.
-
----
-
 ## HTTP API (summary)
 
 All endpoints return JSON. Health is unauthenticated; everything else requires `Authorization: Bearer $TUBEROSA_API_KEY` if you set the key.
@@ -475,7 +463,7 @@ All endpoints return JSON. Health is unauthenticated; everything else requires `
 | Atom graph | `GET /operations/atom-gate/stats`, `GET /operations/atom-graph/density`, `GET /operations/organization/atom-graph.jsonl`, `POST /operations/atom-graph/impact` |
 | Export/import | `POST /operations/export-pack`, `POST /operations/import-pack`, `GET /operations/atom-import-conflicts[/{id}]`, `POST /operations/atom-import-conflicts/{id}/resolve` |
 | Organization | `GET /operations/organization/{project-map,knowledge-graph.jsonl,readable-summary}` |
-| Quality / workbench | `GET /operations/context-quality`, `GET /operations/workbench/summary`, `GET /operations/workbench/session/{id}/replay`, `GET /operations/catchup` |
+| Quality / sessions | `GET /operations/context-quality`, `GET /operations/session/{id}/replay`, `GET /operations/catchup` |
 | Maintenance | `GET /operations/learning-proposals`, `POST /operations/learning-proposals/{id}`, `POST /operations/maintenance/{preview,apply}`, `POST /operations/cleanup`, `GET/PATCH /operations/knowledge-gaps[/{id}]` |
 | Error logs | `POST /operations/error-logs`, `GET /operations/error-logs[/{id}]`, `POST /operations/error-logs/collection`, `POST /operations/error-logs/reflection-drafts`, `POST /operations/error-logs/{id}/resolve` |
 | Backups / import-files | `POST /operations/import-files`, `GET/POST /operations/backups`, `GET /operations/backups/status`, `POST /operations/backups/prune` |
@@ -497,7 +485,7 @@ The extended seed wraps each file in its own try/catch — `IngestionService.ing
 ## Common commands
 
 ```bash
-pnpm run build           # TypeScript + workbench build
+pnpm run build           # TypeScript compile
 pnpm test                # full unit suite (586 tests, ~13s)
 pnpm run dev             # HTTP server in watch mode (port 3027)
 pnpm run mcp             # MCP stdio server
@@ -516,7 +504,6 @@ pnpm run calibrate-fusion       # emit a calibrated retrieval-policy.json patch
 
 pnpm run test:integration       # Docker-gated Postgres+Redis tests (skips if down)
 pnpm run context-quality -- --project tuberosa
-pnpm run workbench
 pnpm run error-logs
 pnpm run backup / restore
 ```
@@ -593,7 +580,6 @@ Operations runbook: [wiki/13-operations-runbook.md](wiki/13-operations-runbook.m
 **Near term**
 - Phase 2+ of the security remediation: retrieval/redaction hardening, storage `::uuid` guards, FS hardening, MCP input hardening, HTTP hygiene (one plan per subsystem under `docs/superpowers/plans/`).
 - More real-project regression cases in retrieval eval fixtures.
-- Workbench: search testing, reflection approval, source-level retrieval debug traces.
 
 **Mid term**
 - `tuberosa ingest --project <p> --path <repo-or-docs>` CLI.

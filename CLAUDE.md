@@ -13,7 +13,6 @@ If the `tuberosa_*` tools are deferred, load them first with ToolSearch/select f
 - `tuberosa_finish_session`
 - `tuberosa_search_context`
 - `tuberosa_get_context_pack`
-- `tuberosa_get_workbench_summary`
 
 Then call `tuberosa_start_session` with:
 
