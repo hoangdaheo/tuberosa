@@ -805,10 +805,9 @@ function createRoutes(): HttpRoute[] {
     {
       method: 'GET',
       match: exactPath('/operations/catchup'),
-      handle: async ({ services, url }) => {
-        const summary = await buildWorkbenchSummary(services, readWorkbenchSummaryOptions(url));
+      handle: () => {
         const catchup = getCatchupMetadata();
-        return { catchup, summary };
+        return { catchup };
       },
     },
     {
