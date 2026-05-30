@@ -71,6 +71,8 @@ import type { KnowledgeRelationType } from '../types.js';
 import { PostgresBackupStore } from './postgres/backup-store.js';
 import { PostgresContextStore } from './postgres/context-store.js';
 import { PostgresLabelStore } from './postgres/label-store.js';
+import { PostgresSourceSyncStore } from './postgres/source-sync-store.js';
+import { type Queryable, ensureProject, projectIdByName, toIso } from './postgres/shared-helpers.js';
 import {
   deriveNamespace,
   readNamespaceFromMetadata,
@@ -105,8 +107,6 @@ import type {
   SourceFileStatus,
   SyncRunRecord,
 } from '../source-sync/types.js';
-
-type Queryable = Pool | PoolClient;
 
 // Phase 5 follow-up: Postgres uuid[] casts crash on synthetic knowledge ids such as
 // the Phase-5 worktree provider's `worktree:<sha256>` ids (live-evidence only, never
@@ -182,6 +182,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   private readonly backups: PostgresBackupStore;
   private readonly contextPacks: PostgresContextStore;
   private readonly labels: PostgresLabelStore;
+  private readonly sourceSync: PostgresSourceSyncStore;
 
   constructor(databaseUrl: string) {
     this.pool = new Pool({
@@ -195,6 +196,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     this.backups = new PostgresBackupStore(this.pool);
     this.contextPacks = new PostgresContextStore(this.pool);
     this.labels = new PostgresLabelStore(this.pool);
+    this.sourceSync = new PostgresSourceSyncStore(this.pool);
   }
 
   async withTransaction<T>(fn: (tx: KnowledgeStore) => Promise<T>): Promise<T> {
@@ -272,109 +274,24 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rowCount ?? 0;
   }
 
-  private mapSourceFileRow(row: Record<string, unknown>): SourceFileRecord {
-    return {
-      id: String(row.id),
-      project: String(row.project_name),
-      path: String(row.path),
-      contentHash: (row.content_hash as string | null) ?? null,
-      status: row.status as SourceFileRecord['status'],
-      lastSyncedSha: (row.last_synced_sha as string | null) ?? null,
-      priorPaths: (row.prior_paths as string[] | null) ?? [],
-      knowledgeCount: Number(row.knowledge_count ?? 0),
-      firstSeenAt: toIso(row.first_seen_at),
-      lastSeenAt: toIso(row.last_seen_at),
-      archivedAt: row.archived_at ? toIso(row.archived_at) : null,
-      metadata: (row.metadata as Record<string, unknown> | null) ?? {},
-    };
+  upsertSourceFile(input: UpsertSourceFileInput): Promise<SourceFileRecord> {
+    return this.sourceSync.upsertSourceFile(input);
   }
 
-  private mapSyncRunRow(row: Record<string, unknown>): SyncRunRecord {
-    return {
-      id: String(row.id),
-      project: String(row.project_name),
-      mode: row.mode as SyncRunRecord['mode'],
-      fromSha: (row.from_sha as string | null) ?? null,
-      toSha: (row.to_sha as string | null) ?? null,
-      plan: typeof row.plan === 'string' ? JSON.parse(row.plan) : (row.plan as SyncRunRecord['plan']),
-      applied: row.applied as boolean,
-      trigger: row.trigger as SyncRunRecord['trigger'],
-      createdAt: toIso(row.created_at),
-      appliedAt: row.applied_at ? toIso(row.applied_at) : null,
-    };
+  getSourceFile(options: { project: string; path: string }): Promise<SourceFileRecord | undefined> {
+    return this.sourceSync.getSourceFile(options);
   }
 
-  async upsertSourceFile(input: UpsertSourceFileInput): Promise<SourceFileRecord> {
-    const projectId = await this.ensureProject(this.pool, input.project);
-    const { rows } = await this.db.query(
-      `
-        INSERT INTO source_files (project_id, path, content_hash, status, last_synced_sha, metadata, last_seen_at)
-        VALUES ($1, $2, $3, COALESCE($4, 'tracked'), $5, COALESCE($6, '{}'::jsonb), now())
-        ON CONFLICT (project_id, path) DO UPDATE SET
-          content_hash = EXCLUDED.content_hash,
-          status = COALESCE($4, source_files.status),
-          last_synced_sha = COALESCE($5, source_files.last_synced_sha),
-          metadata = COALESCE($6, source_files.metadata),
-          last_seen_at = now()
-        RETURNING *, (SELECT name FROM projects WHERE id = project_id) AS project_name
-      `,
-      [projectId, input.path, input.contentHash, input.status ?? null, input.lastSyncedSha ?? null, input.metadata ?? null],
-    );
-    return this.mapSourceFileRow(rows[0]);
+  listSourceFiles(options: ListSourceFilesOptions): Promise<SourceFileRecord[]> {
+    return this.sourceSync.listSourceFiles(options);
   }
 
-  async getSourceFile(options: { project: string; path: string }): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.db.query(
-      `
-        SELECT sf.*, p.name AS project_name
-        FROM source_files sf JOIN projects p ON p.id = sf.project_id
-        WHERE p.name = $1 AND sf.path = $2
-      `,
-      [options.project, options.path],
-    );
-    return rows[0] ? this.mapSourceFileRow(rows[0]) : undefined;
+  renameSourceFile(input: RenameSourceFileInput): Promise<SourceFileRecord | undefined> {
+    return this.sourceSync.renameSourceFile(input);
   }
 
-  async listSourceFiles(options: ListSourceFilesOptions): Promise<SourceFileRecord[]> {
-    const { rows } = await this.db.query(
-      `
-        SELECT sf.*, p.name AS project_name
-        FROM source_files sf JOIN projects p ON p.id = sf.project_id
-        WHERE ($1::text IS NULL OR p.name = $1) AND ($2::text IS NULL OR sf.status = $2)
-        ORDER BY sf.path
-        LIMIT $3
-      `,
-      [options.project ?? null, options.status ?? null, options.limit],
-    );
-    return rows.map((row) => this.mapSourceFileRow(row));
-  }
-
-  async renameSourceFile(input: RenameSourceFileInput): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.db.query(
-      `
-        UPDATE source_files sf
-        SET path = $3, prior_paths = array_append(sf.prior_paths, $2), last_seen_at = now()
-        FROM projects p
-        WHERE p.id = sf.project_id AND p.name = $1 AND sf.path = $2
-        RETURNING sf.*, p.name AS project_name
-      `,
-      [input.project, input.from, input.to],
-    );
-    return rows[0] ? this.mapSourceFileRow(rows[0]) : undefined;
-  }
-
-  async setSourceFileStatus(options: { project: string; path: string; status: SourceFileStatus }): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.db.query(
-      `
-        UPDATE source_files sf
-        SET status = $3, archived_at = CASE WHEN $3 = 'archived' THEN now() ELSE sf.archived_at END
-        FROM projects p
-        WHERE p.id = sf.project_id AND p.name = $1 AND sf.path = $2
-        RETURNING sf.*, p.name AS project_name
-      `,
-      [options.project, options.path, options.status],
-    );
-    return rows[0] ? this.mapSourceFileRow(rows[0]) : undefined;
+  setSourceFileStatus(options: { project: string; path: string; status: SourceFileStatus }): Promise<SourceFileRecord | undefined> {
+    return this.sourceSync.setSourceFileStatus(options);
   }
 
   async listKnowledgeBySourcePath(options: { project: string; path: string }): Promise<StoredKnowledge[]> {
@@ -396,45 +313,16 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return out;
   }
 
-  async createSyncRun(input: CreateSyncRunInput): Promise<SyncRunRecord> {
-    const projectId = await this.ensureProject(this.pool, input.project);
-    const { rows } = await this.db.query(
-      `
-        INSERT INTO sync_runs (project_id, mode, from_sha, to_sha, plan, trigger)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING *, (SELECT name FROM projects WHERE id = project_id) AS project_name
-      `,
-      [projectId, input.mode, input.fromSha ?? null, input.toSha ?? null, JSON.stringify(input.plan), input.trigger],
-    );
-    return this.mapSyncRunRow(rows[0]);
+  createSyncRun(input: CreateSyncRunInput): Promise<SyncRunRecord> {
+    return this.sourceSync.createSyncRun(input);
   }
 
-  async getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
-    if (!isPersistedKnowledgeId(id)) return undefined;
-    const { rows } = await this.db.query(
-      `
-        SELECT sr.*, p.name AS project_name
-        FROM sync_runs sr JOIN projects p ON p.id = sr.project_id
-        WHERE sr.id = $1
-      `,
-      [id],
-    );
-    return rows[0] ? this.mapSyncRunRow(rows[0]) : undefined;
+  getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
+    return this.sourceSync.getSyncRun(id);
   }
 
-  async markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
-    if (!isPersistedKnowledgeId(id)) return undefined;
-    const { rows } = await this.db.query(
-      `
-        UPDATE sync_runs sr
-        SET applied = true, applied_at = now()
-        FROM projects p
-        WHERE p.id = sr.project_id AND sr.id = $1
-        RETURNING sr.*, p.name AS project_name
-      `,
-      [id],
-    );
-    return rows[0] ? this.mapSyncRunRow(rows[0]) : undefined;
+  markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
+    return this.sourceSync.markSyncRunApplied(id);
   }
 
   async createAtlasRun(input: AtlasRunInput): Promise<AtlasRunRecord> {
@@ -2706,23 +2594,12 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return this.backups.restoreBackup(input);
   }
 
-  private async ensureProject(client: Queryable, name: string): Promise<string> {
-    const result = await client.query<{ id: string }>(
-      `
-        INSERT INTO projects (name)
-        VALUES ($1)
-        ON CONFLICT (name) DO UPDATE SET updated_at = now()
-        RETURNING id
-      `,
-      [name],
-    );
-
-    return result.rows[0].id;
+  private ensureProject(client: Queryable, name: string): Promise<string> {
+    return ensureProject(client, name);
   }
 
-  private async projectIdByName(client: Queryable, name: string): Promise<string | null> {
-    const result = await client.query<{ id: string }>('SELECT id FROM projects WHERE name = $1', [name]);
-    return result.rows[0]?.id ?? null;
+  private projectIdByName(client: Queryable, name: string): Promise<string | null> {
+    return projectIdByName(client, name);
   }
 
   private async upsertSource(client: PoolClient, projectId: string, input: KnowledgeInput): Promise<string> {
@@ -3555,14 +3432,6 @@ function rowToAtomImportConflict(row: Record<string, unknown>): AtomImportConfli
     createdAt: toIso(row.created_at),
     resolvedAt: row.resolved_at ? toIso(row.resolved_at) : undefined,
   };
-}
-
-function toIso(value: unknown): string {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  return String(value);
 }
 
 const LABEL_PROVENANCE_METADATA_KEY = 'labelProvenance';
