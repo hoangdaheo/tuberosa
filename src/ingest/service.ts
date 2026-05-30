@@ -72,10 +72,12 @@ export class IngestionService {
 
   async ingestKnowledge(input: KnowledgeInput) {
     this.ensureContentWithinLimit(input.content);
-    const refined = await this.refineInput(input);
-    const sanitizedInput = this.safety.sanitizeKnowledgeInput(refined);
-    const duplicate = await this.duplicateDetector.assertNotDuplicate(sanitizedInput);
-    const augmented = applyDuplicateFlag(sanitizedInput, duplicate);
+    // Redact secrets/PII and block prompt-injection BEFORE any LLM label
+    // enrichment so raw secrets never reach an external model provider.
+    const sanitizedInput = this.safety.sanitizeKnowledgeInput(input);
+    const refined = await this.refineInput(sanitizedInput);
+    const duplicate = await this.duplicateDetector.assertNotDuplicate(refined);
+    const augmented = applyDuplicateFlag(refined, duplicate);
     const chunks = await this.buildChunks(augmented);
     const stored = await this.store.upsertKnowledge(augmented, chunks);
     await this.store.replaceInferredKnowledgeRelations(stored.id, this.relationInference.infer(stored));
