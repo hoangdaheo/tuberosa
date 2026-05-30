@@ -6,7 +6,6 @@ export * from './types/operations.js';
 export * from './types/retrieval.js';
 export * from './types/feedback.js';
 export * from './types/session.js';
-export * from './types/workbench.js';
 export * from './types/atoms.js';
 export * from './types/preprocessor.js';
 export * from './types/export-bundle.js';
