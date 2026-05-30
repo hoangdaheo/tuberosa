@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
 import { StoreError } from '../errors.js';
+import { isPersistedKnowledgeId } from '../util/uuid.js';
 import type {
   AgentContextDecision,
   AgentSession,
@@ -109,13 +110,9 @@ type Queryable = Pool | PoolClient;
 // Phase 5 follow-up: Postgres uuid[] casts crash on synthetic knowledge ids such as
 // the Phase-5 worktree provider's `worktree:<sha256>` ids (live-evidence only, never
 // persisted). Every method that takes a knowledge id from outside the store filters
-// through this predicate before the id reaches a `::uuid` / `::uuid[]` cast — the
-// MemoryKnowledgeStore is permissive (returns empty for unknown ids), so this brings
-// Postgres in line.
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isPersistedKnowledgeId(value: unknown): value is string {
-  return typeof value === 'string' && UUID_PATTERN.test(value);
-}
+// through the shared `isPersistedKnowledgeId` predicate before the id reaches a
+// `::uuid` / `::uuid[]` cast — the MemoryKnowledgeStore is permissive (returns empty
+// for unknown ids), so this brings Postgres in line.
 // Clients that were already destroyed during error handling. Used so the
 // `finally` block in transaction wrappers doesn't double-release.
 const destroyedClients = new WeakSet<PoolClient>();
