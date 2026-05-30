@@ -124,7 +124,7 @@ test('operations API reviews, updates, imports, and lists audit records', async 
 
     const manualRelation = await post(services, '/operations/relations', {
       project,
-      fromKnowledgeId: imported.results[0].id,
+      fromKnowledgeId: imported.results[0]!.id,
       relationType: 'related_to',
       targetKind: 'knowledge',
       targetKnowledgeId: lowTrust.id,
@@ -240,10 +240,10 @@ test('operations API reviews, updates, imports, and lists audit records', async 
 
     const gaps = await get(services, `/operations/knowledge-gaps?project=${project}&status=open&contextPackId=${search.id}`) as Array<Record<string, unknown>>;
     equal(gaps.length, 1);
-    equal(gaps[0].contextPackId, search.id);
-    ok((gaps[0].missingSignals as string[]).includes('file:docs/cleanup-runbook.md'));
+    equal(gaps[0]!.contextPackId, search.id);
+    ok((gaps[0]!.missingSignals as string[]).includes('file:docs/cleanup-runbook.md'));
 
-    const updatedGap = await patch(services, `/operations/knowledge-gaps/${gaps[0].id}`, {
+    const updatedGap = await patch(services, `/operations/knowledge-gaps/${gaps[0]!.id}`, {
       status: 'dismissed',
       metadata: { reviewer: 'operations-test' },
     }) as Record<string, unknown>;
@@ -319,7 +319,7 @@ test('operations API reviews, updates, imports, and lists audit records', async 
       contextPackId: (sessionStart.contextPack as Record<string, unknown>).id,
     });
     const decisions = await get(services, `/agent-sessions/${session.id}/context-decisions`) as Array<Record<string, unknown>>;
-    equal(decisions[0].decision, 'selected');
+    equal(decisions[0]!.decision, 'selected');
     const finished = await post(services, `/agent-sessions/${session.id}/finish`, {
       outcome: 'completed',
       summary: 'Reviewed operations coverage.',
@@ -435,8 +435,8 @@ test('operations context-quality report links feedback to review actions', async
     ok((missingOrientation.missingSignals as string[]).includes('orientation'));
 
     const rollups = report.rollups as Record<string, Array<Record<string, unknown>>>;
-    ok(rollups.adjacentItems.some((item) => item.knowledgeId === adjacent.id));
-    ok(rollups.feedbackTypes.some((item) => item.value === 'selected_but_noisy' && item.count === 1));
+    ok(rollups.adjacentItems!.some((item) => item.knowledgeId === adjacent.id));
+    ok(rollups.feedbackTypes!.some((item) => item.value === 'selected_but_noisy' && item.count === 1));
 
     const filtered = await get(
       services,
@@ -497,15 +497,15 @@ test('operations context-quality report falls back to concrete pack items for no
     const records = report.records as Array<Record<string, unknown>>;
     equal(records.length, 1);
 
-    const reviewItems = records[0].adjacentItems as Array<Record<string, unknown>>;
+    const reviewItems = records[0]!.adjacentItems as Array<Record<string, unknown>>;
     equal(reviewItems.length, 1);
-    equal(reviewItems[0].knowledgeId, direct.id);
-    equal(reviewItems[0].evidenceCategory, 'directTaskEvidence');
-    equal(reviewItems[0].evidenceStrength, 'moderate');
-    ok((reviewItems[0].missingSignals as string[]).includes('missing verification commands'));
+    equal(reviewItems[0]!.knowledgeId, direct.id);
+    equal(reviewItems[0]!.evidenceCategory, 'directTaskEvidence');
+    equal(reviewItems[0]!.evidenceStrength, 'moderate');
+    ok((reviewItems[0]!.missingSignals as string[]).includes('missing verification commands'));
 
     const rollups = report.rollups as Record<string, Array<Record<string, unknown>>>;
-    ok(rollups.adjacentItems.some((item) => item.knowledgeId === direct.id));
+    ok(rollups.adjacentItems!.some((item) => item.knowledgeId === direct.id));
   } finally {
     await services.close();
   }
@@ -1091,11 +1091,11 @@ test('operations API records, lists, reads, and updates physical error logs', as
 
     const listed = await get(services, '/operations/error-logs?project=operations-review&status=open&limit=5') as Array<Record<string, unknown>>;
     equal(listed.length, 1);
-    equal(listed[0].id, created.id);
+    equal(listed[0]!.id, created.id);
 
     const collection = await get(services, '/operations/error-logs/collection?project=operations-review&status=open&limit=5') as Record<string, unknown>;
     equal(collection.totalMatched, 1);
-    equal((collection.logs as Array<Record<string, unknown>>)[0].id, created.id);
+    equal((collection.logs as Array<Record<string, unknown>>)[0]!.id, created.id);
     ok(String(collection.agentBrief).includes('Error Log Brief'));
 
     const draft = await post(services, '/operations/error-logs/reflection-drafts', {
@@ -1183,7 +1183,7 @@ test('operations API creates and restores portable JSONL backups', async () => {
 
     const dryRun = await post(services, '/operations/backups/unit-backup/restore', { dryRun: true }) as Record<string, unknown>;
     equal(dryRun.dryRun, true);
-    ok((dryRun.restored as Record<string, number>).knowledge_items >= 1);
+    ok((dryRun.restored as Record<string, number>).knowledge_items! >= 1);
 
     const restored = await post(services, '/operations/backups/unit-backup/restore', { replace: true }) as Record<string, unknown>;
     equal(restored.replace, true);
@@ -1247,8 +1247,8 @@ test('backup verification blocks corrupt restore and retention keeps latest vali
 
     const backups = await get(services, '/operations/backups') as Array<Record<string, unknown>>;
     equal(backups.length, 2);
-    equal(backups[0].id, 'backup-c');
-    equal(backups[1].id, 'backup-b');
+    equal(backups[0]!.id, 'backup-c');
+    equal(backups[1]!.id, 'backup-b');
   } finally {
     await services.close();
     await rm(backupDir, { recursive: true, force: true });

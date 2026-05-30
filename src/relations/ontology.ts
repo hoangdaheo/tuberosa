@@ -220,7 +220,7 @@ export function expandLabelsThroughOntology(
     if (!expansion.matched) continue;
 
     for (let i = 0; i < expansion.ancestors.length; i += 1) {
-      const ancestor = expansion.ancestors[i];
+      const ancestor = expansion.ancestors[i]!;
       const ancestorKey = `${label.type}:${ancestor}`;
       if (seen.has(ancestorKey)) continue;
       seen.add(ancestorKey);

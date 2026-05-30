@@ -38,7 +38,7 @@ test('MemoryKnowledgeStore: listAtoms filters by project and tier', async () => 
   await store.createAtom({ ...BASE_INPUT, project: 'other-project' });
   const found = await store.listAtoms({ project: 'tuberosa', limit: 10 });
   assert.equal(found.length, 1);
-  assert.equal(found[0].project, 'tuberosa');
+  assert.equal(found[0]!.project, 'tuberosa');
 });
 
 test('MemoryKnowledgeStore: updateAtom mutates tier and reuseCount', async () => {

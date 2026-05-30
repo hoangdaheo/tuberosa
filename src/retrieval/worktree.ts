@@ -313,7 +313,7 @@ function collectGitStatusPaths(cwd: string): string[] {
     const paths: string[] = [];
     const entries = stdout.split('\0').filter(Boolean);
     for (let index = 0; index < entries.length; index += 1) {
-      const entry = entries[index];
+      const entry = entries[index]!;
       if (entry.length < 4) continue;
       const status = entry.slice(0, 2);
       const path = entry.slice(3);

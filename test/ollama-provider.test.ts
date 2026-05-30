@@ -89,9 +89,9 @@ describe('OllamaRerankProvider', () => {
       buildCandidate({ knowledgeId: 'k2', fusedScore: 0.2, trustLevel: 60 }),
     ];
     const result = await provider.rerank(buildInput(candidates, 'context broker'));
-    assert.equal(result.candidates[0].knowledgeId, 'k2', 'high ollama score should win even with low fused score');
-    assert.ok(result.candidates[0].rerankScore > result.candidates[1].rerankScore);
-    assert.ok(result.candidates[0].matchReasons.some((reason) => reason.startsWith('ollama-rerank:')));
+    assert.equal(result.candidates[0]!.knowledgeId, 'k2', 'high ollama score should win even with low fused score');
+    assert.ok(result.candidates[0]!.rerankScore > result.candidates[1]!.rerankScore);
+    assert.ok(result.candidates[0]!.matchReasons!.some((reason) => reason.startsWith('ollama-rerank:')));
     assert.equal(result.model, 'test-model');
   });
 
@@ -108,9 +108,9 @@ describe('OllamaRerankProvider', () => {
       buildCandidate({ knowledgeId: 'second', fusedScore: 0.5 }),
     ];
     const result = await provider.rerank(buildInput(candidates));
-    assert.equal(result.candidates[0].knowledgeId, 'second');
-    assert.equal(result.candidates[1].knowledgeId, 'first');
-    assert.ok(result.candidates[0].finalScore >= result.candidates[1].finalScore);
+    assert.equal(result.candidates[0]!.knowledgeId, 'second');
+    assert.equal(result.candidates[1]!.knowledgeId, 'first');
+    assert.ok(result.candidates[0]!.finalScore >= result.candidates[1]!.finalScore);
   });
 
   it('falls back to hash rerank when the fetch throws', async () => {
@@ -124,8 +124,8 @@ describe('OllamaRerankProvider', () => {
     ];
     const result = await provider.rerank(buildInput(candidates));
     assert.equal(result.candidates.length, 2);
-    assert.equal(result.candidates[0].knowledgeId, 'k2', 'hash rerank preserves fused-score ordering when no overlap');
-    assert.ok(!result.candidates[0].matchReasons.some((reason) => reason.startsWith('ollama-rerank:')));
+    assert.equal(result.candidates[0]!.knowledgeId, 'k2', 'hash rerank preserves fused-score ordering when no overlap');
+    assert.ok(!result.candidates[0]!.matchReasons!.some((reason) => reason.startsWith('ollama-rerank:')));
   });
 
   it('falls back to hash rerank on a non-200 response', async () => {
@@ -137,8 +137,8 @@ describe('OllamaRerankProvider', () => {
     ];
     const result = await provider.rerank(buildInput(candidates));
     assert.equal(result.candidates.length, 2);
-    assert.equal(result.candidates[0].knowledgeId, 'k2');
-    assert.ok(!result.candidates[0].matchReasons.some((reason) => reason.startsWith('ollama-rerank:')));
+    assert.equal(result.candidates[0]!.knowledgeId, 'k2');
+    assert.ok(!result.candidates[0]!.matchReasons!.some((reason) => reason.startsWith('ollama-rerank:')));
   });
 
   it('delegates embed and rewriteQuery to the fallback', async () => {

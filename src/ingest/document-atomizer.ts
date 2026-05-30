@@ -58,7 +58,7 @@ export class MarkdownAtomizer implements DocumentAtomizer {
       return [wholeDocumentAtom(input.path, input.content, lines.length)];
     }
 
-    const firstHeading = headings[0];
+    const firstHeading = headings[0]!;
     if (firstHeading.lineIndex > 0) {
       const introContent = lines.slice(0, firstHeading.lineIndex).join('\n').trim();
       if (hasMeaningfulBody(introContent)) {
@@ -111,7 +111,7 @@ function parseHeadings(lines: string[]): MarkdownHeading[] {
   lines.forEach((line, index) => {
     const fence = /^(?<marker>`{3,}|~{3,})/.exec(line.trim());
     if (fence?.groups?.marker) {
-      const marker = fence.groups.marker[0];
+      const marker = fence.groups.marker[0]!;
       if (!inFence) {
         inFence = true;
         fenceMarker = marker;
@@ -132,8 +132,8 @@ function parseHeadings(lines: string[]): MarkdownHeading[] {
     }
 
     headings.push({
-      level: heading[1].length,
-      title: cleanHeading(heading[2]),
+      level: heading[1]!.length,
+      title: cleanHeading(heading[2]!),
       lineIndex: index,
       sectionPath: [],
     });
@@ -146,7 +146,7 @@ function headingsWithPaths(headings: MarkdownHeading[]): MarkdownHeading[] {
   const stack: MarkdownHeading[] = [];
 
   return headings.map((heading) => {
-    while (stack.length > 0 && stack[stack.length - 1].level >= heading.level) {
+    while (stack.length > 0 && stack[stack.length - 1]!.level >= heading.level) {
       stack.pop();
     }
 

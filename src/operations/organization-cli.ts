@@ -35,7 +35,7 @@ export function parseOrganizationArgs(args: string[]): OrganizationCliOptions {
   };
 
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    const arg = args[index]!;
 
     if (arg === '--help' || arg === '-h') {
       options.help = true;

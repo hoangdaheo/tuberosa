@@ -20,7 +20,7 @@ export function parseAtomMarkdown(
   }
   let frontmatter: AtomFrontmatter;
   try {
-    frontmatter = yaml.load(m[1]) as AtomFrontmatter;
+    frontmatter = yaml.load(m[1]!) as AtomFrontmatter;
   } catch (error) {
     throw new Error(`Invalid frontmatter${where}: ${(error as Error).message}`);
   }

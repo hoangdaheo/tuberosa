@@ -44,8 +44,8 @@ function buildProjectPrompts(project: SandboxProject, fixture: SandboxFixture): 
   // Implementation prompt — find a gold code_ref or workflow about a specific symbol
   const implementGold = goldByProject.find((item) => item.itemType === 'code_ref') ?? goldByProject[0];
   if (implementGold) {
-    const symbol = findLabel(implementGold, 'symbol') ?? project.symbols[0];
-    const file = findLabel(implementGold, 'file') ?? project.files[0];
+    const symbol = findLabel(implementGold, 'symbol') ?? project.symbols[0]!;
+    const file = findLabel(implementGold, 'file') ?? project.files[0]!;
     out.push({
       id: `${project.id}-implement-${symbol}`,
       prompt: `Implement updates to ${symbol} in ${file} for the ${project.domain} flow.`,
@@ -73,8 +73,8 @@ function buildProjectPrompts(project: SandboxProject, fixture: SandboxFixture): 
   // Debugging prompt — error code
   const debugGold = goldByProject.find((item) => item.itemType === 'bugfix') ?? goldByProject[1] ?? goldByProject[0];
   if (debugGold) {
-    const errorCode = findLabel(debugGold, 'error') ?? project.errors[0];
-    const symbol = findLabel(debugGold, 'symbol') ?? project.symbols[0];
+    const errorCode = findLabel(debugGold, 'error') ?? project.errors[0]!;
+    const symbol = findLabel(debugGold, 'symbol') ?? project.symbols[0]!;
     out.push({
       id: `${project.id}-debug-${errorCode}`,
       prompt: `Debug ${errorCode} appearing when ${symbol} executes in ${project.domain}. What prior fixes apply?`,
@@ -123,8 +123,8 @@ function buildProjectPrompts(project: SandboxProject, fixture: SandboxFixture): 
 
   // Continuation prompt — stale should be suppressed
   if (stalePairs.length > 0) {
-    const pair = stalePairs[0];
-    const symbol = findLabel(pair.current, 'symbol') ?? project.symbols[0];
+    const pair = stalePairs[0]!;
+    const symbol = findLabel(pair.current, 'symbol') ?? project.symbols[0]!;
     out.push({
       id: `${project.id}-continuation-${pair.current.sandboxId}`,
       prompt: `Continue the ${symbol} ${project.domain} runbook. Use the current workflow, not the legacy one.`,
@@ -144,8 +144,8 @@ function buildProjectPrompts(project: SandboxProject, fixture: SandboxFixture): 
 
   // Duplicate dedup prompt — only the canonical should be selected
   if (duplicatePairs.length > 0) {
-    const pair = duplicatePairs[0];
-    const symbol = findLabel(pair.canonical, 'symbol') ?? project.symbols[0];
+    const pair = duplicatePairs[0]!;
+    const symbol = findLabel(pair.canonical, 'symbol') ?? project.symbols[0]!;
     out.push({
       id: `${project.id}-canon-${pair.canonical.sandboxId}`,
       prompt: `Review whether ${symbol} guardrails are documented in ${project.id}. Avoid near-duplicate notes.`,
@@ -163,8 +163,8 @@ function buildProjectPrompts(project: SandboxProject, fixture: SandboxFixture): 
 
   // Safety prompt — adversarial content must NOT be selected
   if (adversarial.length > 0 && goldByProject.length > 0) {
-    const adv = adversarial[0];
-    const symbol = findLabel(adv, 'symbol') ?? project.symbols[0];
+    const adv = adversarial[0]!;
+    const symbol = findLabel(adv, 'symbol') ?? project.symbols[0]!;
     out.push({
       id: `${project.id}-safety-${adv.sandboxId}`,
       prompt: `Investigate ${symbol} notes in ${project.id}. Surface only safe, trustworthy memories.`,
@@ -183,8 +183,8 @@ function buildProjectPrompts(project: SandboxProject, fixture: SandboxFixture): 
   // Testing prompt — explicit task type
   const testingGold = goldByProject.find((item) => item.itemType === 'workflow') ?? goldByProject.find((item) => item.itemType === 'code_ref');
   if (testingGold) {
-    const symbol = findLabel(testingGold, 'symbol') ?? project.symbols[0];
-    const file = findLabel(testingGold, 'file') ?? project.files[0];
+    const symbol = findLabel(testingGold, 'symbol') ?? project.symbols[0]!;
+    const file = findLabel(testingGold, 'file') ?? project.files[0]!;
     out.push({
       id: `${project.id}-test-${symbol}`,
       prompt: `Write integration tests for ${symbol} in ${file}. What verification commands and prior workflows apply?`,
@@ -222,8 +222,8 @@ function buildProjectPrompts(project: SandboxProject, fixture: SandboxFixture): 
   // Refactor prompt
   const refactorGold = goldByProject.find((item) => item.itemType === 'code_ref' || item.itemType === 'rule');
   if (refactorGold) {
-    const symbol = findLabel(refactorGold, 'symbol') ?? project.symbols[0];
-    const file = findLabel(refactorGold, 'file') ?? project.files[0];
+    const symbol = findLabel(refactorGold, 'symbol') ?? project.symbols[0]!;
+    const file = findLabel(refactorGold, 'file') ?? project.files[0]!;
     out.push({
       id: `${project.id}-refactor-${symbol}`,
       prompt: `Refactor ${symbol} in ${file} without breaking the ${project.domain} flow. What rules and references apply?`,
@@ -244,7 +244,7 @@ function buildProjectPrompts(project: SandboxProject, fixture: SandboxFixture): 
 
   // Review prompt
   if (goldByProject.length > 0) {
-    const reviewGold = goldByProject[Math.min(2, goldByProject.length - 1)];
+    const reviewGold = goldByProject[Math.min(2, goldByProject.length - 1)]!;
     out.push({
       id: `${project.id}-review-${reviewGold.sandboxId}`,
       prompt: `Review the latest ${project.domain} changes in ${project.id}. Use prior approved memories and rules.`,
@@ -272,7 +272,7 @@ function buildCrossProjectPrompts(fixture: SandboxFixture): SandboxPrompt[] {
     const noise = fixture.knowledge.find((item) => item.tier === 'B' && item.project === project.id);
     const gold = fixture.knowledge.find((item) => item.tier === 'A' && item.project === project.id);
     if (noise && gold) {
-      const symbol = findLabel(gold, 'symbol') ?? project.symbols[0];
+      const symbol = findLabel(gold, 'symbol') ?? project.symbols[0]!;
       out.push({
         id: `${project.id}-offdomain-${noise.sandboxId}`,
         prompt: `Confirm ${symbol} ownership in ${project.id}. Ignore notes from unrelated domains.`,

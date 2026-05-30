@@ -45,7 +45,7 @@ test('SourceSyncService: apply defers a destructive plan (queues it) unless --ye
   const deferred = await svc.apply({ planId, allowDestructive: false });
   assert.equal(deferred.archived, 0, 'no silent archive without --yes');
   assert.equal(deferred.deferredDeletions.length, 1);
-  assert.equal(deferred.deferredDeletions[0].path, 'gone.ts');
+  assert.equal(deferred.deferredDeletions[0]!.path, 'gone.ts');
   const queue = JSON.parse(await readFile(join(root, '.tuberosa', 'pending-sync.json'), 'utf8'));
   assert.equal(queue.deferredDeletions[0].path, 'gone.ts');
 

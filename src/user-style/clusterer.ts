@@ -52,7 +52,7 @@ export async function clusterUserCorrections(
   for (const item of embedded) {
     let placed = false;
     for (const cluster of clusters) {
-      const centroid = cluster[0].embedding;
+      const centroid = cluster[0]!.embedding;
       if (cosineSimilarity(centroid, item.embedding) >= threshold) {
         cluster.push(item);
         placed = true;
@@ -65,7 +65,7 @@ export async function clusterUserCorrections(
   let proposalsCreated = 0;
   for (const cluster of clusters) {
     if (cluster.length < options.minClusterEvents) continue;
-    const claim = cluster[0].event.reason ?? '';
+    const claim = cluster[0]!.event.reason ?? '';
     const quotes = cluster.map((c) => c.event.reason ?? '').slice(0, 6);
     await store.createLearningProposal({
       proposalType: 'user_style_candidate',

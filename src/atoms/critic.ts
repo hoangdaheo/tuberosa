@@ -197,7 +197,7 @@ export class AtomCritic {
       if (atomMatches.length > 0) {
         return {
           outcome: 'rejected',
-          reason: `duplicate of user-style atom ${atomMatches[0].atom.id} (cosine ${atomMatches[0].cosine.toFixed(2)})`,
+          reason: `duplicate of user-style atom ${atomMatches[0]!.atom.id} (cosine ${atomMatches[0]!.cosine.toFixed(2)})`,
         };
       }
       return { outcome: 'pass' };
@@ -209,7 +209,7 @@ export class AtomCritic {
     if (atomMatches.length > 0) {
       return {
         outcome: 'rejected',
-        reason: `duplicate of existing atom ${atomMatches[0].atom.id} (cosine ${atomMatches[0].cosine.toFixed(2)})`,
+        reason: `duplicate of existing atom ${atomMatches[0]!.atom.id} (cosine ${atomMatches[0]!.cosine.toFixed(2)})`,
       };
     }
     // The legacy-knowledge check exists to migrate near-duplicate vague memories
@@ -227,8 +227,8 @@ export class AtomCritic {
     if (legacyMatches.length > 0) {
       return {
         outcome: 'queue_legacy_migration',
-        reason: `near-duplicate of legacy knowledge_items.${legacyMatches[0].knowledge.id}`,
-        legacyKnowledgeId: legacyMatches[0].knowledge.id,
+        reason: `near-duplicate of legacy knowledge_items.${legacyMatches[0]!.knowledge.id}`,
+        legacyKnowledgeId: legacyMatches[0]!.knowledge.id,
       };
     }
     return { outcome: 'pass' };

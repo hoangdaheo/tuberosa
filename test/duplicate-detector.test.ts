@@ -51,7 +51,7 @@ async function withFreshStore(work: (detector: DuplicateDetector, store: MemoryK
 test('sevenGramTokens produces overlapping shingles', () => {
   const tokens = sevenGramTokens('the quick brown fox');
   assert.ok(tokens.size > 0);
-  assert.ok([...tokens][0].length === 7);
+  assert.ok([...tokens][0]!.length === 7);
 });
 
 test('jaccardSimilarity returns 1 for identical token sets and 0 for disjoint', () => {

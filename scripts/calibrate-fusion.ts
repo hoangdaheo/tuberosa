@@ -436,7 +436,7 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
       if (!Number.isFinite(options.seed)) throw new Error('--seed must be a number');
     } else if (arg === '--output') {
-      options.output = args[index + 1];
+      options.output = args[index + 1]!;
       index += 1;
     } else if (arg === '--') continue;
     else throw new Error(`Unknown option: ${arg}\n${usage()}`);

@@ -201,10 +201,10 @@ describe('mcp command', () => {
     const harness = makeIo({ fs, spawn });
     const result = await mcpCommand({ command: 'mcp', options: {}, positional: [] }, harness.io);
     assert.equal(result.exitCode, 0);
-    assert.equal(calls[0].command, 'node');
-    assert.deepEqual(calls[0].args, ['/work/proj/dist/src/mcp-stdio.js']);
-    assert.equal(calls[0].env?.TUBEROSA_STORE, 'memory');
-    assert.equal(calls[0].env?.TUBEROSA_MODEL_PROVIDER, 'hash');
+    assert.equal(calls[0]!.command, 'node');
+    assert.deepEqual(calls[0]!.args, ['/work/proj/dist/src/mcp-stdio.js']);
+    assert.equal(calls[0]!.env?.TUBEROSA_STORE, 'memory');
+    assert.equal(calls[0]!.env?.TUBEROSA_MODEL_PROVIDER, 'hash');
   });
 
   it('falls back to tsx entry when dist is missing', async () => {
@@ -213,8 +213,8 @@ describe('mcp command', () => {
     const fs = makeFs({ '/work/proj/src/mcp-stdio.ts': '' });
     const harness = makeIo({ fs, spawn });
     await mcpCommand({ command: 'mcp', options: {}, positional: [] }, harness.io);
-    assert.equal(calls[0].command, 'node');
-    assert.deepEqual(calls[0].args, ['--import', 'tsx', '/work/proj/src/mcp-stdio.ts']);
+    assert.equal(calls[0]!.command, 'node');
+    assert.deepEqual(calls[0]!.args, ['--import', 'tsx', '/work/proj/src/mcp-stdio.ts']);
   });
 
   it('preserves user-set env vars instead of overwriting them', () => {

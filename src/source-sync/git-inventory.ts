@@ -33,18 +33,18 @@ export function gitDiffSince(cwd: string, fromSha: string): GitDiff {
   const tokens = out.split('\0').filter((t) => t.length > 0);
   const diff: GitDiff = { added: [], modified: [], deleted: [], renamed: [] };
   for (let i = 0; i < tokens.length; ) {
-    const status = tokens[i++];
+    const status = tokens[i++]!;
     if (status.startsWith('R')) {
       const similarity = Number(status.slice(1)) || 100;
-      const from = tokens[i++];
-      const to = tokens[i++];
+      const from = tokens[i++]!;
+      const to = tokens[i++]!;
       diff.renamed.push({ from, to, similarity });
     } else if (status.startsWith('C')) {
       i++; // copy similarity score — drop the source path
-      const to = tokens[i++];
+      const to = tokens[i++]!;
       diff.added.push(to); // copy → treat target as add
     } else {
-      const path = tokens[i++];
+      const path = tokens[i++]!;
       if (status === 'A') diff.added.push(path);
       else if (status === 'M') diff.modified.push(path);
       else if (status === 'D') diff.deleted.push(path);

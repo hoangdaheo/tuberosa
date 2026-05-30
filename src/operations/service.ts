@@ -883,8 +883,8 @@ function detectConflicts(knowledge: StoredKnowledge[]): KnowledgeConflictInput[]
 
   for (let leftIndex = 0; leftIndex < knowledge.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < knowledge.length; rightIndex += 1) {
-      const left = knowledge[leftIndex];
-      const right = knowledge[rightIndex];
+      const left = knowledge[leftIndex]!;
+      const right = knowledge[rightIndex]!;
       if (left.project !== right.project) {
         continue;
       }

@@ -46,7 +46,7 @@ test('near-duplicate atom is rejected at default threshold', async () => {
   });
   assert.equal(second.stored.length, 0);
   assert.equal(second.rejected.length, 1);
-  assert.ok(second.rejected[0].reasons.some((r) => r.includes('duplicate')));
+  assert.ok(second.rejected[0]!.reasons!.some((r) => r.includes('duplicate')));
 
   const atoms = await store.listAtoms({ project: 'tuberosa', limit: 10 });
   assert.equal(atoms.length, 1);

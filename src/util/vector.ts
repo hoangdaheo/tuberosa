@@ -6,9 +6,11 @@ export function cosineSimilarity(left: number[], right: number[]): number {
   let normL = 0;
   let normR = 0;
   for (let i = 0; i < len; i += 1) {
-    dot += left[i] * right[i];
-    normL += left[i] * left[i];
-    normR += right[i] * right[i];
+    const l = left[i]!;
+    const r = right[i]!;
+    dot += l * r;
+    normL += l * l;
+    normR += r * r;
   }
   if (normL === 0 || normR === 0) return 0;
   return dot / (Math.sqrt(normL) * Math.sqrt(normR));

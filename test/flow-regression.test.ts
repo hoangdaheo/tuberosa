@@ -241,7 +241,7 @@ test('FLOW_LOGIC functional smoke sequence works across HTTP and MCP surfaces', 
       method: 'resources/read',
       params: { uri: `tuberosa://knowledge/${current.id}` },
     }) as { contents: Array<{ text: string }> };
-    equal(JSON.parse(resource.contents[0].text).id, current.id);
+    equal(JSON.parse(resource.contents[0]!.text).id, current.id);
 
     const prompts = await handleMcpRequest(services, { method: 'prompts/list' }) as { prompts: Array<{ name: string }> };
     deepEqual(

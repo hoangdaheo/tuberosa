@@ -49,7 +49,7 @@ function buildAreaDeps(atoms: KnowledgeAtom[], relations: AtomRelationRow[]): Ar
   }
   return [...weights.entries()]
     .map(([k, weight]) => {
-      const [from, to] = k.split(' ');
+      const [from, to] = k.split(' ') as [string, string];
       return { from, to, weight };
     })
     .sort((a, b) => (a.from === b.from ? a.to.localeCompare(b.to) : a.from.localeCompare(b.from)));

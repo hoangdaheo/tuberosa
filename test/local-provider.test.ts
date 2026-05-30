@@ -74,9 +74,9 @@ describe('LocalCrossEncoderProvider', () => {
       buildCandidate({ knowledgeId: 'k2', fusedScore: 0.2, trustLevel: 60 }),
     ];
     const result = await provider.rerank(buildInput(candidates, 'context broker'));
-    assert.equal(result.candidates[0].knowledgeId, 'k2', 'high local score should win even with low fused score');
-    assert.ok(result.candidates[0].rerankScore > result.candidates[1].rerankScore);
-    assert.ok(result.candidates[0].matchReasons.some((reason) => reason.startsWith('local-rerank:')));
+    assert.equal(result.candidates[0]!.knowledgeId, 'k2', 'high local score should win even with low fused score');
+    assert.ok(result.candidates[0]!.rerankScore > result.candidates[1]!.rerankScore);
+    assert.ok(result.candidates[0]!.matchReasons!.some((reason) => reason.startsWith('local-rerank:')));
     assert.equal(result.model, 'onnx-community/bge-reranker-v2-m3-ONNX');
   });
 
@@ -91,8 +91,8 @@ describe('LocalCrossEncoderProvider', () => {
     const candidates = [buildCandidate({ knowledgeId: 'k1', fusedScore: 0.4 })];
     const result = await provider.rerank(buildInput(candidates));
     assert.equal(result.candidates.length, 1);
-    assert.equal(result.candidates[0].knowledgeId, 'k1');
-    assert.ok(result.candidates[0].rerankScore > 0);
+    assert.equal(result.candidates[0]!.knowledgeId, 'k1');
+    assert.ok(result.candidates[0]!.rerankScore > 0);
   });
 
   it('falls back to hash rerank when no transformers package is available', async () => {
@@ -102,7 +102,7 @@ describe('LocalCrossEncoderProvider', () => {
       buildCandidate({ knowledgeId: 'k2', fusedScore: 0.6 }),
     ];
     const result = await provider.rerank(buildInput(candidates));
-    assert.equal(result.candidates[0].knowledgeId, 'k2', 'hash rerank preserves fused-score ordering when no overlap');
+    assert.equal(result.candidates[0]!.knowledgeId, 'k2', 'hash rerank preserves fused-score ordering when no overlap');
   });
 
   it('embed and rewriteQuery delegate to the fallback', async () => {

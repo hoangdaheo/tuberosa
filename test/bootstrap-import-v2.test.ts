@@ -30,5 +30,5 @@ test('importPack: reads a categorized-v2 pack from pack/', async () => {
   assert.equal(report.atomsInserted, 1);
   const atoms = await dst.listAtoms({ project: 'p2', limit: 100 });
   assert.equal(atoms.length, 1);
-  assert.equal(atoms[0].claim, 'Fusion is weighted RRF.');
+  assert.equal(atoms[0]!.claim, 'Fusion is weighted RRF.');
 });

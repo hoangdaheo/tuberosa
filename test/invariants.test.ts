@@ -9,7 +9,7 @@ test('CLAUDE.md invariant: embedding dimension in config matches vector(N) in mi
   ok(matches.length >= 1, 'expected at least one vector(N) declaration in 001_init.sql');
   const sqlDims = new Set(matches.map((m) => Number(m[1])));
   equal(sqlDims.size, 1, `all vector(N) declarations in 001_init.sql must agree, got ${[...sqlDims].join(',')}`);
-  const declared = matches[0][1];
+  const declared = matches[0]![1]!;
 
   const { loadConfig } = await import('../src/config.js');
   const config = loadConfig();

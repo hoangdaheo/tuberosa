@@ -43,7 +43,7 @@ test('finishSession: extracts atoms via configured extractor and stores valid on
 
   const atoms = await store.listAtoms({ project: 'tuberosa', limit: 10 });
   assert.equal(atoms.length, 1);
-  assert.equal(atoms[0].audit.producedAtSessionId, session.id);
+  assert.equal(atoms[0]!.audit!.producedAtSessionId, session.id);
 });
 
 test('finishSession: rejected atom candidates are recorded as knowledge gaps', async () => {
@@ -74,5 +74,5 @@ test('finishSession: rejected atom candidates are recorded as knowledge gaps', a
 
   const gaps = await store.listKnowledgeGaps({ project: 'tuberosa', sourceSessionId: session.id, limit: 10 });
   assert.equal(gaps.length, 1);
-  assert.equal(gaps[0].metadata.source, 'atom_critic');
+  assert.equal(gaps[0]!.metadata!.source, 'atom_critic');
 });

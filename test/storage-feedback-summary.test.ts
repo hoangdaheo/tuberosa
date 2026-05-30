@@ -33,7 +33,7 @@ test('getFeedbackSummaries tolerates worktree:<sha> ids stored inside pack secti
         'INSERT INTO projects (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = excluded.name RETURNING id',
         [project],
       );
-      const projectId = projectInsert.rows[0].id;
+      const projectId = projectInsert.rows[0]!.id;
 
       const knowledgeInsert = await client.query<{ id: string }>(
         `INSERT INTO knowledge_items (project_id, item_type, title, summary, content, status)
@@ -41,7 +41,7 @@ test('getFeedbackSummaries tolerates worktree:<sha> ids stored inside pack secti
          RETURNING id`,
         [projectId],
       );
-      knowledgeId = knowledgeInsert.rows[0].id;
+      knowledgeId = knowledgeInsert.rows[0]!.id;
       const worktreeId = `worktree:${'a'.repeat(64)}`;
 
       const packInsert = await client.query<{ id: string }>(
@@ -63,7 +63,7 @@ test('getFeedbackSummaries tolerates worktree:<sha> ids stored inside pack secti
           }),
         ],
       );
-      const packId = packInsert.rows[0].id;
+      const packId = packInsert.rows[0]!.id;
 
       await client.query(
         `INSERT INTO feedback_events (project_id, context_pack_id, feedback_type, rejected_knowledge_ids)
