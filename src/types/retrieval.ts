@@ -544,7 +544,7 @@ export interface RetrievalFilterDecision {
   reason: string;
 }
 
-export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'userStyle';
+export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'userStyle' | 'convention';
 
 export interface FusionContribution {
   source: FusionContributionStage;
