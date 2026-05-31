@@ -33,6 +33,7 @@ import type {
   ContextFitStatus,
   FeedbackEvent,
   FinishAgentSessionInput,
+  HandbookStatus,
   LabelInput,
   ReferenceInput,
   ResearchTraceSummary,
@@ -75,10 +76,22 @@ export class AgentSessionService {
     });
     await this.persistReplayIfAvailable(session.id, contextPack);
 
+    const conventionCount = contextPack.sections
+      .flatMap((s) => s.items)
+      .filter((it) => (it as { source?: string }).source === 'convention').length;
+    const handbook: HandbookStatus = conventionCount > 0
+      ? { exists: true, conventionCount }
+      : {
+          exists: false,
+          conventionCount: 0,
+          suggestion: 'No project handbook yet — run tuberosa_bootstrap_handbook to capture conventions.',
+        };
+
     return {
       session,
       contextPack: shouldPersistReplay && !input.debug ? stripReplayDebug(contextPack) : contextPack,
       policy: sessionPolicy(contextPack.contextFit?.fitStatus),
+      handbook,
     };
   }
 

@@ -305,6 +305,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
         session: result.session,
         context: contextPackShortlist(result.contextPack, { includeDeepContext: input.includeDeepContext }),
         policy: result.policy,
+        handbook: result.handbook,
       });
     }
 
