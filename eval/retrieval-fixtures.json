@@ -742,6 +742,47 @@
       },
       "producedBy": "agent_session",
       "status": "archived"
+    },
+    {
+      "evalId": "team-named-exports",
+      "claim": "Use named exports across the codebase; avoid default exports.",
+      "type": "convention",
+      "scope": "team",
+      "teamId": "default",
+      "tier": "verified",
+      "status": "active",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "docs/conventions/exports.md"
+        }
+      ],
+      "trigger": {
+        "symbols": [
+          "conventionExportToken"
+        ]
+      },
+      "producedBy": "user"
+    },
+    {
+      "evalId": "proj-only-billing-rotation",
+      "claim": "Rotate the billing webhook secret via the ops runbook only.",
+      "type": "convention",
+      "scope": "project",
+      "tier": "verified",
+      "status": "active",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "docs/ops/billing-rotation.md"
+        }
+      ],
+      "trigger": {
+        "symbols": [
+          "billingRotationToken"
+        ]
+      },
+      "producedBy": "user"
     }
   ],
   "feedbackEvents": [
@@ -1312,6 +1353,37 @@
       "unexpectedKnowledgeIds": [
         "deleted-widget-doc"
       ]
+    },
+    {
+      "id": "team-convention-surfaces-cross-project",
+      "prompt": "Implement and export a new helper in src/widgets/list-builder.ts following our export conventions.",
+      "project": "analytics-service",
+      "symbols": [
+        "conventionExportToken"
+      ],
+      "expectedKnowledgeIds": [
+        "team-named-exports"
+      ],
+      "expectedSelectedKnowledgeIds": [
+        "team-named-exports"
+      ],
+      "expectedClassification": {
+        "taskType": "implementation"
+      }
+    },
+    {
+      "id": "project-convention-does-not-leak-cross-project",
+      "prompt": "Implement the billingRotationToken refresh helper in src/billing/rotate.ts.",
+      "project": "analytics-service",
+      "symbols": [
+        "billingRotationToken"
+      ],
+      "unexpectedKnowledgeIds": [
+        "proj-only-billing-rotation"
+      ],
+      "expectedClassification": {
+        "taskType": "implementation"
+      }
     }
   ],
   "relations": [
