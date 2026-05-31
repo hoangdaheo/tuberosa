@@ -259,10 +259,17 @@ export interface AgentContextCompliance {
   bypassReason?: string;
 }
 
+export interface HandbookStatus {
+  exists: boolean;
+  conventionCount: number;
+  suggestion?: string;
+}
+
 export interface AgentSessionStartResult {
   session: AgentSession;
   contextPack: ContextPack;
   policy: AgentSessionPolicy;
+  handbook: HandbookStatus;
 }
 
 export interface AgentSessionDecisionResult {

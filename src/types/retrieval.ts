@@ -162,7 +162,7 @@ export interface RerankResult {
   model?: string;
 }
 
-export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph' | 'worktree' | 'atoms' | 'userStyle';
+export type CandidateSource = 'lexical' | 'vector' | 'metadata' | 'memory' | 'graph' | 'worktree' | 'atoms' | 'userStyle' | 'convention';
 
 export interface SearchCandidate {
   knowledgeId: string;
@@ -489,9 +489,11 @@ export interface KnowledgeSearchResult {
   atoms: SearchCandidate[];
   /** Concern F — cross-project user-style atoms matched by trigger for the configured TUBEROSA_USER_ID. */
   userStyle: SearchCandidate[];
+  /** Phase 2 — convention atoms (team scope cross-project + project scope) matched by trigger. */
+  convention: SearchCandidate[];
 }
 
-export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'userStyle' | 'fusion' | 'rerank' | 'fit';
+export type RetrievalDebugStageName = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'userStyle' | 'convention' | 'fusion' | 'rerank' | 'fit';
 
 export type RetrievalDebugTimingName =
   | RetrievalDebugStageName
@@ -542,7 +544,7 @@ export interface RetrievalFilterDecision {
   reason: string;
 }
 
-export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'userStyle';
+export type FusionContributionStage = 'metadata' | 'lexical' | 'memory' | 'vector' | 'graph' | 'worktree' | 'atoms' | 'userStyle' | 'convention';
 
 export interface FusionContribution {
   source: FusionContributionStage;

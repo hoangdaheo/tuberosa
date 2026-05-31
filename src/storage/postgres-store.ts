@@ -2032,7 +2032,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByEmbedding(
     embedding: number[],
-    options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user'; userId?: string },
+    options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user' | 'team'; userId?: string; teamId?: string },
   ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
     const threshold = options.threshold ?? 0.0;
     const filters: string[] = ["a.embedding IS NOT NULL", "a.status = 'active'"];
@@ -2048,6 +2048,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (options.userId) {
       params.push(options.userId);
       filters.push(`a.user_id = $${params.length}`);
+    }
+    if (options.teamId) {
+      params.push(options.teamId);
+      filters.push(`a.team_id = $${params.length}`);
     }
     const result = await this.pool.query(
       `SELECT a.*, p.name AS project_name,
@@ -2066,7 +2070,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByTrigger(
     trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] },
-    options: { project?: string; limit: number; scope?: 'project' | 'user'; userId?: string },
+    options: { project?: string; limit: number; scope?: 'project' | 'user' | 'team'; userId?: string; teamId?: string },
   ): Promise<KnowledgeAtom[]> {
     const filters: string[] = ["a.status = 'active'"];
     const values: unknown[] = [];
@@ -2081,6 +2085,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (options.userId) {
       values.push(options.userId);
       filters.push(`a.user_id = $${values.length}`);
+    }
+    if (options.teamId) {
+      values.push(options.teamId);
+      filters.push(`a.team_id = $${values.length}`);
     }
     const triggerFilters: string[] = [];
     for (const key of ['errors', 'files', 'symbols', 'taskTypes'] as const) {
