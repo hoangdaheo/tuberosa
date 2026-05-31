@@ -45,6 +45,14 @@ import type {
 import { truncate, uniqueStrings } from '../util/text.js';
 import { deriveResearchTrace, normalizeResearchTrace } from './research-trace.js';
 
+/**
+ * Phase 4a — once this many un-curated raw atoms (non-convention, not yet
+ * distilled) have accumulated for a project, finishSession emits an
+ * informational curationNudge inviting the agent to distill them. Picked at 5
+ * as a low-friction floor; the nudge never auto-runs curation.
+ */
+const CURATION_NUDGE_THRESHOLD = 5;
+
 export class AgentSessionService {
   constructor(
     private readonly store: KnowledgeStore,
@@ -182,6 +190,20 @@ export class AgentSessionService {
     }
     await this.persistReplayFromSelectedPack(session.id, decisions);
 
+    // Phase 4a — count un-curated raw atoms (non-convention, not yet distilled)
+    // and surface an informational nudge once they pile up. Counted after
+    // extractSessionAtoms so freshly-extracted atoms are included. The count is
+    // capped by the limit:500 read, which is acceptable for an advisory nudge.
+    const uncuratedAtoms = (await this.store.listAtoms({ project: existingSession.project, status: 'active', limit: 500 }))
+      .filter((a) => a.type !== 'convention' && !((a.metadata as Record<string, unknown> | undefined)?.distilledIntoAtomId));
+    const curationNudge = uncuratedAtoms.length >= CURATION_NUDGE_THRESHOLD
+      ? {
+        count: uncuratedAtoms.length,
+        prompt: `${uncuratedAtoms.length} un-curated atoms have accumulated for "${existingSession.project}". Consider distilling related ones into reusable conventions with tuberosa_propose_curation.`,
+        toolCall: 'tuberosa_propose_curation',
+      }
+      : undefined;
+
     return {
       session,
       reflectionDraft: reflectionDraft ?? learning.draft,
@@ -189,6 +211,7 @@ export class AgentSessionService {
       autoApprovedMemory: learning.approvedDraft,
       learningDecision: learning.decision,
       compliance,
+      curationNudge,
     };
   }
 
