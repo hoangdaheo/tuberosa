@@ -563,7 +563,7 @@ export class RetrievalService {
       debug,
     );
 
-    const [metadata, lexical, memory, vector, worktree, atoms, userStyle] = await Promise.all([
+    const [metadata, lexical, memory, vector, worktree, atoms, userStyle, convention] = await Promise.all([
       timed('metadata', this.store.searchMetadata(classified, options), debug),
       timed('lexical', this.store.searchLexical(classified, options), debug),
       timed('memory', this.store.searchMemories(classified, options), debug),
@@ -571,6 +571,7 @@ export class RetrievalService {
       worktreeResults,
       timed('atoms', this.searchAtomCandidates(classified, options, project), debug),
       timed('userStyle', this.searchUserStyleCandidates(classified, options), debug),
+      timed('convention', this.searchConventionCandidates(classified, options, project), debug),
     ]);
     const namespaceFilter = input.namespace;
     const safeResults: KnowledgeSearchResult = {
@@ -588,6 +589,9 @@ export class RetrievalService {
       // Concern F — user-style atoms intentionally bypass the namespace filter:
       // the layer is cross-project and namespace filters target project scope.
       userStyle: this.safety.sanitizeSearchCandidates(userStyle),
+      // Phase 2 — convention atoms intentionally bypass the namespace filter:
+      // team conventions are cross-project and namespace filters target project scope.
+      convention: this.safety.sanitizeSearchCandidates(convention),
     };
     const seedKnowledgeIds = uniqueStrings([
       ...safeResults.metadata,
@@ -632,6 +636,7 @@ export class RetrievalService {
     debug?.recordStage('worktree', safeResults.worktree);
     debug?.recordStage('atoms', safeResults.atoms);
     debug?.recordStage('userStyle', safeResults.userStyle);
+    debug?.recordStage('convention', safeResults.convention);
 
     return { candidates: safeResults, worktree };
   }
@@ -670,6 +675,49 @@ export class RetrievalService {
     return atoms
       .filter((atom) => atom.status === 'active' && !rejected.has(atom.id))
       .map((atom, index) => userStyleAtomToCandidate(atom, index));
+  }
+
+  /**
+   * Phase 2 — convention lane. Fetches team conventions (scope 'team',
+   * cross-project) and project conventions (scope 'project' for the current
+   * project) whose trigger overlaps the classified query, keeps only active,
+   * non-rejected `type: 'convention'` atoms, and synthesizes convention-source
+   * candidates. Bypasses the namespace filter (mirrors the user-style lane).
+   */
+  private async searchConventionCandidates(
+    classified: ClassifiedQuery,
+    options: SearchOptions,
+    project?: string,
+  ): Promise<SearchCandidate[]> {
+    const trigger = {
+      errors: classified.errors,
+      files: classified.files,
+      symbols: classified.symbols,
+      taskTypes: classified.taskType && classified.taskType !== 'unknown' ? [classified.taskType] : undefined,
+    };
+    const hasTrigger =
+      (trigger.errors?.length ?? 0) > 0
+      || (trigger.files?.length ?? 0) > 0
+      || (trigger.symbols?.length ?? 0) > 0
+      || (trigger.taskTypes?.length ?? 0) > 0;
+    if (!hasTrigger) return [];
+    const [teamAtoms, projectAtoms] = await Promise.all([
+      this.store.searchAtomsByTrigger(trigger, {
+        project: undefined,
+        scope: 'team',
+        teamId: this.config.teamId,
+        limit: options.limit,
+      }),
+      this.store.searchAtomsByTrigger(trigger, {
+        project: project ?? classified.project,
+        scope: 'project',
+        limit: options.limit,
+      }),
+    ]);
+    const rejected = new Set(options.rejectedKnowledgeIds ?? []);
+    return [...teamAtoms, ...projectAtoms]
+      .filter((atom) => atom.type === 'convention' && atom.status === 'active' && !rejected.has(atom.id))
+      .map((atom, index) => conventionAtomToCandidate(atom, index));
   }
 
   /**
@@ -726,6 +774,7 @@ export class RetrievalService {
       disabled.has('graph') ? [] : candidates.graph,
       disabled.has('worktree') ? [] : candidates.worktree,
       disabled.has('userStyle') ? [] : candidates.userStyle,
+      disabled.has('convention') ? [] : candidates.convention,
     ];
 
     // Phase 2 — fetch feedback summaries BEFORE fusion so the per-candidate
@@ -1420,6 +1469,38 @@ function userStyleAtomToCandidate(atom: KnowledgeAtom, index: number): SearchCan
       userStyleTier: atom.tier,
       userStylePriority: atom.priority,
       userId: atom.userId,
+    },
+  };
+}
+
+/**
+ * Phase 2 — convention atoms (scope 'team' cross-project + scope 'project')
+ * are synthesized into candidates carrying their scope/tier so fusion and the
+ * essential-pin step can reason about them. Kept separate from
+ * userStyleAtomToCandidate so the two layers can diverge.
+ */
+function conventionAtomToCandidate(atom: KnowledgeAtom, index: number): SearchCandidate {
+  return {
+    knowledgeId: atom.id,
+    title: atom.claim,
+    summary: atom.claim,
+    content: atom.claim,
+    contextualContent: atom.claim,
+    itemType: 'rule',
+    project: atom.project,
+    labels: [],
+    references: [],
+    tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
+    trustLevel: 1,
+    source: 'convention',
+    rawScore: 1,
+    rank: index + 1,
+    metadata: {
+      conventionAtomId: atom.id,
+      conventionScope: atom.scope,
+      conventionTier: atom.tier,
+      conventionSteps: (atom.metadata as Record<string, unknown> | undefined)?.steps,
+      conventionCategory: (atom.metadata as Record<string, unknown> | undefined)?.category,
     },
   };
 }
