@@ -65,8 +65,8 @@ export async function clusterUserCorrections(
   let proposalsCreated = 0;
   for (const cluster of clusters) {
     if (cluster.length < options.minClusterEvents) continue;
-    const claim = cluster[0].event.reason!;
-    const quotes = cluster.map((c) => c.event.reason!).slice(0, 6);
+    const claim = cluster[0].event.reason ?? '';
+    const quotes = cluster.map((c) => c.event.reason ?? '').slice(0, 6);
     await store.createLearningProposal({
       proposalType: 'user_style_candidate',
       reason: `Clustered ${cluster.length} corrections for user ${options.userId}: ${claim}`,
