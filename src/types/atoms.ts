@@ -123,6 +123,12 @@ export interface KnowledgeAtomPatch {
   verification?: Verification;
   pitfalls?: string[];
   links?: AtomLink[];
+  /**
+   * Phase 4a — free-form metadata patch. Merged by callers (read-modify-write)
+   * and persisted as the atom's full metadata bag. Used to stamp source atoms
+   * with `distilledIntoAtomId` when a convention is curated from them.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 export interface ListAtomsOptions {
