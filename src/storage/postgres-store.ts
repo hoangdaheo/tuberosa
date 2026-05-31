@@ -71,6 +71,18 @@ import type { KnowledgeRelationType } from '../types.js';
 import { PostgresBackupStore } from './postgres/backup-store.js';
 import { PostgresContextStore } from './postgres/context-store.js';
 import { PostgresLabelStore } from './postgres/label-store.js';
+import { PostgresSourceSyncStore } from './postgres/source-sync-store.js';
+import { PostgresRelationStore } from './postgres/relation-store.js';
+import { PostgresAgentSessionStore } from './postgres/agent-session-store.js';
+import {
+  type Queryable,
+  ensureProject,
+  projectIdByName,
+  toIso,
+  filterPersistedKnowledgeIds,
+  insertKnowledgeRelation,
+  expireRelationsFromKnowledge,
+} from './postgres/shared-helpers.js';
 import {
   deriveNamespace,
   readNamespaceFromMetadata,
@@ -105,8 +117,6 @@ import type {
   SourceFileStatus,
   SyncRunRecord,
 } from '../source-sync/types.js';
-
-type Queryable = Pool | PoolClient;
 
 // Phase 5 follow-up: Postgres uuid[] casts crash on synthetic knowledge ids such as
 // the Phase-5 worktree provider's `worktree:<sha256>` ids (live-evidence only, never
@@ -147,11 +157,6 @@ function finalReleaseClient(client: PoolClient): void {
   }
 }
 
-function filterPersistedKnowledgeIds(ids: readonly string[] | undefined): string[] {
-  if (!ids || ids.length === 0) return [];
-  return ids.filter(isPersistedKnowledgeId);
-}
-
 /** Apply a KnowledgeAtomPatch's content+meta fields to one atom inside an open transaction. */
 async function applyAtomPatchInTx(
   client: PoolClient,
@@ -182,6 +187,9 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   private readonly backups: PostgresBackupStore;
   private readonly contextPacks: PostgresContextStore;
   private readonly labels: PostgresLabelStore;
+  private readonly sourceSync: PostgresSourceSyncStore;
+  private readonly relations: PostgresRelationStore;
+  private readonly agentSessions: PostgresAgentSessionStore;
 
   constructor(databaseUrl: string) {
     this.pool = new Pool({
@@ -195,6 +203,9 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     this.backups = new PostgresBackupStore(this.pool);
     this.contextPacks = new PostgresContextStore(this.pool);
     this.labels = new PostgresLabelStore(this.pool);
+    this.sourceSync = new PostgresSourceSyncStore(this.pool);
+    this.relations = new PostgresRelationStore(this.pool);
+    this.agentSessions = new PostgresAgentSessionStore(this.pool);
   }
 
   async withTransaction<T>(fn: (tx: KnowledgeStore) => Promise<T>): Promise<T> {
@@ -272,109 +283,24 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rowCount ?? 0;
   }
 
-  private mapSourceFileRow(row: Record<string, unknown>): SourceFileRecord {
-    return {
-      id: String(row.id),
-      project: String(row.project_name),
-      path: String(row.path),
-      contentHash: (row.content_hash as string | null) ?? null,
-      status: row.status as SourceFileRecord['status'],
-      lastSyncedSha: (row.last_synced_sha as string | null) ?? null,
-      priorPaths: (row.prior_paths as string[] | null) ?? [],
-      knowledgeCount: Number(row.knowledge_count ?? 0),
-      firstSeenAt: toIso(row.first_seen_at),
-      lastSeenAt: toIso(row.last_seen_at),
-      archivedAt: row.archived_at ? toIso(row.archived_at) : null,
-      metadata: (row.metadata as Record<string, unknown> | null) ?? {},
-    };
+  upsertSourceFile(input: UpsertSourceFileInput): Promise<SourceFileRecord> {
+    return this.sourceSync.upsertSourceFile(input);
   }
 
-  private mapSyncRunRow(row: Record<string, unknown>): SyncRunRecord {
-    return {
-      id: String(row.id),
-      project: String(row.project_name),
-      mode: row.mode as SyncRunRecord['mode'],
-      fromSha: (row.from_sha as string | null) ?? null,
-      toSha: (row.to_sha as string | null) ?? null,
-      plan: typeof row.plan === 'string' ? JSON.parse(row.plan) : (row.plan as SyncRunRecord['plan']),
-      applied: row.applied as boolean,
-      trigger: row.trigger as SyncRunRecord['trigger'],
-      createdAt: toIso(row.created_at),
-      appliedAt: row.applied_at ? toIso(row.applied_at) : null,
-    };
+  getSourceFile(options: { project: string; path: string }): Promise<SourceFileRecord | undefined> {
+    return this.sourceSync.getSourceFile(options);
   }
 
-  async upsertSourceFile(input: UpsertSourceFileInput): Promise<SourceFileRecord> {
-    const projectId = await this.ensureProject(this.pool, input.project);
-    const { rows } = await this.db.query(
-      `
-        INSERT INTO source_files (project_id, path, content_hash, status, last_synced_sha, metadata, last_seen_at)
-        VALUES ($1, $2, $3, COALESCE($4, 'tracked'), $5, COALESCE($6, '{}'::jsonb), now())
-        ON CONFLICT (project_id, path) DO UPDATE SET
-          content_hash = EXCLUDED.content_hash,
-          status = COALESCE($4, source_files.status),
-          last_synced_sha = COALESCE($5, source_files.last_synced_sha),
-          metadata = COALESCE($6, source_files.metadata),
-          last_seen_at = now()
-        RETURNING *, (SELECT name FROM projects WHERE id = project_id) AS project_name
-      `,
-      [projectId, input.path, input.contentHash, input.status ?? null, input.lastSyncedSha ?? null, input.metadata ?? null],
-    );
-    return this.mapSourceFileRow(rows[0]);
+  listSourceFiles(options: ListSourceFilesOptions): Promise<SourceFileRecord[]> {
+    return this.sourceSync.listSourceFiles(options);
   }
 
-  async getSourceFile(options: { project: string; path: string }): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.db.query(
-      `
-        SELECT sf.*, p.name AS project_name
-        FROM source_files sf JOIN projects p ON p.id = sf.project_id
-        WHERE p.name = $1 AND sf.path = $2
-      `,
-      [options.project, options.path],
-    );
-    return rows[0] ? this.mapSourceFileRow(rows[0]) : undefined;
+  renameSourceFile(input: RenameSourceFileInput): Promise<SourceFileRecord | undefined> {
+    return this.sourceSync.renameSourceFile(input);
   }
 
-  async listSourceFiles(options: ListSourceFilesOptions): Promise<SourceFileRecord[]> {
-    const { rows } = await this.db.query(
-      `
-        SELECT sf.*, p.name AS project_name
-        FROM source_files sf JOIN projects p ON p.id = sf.project_id
-        WHERE ($1::text IS NULL OR p.name = $1) AND ($2::text IS NULL OR sf.status = $2)
-        ORDER BY sf.path
-        LIMIT $3
-      `,
-      [options.project ?? null, options.status ?? null, options.limit],
-    );
-    return rows.map((row) => this.mapSourceFileRow(row));
-  }
-
-  async renameSourceFile(input: RenameSourceFileInput): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.db.query(
-      `
-        UPDATE source_files sf
-        SET path = $3, prior_paths = array_append(sf.prior_paths, $2), last_seen_at = now()
-        FROM projects p
-        WHERE p.id = sf.project_id AND p.name = $1 AND sf.path = $2
-        RETURNING sf.*, p.name AS project_name
-      `,
-      [input.project, input.from, input.to],
-    );
-    return rows[0] ? this.mapSourceFileRow(rows[0]) : undefined;
-  }
-
-  async setSourceFileStatus(options: { project: string; path: string; status: SourceFileStatus }): Promise<SourceFileRecord | undefined> {
-    const { rows } = await this.db.query(
-      `
-        UPDATE source_files sf
-        SET status = $3, archived_at = CASE WHEN $3 = 'archived' THEN now() ELSE sf.archived_at END
-        FROM projects p
-        WHERE p.id = sf.project_id AND p.name = $1 AND sf.path = $2
-        RETURNING sf.*, p.name AS project_name
-      `,
-      [options.project, options.path, options.status],
-    );
-    return rows[0] ? this.mapSourceFileRow(rows[0]) : undefined;
+  setSourceFileStatus(options: { project: string; path: string; status: SourceFileStatus }): Promise<SourceFileRecord | undefined> {
+    return this.sourceSync.setSourceFileStatus(options);
   }
 
   async listKnowledgeBySourcePath(options: { project: string; path: string }): Promise<StoredKnowledge[]> {
@@ -396,45 +322,16 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return out;
   }
 
-  async createSyncRun(input: CreateSyncRunInput): Promise<SyncRunRecord> {
-    const projectId = await this.ensureProject(this.pool, input.project);
-    const { rows } = await this.db.query(
-      `
-        INSERT INTO sync_runs (project_id, mode, from_sha, to_sha, plan, trigger)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING *, (SELECT name FROM projects WHERE id = project_id) AS project_name
-      `,
-      [projectId, input.mode, input.fromSha ?? null, input.toSha ?? null, JSON.stringify(input.plan), input.trigger],
-    );
-    return this.mapSyncRunRow(rows[0]);
+  createSyncRun(input: CreateSyncRunInput): Promise<SyncRunRecord> {
+    return this.sourceSync.createSyncRun(input);
   }
 
-  async getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
-    if (!isPersistedKnowledgeId(id)) return undefined;
-    const { rows } = await this.db.query(
-      `
-        SELECT sr.*, p.name AS project_name
-        FROM sync_runs sr JOIN projects p ON p.id = sr.project_id
-        WHERE sr.id = $1
-      `,
-      [id],
-    );
-    return rows[0] ? this.mapSyncRunRow(rows[0]) : undefined;
+  getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
+    return this.sourceSync.getSyncRun(id);
   }
 
-  async markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
-    if (!isPersistedKnowledgeId(id)) return undefined;
-    const { rows } = await this.db.query(
-      `
-        UPDATE sync_runs sr
-        SET applied = true, applied_at = now()
-        FROM projects p
-        WHERE p.id = sr.project_id AND sr.id = $1
-        RETURNING sr.*, p.name AS project_name
-      `,
-      [id],
-    );
-    return rows[0] ? this.mapSyncRunRow(rows[0]) : undefined;
+  markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
+    return this.sourceSync.markSyncRunApplied(id);
   }
 
   async createAtlasRun(input: AtlasRunInput): Promise<AtlasRunRecord> {
@@ -613,7 +510,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       await client.query('DELETE FROM knowledge_relations WHERE from_knowledge_id = $1 AND inferred = true', [knowledgeId]);
       const created: KnowledgeRelation[] = [];
       for (const relation of relations) {
-        created.push(await this.insertKnowledgeRelation(client, { ...relation, inferred: true }));
+        created.push(await insertKnowledgeRelation(client, { ...relation, inferred: true }));
       }
       await client.query('COMMIT');
       return created;
@@ -625,93 +522,24 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
   }
 
-  async listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]> {
-    // Phase 5 follow-up: filter synthetic ids (e.g. worktree:<sha>) so a caller that
-    // walks worktree candidates into listKnowledgeRelations does not crash the uuid cast.
-    if (options.fromKnowledgeId && !isPersistedKnowledgeId(options.fromKnowledgeId)) return [];
-    if (options.targetKnowledgeId && !isPersistedKnowledgeId(options.targetKnowledgeId)) return [];
-    const result = await this.db.query(
-      `
-        ${relationSelect()}
-        WHERE ($2::text IS NULL OR p.name = $2)
-          AND ($3::uuid IS NULL OR kr.from_knowledge_id = $3)
-          AND ($4::uuid IS NULL OR kr.target_knowledge_id = $4)
-          AND ($5::text IS NULL OR kr.target_value = $5)
-          AND ($6::text IS NULL OR kr.relation_type = $6)
-          AND ($7::boolean IS NULL OR kr.inferred = $7)
-        ORDER BY kr.created_at DESC
-        LIMIT $1
-      `,
-      [
-        options.limit,
-        options.project ?? null,
-        options.fromKnowledgeId ?? null,
-        options.targetKnowledgeId ?? null,
-        options.targetValue ?? null,
-        options.relationType ?? null,
-        options.inferred ?? null,
-      ],
-    );
-
-    return result.rows.map(mapRelationRow);
+  listKnowledgeRelations(options: ListKnowledgeRelationsOptions): Promise<KnowledgeRelation[]> {
+    return this.relations.listKnowledgeRelations(options);
   }
 
-  async getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
-    if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.db.query(
-      `
-        ${relationSelect()}
-        WHERE kr.id = $1
-      `,
-      [id],
-    );
-
-    return result.rows[0] ? mapRelationRow(result.rows[0]) : undefined;
+  getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
+    return this.relations.getKnowledgeRelation(id);
   }
 
-  async createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation> {
-    return this.insertKnowledgeRelation(this.pool, input);
+  createKnowledgeRelation(input: KnowledgeRelationInput): Promise<KnowledgeRelation> {
+    return this.relations.createKnowledgeRelation(input);
   }
 
-  async updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined> {
-    const current = await this.getKnowledgeRelation(id);
-    if (!current) {
-      return undefined;
-    }
-
-    const result = await this.db.query(
-      `
-        UPDATE knowledge_relations
-        SET relation_type = $2,
-          target_kind = $3,
-          target_knowledge_id = $4,
-          target_value = $5,
-          confidence = $6,
-          inferred = $7,
-          metadata = $8,
-          updated_at = now()
-        WHERE id = $1
-        RETURNING id
-      `,
-      [
-        id,
-        patch.relationType ?? current.relationType,
-        patch.targetKind ?? current.targetKind,
-        patch.targetKnowledgeId === null ? null : patch.targetKnowledgeId ?? current.targetKnowledgeId ?? null,
-        patch.targetValue === null ? null : patch.targetValue ?? current.targetValue ?? null,
-        patch.confidence ?? current.confidence,
-        patch.inferred ?? current.inferred,
-        patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata,
-      ],
-    );
-
-    return result.rowCount ? this.getKnowledgeRelation(id) : undefined;
+  updateKnowledgeRelation(id: string, patch: KnowledgeRelationPatchInput): Promise<KnowledgeRelation | undefined> {
+    return this.relations.updateKnowledgeRelation(id, patch);
   }
 
-  async deleteKnowledgeRelation(id: string): Promise<boolean> {
-    if (!isPersistedKnowledgeId(id)) return false;
-    const result = await this.db.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
-    return Boolean(result.rowCount);
+  deleteKnowledgeRelation(id: string): Promise<boolean> {
+    return this.relations.deleteKnowledgeRelation(id);
   }
 
   async listKnowledgeConflicts(options: ListKnowledgeConflictsOptions): Promise<KnowledgeConflict[]> {
@@ -1362,7 +1190,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     const createdAtIso = toIso(result.rows[0].created_at);
     if (input.feedbackType === 'stale' && persistedRejectedIds.length) {
       for (const knowledgeId of persistedRejectedIds) {
-        await this.expireRelationsFromKnowledge(this.pool, knowledgeId, createdAtIso);
+        await expireRelationsFromKnowledge(this.pool, knowledgeId, createdAtIso);
       }
     }
 
@@ -1487,7 +1315,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }));
   }
 
-  async createAgentSession(input: {
+  createAgentSession(input: {
     prompt: string;
     project?: string;
     cwd?: string;
@@ -1496,217 +1324,46 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     initialContextPackId?: string;
     metadata?: Record<string, unknown>;
   }): Promise<AgentSession> {
-    const projectId = input.project ? await this.ensureProject(this.pool, input.project) : null;
-    const result = await this.db.query(
-      `
-        INSERT INTO agent_sessions (
-          project_id, prompt, cwd, agent_name, agent_tool,
-          initial_context_pack_id, metadata
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, prompt, cwd, agent_name, agent_tool, status,
-          initial_context_pack_id, outcome, summary, reflection_draft_ids,
-          metadata, created_at, updated_at, finished_at
-      `,
-      [
-        projectId,
-        input.prompt,
-        input.cwd ?? null,
-        input.agentName ?? null,
-        input.agentTool ?? null,
-        input.initialContextPackId ?? null,
-        input.metadata ?? {},
-      ],
-    );
-
-    return mapAgentSessionRow(result.rows[0], input.project);
+    return this.agentSessions.createAgentSession(input);
   }
 
-  async listAgentSessions(options: ListRecordsOptions): Promise<AgentSession[]> {
-    const result = await this.db.query(
-      `
-        SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
-          s.status, s.initial_context_pack_id, s.outcome, s.summary,
-          s.reflection_draft_ids, s.metadata, s.created_at, s.updated_at, s.finished_at
-        FROM agent_sessions s
-        LEFT JOIN projects p ON p.id = s.project_id
-        WHERE ($2::text IS NULL OR p.name = $2)
-          AND ($3::text IS NULL OR s.status = $3)
-        ORDER BY s.created_at DESC
-        LIMIT $1
-      `,
-      [options.limit, options.project ?? null, options.status ?? null],
-    );
-
-    return result.rows.map((row) => mapAgentSessionRow(row));
+  listAgentSessions(options: ListRecordsOptions): Promise<AgentSession[]> {
+    return this.agentSessions.listAgentSessions(options);
   }
 
-  async getAgentSession(id: string): Promise<AgentSession | undefined> {
-    if (!isPersistedKnowledgeId(id)) return undefined;
-    const result = await this.db.query(
-      `
-        SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
-          s.status, s.initial_context_pack_id, s.outcome, s.summary,
-          s.reflection_draft_ids, s.metadata, s.created_at, s.updated_at, s.finished_at
-        FROM agent_sessions s
-        LEFT JOIN projects p ON p.id = s.project_id
-        WHERE s.id = $1
-      `,
-      [id],
-    );
-
-    return result.rows[0] ? mapAgentSessionRow(result.rows[0]) : undefined;
+  getAgentSession(id: string): Promise<AgentSession | undefined> {
+    return this.agentSessions.getAgentSession(id);
   }
 
-  async recordAgentContextDecision(input: RecordAgentContextDecisionInput & {
+  recordAgentContextDecision(input: RecordAgentContextDecisionInput & {
     retryContextPackId?: string;
   }): Promise<AgentContextDecision> {
-    const result = await this.db.query(
-      `
-        INSERT INTO agent_context_decisions (
-          session_id, context_pack_id, decision, reason, rejected_knowledge_ids,
-          retry_context_pack_id, metadata
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, session_id, context_pack_id, decision, reason,
-          rejected_knowledge_ids, retry_context_pack_id, metadata, created_at
-      `,
-      [
-        input.sessionId,
-        input.contextPackId ?? null,
-        input.feedbackType,
-        input.reason ?? null,
-        // Phase 5 follow-up: agent_context_decisions.rejected_knowledge_ids is uuid[];
-        // synthetic worktree ids cannot be persisted and would crash the cast.
-        filterPersistedKnowledgeIds(input.rejectedKnowledgeIds),
-        input.retryContextPackId ?? null,
-        input.metadata ?? {},
-      ],
-    );
-    await this.db.query('UPDATE agent_sessions SET updated_at = now() WHERE id = $1', [input.sessionId]);
-
-    return mapAgentContextDecisionRow(result.rows[0]);
+    return this.agentSessions.recordAgentContextDecision(input);
   }
 
-  async listAgentContextDecisions(options: { sessionId?: string; limit: number }): Promise<AgentContextDecision[]> {
-    const result = await this.db.query(
-      `
-        SELECT id, session_id, context_pack_id, decision, reason,
-          rejected_knowledge_ids, retry_context_pack_id, metadata, created_at
-        FROM agent_context_decisions
-        WHERE ($2::uuid IS NULL OR session_id = $2)
-        ORDER BY created_at DESC
-        LIMIT $1
-      `,
-      [options.limit, options.sessionId ?? null],
-    );
-
-    return result.rows.map(mapAgentContextDecisionRow);
+  listAgentContextDecisions(options: { sessionId?: string; limit: number }): Promise<AgentContextDecision[]> {
+    return this.agentSessions.listAgentContextDecisions(options);
   }
 
-  async appendAgentSessionNote(input: {
+  appendAgentSessionNote(input: {
     sessionId: string;
     note: AgentSessionNote;
   }): Promise<AgentSession | undefined> {
-    const result = await this.db.query(
-      `
-        UPDATE agent_sessions s
-        SET metadata = jsonb_set(
-          COALESCE(s.metadata, '{}'::jsonb),
-          '{notes}',
-          COALESCE(s.metadata->'notes', '[]'::jsonb) || $2::jsonb,
-          true
-        ),
-        updated_at = now()
-        WHERE s.id = $1
-        RETURNING s.id, s.prompt, s.cwd, s.agent_name, s.agent_tool, s.status,
-          s.initial_context_pack_id, s.outcome, s.summary, s.reflection_draft_ids,
-          s.metadata, s.created_at, s.updated_at, s.finished_at,
-          (SELECT p.name FROM projects p WHERE p.id = s.project_id) AS project
-      `,
-      [input.sessionId, JSON.stringify([input.note])],
-    );
-
-    return result.rows[0] ? mapAgentSessionRow(result.rows[0]) : undefined;
+    return this.agentSessions.appendAgentSessionNote(input);
   }
 
-  async writeSessionReplay(bundle: SessionReplayBundle): Promise<void> {
-    await this.db.query(
-      `
-        INSERT INTO agent_session_replays (
-          session_id, recorded_at, classifier, source_candidates, fusion_order,
-          rerank_deltas, adjustments, context_fit, pack, timings
-        )
-        VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb)
-        ON CONFLICT (session_id) DO UPDATE SET
-          recorded_at = EXCLUDED.recorded_at,
-          classifier = EXCLUDED.classifier,
-          source_candidates = EXCLUDED.source_candidates,
-          fusion_order = EXCLUDED.fusion_order,
-          rerank_deltas = EXCLUDED.rerank_deltas,
-          adjustments = EXCLUDED.adjustments,
-          context_fit = EXCLUDED.context_fit,
-          pack = EXCLUDED.pack,
-          timings = EXCLUDED.timings
-      `,
-      [
-        bundle.sessionId,
-        bundle.recordedAt ?? new Date().toISOString(),
-        JSON.stringify(bundle.classifier),
-        JSON.stringify(bundle.sourceCandidates),
-        JSON.stringify(bundle.fusionOrder),
-        JSON.stringify(bundle.rerankDeltas),
-        JSON.stringify(bundle.adjustments),
-        JSON.stringify(bundle.contextFit),
-        JSON.stringify(bundle.pack),
-        JSON.stringify(bundle.timings),
-      ],
-    );
+  writeSessionReplay(bundle: SessionReplayBundle): Promise<void> {
+    return this.agentSessions.writeSessionReplay(bundle);
   }
 
-  async readSessionReplay(sessionId: string): Promise<SessionReplayBundle | null> {
-    const result = await this.db.query(
-      `
-        SELECT session_id, recorded_at, classifier, source_candidates, fusion_order,
-          rerank_deltas, adjustments, context_fit, pack, timings
-        FROM agent_session_replays
-        WHERE session_id = $1
-      `,
-      [sessionId],
-    );
-
-    return result.rows[0] ? mapSessionReplayRow(result.rows[0]) : null;
+  readSessionReplay(sessionId: string): Promise<SessionReplayBundle | null> {
+    return this.agentSessions.readSessionReplay(sessionId);
   }
 
-  async finishAgentSession(input: FinishAgentSessionInput & {
+  finishAgentSession(input: FinishAgentSessionInput & {
     reflectionDraftIds?: string[];
   }): Promise<AgentSession | undefined> {
-    const result = await this.db.query(
-      `
-        UPDATE agent_sessions s
-        SET status = 'finished',
-          outcome = $2,
-          summary = $3,
-          reflection_draft_ids = s.reflection_draft_ids || $4::uuid[],
-          metadata = s.metadata || $5::jsonb,
-          updated_at = now(),
-          finished_at = now()
-        WHERE s.id = $1
-        RETURNING s.id, s.prompt, s.cwd, s.agent_name, s.agent_tool, s.status,
-          s.initial_context_pack_id, s.outcome, s.summary, s.reflection_draft_ids,
-          s.metadata, s.created_at, s.updated_at, s.finished_at,
-          (SELECT p.name FROM projects p WHERE p.id = s.project_id) AS project
-      `,
-      [
-        input.sessionId,
-        input.outcome,
-        input.summary ?? null,
-        input.reflectionDraftIds ?? [],
-        input.metadata ?? {},
-      ],
-    );
-
-    return result.rows[0] ? mapAgentSessionRow(result.rows[0]) : undefined;
+    return this.agentSessions.finishAgentSession(input);
   }
 
   async listReflectionDrafts(options: ListRecordsOptions): Promise<ReflectionDraft[]> {
@@ -2706,23 +2363,12 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return this.backups.restoreBackup(input);
   }
 
-  private async ensureProject(client: Queryable, name: string): Promise<string> {
-    const result = await client.query<{ id: string }>(
-      `
-        INSERT INTO projects (name)
-        VALUES ($1)
-        ON CONFLICT (name) DO UPDATE SET updated_at = now()
-        RETURNING id
-      `,
-      [name],
-    );
-
-    return result.rows[0].id;
+  private ensureProject(client: Queryable, name: string): Promise<string> {
+    return ensureProject(client, name);
   }
 
-  private async projectIdByName(client: Queryable, name: string): Promise<string | null> {
-    const result = await client.query<{ id: string }>('SELECT id FROM projects WHERE name = $1', [name]);
-    return result.rows[0]?.id ?? null;
+  private projectIdByName(client: Queryable, name: string): Promise<string | null> {
+    return projectIdByName(client, name);
   }
 
   private async upsertSource(client: PoolClient, projectId: string, input: KnowledgeInput): Promise<string> {
@@ -2911,82 +2557,6 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     }
   }
 
-  private async insertKnowledgeRelation(
-    client: Queryable,
-    input: KnowledgeRelationInput,
-  ): Promise<KnowledgeRelation> {
-    const projectId = input.project
-      ? await this.ensureProject(client, input.project)
-      : null;
-    // Phase 6c — stamp metadata.validFrom on every new relation (mirror inference.ts).
-    const baseMetadata = input.metadata ?? {};
-    const metadataWithValidity = typeof baseMetadata.validFrom === 'string'
-      ? baseMetadata
-      : { validFrom: new Date().toISOString(), ...baseMetadata };
-    const result = await client.query(
-      `
-        WITH inserted AS (
-          INSERT INTO knowledge_relations (
-            project_id, from_knowledge_id, relation_type, target_kind,
-            target_knowledge_id, target_value, confidence, inferred, metadata
-          )
-          VALUES (
-            COALESCE($1, (SELECT project_id FROM knowledge_items WHERE id = $2)),
-            $2, $3, $4, $5, $6, $7, $8, $9
-          )
-          RETURNING *
-        )
-        SELECT inserted.*, p.name AS project
-        FROM inserted
-        LEFT JOIN projects p ON p.id = inserted.project_id
-      `,
-      [
-        projectId,
-        input.fromKnowledgeId,
-        input.relationType,
-        input.targetKind,
-        input.targetKnowledgeId ?? null,
-        input.targetValue ?? null,
-        input.confidence ?? 0.7,
-        input.inferred ?? false,
-        metadataWithValidity,
-      ],
-    );
-    const created = mapRelationRow(result.rows[0]);
-
-    // Phase 6c — when memory A supersedes memory B, stamp validUntil on B's
-    // other inferred outgoing relations. Idempotent: skip relations that
-    // already carry a validUntil.
-    if (created.relationType === 'supersedes' && created.targetKnowledgeId) {
-      await this.expireRelationsFromKnowledge(
-        client,
-        created.targetKnowledgeId,
-        new Date().toISOString(),
-        created.id,
-      );
-    }
-    return created;
-  }
-
-  private async expireRelationsFromKnowledge(
-    client: Queryable,
-    knowledgeId: string,
-    expiredAt: string,
-    excludeRelationId?: string,
-  ): Promise<void> {
-    await client.query(
-      `
-        UPDATE knowledge_relations
-        SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{validUntil}', to_jsonb($2::text), true),
-            updated_at = now()
-        WHERE from_knowledge_id = $1
-          AND inferred = true
-          AND (metadata->>'validUntil') IS NULL
-          AND ($3::uuid IS NULL OR id <> $3)
-      `,
-      [knowledgeId, expiredAt, excludeRelationId ?? null],
-    );
-  }
 }
 
 function knowledgeSelect(): string {
@@ -3072,26 +2642,6 @@ function candidateSelect(source: string, scoreExpression: string, graphPathsExpr
     FROM knowledge_chunks kc
     JOIN knowledge_items ki ON ki.id = kc.knowledge_id
     JOIN projects p ON p.id = ki.project_id
-  `;
-}
-
-function relationSelect(): string {
-  return `
-    SELECT
-      kr.id,
-      p.name AS project,
-      kr.from_knowledge_id,
-      kr.relation_type,
-      kr.target_kind,
-      kr.target_knowledge_id,
-      kr.target_value,
-      kr.confidence,
-      kr.inferred,
-      kr.metadata,
-      kr.created_at,
-      kr.updated_at
-    FROM knowledge_relations kr
-    LEFT JOIN projects p ON p.id = kr.project_id
   `;
 }
 
@@ -3186,23 +2736,6 @@ function mapKnowledgeRow(row: Record<string, unknown>): StoredKnowledge {
     createdAt: toIso(row.created_at),
     updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
     namespace,
-  };
-}
-
-function mapRelationRow(row: Record<string, unknown>): KnowledgeRelation {
-  return {
-    id: String(row.id),
-    project: row.project ? String(row.project) : undefined,
-    fromKnowledgeId: String(row.from_knowledge_id),
-    relationType: row.relation_type as KnowledgeRelation['relationType'],
-    targetKind: row.target_kind as KnowledgeRelation['targetKind'],
-    targetKnowledgeId: row.target_knowledge_id ? String(row.target_knowledge_id) : undefined,
-    targetValue: row.target_value ? String(row.target_value) : undefined,
-    confidence: Number(row.confidence ?? 0.7),
-    inferred: Boolean(row.inferred),
-    metadata: (row.metadata ?? {}) as Record<string, unknown>,
-    createdAt: toIso(row.created_at),
-    updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
   };
 }
 
@@ -3418,55 +2951,6 @@ function mapReflectionDraftRow(row: Record<string, unknown>, project?: string): 
   };
 }
 
-function mapAgentSessionRow(row: Record<string, unknown>, project?: string): AgentSession {
-  return {
-    id: String(row.id),
-    project: project ?? (row.project ? String(row.project) : undefined),
-    cwd: row.cwd ? String(row.cwd) : undefined,
-    prompt: String(row.prompt),
-    agentName: row.agent_name ? String(row.agent_name) : undefined,
-    agentTool: row.agent_tool ? String(row.agent_tool) : undefined,
-    status: row.status as AgentSession['status'],
-    initialContextPackId: row.initial_context_pack_id ? String(row.initial_context_pack_id) : undefined,
-    outcome: row.outcome ? row.outcome as AgentSession['outcome'] : undefined,
-    summary: row.summary ? String(row.summary) : undefined,
-    reflectionDraftIds: (row.reflection_draft_ids ?? []) as string[],
-    metadata: (row.metadata ?? {}) as Record<string, unknown>,
-    createdAt: toIso(row.created_at),
-    updatedAt: row.updated_at ? toIso(row.updated_at) : undefined,
-    finishedAt: row.finished_at ? toIso(row.finished_at) : undefined,
-  };
-}
-
-function mapSessionReplayRow(row: Record<string, unknown>): SessionReplayBundle {
-  return {
-    sessionId: String(row.session_id),
-    recordedAt: row.recorded_at ? toIso(row.recorded_at) : undefined,
-    classifier: (row.classifier ?? {}) as Record<string, unknown>,
-    sourceCandidates: (row.source_candidates ?? {}) as SessionReplayBundle['sourceCandidates'],
-    fusionOrder: (row.fusion_order ?? []) as SessionReplayBundle['fusionOrder'],
-    rerankDeltas: (row.rerank_deltas ?? []) as SessionReplayBundle['rerankDeltas'],
-    adjustments: (row.adjustments ?? []) as SessionReplayBundle['adjustments'],
-    contextFit: row.context_fit as SessionReplayBundle['contextFit'],
-    pack: row.pack as SessionReplayBundle['pack'],
-    timings: row.timings as SessionReplayBundle['timings'],
-  };
-}
-
-function mapAgentContextDecisionRow(row: Record<string, unknown>): AgentContextDecision {
-  return {
-    id: String(row.id),
-    sessionId: String(row.session_id),
-    contextPackId: row.context_pack_id ? String(row.context_pack_id) : undefined,
-    decision: row.decision as AgentContextDecision['decision'],
-    reason: row.reason ? String(row.reason) : undefined,
-    rejectedKnowledgeIds: (row.rejected_knowledge_ids ?? []) as string[],
-    retryContextPackId: row.retry_context_pack_id ? String(row.retry_context_pack_id) : undefined,
-    metadata: (row.metadata ?? {}) as Record<string, unknown>,
-    createdAt: toIso(row.created_at),
-  };
-}
-
 function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom {
   const scope = (row.scope as KnowledgeAtom['scope']) ?? 'project';
   const userId = row.user_id ? String(row.user_id) : undefined;
@@ -3555,14 +3039,6 @@ function rowToAtomImportConflict(row: Record<string, unknown>): AtomImportConfli
     createdAt: toIso(row.created_at),
     resolvedAt: row.resolved_at ? toIso(row.resolved_at) : undefined,
   };
-}
-
-function toIso(value: unknown): string {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  return String(value);
 }
 
 const LABEL_PROVENANCE_METADATA_KEY = 'labelProvenance';
