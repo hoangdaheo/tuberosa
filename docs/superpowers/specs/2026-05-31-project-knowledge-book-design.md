@@ -66,7 +66,7 @@ user_id   : set when scope='user'
 team_id   : set when scope='team'            -- new column, mirrors user_id
 priority  : 'personal_workflow' | 'coding_preference'   -- existing; personal_workflow is inviolable
 -- convention payload (metadata/structured fields):
-category  : 'architecture' | 'code_style' | 'testing' | 'workflow' | 'error_handling' | 'security' | 'gotcha' | ...
+category  : 'architecture' | 'code_style' | 'testing' | 'workflow' | 'error_handling' | 'security' | 'gotcha' | 'other'   -- v1 enum; 'other' is the never-force-fit fallback
 author    : who established it (attribution)
 trigger   : { taskTypes?, technologies?, businessAreas?, fileGlobs?, summary }
 steps     : ["...", "..."]                    -- the ordered A,B,C checklist
@@ -85,6 +85,7 @@ ALTER TABLE knowledge_atoms
 CREATE INDEX IF NOT EXISTS idx_atoms_scope_team
   ON knowledge_atoms (scope, team_id, tier) WHERE status='active';
 ```
+**Team identity (v1):** a **single implicit team per Tuberosa instance** — `team_id` comes from config (`TUBEROSA_TEAM_ID`, default `"default"`). The export pack *is* "the team's book". Explicit multi-team membership is deferred.
 Invariants (app-enforced, as user-style already does):
 - `scope='project'` ⇒ `project_id` set, `user_id`/`team_id` null.
 - `scope='user'` ⇒ `user_id` set, `project_id`/`team_id` null.
@@ -112,7 +113,7 @@ Add a **convention-extraction stage** to the existing bootstrap command (and an 
 Bootstrap stays **safe and additive** (matches the existing bootstrap safety rules: no destructive cleanup, no silent overwrite). Convention extraction is non-fatal: a failed extraction never fails the sync/atlas portion of bootstrap.
 
 ### 7.2 Living — `tuberosa_propose_curation`
-New MCP tool. The agent calls it (nudged when atoms pile up):
+New MCP tool. The agent calls it when nudged. The **nudge fires from both `finish_session`** (natural point — the agent just produced atoms) **and `start_session`**, threshold-based and informational only (it never auto-runs curation; writes still pause per the automation policy). The agent calls it (nudged when atoms pile up):
 1. Tuberosa pulls **un-curated atoms** (no `distilledIntoRuleId`), clusters related ones locally (reuse write-gate cosine + label-overlap math), returns clusters + a distillation instruction.
 2. The agent writes back one distilled convention per worthy cluster via the existing `tuberosa_reflect` path (carrying the convention payload).
 3. Source atoms are stamped `distilledIntoRuleId` (not re-clustered; demoted in ranking since the convention now represents them).
@@ -189,7 +190,7 @@ Add fixtures that fail without the change:
 | Precedence breaks a personal-workflow guarantee | `personal_workflow` is inviolable (rule #1 in §9), covered by eval #2. |
 | Bootstrap noise on huge repos | Extraction is additive, non-fatal, and review-gated; agent proposes, human approves. |
 
-## 14. Open questions for spec review
-- Exact `category` enum — start with {architecture, code_style, testing, workflow, error_handling, security, gotcha} and extend?
-- Should `tuberosa_propose_curation` be auto-nudged from `finish_session` too, or only from `start_session`?
-- Team identity: single implicit team per Tuberosa instance for v1, or an explicit `team_id` the user sets?
+## 14. Resolved decisions (settled at spec review)
+- **`category` enum (v1):** `{architecture, code_style, testing, workflow, error_handling, security, gotcha, other}` — `other` is the never-force-fit fallback; extend later.
+- **Curation nudge:** fires from **both** `finish_session` and `start_session`, threshold-based and informational only (never auto-runs).
+- **Team identity (v1):** single implicit team per Tuberosa instance via `TUBEROSA_TEAM_ID` config (default `"default"`); explicit multi-team deferred.
