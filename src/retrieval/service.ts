@@ -689,6 +689,7 @@ export class RetrievalService {
     options: SearchOptions,
     project?: string,
   ): Promise<SearchCandidate[]> {
+    if (this.config.conventionsEnabled === false) return [];
     const trigger = {
       errors: classified.errors,
       files: classified.files,
@@ -1493,14 +1494,20 @@ function conventionAtomToCandidate(atom: KnowledgeAtom, index: number): SearchCa
     tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
     trustLevel: 1,
     source: 'convention',
-    rawScore: 1,
+    // A project-scope convention atom is also picked up by the generic `atoms`
+    // lane (same project + trigger). Fusion dedups by knowledgeId and keeps the
+    // chunk whose rawScore wins the `existing.rawScore >= candidate.rawScore`
+    // tiebreaker (rawScore is a pure collision tiebreaker — it does not affect
+    // the fused score). A marginally higher rawScore than the atoms lane's `1`
+    // ensures the authoritative `convention` source label survives the merge.
+    rawScore: 1.1,
     rank: index + 1,
     metadata: {
       conventionAtomId: atom.id,
       conventionScope: atom.scope,
       conventionTier: atom.tier,
-      conventionSteps: (atom.metadata as Record<string, unknown> | undefined)?.steps,
-      conventionCategory: (atom.metadata as Record<string, unknown> | undefined)?.category,
+      conventionSteps: atom.metadata?.steps,
+      conventionCategory: atom.metadata?.category,
     },
   };
 }
