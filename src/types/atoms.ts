@@ -8,7 +8,7 @@ export type AtomLinkKind = 'supersedes' | 'refines' | 'depends_on' | 'co_changes
 // scope='user' atoms belong to a single human across all their projects; the
 // `priority` discriminator drives conflict resolution against project conventions
 // during retrieval.
-export type AtomScope = 'project' | 'user';
+export type AtomScope = 'project' | 'user' | 'team';
 export type StylePriority = 'personal_workflow' | 'coding_preference';
 
 export type Evidence =
@@ -67,6 +67,7 @@ export interface KnowledgeAtom {
 
   scope: AtomScope;
   userId?: string;
+  teamId?: string;
   priority?: StylePriority;
   /**
    * Free-form metadata. Currently used by user-style atoms to flag low-evidence
@@ -104,6 +105,7 @@ export interface KnowledgeAtomInput {
   // Concern F — user-style preference layer. Default scope is 'project'.
   scope?: AtomScope;
   userId?: string;
+  teamId?: string;
   priority?: StylePriority;
   metadata?: Record<string, unknown>;
 }
@@ -130,5 +132,6 @@ export interface ListAtomsOptions {
   parentKnowledgeId?: string;
   scope?: AtomScope;
   userId?: string;
+  teamId?: string;
   limit: number;
 }

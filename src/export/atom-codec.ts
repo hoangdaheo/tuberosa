@@ -54,6 +54,7 @@ export function serializeAtom(
     },
     scope: atom.scope,
     userId: atom.userId,
+    teamId: atom.teamId,
     priority: atom.priority,
     metadata: atom.metadata && Object.keys(atom.metadata).length > 0 ? atom.metadata : undefined,
   };
@@ -102,6 +103,7 @@ export function toAtomInputFromParsed(parsed: ParsedAtomMarkdown): KnowledgeAtom
     },
     scope: (fm.scope as KnowledgeAtom['scope'] | undefined) ?? 'project',
     userId: fm.userId,
+    teamId: fm.teamId,
     priority: fm.priority as KnowledgeAtom['priority'] | undefined,
     metadata: (fm.metadata as Record<string, unknown> | undefined) ?? {},
   };

@@ -64,6 +64,8 @@ export interface AppConfig {
   defaultCwd?: string;
   /** Concern F — when set, retrieval pulls user-style atoms for this user as a 7th candidate source. */
   userId?: string;
+  /** Concern F — team knowledge layer identifier. Defaults to "default". Optional so existing test config literals keep compiling. */
+  teamId?: string;
   /** Concern F — master switch for the user-style preference layer. Default true. Optional so older test config literals keep compiling. */
   userStyleEnabled?: boolean;
   /** Concern F — interval between scheduled user-correction clustering runs (hours). */
@@ -132,6 +134,7 @@ export function loadConfig(): AppConfig {
     defaultProject: process.env.TUBEROSA_DEFAULT_PROJECT || undefined,
     defaultCwd: process.env.TUBEROSA_DEFAULT_CWD || undefined,
     userId: process.env.TUBEROSA_USER_ID || undefined,
+    teamId: process.env.TUBEROSA_TEAM_ID || 'default',
     userStyleEnabled: readBoolean(process.env.TUBEROSA_USER_STYLE_ENABLED, true),
     userStyleClusterIntervalHours: Number(process.env.TUBEROSA_USER_STYLE_CLUSTER_INTERVAL_HOURS ?? 1),
     userStyleClusterWindowDays: Number(process.env.TUBEROSA_USER_STYLE_CLUSTER_WINDOW_DAYS ?? 30),
