@@ -1217,7 +1217,7 @@ function tools() {
         required: ['project'],
         properties: {
           project: { type: 'string' },
-          limit: { type: 'number', description: 'Maximum number of active atoms to pull for clustering. Defaults to 500.' },
+          limit: { type: 'number', minimum: 1, description: 'Maximum number of active atoms to pull for clustering. Defaults to 500.' },
         },
       },
     },

@@ -36,11 +36,11 @@ export class CurationService {
       limit: input.limit ?? DEFAULT_LIMIT,
     });
 
-    const clusters = clusterUncuratedAtoms(atoms);
+    const clusters = clusterUncuratedAtoms(atoms).filter((c) => c.atoms.length >= 2);
 
     const instruction = clusters.length === 0
       ? 'No un-curated atom clusters found. Nothing to distill right now.'
-      : `Found ${clusters.length} cluster(s) of related un-curated atoms. For each cluster, distill a single reusable convention and record it via tuberosa_reflect with metadata: { convention: true, scope, category, steps, trigger, evidenceAtomIds: [<the cluster's atom ids>] }. The distillation reasoning is yours — Tuberosa only clusters and gates.`;
+      : `Found ${clusters.length} cluster(s) of related un-curated atoms. For each cluster, distill a single reusable convention and record it via tuberosa_reflect with metadata: { convention: true, scope, category, steps, trigger, evidenceAtomIds: [<the cluster's atom ids>] }. The distillation reasoning is yours — Tuberosa only clusters and gates. Each cluster has ≥2 atoms; a convention needs ≥2 source atoms (evidenceAtomIds) to pass the distillation-evidence gate.`;
 
     return { clusters, instruction };
   }

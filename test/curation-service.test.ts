@@ -70,7 +70,8 @@ test('proposeCuration clusters related un-curated atoms and excludes distilled/c
     trigger: { files: ['src/http/server.ts'], symbols: ['handleHttpRequest'] },
   }));
 
-  // Unrelated atom — distinct trigger, should be its own singleton cluster.
+  // Unrelated atom — distinct trigger, so it would be a singleton cluster and
+  // is therefore filtered out (only clusters with ≥2 atoms are returned).
   const unrelated = await store.createAtom(atomInput({
     project,
     claim: 'Embedding dimensions must match the vector column',
@@ -113,9 +114,10 @@ test('proposeCuration clusters related un-curated atoms and excludes distilled/c
   equal(sharedIds.length, 3);
   ok(sharedIds.includes(a.id) && sharedIds.includes(b.id) && sharedIds.includes(c.id));
 
-  // The unrelated atom is not grouped with the shared cluster.
+  // The unrelated atom is not grouped with the shared cluster, and as a
+  // singleton it is excluded entirely — only clusters with ≥2 atoms are returned.
   ok(!sharedIds.includes(unrelated.id));
-  ok(allClustered.includes(unrelated.id));
+  ok(!allClustered.includes(unrelated.id));
 });
 
 test('proposeCuration returns an empty-cluster instruction when there is nothing to distill', async () => {
