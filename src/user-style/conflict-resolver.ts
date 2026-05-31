@@ -94,3 +94,70 @@ export function resolveStyleConflicts(candidates: RankedCandidate[]): ConflictRe
 function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
+
+type Layer = 'personal' | 'team' | 'project';
+
+type LayeredMeta = RankedCandidate & {
+  metadata?: {
+    userStyleAtomId?: string;
+    userStylePriority?: 'personal_workflow' | 'coding_preference';
+    conventionScope?: 'team' | 'project';
+  };
+};
+
+function layerOf(c: LayeredMeta): Layer {
+  if (c.source === 'userStyle') return 'personal';
+  if (c.metadata?.conventionScope === 'team') return 'team';
+  return 'project';
+}
+
+// Higher rank wins. personal_workflow is handled as an explicit override below.
+const LAYER_RANK: Record<Layer, number> = { project: 3, team: 2, personal: 1 };
+
+/**
+ * Knowledge-Book §9 — resolve conflicts across the three layers.
+ * Precedence: personal_workflow (inviolable) > Project > Team > personal coding_preference.
+ * Only directly contradictory pairs (per isContradiction) are touched; everything
+ * else passes through. Shape matches ConflictResolution for drop-in use in retrieval.
+ */
+export function resolveLayeredConflicts(candidates: RankedCandidate[]): ConflictResolution {
+  const cast = candidates as LayeredMeta[];
+  const withTitle = cast.filter((c) => (c.title?.length ?? 0) > 0);
+  const suppressed = new Set<string>();
+  const lines: string[] = [];
+
+  for (let i = 0; i < withTitle.length; i++) {
+    for (let j = i + 1; j < withTitle.length; j++) {
+      const a = withTitle[i];
+      const b = withTitle[j];
+      if (!isContradiction(a.title ?? '', b.title ?? '')) continue;
+
+      // Rule 1: an inviolable personal_workflow atom wins over anything.
+      const pwA = a.source === 'userStyle' && a.metadata?.userStylePriority === 'personal_workflow';
+      const pwB = b.source === 'userStyle' && b.metadata?.userStylePriority === 'personal_workflow';
+      if (pwA !== pwB) {
+        const winner = pwA ? a : b;
+        const loser = pwA ? b : a;
+        suppressed.add(loser.knowledgeId);
+        lines.push(`Following your personal workflow: ${winner.title}`);
+        continue;
+      }
+
+      // Rule 2: most-specific layer wins (Project > Team > Personal coding_preference).
+      const la = layerOf(a);
+      const lb = layerOf(b);
+      if (LAYER_RANK[la] === LAYER_RANK[lb]) continue; // same layer — leave both
+      const winner = LAYER_RANK[la] > LAYER_RANK[lb] ? a : b;
+      const loser = LAYER_RANK[la] > LAYER_RANK[lb] ? b : a;
+      suppressed.add(loser.knowledgeId);
+      const winLayer = layerOf(winner);
+      if (winLayer === 'project') {
+        lines.push(`Project convention: ${winner.title}. "${loser.title}" is parked for this codebase.`);
+      } else {
+        lines.push(`Team convention: ${winner.title}. "${loser.title}" is parked here.`);
+      }
+    }
+  }
+
+  return { suppressedCandidateIds: [...suppressed], instructionLines: dedupe(lines) };
+}
