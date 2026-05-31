@@ -77,10 +77,58 @@ test('finishSession: no curationNudge when below threshold', async () => {
   assert.equal(result.curationNudge, undefined);
 });
 
-test('finishSession: convention and already-distilled atoms are not counted toward the nudge', async () => {
+test('finishSession: convention and already-distilled atoms are excluded from the firing count', async () => {
   const store = new MemoryKnowledgeStore();
   const models = new HashModelProvider();
-  const project = 'nudge-excluded';
+  const project = 'nudge-excluded-firing';
+
+  // 5 genuinely un-curated atoms (>= threshold on their own).
+  for (let i = 0; i < 5; i += 1) {
+    await seedUncuratedAtom(store, project, i);
+  }
+
+  // A convention atom — should NOT count.
+  await store.createAtom({
+    project,
+    type: 'convention',
+    claim: 'A curated convention.',
+    evidence: [{ kind: 'file', path: 'src/convention.ts' }],
+    trigger: { taskTypes: ['refactor'] },
+    producedBy: 'agent_session',
+    scope: 'project',
+  });
+
+  // An atom already distilled into a convention — should NOT count.
+  await store.createAtom({
+    project,
+    type: 'gotcha',
+    claim: 'Already distilled gotcha.',
+    evidence: [{ kind: 'file', path: 'src/distilled.ts' }],
+    trigger: { taskTypes: ['debugging'] },
+    producedBy: 'agent_session',
+    scope: 'project',
+    metadata: { distilledIntoAtomId: 'some-convention-id' },
+  });
+
+  const session = await store.createAgentSession({ prompt: 'fix a bug', project });
+  const service = buildService(store, models);
+
+  const result = await service.finishSession({
+    sessionId: session.id,
+    outcome: 'completed',
+    summary: 'fixed the bug',
+  });
+
+  // The nudge fires on the 5 genuine un-curated atoms, but the convention and
+  // already-distilled atoms must NOT inflate the count beyond 5.
+  assert.ok(result.curationNudge, 'expected curationNudge to be defined');
+  assert.equal(result.curationNudge!.count, 5, 'convention + distilled atoms must be excluded from the count');
+});
+
+test('finishSession: convention and already-distilled atoms do not push a below-threshold project over', async () => {
+  const store = new MemoryKnowledgeStore();
+  const models = new HashModelProvider();
+  const project = 'nudge-excluded-below';
 
   // 4 genuinely un-curated atoms (< threshold on their own).
   for (let i = 0; i < 4; i += 1) {

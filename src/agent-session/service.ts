@@ -194,15 +194,21 @@ export class AgentSessionService {
     // and surface an informational nudge once they pile up. Counted after
     // extractSessionAtoms so freshly-extracted atoms are included. The count is
     // capped by the limit:500 read, which is acceptable for an advisory nudge.
-    const uncuratedAtoms = (await this.store.listAtoms({ project: existingSession.project, status: 'active', limit: 500 }))
-      .filter((a) => a.type !== 'convention' && !((a.metadata as Record<string, unknown> | undefined)?.distilledIntoAtomId));
-    const curationNudge = uncuratedAtoms.length >= CURATION_NUDGE_THRESHOLD
-      ? {
-        count: uncuratedAtoms.length,
-        prompt: `${uncuratedAtoms.length} un-curated atoms have accumulated for "${existingSession.project}". Consider distilling related ones into reusable conventions with tuberosa_propose_curation.`,
-        toolCall: 'tuberosa_propose_curation',
-      }
-      : undefined;
+    // Only compute when the session is project-scoped: an undefined project
+    // would make listAtoms return active atoms across ALL projects and render
+    // a meaningless `...accumulated for "undefined"` prompt.
+    let curationNudge: { count: number; prompt: string; toolCall: string } | undefined;
+    if (existingSession.project) {
+      const uncuratedAtoms = (await this.store.listAtoms({ project: existingSession.project, status: 'active', limit: 500 }))
+        .filter((a) => a.type !== 'convention' && !a.metadata?.distilledIntoAtomId);
+      curationNudge = uncuratedAtoms.length >= CURATION_NUDGE_THRESHOLD
+        ? {
+          count: uncuratedAtoms.length,
+          prompt: `${uncuratedAtoms.length} un-curated atoms have accumulated for "${existingSession.project}". Consider distilling related ones into reusable conventions with tuberosa_propose_curation.`,
+          toolCall: 'tuberosa_propose_curation',
+        }
+        : undefined;
+    }
 
     return {
       session,
