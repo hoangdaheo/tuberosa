@@ -1907,6 +1907,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       JSON.stringify(input.metadata ?? {}),
       isTeamScope ? input.teamId ?? null : null,
     ];
+    // Any new static column/placeholder/value must be appended ABOVE this block.
+    // The id override uses unshift on columns/placeholders but push on values
+    // (its `$N` is `values.length + 1`, computed before the push), so it must
+    // remain the final mutation to keep placeholder numbering aligned.
     if (input.id) {
       columns.unshift('id');
       placeholders.unshift(`$${values.length + 1}`);
