@@ -59,7 +59,7 @@ import type { QueryRewriteConfig } from './policy.js';
 import type { AtomTier, KnowledgeAtom } from '../types/atoms.js';
 import { evaluateTierTransition } from '../atoms/tier.js';
 import { WorktreeProvider, type WorktreeSearchResult } from './worktree.js';
-import { resolveStyleConflicts } from '../user-style/conflict-resolver.js';
+import { resolveLayeredConflicts } from '../user-style/conflict-resolver.js';
 import {
   namespaceMatchesFilter,
   readNamespaceFromMetadata,
@@ -282,7 +282,7 @@ export class RetrievalService {
     // Concern F — resolve user-style ↔ project-convention contradictions before
     // pack assembly. Suppressed knowledgeIds drop out of the pack entirely;
     // instructionLines are appended to pack.instruction below.
-    const styleConflict = resolveStyleConflicts(fitEvaluation.candidates);
+    const styleConflict = resolveLayeredConflicts(fitEvaluation.candidates);
     const suppressedByStyleConflict = new Set(styleConflict.suppressedCandidateIds);
     const packCandidates = suppressedByStyleConflict.size > 0
       ? fitEvaluation.candidates.filter((c) => !suppressedByStyleConflict.has(c.knowledgeId))
