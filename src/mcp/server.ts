@@ -111,7 +111,7 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
             {
               uriTemplate: 'tuberosa://atlas/{project}/{file}',
               name: 'Project atlas file',
-              description: 'A synthesized project atlas file (project-map.md, flows.md, commands.md, risks.md, open-gaps.md).',
+              description: 'A synthesized project atlas file (project-map.md, flows.md, commands.md, risks.md, open-gaps.md, conventions.md).',
               mimeType: 'text/markdown',
             },
           ],
