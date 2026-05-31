@@ -232,10 +232,7 @@ Optionally include `learningSignals: [...]` or an explicit `reflectionDraft: {..
     "from":           "snapshot-2026-05-28",
     "project":        "tuberosa",
     "dryRun":         true,
-    "onConflict":     "review",                      // "review" | "skip"
-    "targetUserId":   "nguyen",                       // optional
-    "preserveUserId": false,
-    "preservePriority": false
+    "onConflict":     "review"                       // "review" | "skip"
   }
 }
 ```
@@ -252,8 +249,8 @@ Optionally include `learningSignals: [...]` or an explicit `reflectionDraft: {..
 {
   "name": "tuberosa_resolve_atom_import_conflict",
   "arguments": {
-    "conflictId":     "<id>",
-    "resolution":     "merged",                       // "keep_local" | "take_imported" | "merged" | "dismiss"
+    "id":             "<id>",
+    "action":         "merged",                       // "keep_local" | "take_imported" | "merged" | "dismissed"
     "mergedSnapshot": { /* required when merged */ }
   }
 }
@@ -327,12 +324,13 @@ The files are also registered as MCP resources (`tuberosa://atlas/project-map.md
 
 | Tool | Purpose |
 |---|---|
-| `tuberosa_propose_maintenance` | Propose a dedup / re-link / re-classify plan. |
+| `tuberosa_propose_maintenance` | Propose a maintenance plan (dedup memories, prune stale relations, supersede reflections, drop weak labels). |
 | `tuberosa_apply_maintenance` | Apply a previously proposed plan. |
 
 ```jsonc
 { "name": "tuberosa_propose_maintenance", "arguments": {
-  "project": "tuberosa", "kinds": ["dedup", "decay"] } }
+  "project": "tuberosa",
+  "kinds": ["duplicate_memory", "stale_relation", "superseded_reflection", "weak_label"] } }
 ```
 
 The response includes a `planId`; pass it to `tuberosa_apply_maintenance`.

@@ -110,7 +110,7 @@ Stored in `knowledge_relations`. Typed edges between items:
 | `co_changes_with` | bidirectional | When you touch one, surface the other |
 | `related_to` | bidirectional | Weak link; surfaces only when expansion budget allows |
 
-Relations are inferred by `src/ingest/relations/inference.ts` and persisted at ingest time. They can also be added by hand via `POST /operations/relations`.
+Relations are inferred by `src/relations/inference.ts` and persisted at ingest time. They can also be added by hand via `POST /operations/relations`.
 
 ## Status lifecycle
 
@@ -142,7 +142,7 @@ curl -sX POST http://localhost:3027/ingest/files -H 'Content-Type: application/j
 
 ## Deduplication
 
-`DuplicateDetector` (`src/knowledge/duplicate-detector.ts`) rejects exact-text and high-semantic-similarity duplicates at ingest time, throwing `DuplicateIngestionError`. Treat that error as a successful skip, not a failure.
+`DuplicateDetector` (`src/ingest/duplicate-detector.ts`) rejects exact-text and high-semantic-similarity duplicates at ingest time, throwing `DuplicateIngestionError`. Treat that error as a successful skip, not a failure.
 
 ## What's NOT stored as a knowledge item
 
