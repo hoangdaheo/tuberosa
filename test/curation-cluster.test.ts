@@ -85,6 +85,22 @@ test('clusterUncuratedAtoms: excludes convention-type atoms (already curated out
   assert.deepEqual(ids, ['a1']);
 });
 
+test('clusterUncuratedAtoms: excludes non-active atoms (superseded raw material)', () => {
+  const atoms = [
+    atom({ id: 'a1', trigger: { files: ['src/components/X.tsx'], symbols: ['useMemo'] } }),
+    atom({
+      id: 'a2',
+      status: 'superseded',
+      trigger: { files: ['src/components/X.tsx'], symbols: ['useMemo'] },
+    }),
+  ];
+
+  const clusters = clusterUncuratedAtoms(atoms);
+
+  const ids = clusters.flatMap((c) => c.atoms.map((a) => a.id));
+  assert.deepEqual(ids, ['a1']);
+});
+
 test('clusterUncuratedAtoms: deterministic across repeated calls', () => {
   const atoms = [
     atom({ id: 'a3', trigger: { files: ['src/components/X.tsx'], symbols: ['useCallback'] } }),
