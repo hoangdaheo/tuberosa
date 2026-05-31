@@ -99,10 +99,14 @@ function makeConvention(id: string, rank: number): RankedCandidate {
     fusedScore: 0.50,
     rawScore: 0.50,
     rank,
-    itemType: 'wiki',
+    itemType: 'rule',
     matchReasons: ['convention match'],
   });
 }
+
+// Mirror of MAX_PINNED_CONVENTIONS in src/retrieval/context-pack.ts — not exported
+// solely for the test, so it is re-declared here as a literal.
+const MAX_PINNED_CONVENTIONS = 5;
 
 function essentialItems(pack: ReturnType<typeof assembleContextPack>): RankedCandidate[] {
   return pack.sections.find((s) => s.name === 'essential')?.items ?? [];
@@ -211,4 +215,50 @@ test('pack with no convention candidates is unaffected by convention pinning log
   equal(hasConvention, false, 'no convention item should appear when none were provided');
   // The first essential item should be the top-ranked direct-evidence candidate.
   equal(essential[0].knowledgeId, 'a', `expected top direct-evidence candidate first; got ${essential[0].knowledgeId}`);
+});
+
+// ─── Test 5: more than MAX_PINNED_CONVENTIONS — only the cap is pinned ───
+
+test('a burst of conventions pins only MAX_PINNED_CONVENTIONS at the front of essential', () => {
+  // Seven conventions (> cap of 5) plus a normal direct-evidence candidate.
+  const conventions = Array.from({ length: 7 }, (_, i) => makeConvention(`conv-${i + 1}`, i + 2));
+  const normal = makeDirectEvidence('normal-1', 1, 0.99);
+
+  const pack = assembleContextPack({
+    prompt: 'implement auth feature',
+    classified: makeClassified(),
+    candidates: [normal, ...conventions],
+    tokenBudget: 10_000,
+  });
+
+  const essential = essentialItems(pack);
+
+  // Exactly MAX_PINNED_CONVENTIONS conventions are pinned at the FRONT of essential.
+  const frontPinned = essential.slice(0, MAX_PINNED_CONVENTIONS);
+  ok(
+    frontPinned.every((item) => item.source === 'convention'),
+    `expected the first ${MAX_PINNED_CONVENTIONS} essential items to be conventions; got ${essential.map((i) => `${i.knowledgeId}(${i.source})`).join(', ')}`,
+  );
+  equal(frontPinned.length, MAX_PINNED_CONVENTIONS, 'should pin exactly the cap');
+
+  // The remaining conventions are NOT all pinned — overflow flows into normal ranking.
+  const allItems = pack.sections.flatMap((s) => s.items);
+  const totalConventions = allItems.filter((item) => item.source === 'convention').length;
+  ok(totalConventions <= 7, 'no more conventions than were provided');
+  // Across the whole pack, more than the cap may surface, but only the cap is pinned to the front.
+  ok(
+    essential.filter((item) => item.source === 'convention').length >= MAX_PINNED_CONVENTIONS,
+    'at least the capped count appears in essential',
+  );
+  // A pinned-overflow convention (the 6th/7th) must not appear ahead of the 5 pinned ones.
+  // Verify the immediate front block is exactly the cap of conventions, not more crowding in
+  // before any non-convention slot exists.
+  const firstNonConventionIndex = essential.findIndex((item) => item.source !== 'convention');
+  if (firstNonConventionIndex !== -1) {
+    equal(
+      firstNonConventionIndex,
+      MAX_PINNED_CONVENTIONS,
+      `only ${MAX_PINNED_CONVENTIONS} conventions should precede the first non-convention; got front=${essential.slice(0, firstNonConventionIndex).length}`,
+    );
+  }
 });

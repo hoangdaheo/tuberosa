@@ -21,6 +21,10 @@ import { composeStartupBrief } from './startup-brief.js';
 
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
 const GENERAL_MIN_FINAL_SCORE = 0.35;
+// Conventions are pinned to the top of `essential`; cap how many so a burst of
+// matching conventions can't crowd out direct evidence or blow the token budget.
+// Overflow conventions fall through to normal ranking in `rest`.
+const MAX_PINNED_CONVENTIONS = 5;
 const GRAPH_EVIDENCE_MIN_RAW_SCORE = 0.45;
 export const DEFAULT_DEEP_CONTEXT_BUDGET = 60_000;
 export const MIN_DEEP_CONTEXT_BUDGET = 30_000;
@@ -67,9 +71,12 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
 
   const prioritized = prioritizeUsefulCandidates(filterAcceptedCandidates(input), input);
   const accepted = capUsefulnessCategories(prioritized, input.usefulnessCaps);
-  const pinned = accepted.filter((c) => c.source === 'convention');
-  const rest = without(accepted, pinned);
+  const conventions = accepted.filter((c) => c.source === 'convention');
+  const pinned = conventions.slice(0, MAX_PINNED_CONVENTIONS);
+  const rest = without(accepted, pinned);          // overflow conventions remain in `rest`
   const pinnedTokens = sumTokens(pinned);
+  // Essential may exceed the normal 4-item cap when conventions are pinned —
+  // pinned conventions are always prepended; the cap applies only to the remainder.
   const essentialRest = takeWithinBudget(rest, Math.max(0, essentialBudget - pinnedTokens), 0, 4);
   const essential = [...pinned, ...essentialRest];
   const supporting = takeWithinBudget(without(rest, essentialRest), supportingBudget, 0, 6);
