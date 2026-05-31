@@ -191,8 +191,8 @@ export function buildConventions(inputs: AtlasInputs): string {
     for (const category of [...byCategory.keys()].sort((x, y) => x.localeCompare(y))) {
       lines.push(`### ${category}`);
       for (const a of byCategory.get(category) ?? []) {
-        const meta = (a.metadata ?? {}) as { author?: unknown; steps?: unknown };
-        lines.push(`- ${a.claim} _(${a.tier})_`);
+        const meta = (a.metadata ?? {}) as { category?: unknown; author?: unknown; steps?: unknown };
+        lines.push(`- ${a.claim} _(tier: ${a.tier})_`);
         if (typeof meta.author === 'string' && meta.author.trim()) {
           lines.push(`  - author: ${meta.author}`);
         }
