@@ -135,6 +135,9 @@ export function resolveLayeredConflicts(candidates: RankedCandidate[]): Conflict
       // Rule 1: an inviolable personal_workflow atom wins over anything.
       const pwA = a.source === 'userStyle' && a.metadata?.userStylePriority === 'personal_workflow';
       const pwB = b.source === 'userStyle' && b.metadata?.userStylePriority === 'personal_workflow';
+      // Two inviolable personal-workflow atoms that contradict each other:
+      // surface both rather than arbitrarily suppressing one.
+      if (pwA && pwB) continue;
       if (pwA !== pwB) {
         const winner = pwA ? a : b;
         const loser = pwA ? b : a;
@@ -150,7 +153,7 @@ export function resolveLayeredConflicts(candidates: RankedCandidate[]): Conflict
       const winner = LAYER_RANK[la] > LAYER_RANK[lb] ? a : b;
       const loser = LAYER_RANK[la] > LAYER_RANK[lb] ? b : a;
       suppressed.add(loser.knowledgeId);
-      const winLayer = layerOf(winner);
+      const winLayer: Layer = LAYER_RANK[la] > LAYER_RANK[lb] ? la : lb;
       if (winLayer === 'project') {
         lines.push(`Project convention: ${winner.title}. "${loser.title}" is parked for this codebase.`);
       } else {

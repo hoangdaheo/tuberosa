@@ -36,3 +36,10 @@ test('non-conflicting candidates pass through untouched', () => {
   const r = resolveLayeredConflicts([a, b]);
   assert.deepEqual(r.suppressedCandidateIds, []);
 });
+
+test('two conflicting personal_workflow atoms both survive (neither suppressed)', () => {
+  const a = cand({ knowledgeId: 'u1', title: 'Always squash commits.', source: 'userStyle', metadata: { userStyleAtomId: 'a1', userStylePriority: 'personal_workflow' } } as any);
+  const b = cand({ knowledgeId: 'u2', title: 'Never squash commits.', source: 'userStyle', metadata: { userStyleAtomId: 'a2', userStylePriority: 'personal_workflow' } } as any);
+  const r = resolveLayeredConflicts([a, b]);
+  assert.deepEqual(r.suppressedCandidateIds, []);
+});
