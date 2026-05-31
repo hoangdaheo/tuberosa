@@ -34,10 +34,10 @@ test('round-trip: first sync ingests, deleting a file archives it, resurrect res
   // 3. Apply → knowledge archived, excluded from approved listing.
   await svc.apply({ planId: second.planId, allowDestructive: true });
   const approved = await store.listKnowledge({ project: 'p', status: 'approved', limit: 100 });
-  assert.equal(approved.find((k) => k.id === goneBefore[0].id), undefined);
+  assert.equal(approved.find((k) => k.id === goneBefore[0]!.id), undefined);
 
   // 4. Resurrect → back in approved listing.
-  await store.updateKnowledge(goneBefore[0].id, { status: 'approved' });
+  await store.updateKnowledge(goneBefore[0]!.id, { status: 'approved' });
   const afterResurrect = await store.listKnowledge({ project: 'p', status: 'approved', limit: 100 });
-  assert.ok(afterResurrect.find((k) => k.id === goneBefore[0].id));
+  assert.ok(afterResurrect.find((k) => k.id === goneBefore[0]!.id));
 });

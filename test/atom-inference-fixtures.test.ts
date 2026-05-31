@@ -52,7 +52,7 @@ test('extractor fixture: semantic-neighbor inference creates a refines link at a
   });
 
   assert.equal(result.stored.length, 1);
-  const candidate = result.stored[0];
+  const candidate = result.stored[0]!;
   // Inline inference must have produced at least one outbound link to the neighbor.
   const links = candidate.links ?? [];
   assert.ok(

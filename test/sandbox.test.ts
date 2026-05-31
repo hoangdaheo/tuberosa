@@ -9,10 +9,10 @@ test('sandbox corpus generator is deterministic for a fixed seed', () => {
   assert.equal(a.knowledge.length, b.knowledge.length);
   assert.equal(a.relations.length, b.relations.length);
   for (let i = 0; i < a.knowledge.length; i += 1) {
-    assert.equal(a.knowledge[i].sandboxId, b.knowledge[i].sandboxId);
-    assert.equal(a.knowledge[i].title, b.knowledge[i].title);
-    assert.equal(a.knowledge[i].project, b.knowledge[i].project);
-    assert.equal(a.knowledge[i].itemType, b.knowledge[i].itemType);
+    assert.equal(a.knowledge[i]!.sandboxId, b.knowledge[i]!.sandboxId);
+    assert.equal(a.knowledge[i]!.title, b.knowledge[i]!.title);
+    assert.equal(a.knowledge[i]!.project, b.knowledge[i]!.project);
+    assert.equal(a.knowledge[i]!.itemType, b.knowledge[i]!.itemType);
   }
 });
 

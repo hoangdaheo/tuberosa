@@ -24,7 +24,7 @@ export async function ensureProject(client: Queryable, name: string): Promise<st
     [name],
   );
 
-  return result.rows[0].id;
+  return result.rows[0]!.id;
 }
 
 /** Look up a project id by name, or null when it does not exist. */

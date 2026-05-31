@@ -255,10 +255,10 @@ test('context pack usefulness prioritizes direct task evidence and returns start
   });
   const items = pack.sections.flatMap((section) => section.items);
 
-  equal(items[0].knowledgeId, 'direct');
-  equal(items[0].evidenceCategory, 'directTaskEvidence');
-  equal(items[0].evidenceStrength, 'strong');
-  ok(items[0].usefulnessReason?.includes('file:src/retrieval/context-pack.ts'));
+  equal(items[0]!.knowledgeId, 'direct');
+  equal(items[0]!.evidenceCategory, 'directTaskEvidence');
+  equal(items[0]!.evidenceStrength, 'strong');
+  ok(items[0]!.usefulnessReason?.includes('file:src/retrieval/context-pack.ts'));
   equal(items.find((item) => item.knowledgeId === 'prior')?.evidenceCategory, 'priorLessons');
   equal(items.find((item) => item.knowledgeId === 'adjacent')?.evidenceCategory, 'adjacentContext');
   deepEqual(pack.actionableMissingSignals?.symbols, ['ContextUsefulness']);
@@ -332,10 +332,10 @@ test('review/admin task brief orders workflow guidance before unrelated prior me
   });
   const items = pack.sections.flatMap((section) => section.items);
 
-  equal(items[0].knowledgeId, 'workflow-guidance');
-  equal(items[0].evidenceCategory, 'workflowGuidance');
-  equal(items[1].knowledgeId, 'prior-memory');
-  equal(items[1].evidenceCategory, 'priorLessons');
+  equal(items[0]!.knowledgeId, 'workflow-guidance');
+  equal(items[0]!.evidenceCategory, 'workflowGuidance');
+  equal(items[1]!.knowledgeId, 'prior-memory');
+  equal(items[1]!.evidenceCategory, 'priorLessons');
 });
 
 test('task brief action items prioritize explicit review targets, files, and verification', () => {
@@ -501,12 +501,12 @@ test('context pack usefulness reasons include evidence details without changing 
   const items = pack.sections.flatMap((section) => section.items);
 
   deepEqual(items.map((item) => item.knowledgeId), ['current', 'graph', 'stale']);
-  ok(items[0].usefulnessReason?.includes('file:src/retrieval/context-pack.ts'));
-  ok(items[0].usefulnessReason?.includes('selected_but_noisy:1'));
-  ok(items[0].usefulnessReason?.includes('Freshness: current'));
-  ok(items[1].usefulnessReason?.includes('Graph relation path: depends_on'));
-  ok(items[2].usefulnessReason?.includes('Freshness risk: stale'));
-  ok(items[2].usefulnessReason?.includes('Supersession suppression: superseded by current'));
+  ok(items[0]!.usefulnessReason?.includes('file:src/retrieval/context-pack.ts'));
+  ok(items[0]!.usefulnessReason?.includes('selected_but_noisy:1'));
+  ok(items[0]!.usefulnessReason?.includes('Freshness: current'));
+  ok(items[1]!.usefulnessReason?.includes('Graph relation path: depends_on'));
+  ok(items[2]!.usefulnessReason?.includes('Freshness risk: stale'));
+  ok(items[2]!.usefulnessReason?.includes('Supersession suppression: superseded by current'));
 });
 
 test('context pack caps prior lessons and adjacent context in normal startup packs', () => {
@@ -634,8 +634,8 @@ test('continuation retrieval uses files from recent selected session context', a
 
   ok(pack.classified.files.includes('src/config.ts'));
   ok(pack.classified.files.includes('test/operations.test.ts'));
-  equal(pack.sections[0].items[0].title, 'Physical mirror continuation files');
-  ok(pack.sections[0].items[0].matchReasons.includes('file:src/config.ts'));
+  equal(pack.sections[0]!.items[0]!.title, 'Physical mirror continuation files');
+  ok(pack.sections[0]!.items[0]!.matchReasons!.includes('file:src/config.ts'));
 });
 
 test('continuation retrieval uses non-file signals from recent selected session context', async () => {
@@ -717,9 +717,9 @@ test('continuation retrieval uses non-file signals from recent selected session 
   ok(pack.classified.errors.includes('ERR-777'));
   equal(pack.classified.symbols.includes('WrongService'), false);
   equal(pack.classified.errors.includes('ERR-999'), false);
-  equal(pack.sections[0].items[0].title, 'Agent session continuation error workflow');
-  ok(pack.sections[0].items[0].matchReasons.includes('symbol:AgentSessionService'));
-  ok(pack.sections[0].items[0].matchReasons.includes('error:ERR-777'));
+  equal(pack.sections[0]!.items[0]!.title, 'Agent session continuation error workflow');
+  ok(pack.sections[0]!.items[0]!.matchReasons!.includes('symbol:AgentSessionService'));
+  ok(pack.sections[0]!.items[0]!.matchReasons!.includes('error:ERR-777'));
 });
 
 test('retrieval returns context pack with matched references', async () => {
@@ -749,9 +749,9 @@ test('retrieval returns context pack with matched references', async () => {
 
   equal(pack.project, 'newsletter-app');
   ok(pack.confidence > 0.3);
-  equal(pack.sections[0].name, 'essential');
-  equal(pack.sections[0].items[0].title, 'Paywall selection modal');
-  equal(pack.sections[0].items[0].references[0].uri, 'src/components/paywall-selection-modal.tsx');
+  equal(pack.sections[0]!.name, 'essential');
+  equal(pack.sections[0]!.items[0]!.title, 'Paywall selection modal');
+  equal(pack.sections[0]!.items[0]!.references[0]!.uri, 'src/components/paywall-selection-modal.tsx');
   equal(pack.debug, undefined);
 });
 
@@ -784,8 +784,8 @@ test('layered retrieval expands selected knowledge into deep context without com
     deepContextBudget: 30_000,
   });
 
-  const compact = pack.sections[0].items[0];
-  const deep = pack.deepContext?.sections[0].items[0];
+  const compact = pack.sections[0]!.items[0]!;
+  const deep = pack.deepContext?.sections[0]!.items[0];
 
   equal(pack.deepContext?.budget, 30_000);
   ok(compact.content.length <= 2800);
@@ -820,8 +820,8 @@ test('ingestion replaces existing knowledge for the same source uri', async () =
 
   equal(second.id, first.id);
   equal(items.length, 1);
-  equal(items[0].summary, 'Current auth flow.');
-  equal(items[0].content.includes('legacy session cookies'), false);
+  equal(items[0]!.summary, 'Current auth flow.');
+  equal(items[0]!.content!.includes('legacy session cookies'), false);
 });
 
 test('atomic markdown ingestion stores labeled sections as retrievable knowledge', async () => {
@@ -853,8 +853,8 @@ test('atomic markdown ingestion stores labeled sections as retrievable knowledge
   equal(refreshAtom.metadata.ingestionMode, 'atomic');
   deepEqual(refreshAtom.metadata.sectionPath, ['Auth', 'Refresh token rotation']);
   ok(refreshAtom.labels.some((label) => label.type === 'domain' && label.value === 'Refresh token rotation'));
-  equal(refreshAtom.references[0].uri, 'docs/auth.md');
-  equal(refreshAtom.references[0].lineStart, 9);
+  equal(refreshAtom.references[0]!.uri, 'docs/auth.md');
+  equal(refreshAtom.references[0]!.lineStart, 9);
 
   const pack = await retrieval.searchContext({
     project: 'agent-memory',
@@ -862,8 +862,8 @@ test('atomic markdown ingestion stores labeled sections as retrievable knowledge
     bypassCache: true,
   });
 
-  equal(pack.sections[0].items[0].title, 'Auth > Refresh token rotation');
-  equal(pack.sections[0].items[0].references[0].uri, 'docs/auth.md');
+  equal(pack.sections[0]!.items[0]!.title, 'Auth > Refresh token rotation');
+  equal(pack.sections[0]!.items[0]!.references[0]!.uri, 'docs/auth.md');
 });
 
 test('atomic markdown re-ingestion updates sections and deletes stale atoms', async () => {
@@ -917,7 +917,7 @@ test('atomic markdown re-ingestion updates sections and deletes stale atoms', as
     bypassCache: true,
   });
 
-  equal(pack.sections[0].items[0].title, 'Auth > Login flow');
+  equal(pack.sections[0]!.items[0]!.title, 'Auth > Login flow');
 });
 
 test('document re-ingestion deletes previous atoms and inferred atom relations', async () => {
@@ -1087,8 +1087,8 @@ test('ingestion redacts secrets before storage and retrieval', async () => {
     bypassCache: true,
   });
 
-  equal(pack.sections[0].items[0].content.includes('super-secret-token-value-12345'), false);
-  ok(pack.sections[0].items[0].content.includes('[REDACTED:secret]'));
+  equal(pack.sections[0]!.items[0]!.content!.includes('super-secret-token-value-12345'), false);
+  ok(pack.sections[0]!.items[0]!.content!.includes('[REDACTED:secret]'));
 });
 
 test('retrieval redacts secrets from prompts before embedding', async () => {
@@ -1169,7 +1169,7 @@ test('prompt-injection knowledge is blocked from ingestion and retrieval', async
   const ids = pack.sections.flatMap((section) => section.items.map((item) => item.knowledgeId));
 
   equal(ids.includes(unsafe.id), false);
-  equal(pack.sections[0].items[0].title, 'Safe auth workflow');
+  equal(pack.sections[0]!.items[0]!.title, 'Safe auth workflow');
 });
 
 test('retrieval debug trace exposes source stages without persisting verbose output', async () => {
@@ -1272,7 +1272,7 @@ test('provider query rewrite expands search input and debug decisions', async ()
   });
 
   equal(models.rewriteInputs.length, 1);
-  equal(pack.sections[0].items[0].title, 'Migration startup race guard');
+  equal(pack.sections[0]!.items[0]!.title, 'Migration startup race guard');
   ok(pack.classified.exactTerms.includes('pg_advisory_lock'));
   ok(pack.classified.lexicalQuery.includes('schema_migrations'));
   equal(pack.debug?.queryRewrite?.model, 'test-rewrite-model');
@@ -1336,8 +1336,8 @@ test('provider rerank can reorder fused candidates and records debug decisions',
 
   equal(models.rerankInputs.length, 1);
   equal(models.rerankInputs[0]?.classified.taskType, 'implementation');
-  equal(pack.sections[0].items[0].knowledgeId, specific.id);
-  ok(pack.sections[0].items[0].matchReasons.some((reason) => reason.includes('provider rerank')));
+  equal(pack.sections[0]!.items[0]!.knowledgeId, specific.id);
+  ok(pack.sections[0]!.items[0]!.matchReasons!.some((reason) => reason.includes('provider rerank')));
   equal(pack.debug?.providerRerank?.model, 'test-rerank-model');
   equal(pack.debug?.providerRerank?.candidateCount, 2);
   deepEqual(pack.debug?.providerRerank?.decisions.map((decision) => decision.knowledgeId), [specific.id, generic.id]);
@@ -1379,7 +1379,7 @@ test('context fit marks exact anchored retrieval ready and exposes fit reasons',
     taskType: 'debugging',
     debug: true,
   });
-  const first = pack.sections[0].items[0];
+  const first = pack.sections[0]!.items[0]!;
   const fitStage = pack.debug?.stages.find((stage) => stage.name === 'fit');
 
   equal(pack.contextFit?.fitStatus, 'ready');
@@ -1419,7 +1419,7 @@ test('context fit marks missing anchored retrieval insufficient while returning 
   equal(pack.contextFit?.fitStatus, 'insufficient');
   ok(pack.contextFit?.missingSignals.includes('missing file:src/billing/retry-worker.ts'));
   ok(pack.contextFit?.missingSignals.includes('missing symbol:RetryWorker'));
-  ok(pack.sections[0].items.length > 0);
+  ok(pack.sections[0]!.items!.length > 0);
 });
 
 test('context fit marks sparse retrieval as non-ready best effort', async () => {
@@ -1445,7 +1445,7 @@ test('context fit marks sparse retrieval as non-ready best effort', async () => 
 
   ok(pack.contextFit?.fitStatus === 'needs_confirmation' || pack.contextFit?.fitStatus === 'insufficient');
   ok(pack.contextFit?.missingSignals.includes('no concrete file, symbol, or error signal was supplied'));
-  ok(pack.sections[0].items.length > 0);
+  ok(pack.sections[0]!.items!.length > 0);
 });
 
 test('context fit penalizes stale and rejected candidates', () => {
@@ -1839,7 +1839,7 @@ test('feedback history adjusts later retrieval ranking', async () => {
   const selectedCandidate = ranked.find((candidate) => candidate.knowledgeId === selected.id);
   const staleCandidate = ranked.find((candidate) => candidate.knowledgeId === stale.id);
 
-  equal(ranked[0].knowledgeId, selected.id);
+  equal(ranked[0]!.knowledgeId, selected.id);
   ok(selectedCandidate?.matchReasons.includes('feedback:selected:1'));
   // Phase 2 — stale-feedback candidates with no anchoring signals are now demoted
   // below the pack assembly threshold (cumulative multiplicative damping). The
@@ -1900,7 +1900,7 @@ test('intent suppression demotes stale semantic memories behind fresh anchored e
     .find((stage) => stage.name === 'rerank')
     ?.candidates.find((candidate) => candidate.knowledgeId === stale.id);
 
-  equal(ranked[0].knowledgeId, fresh.id);
+  equal(ranked[0]!.knowledgeId, fresh.id);
   ok(staleCandidate?.matchReasons.includes('suppression:freshness:stale'));
 });
 
@@ -1946,7 +1946,7 @@ test('intent suppression demotes superseded workflows', async () => {
   const ranked = pack.sections.flatMap((section) => section.items);
   const legacyCandidate = ranked.find((candidate) => candidate.knowledgeId === legacy.id);
 
-  equal(ranked[0].knowledgeId, current.id);
+  equal(ranked[0]!.knowledgeId, current.id);
   ok(legacyCandidate?.matchReasons.includes(`suppression:superseded:${current.id}`));
 });
 
@@ -2015,11 +2015,11 @@ test('reflection drafts are reviewable and approval creates searchable memory', 
     prompt: 'How should reflection memories be saved?',
   });
 
-  equal(pack.sections[0].items[0].itemType, 'memory');
-  equal(pack.sections[0].items[0].metadata?.taxonomy, 'workflow');
-  equal((pack.sections[0].items[0].metadata?.provenance as Record<string, unknown>).agentSessionId, 'session-1');
-  equal((pack.sections[0].items[0].metadata?.review as Record<string, unknown>).decision, 'approve');
-  equal(pack.sections[0].items[0].references.some((reference) => reference.uri === 'docs/reflection.md'), true);
+  equal(pack.sections[0]!.items[0]!.itemType, 'memory');
+  equal(pack.sections[0]!.items[0]!.metadata?.taxonomy, 'workflow');
+  equal((pack.sections[0]!.items[0]!.metadata?.provenance as Record<string, unknown>).agentSessionId, 'session-1');
+  equal((pack.sections[0]!.items[0]!.metadata?.review as Record<string, unknown>).decision, 'approve');
+  equal(pack.sections[0]!.items[0]!.references!.some((reference) => reference.uri === 'docs/reflection.md'), true);
 });
 
 test('reflection draft labels drop generic title words and ambiguous technology hits', async () => {

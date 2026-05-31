@@ -51,7 +51,7 @@ test('walkAtomGraph: returns 1-hop neighbors for depth=1', async () => {
   });
 
   assert.equal(hits.length, 1);
-  assert.equal(hits[0].atomId, b.id);
+  assert.equal(hits[0]!.atomId, b.id);
 });
 
 test('walkAtomGraph: returns depth-2 hits with decayed pathScore', async () => {
@@ -76,8 +76,8 @@ test('walkAtomGraph: returns depth-2 hits with decayed pathScore', async () => {
   // A→B (0.4) then B→C (0.4 × 0.6) → pathScore ≈ 0.096
   assert.ok(hopC.pathScore > 0 && hopC.pathScore < 0.2);
   assert.equal(hopC.path.length, 2);
-  assert.equal(hopC.path[0].atomId, b.id);
-  assert.equal(hopC.path[1].atomId, c.id);
+  assert.equal(hopC.path[0]!.atomId, b.id);
+  assert.equal(hopC.path[1]!.atomId, c.id);
 });
 
 test('walkAtomGraph: excludes archived atoms by default', async () => {
@@ -154,5 +154,5 @@ test('walkAtomGraph: respects limit and sorts by pathScore desc', async () => {
   });
 
   assert.equal(hits.length, 1);
-  assert.equal(hits[0].atomId, refines.id);
+  assert.equal(hits[0]!.atomId, refines.id);
 });

@@ -37,5 +37,5 @@ test('round-trip: export then import preserves searchable atom claims', async ()
     { project: 'tuberosa', limit: 5 },
   );
   assert.equal(hits.length, 1, 'imported atom should still be reachable via trigger search');
-  assert.equal(hits[0].claim, 'Use HNSW for ANN search.');
+  assert.equal(hits[0]!.claim, 'Use HNSW for ANN search.');
 });

@@ -96,7 +96,7 @@ test('duplicate candidates produce a hard blocker', () => {
   const rec = aggregateRecommendation(gates, { draftId: 'd' });
   equal(rec.verdict, 'reject');
   equal(rec.blockers.length, 1);
-  equal(rec.blockers[0].key, 'duplicates');
+  equal(rec.blockers[0]!.key, 'duplicates');
 });
 
 test('non-grounded references produce a hard blocker', () => {

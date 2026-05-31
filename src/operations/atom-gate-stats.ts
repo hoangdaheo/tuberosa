@@ -46,7 +46,7 @@ export async function computeAtomGateStats(
       if (event.stage === 'triviality') {
         for (const reason of event.reasons) {
           const match = reason.match(/^triviality:(\w+)$/);
-          if (match) trivialityCounts.set(match[1], (trivialityCounts.get(match[1]) ?? 0) + 1);
+          if (match) trivialityCounts.set(match[1]!, (trivialityCounts.get(match[1]!) ?? 0) + 1);
         }
       }
     }

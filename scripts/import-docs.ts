@@ -65,7 +65,7 @@ function parseArgs(args: string[]): ImportDocsOptions {
   };
 
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    const arg = args[index]!;
 
     if (arg === '--help' || arg === '-h') {
       options.help = true;

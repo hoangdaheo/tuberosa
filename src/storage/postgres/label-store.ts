@@ -47,7 +47,7 @@ export class PostgresLabelStore {
           VALUES ($1, $2, $3)
           ON CONFLICT (knowledge_id, label_id) DO UPDATE SET weight = EXCLUDED.weight
         `,
-        [knowledgeId, result.rows[0].id, label.weight ?? 1],
+        [knowledgeId, result.rows[0]!.id, label.weight ?? 1],
       );
     }
   }

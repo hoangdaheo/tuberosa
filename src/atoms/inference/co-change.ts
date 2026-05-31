@@ -70,7 +70,9 @@ export function computeCoChangePairs(
     for (const f of unique) fileCounts.set(f, (fileCounts.get(f) ?? 0) + 1);
     for (let i = 0; i < unique.length; i += 1) {
       for (let j = i + 1; j < unique.length; j += 1) {
-        const [l, r] = unique[i] < unique[j] ? [unique[i], unique[j]] : [unique[j], unique[i]];
+        const ui = unique[i]!;
+        const uj = unique[j]!;
+        const [l, r] = ui < uj ? [ui, uj] : [uj, ui];
         const key = `${l}|${r}`;
         pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
       }
@@ -79,7 +81,7 @@ export function computeCoChangePairs(
   const out: CoChangePair[] = [];
   for (const [key, coOccurrences] of pairCounts.entries()) {
     if (coOccurrences < options.minCoChanges) continue;
-    const [left, right] = key.split('|');
+    const [left, right] = key.split('|') as [string, string];
     const union = (fileCounts.get(left) ?? 0) + (fileCounts.get(right) ?? 0) - coOccurrences;
     const confidence = union > 0 ? coOccurrences / union : 0;
     if (confidence < options.minConfidence) continue;

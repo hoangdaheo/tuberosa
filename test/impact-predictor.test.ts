@@ -43,9 +43,9 @@ test('predictImpact: returns affected atoms 1 hop from a file-evidence seed', as
   });
 
   assert.ok(result.predictedAffected.length >= 1);
-  assert.equal(result.predictedAffected[0].target.kind, 'atom');
-  assert.equal(result.predictedAffected[0].target.value, 'policy atom');
-  assert.equal(result.predictedAffected[0].via[0].edgeKind, 'co_changes_with');
+  assert.equal(result.predictedAffected[0]!.target!.kind, 'atom');
+  assert.equal(result.predictedAffected[0]!.target!.value, 'policy atom');
+  assert.equal(result.predictedAffected[0]!.via[0]!.edgeKind, 'co_changes_with');
   assert.deepEqual(result.triggeredBy.files, ['src/retrieval/fusion.ts']);
 });
 

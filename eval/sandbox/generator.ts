@@ -151,17 +151,17 @@ export function generateSandboxFixture(seed: number = DEFAULT_SEED): SandboxFixt
 
 function pickProject(rng: () => number, offset = 0): SandboxProject {
   const index = Math.floor(rng() * PROJECTS.length + offset) % PROJECTS.length;
-  return PROJECTS[index];
+  return PROJECTS[index]!;
 }
 
 function pick<T>(rng: () => number, list: readonly T[]): T {
-  return list[Math.floor(rng() * list.length)];
+  return list[Math.floor(rng() * list.length)]!;
 }
 
 function buildGold(rng: () => number, index: number): SandboxKnowledge {
   const project = pickProject(rng);
   const itemTypeChoices: KnowledgeItemType[] = ['code_ref', 'spec', 'bugfix', 'workflow', 'wiki', 'memory'];
-  const itemType = itemTypeChoices[index % itemTypeChoices.length];
+  const itemType = itemTypeChoices[index % itemTypeChoices.length]!;
   const symbol = pick(rng, project.symbols);
   const file = pick(rng, project.files);
   const businessArea = pick(rng, project.businessAreas);
@@ -209,7 +209,7 @@ function buildAdjacentNoise(rng: () => number, index: number): SandboxKnowledge 
   const otherProject = PROJECTS.find((candidate) => candidate.id !== project.id) ?? project;
   const symbol = pick(rng, otherProject.symbols);
   const itemTypeChoices: KnowledgeItemType[] = ['wiki', 'memory', 'workflow', 'conversation'];
-  const itemType = itemTypeChoices[index % itemTypeChoices.length];
+  const itemType = itemTypeChoices[index % itemTypeChoices.length]!;
   const sandboxId = `${project.id}-noise-${index}`;
   const title = `Notes about ${symbol} ergonomics (off-domain)`;
   const summary = `Loose notes from a ${otherProject.domain} review that drifted into ${project.domain} territory.`;

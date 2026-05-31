@@ -425,7 +425,7 @@ function loadLastRun(): BenchmarkRun | null {
     return null;
   }
   try {
-    return JSON.parse(lines[lines.length - 1]) as BenchmarkRun;
+    return JSON.parse(lines[lines.length - 1]!) as BenchmarkRun;
   } catch {
     return null;
   }

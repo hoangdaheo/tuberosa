@@ -51,7 +51,7 @@ test('importPack: differing local atom queues a conflict; local stays unchanged'
     limit: 10,
   });
   assert.equal(conflicts.length, 1);
-  assert.equal(conflicts[0].atomId, a.id);
+  assert.equal(conflicts[0]!.atomId, a.id);
 
   // Local atom claim stays unchanged until the conflict is resolved.
   const local = await dest.getAtom(a.id);

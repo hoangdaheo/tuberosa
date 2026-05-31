@@ -26,7 +26,7 @@ test('importPack: round-trips export → import on a fresh store with no conflic
   assert.equal(report.conflictsQueued, 0);
   const atoms = await dest.listAtoms({ project: 'tuberosa', limit: 10 });
   assert.equal(atoms.length, 1);
-  assert.equal(atoms[0].tier, 'draft', 'imported atoms always start at draft locally');
+  assert.equal(atoms[0]!.tier, 'draft', 'imported atoms always start at draft locally');
 });
 
 test('importPack: dry-run reports counts without mutating dest', async () => {

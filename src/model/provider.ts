@@ -94,8 +94,8 @@ export class HashModelProvider implements ModelProvider {
     for (const token of tokens) {
       const digest = createHash('sha256').update(token).digest();
       const index = digest.readUInt32BE(0) % this.dimensions;
-      const sign = digest[4] % 2 === 0 ? 1 : -1;
-      vector[index] += sign;
+      const sign = digest[4]! % 2 === 0 ? 1 : -1;
+      vector[index]! += sign;
     }
 
     const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;

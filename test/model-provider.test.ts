@@ -81,7 +81,7 @@ test('OpenAI rerank prompt and payload emphasize concrete retrieval evidence', (
   };
 
   deepEqual(payload.classified.intent.requiredEvidenceTypes, ['code_reference', 'workflow']);
-  const currentEvidence = payload.candidates[0].evidence;
+  const currentEvidence = payload.candidates[0]!.evidence;
   deepEqual(currentEvidence.exactFiles, ['src/auth.ts']);
   deepEqual(currentEvidence.exactSymbols, ['AuthService']);
   deepEqual(currentEvidence.exactErrors, ['TS-999']);
@@ -93,7 +93,7 @@ test('OpenAI rerank prompt and payload emphasize concrete retrieval evidence', (
   equal(currentEvidence.graphPaths[0]?.relationType, 'depends_on');
   equal(currentEvidence.feedback?.status, 'selected');
 
-  const staleEvidence = payload.candidates[1].evidence;
+  const staleEvidence = payload.candidates[1]!.evidence;
   equal(staleEvidence.freshness.staleMetadata, true);
   equal(staleEvidence.freshness.staleLanguage, true);
   deepEqual(staleEvidence.riskSignals, ['feedback:stale:1', 'suppression:freshness:stale']);

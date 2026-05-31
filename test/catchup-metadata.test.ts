@@ -79,9 +79,9 @@ test('getCatchupMetadata returns config, project goal, roadmap, and sandbox head
     assert.equal(meta.roadmap.exists, true);
     assert.ok(meta.roadmap.content?.includes('Phase 11'));
     assert.equal(meta.knownIssues.length, 2);
-    assert.equal(meta.knownIssues[0].status, 'open');
+    assert.equal(meta.knownIssues[0]!.status, 'open');
     assert.equal(meta.keyMcpTools.length, 1);
-    assert.equal(meta.keyMcpTools[0].name, 'tuberosa_start_session');
+    assert.equal(meta.keyMcpTools[0]!.name, 'tuberosa_start_session');
     assert.ok(meta.sandbox, 'sandbox report should be parsed');
     assert.equal(meta.sandbox?.status, 'pass');
     assert.equal(meta.sandbox?.headline.hitRate, 0.955);

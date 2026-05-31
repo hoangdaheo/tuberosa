@@ -86,5 +86,5 @@ test('searchAtomsByTrigger: scope=user filter returns only user atoms for the gi
     { project: undefined, scope: 'user', userId: 'alice@example.com', limit: 10 },
   );
   assert.equal(found.length, 1);
-  assert.equal(found[0].userId, 'alice@example.com');
+  assert.equal(found[0]!.userId, 'alice@example.com');
 });

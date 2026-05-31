@@ -33,7 +33,7 @@ test('migrateLegacyKnowledge: re-extracts memory items into atoms and marks orig
   assert.equal(report.legacyReplaced, 1);
   assert.equal(report.legacyArchived, 0);
   const items = await store.listKnowledge({ project: 'tuberosa', limit: 10 });
-  assert.equal(items[0].metadata.legacyStatus ?? items[0].status, 'legacy_replaced');
+  assert.equal(items[0]!.metadata!.legacyStatus ?? items[0]!.status, 'legacy_replaced');
 });
 
 test('migrateLegacyKnowledge: writes a supersedes mirror row in knowledge_relations', async () => {
@@ -54,12 +54,12 @@ test('migrateLegacyKnowledge: writes a supersedes mirror row in knowledge_relati
 
   const atoms = await store.listAtoms({ project: 'tuberosa', limit: 10 });
   assert.equal(atoms.length, 1);
-  const atomId = atoms[0].id;
+  const atomId = atoms[0]!.id;
   const rels = await store.listAtomRelations({ fromAtomId: atomId, inferenceSource: 'migration', limit: 10 });
   assert.equal(rels.length, 1);
-  assert.equal(rels[0].relationType, 'supersedes');
-  assert.equal(rels[0].targetAtomId, legacy.id);
-  assert.equal(rels[0].targetKind, 'knowledge');
+  assert.equal(rels[0]!.relationType, 'supersedes');
+  assert.equal(rels[0]!.targetAtomId, legacy.id);
+  assert.equal(rels[0]!.targetKind, 'knowledge');
 
   const refreshed = await store.getAtom(atomId);
   assert.ok(refreshed?.links?.some((l) => l.kind === 'supersedes' && l.toAtomId === legacy.id));

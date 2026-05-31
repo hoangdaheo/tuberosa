@@ -46,8 +46,8 @@ test('streamAtomGraphJsonl: emits one JSONL record per atom with outboundEdges',
   const aRecord = parsed.find((r) => r.atom.claim === 'A');
   assert.ok(aRecord, 'expected atom A in stream');
   assert.equal(aRecord.outboundEdges.length, 1);
-  assert.equal(aRecord.outboundEdges[0].kind, 'related_to');
-  assert.equal(aRecord.outboundEdges[0].confidence, 0.7);
+  assert.equal(aRecord.outboundEdges[0]!.kind, 'related_to');
+  assert.equal(aRecord.outboundEdges[0]!.confidence, 0.7);
 
   const bRecord = parsed.find((r) => r.atom.claim === 'B');
   assert.ok(bRecord);

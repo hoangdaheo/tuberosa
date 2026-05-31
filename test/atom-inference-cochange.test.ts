@@ -54,12 +54,12 @@ test('inferCoChangeLinks: links atoms whose evidence references co-changing file
 
   const aRels = await store.listAtomRelations({ fromAtomId: a.id, limit: 10 });
   assert.equal(aRels.length, 1);
-  assert.equal(aRels[0].relationType, 'co_changes_with');
-  assert.equal(aRels[0].targetAtomId, b.id);
-  assert.equal(aRels[0].inferenceSource, 'co_change');
+  assert.equal(aRels[0]!.relationType, 'co_changes_with');
+  assert.equal(aRels[0]!.targetAtomId, b.id);
+  assert.equal(aRels[0]!.inferenceSource, 'co_change');
 
   const bRels = await store.listAtomRelations({ fromAtomId: b.id, limit: 10 });
-  assert.equal(bRels[0].targetAtomId, a.id);
+  assert.equal(bRels[0]!.targetAtomId, a.id);
 });
 
 test('inferCoChangeLinks: re-running does not duplicate co_change edges', async () => {

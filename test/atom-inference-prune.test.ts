@@ -49,5 +49,5 @@ test('pruneStaleEdges: keeps edges above the floor and supports dryRun', async (
   assert.equal(real.removed, 1);
   const remaining = await store.listAtomRelations({ fromAtomId: a.id, limit: 10 });
   assert.equal(remaining.length, 1);
-  assert.equal(remaining[0].relationType, 'related_to');
+  assert.equal(remaining[0]!.relationType, 'related_to');
 });

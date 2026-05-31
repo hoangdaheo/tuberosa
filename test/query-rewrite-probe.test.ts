@@ -179,7 +179,7 @@ test('low-confidence probe fires rewriteQuery with mode=diverse_angle', async ()
     });
 
     equal(models.rewriteInputs.length, 1, 'low-confidence probe must fire models.rewriteQuery once');
-    equal(models.rewriteInputs[0].mode, 'diverse_angle', 'gated rewrite must pass mode=diverse_angle to the provider');
+    equal(models.rewriteInputs[0]!.mode, 'diverse_angle', 'gated rewrite must pass mode=diverse_angle to the provider');
     ok(pack.debug?.queryRewrite, 'queryRewrite debug payload must be present after gated rewrite');
     equal(pack.debug?.queryRewrite?.gated, true);
     equal(pack.debug?.queryRewrite?.skipped, undefined);
