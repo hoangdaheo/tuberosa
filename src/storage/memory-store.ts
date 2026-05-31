@@ -1328,6 +1328,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       },
       scope,
       userId: scope === 'user' ? input.userId : undefined,
+      teamId: scope === 'team' ? input.teamId : undefined,
       priority: scope === 'user' ? input.priority : undefined,
       metadata: input.metadata ?? {},
     };
@@ -1350,6 +1351,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .filter((atom) => !options.parentKnowledgeId || atom.parentKnowledgeId === options.parentKnowledgeId)
       .filter((atom) => !options.scope || atom.scope === options.scope)
       .filter((atom) => !options.userId || atom.userId === options.userId)
+      .filter((atom) => !options.teamId || atom.teamId === options.teamId)
       .slice(0, options.limit);
   }
 

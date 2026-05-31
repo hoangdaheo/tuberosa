@@ -1877,15 +1877,16 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     // that branch — the sentinel project name on the input is only used by the
     // in-memory store and must not pollute the projects table.
     const isUserScope = input.scope === 'user';
-    const projectId = isUserScope ? null : await this.ensureProject(this.pool, input.project);
+    const isTeamScope = input.scope === 'team';
+    const projectId = (isUserScope || isTeamScope) ? null : await this.ensureProject(this.pool, input.project);
     const columns = [
       'project_id', 'parent_knowledge_id', 'claim', 'type', 'evidence', 'trigger',
       'verification', 'pitfalls', 'links', 'produced_by', 'produced_session_id', 'embedding',
-      'scope', 'user_id', 'priority', 'metadata',
+      'scope', 'user_id', 'priority', 'metadata', 'team_id',
     ];
     const placeholders = [
       '$1', '$2', '$3', '$4', '$5::jsonb', '$6::jsonb', '$7::jsonb', '$8::jsonb', '$9::jsonb',
-      '$10', '$11', '$12::vector', '$13', '$14', '$15', '$16::jsonb',
+      '$10', '$11', '$12::vector', '$13', '$14', '$15', '$16::jsonb', '$17',
     ];
     const values: unknown[] = [
       projectId,
@@ -1904,6 +1905,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       isUserScope ? input.userId ?? null : null,
       isUserScope ? input.priority ?? null : null,
       JSON.stringify(input.metadata ?? {}),
+      isTeamScope ? input.teamId ?? null : null,
     ];
     if (input.id) {
       columns.unshift('id');
@@ -1957,6 +1959,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (options.userId) {
       values.push(options.userId);
       filters.push(`a.user_id = $${values.length}`);
+    }
+    if (options.teamId) {
+      values.push(options.teamId);
+      filters.push(`a.team_id = $${values.length}`);
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     values.push(options.limit);
@@ -3432,10 +3438,14 @@ function mapAgentContextDecisionRow(row: Record<string, unknown>): AgentContextD
 function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom {
   const scope = (row.scope as KnowledgeAtom['scope']) ?? 'project';
   const userId = row.user_id ? String(row.user_id) : undefined;
+  const teamId = row.team_id ? String(row.team_id) : undefined;
   // Concern F: user-scope atoms have null project_id and a sentinel project name
   // for the in-memory side of the store contract. Synthesise the sentinel here
   // so downstream consumers see a stable `project` string.
-  const resolvedProject = scope === 'user' ? `__user:${userId ?? ''}` : project;
+  const resolvedProject =
+    scope === 'user' ? `__user:${userId ?? ''}`
+    : scope === 'team' ? `__team:${teamId ?? ''}`
+    : project;
   return {
     id: String(row.id),
     project: resolvedProject,
@@ -3459,6 +3469,7 @@ function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom
     },
     scope,
     userId,
+    teamId,
     priority: (row.priority as KnowledgeAtom['priority']) ?? undefined,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
