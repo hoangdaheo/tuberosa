@@ -217,6 +217,13 @@ export interface AtomGateEventInput {
 }
 
 export interface KnowledgeStore {
+  /**
+   * Run `fn` inside a single transaction. The `tx` handle is a store bound to one
+   * connection: all of its simple-query writes commit together, or roll back if `fn`
+   * throws. NOTE: only simple-query methods are transaction-safe inside `fn`; methods
+   * that open their own connection (bulk upserts) must not be called here.
+   */
+  withTransaction<T>(fn: (tx: KnowledgeStore) => Promise<T>): Promise<T>;
   upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge>;
   deleteStaleFileAtoms(input: StaleFileAtomCleanupInput): Promise<number>;
   // --- Source lifecycle sync (P0) ---
