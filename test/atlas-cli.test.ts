@@ -21,7 +21,7 @@ test('atlasCommand: --json prints regenerate result', async () => {
   const code = await atlasCommand(inv, io, { makeService: async () => new AtlasService(store, { atlasDir: dir }) });
   assert.equal(code.exitCode, 0);
   const out = JSON.parse(io.lines.join('\n'));
-  assert.equal(out.files.length, 5);
+  assert.equal(out.files.length, 6);
 });
 
 test('atlasCommand: requires --project', async () => {

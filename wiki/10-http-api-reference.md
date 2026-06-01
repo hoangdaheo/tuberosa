@@ -2,7 +2,7 @@
 
 All endpoints return JSON. `/health` is public. Everything else requires `Authorization: Bearer $TUBEROSA_API_KEY` when the key is set.
 
-Server: `src/http/server.ts`. Error mapping: `src/http/errors.ts` (`{error: string, code: string, ...details}`).
+Server: `src/http/server.ts`. Error mapping: `src/errors.ts` (`{error: string, code: string, ...details}`).
 
 ---
 

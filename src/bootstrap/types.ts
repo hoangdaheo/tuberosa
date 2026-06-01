@@ -17,6 +17,12 @@ export interface BootstrapRunArgs {
   generatedAt: string;
   export?: boolean;
   deep?: boolean;
+  /**
+   * Run the non-fatal convention-extraction stage. Defaults to enabled; the CLI
+   * sets it `false` when `--no-conventions` is passed. Treated as "run unless
+   * explicitly disabled" (`args.conventions !== false`).
+   */
+  conventions?: boolean;
   /** Optional explicit output dir for `--export`; resolved safely against exportBaseDir. */
   out?: string;
 }
@@ -32,6 +38,14 @@ export interface BootstrapReport {
     graphDensity?: AtomGraphDensity;
     warnings: string[];
   };
+  /**
+   * Deterministic convention-extraction signal count assembled at bootstrap
+   * time. The CLI cannot distill conventions without an agent, so this stage
+   * only counts candidate signals and `nextActions` points the user at the
+   * `tuberosa_bootstrap_handbook` agent tool. Absent when the stage is skipped
+   * (`--no-conventions`) or fails (non-fatal — see `warnings`).
+   */
+  conventions?: { candidateSignalCount: number };
   export?: {
     out: string;
     atoms: number;

@@ -150,7 +150,7 @@ When `contextMode="layered"` and `includeDeepContext=true`, the chosen knowledge
 | Source weights | `config/retrieval-policy.json` → `sourceWeights` |
 | Task-type profiles | `config/retrieval-policy.json` → `taskProfiles` |
 | Fit thresholds | `src/retrieval/context-fit.ts` constants |
-| Aboutness weights | `src/retrieval/ranking.ts` |
+| Aboutness weights | `src/retrieval/service.ts` (`applyRankingAdjustments`, `applyIntentSuppression`) |
 | Graph expansion budget | `config/retrieval-policy.json` → `graph` |
 | Probe-vs-rewrite gate | `config/retrieval-policy.json` → `rewrite` |
 | Deep-context budget | `TUBEROSA_DEEP_CONTEXT_BUDGET` env (clamped 30k–100k) |

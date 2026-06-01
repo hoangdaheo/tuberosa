@@ -65,8 +65,9 @@ export interface AtomFrontmatter {
   /** Optional override. When absent, the Markdown body is the claim. */
   claim?: string;
   /** Concern F — user-style preference layer. */
-  scope?: 'project' | 'user';
+  scope?: 'project' | 'user' | 'team';
   userId?: string;
+  teamId?: string;
   priority?: 'personal_workflow' | 'coding_preference';
   metadata?: Record<string, unknown>;
 }
