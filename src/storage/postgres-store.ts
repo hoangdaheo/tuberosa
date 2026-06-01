@@ -2011,6 +2011,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (patch.verification !== undefined) { values.push(JSON.stringify(patch.verification)); sets.push(`verification = $${values.length}::jsonb`); }
     if (patch.pitfalls !== undefined)     { values.push(JSON.stringify(patch.pitfalls));     sets.push(`pitfalls = $${values.length}::jsonb`); }
     if (patch.links !== undefined)        { values.push(JSON.stringify(patch.links));        sets.push(`links = $${values.length}::jsonb`); }
+    if (patch.metadata !== undefined)     { values.push(JSON.stringify(patch.metadata));     sets.push(`metadata = $${values.length}::jsonb`); }
     values.push(id);
     const result = await this.pool.query(
       `UPDATE knowledge_atoms SET ${sets.join(', ')} WHERE id = $${values.length} RETURNING *`,

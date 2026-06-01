@@ -43,6 +43,7 @@ export async function bootstrapCommand(
   const asJson = invocation.options.json === true;
   const wantExport = invocation.options.export === true;
   const deep = invocation.options.deep === true;
+  const noConventions = invocation.options['no-conventions'] === true;
   const out = typeof invocation.options.out === 'string' ? invocation.options.out : undefined;
 
   const service = await deps.makeService(project, repoPath);
@@ -52,6 +53,7 @@ export async function bootstrapCommand(
     generatedAt: new Date().toISOString(),
     export: wantExport,
     deep,
+    conventions: !noConventions,
     out,
   });
 

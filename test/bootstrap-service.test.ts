@@ -75,3 +75,106 @@ test('BootstrapService.run: --export rejects unsafe --out', async () => {
     /.*/,
   );
 });
+
+/**
+ * Dedicated fixture with package.json scripts so the convention stage detects a
+ * meaningful signal count: `tsc` → detectedTech 'typescript', and `test`/`build`
+ * script names → workflow-gate hints. Kept separate from `fixtureRepo()` so the
+ * other tests' exact ingest/file-count assertions stay valid.
+ */
+async function fixtureRepoWithScripts(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'bootstrap-scripts-'));
+  await mkdir(join(dir, 'src'), { recursive: true });
+  await writeFile(join(dir, 'src', 'a.ts'), 'export const a = 1;\n', 'utf8');
+  await writeFile(join(dir, 'README.md'), '# Title\n\nProse.\n', 'utf8');
+  await writeFile(
+    join(dir, 'package.json'),
+    JSON.stringify({ name: 'p', scripts: { test: 'node --test', build: 'tsc -p .' } }, null, 2),
+    'utf8',
+  );
+  return dir;
+}
+
+test('BootstrapService.run: populates conventions and points to bootstrap_handbook', async () => {
+  const repo = await fixtureRepoWithScripts();
+  const store = new MemoryKnowledgeStore();
+  const atlasDir = await mkdtemp(join(tmpdir(), 'atlas-'));
+  const service = makeService(store, atlasDir);
+
+  const report = await service.run({ project: 'p', repoPath: repo, generatedAt: '2026-05-29T00:00:00.000Z' });
+
+  assert.ok(report.conventions, 'conventions present');
+  assert.equal(typeof report.conventions!.candidateSignalCount, 'number');
+  // package.json has a `tsc` build (detectedTech) + test/build workflow gates,
+  // so a meaningful (>=1) signal count must surface — guards against the stage
+  // silently producing 0 on a repo that actually has signals.
+  const count = report.conventions!.candidateSignalCount;
+  assert.ok(count >= 1, `signal count is meaningful (got ${count})`);
+  assert.ok(
+    report.nextActions.some((a) => a.includes('tuberosa_bootstrap_handbook') && a.includes(`${count} candidate signal`)),
+    'next actions point to bootstrap_handbook with the candidate count',
+  );
+});
+
+test('BootstrapService.run: conventions:false skips the stage', async () => {
+  const repo = await fixtureRepo();
+  const store = new MemoryKnowledgeStore();
+  const atlasDir = await mkdtemp(join(tmpdir(), 'atlas-'));
+  const service = makeService(store, atlasDir);
+
+  const report = await service.run({
+    project: 'p',
+    repoPath: repo,
+    generatedAt: '2026-05-29T00:00:00.000Z',
+    conventions: false,
+  });
+
+  assert.equal(report.conventions, undefined, 'conventions stage skipped');
+  assert.ok(
+    !report.nextActions.some((a) => a.includes('tuberosa_bootstrap_handbook')),
+    'no bootstrap_handbook next action when skipped',
+  );
+});
+
+test('BootstrapService.run: convention extraction failure is non-fatal', async () => {
+  const repo = await fixtureRepo();
+  const store = new MemoryKnowledgeStore();
+  const atlasDir = await mkdtemp(join(tmpdir(), 'atlas-'));
+
+  // Isolate the convention stage. The real AtlasService.regenerate also calls
+  // gatherAtlasInputs -> store.listAtoms, so a store-wide sabotage would knock
+  // out the atlas stage too and we couldn't attribute the warning to the
+  // convention catch. A stub atlas that resolves WITHOUT touching the store
+  // leaves the convention stage as the ONLY gatherAtlasInputs/listAtoms caller,
+  // so throwing on every listAtoms cleanly exercises just its catch.
+  const models = new HashModelProvider();
+  const ingestion = new IngestionService(store, models, { safety: new KnowledgeSafetyService() });
+  const sync = new SourceSyncService({ store, ingestion, atlasAutoRegen: false });
+  const atlas = {
+    regenerate: async () => ({ inputHash: 'sha256:test', files: [], contents: [] }),
+  } as unknown as AtlasService;
+  const service = new BootstrapService({
+    store,
+    sync,
+    atlas,
+    maintenance: new MaintenanceService(store),
+    exportBaseDir: atlasDir,
+  });
+
+  store.listAtoms = (async () => {
+    throw new Error('boom-listAtoms');
+  }) as typeof store.listAtoms;
+
+  const report = await service.run({ project: 'p', repoPath: repo, generatedAt: '2026-05-29T00:00:00.000Z' });
+
+  assert.ok(report, 'run still resolves to a report');
+  assert.equal(report.conventions, undefined, 'conventions left undefined on failure');
+  assert.ok(
+    report.warnings.some((w) => w.includes('convention extraction failed')),
+    'failure captured as a warning',
+  );
+  assert.ok(
+    !report.warnings.some((w) => w.includes('atlas regeneration')),
+    'only the convention stage failed (atlas was not collateral damage)',
+  );
+});

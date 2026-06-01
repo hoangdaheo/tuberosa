@@ -172,6 +172,24 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       });
     }
 
+    case 'tuberosa_propose_curation': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_propose_curation arguments.project');
+      const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) && args.limit > 0
+        ? Math.floor(args.limit)
+        : undefined;
+      const result = await services.curation.proposeCuration({ project, limit });
+      return toolJson(result);
+    }
+
+    case 'tuberosa_bootstrap_handbook': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_bootstrap_handbook arguments.project');
+      const repoPath = readOptionalMcpString(args.repoPath, 'tuberosa_bootstrap_handbook arguments.repoPath')
+        ?? services.config.defaultCwd ?? process.cwd();
+      // generatedAt is intentionally NOT an MCP parameter — it is an internal determinism knob for tests; live calls use wall-clock time via the service default.
+      const result = await services.curation.bootstrapHandbook({ project, repoPath });
+      return toolJson(result);
+    }
+
     case 'tuberosa_list_reflection_drafts': {
       const drafts = await services.operations.listReflectionDrafts(validateReflectionDraftListInput(args));
       return toolJson({
@@ -1197,6 +1215,32 @@ function tools() {
           labels: { type: 'array', items: { type: 'object' } },
           references: { type: 'array', items: { type: 'object' } },
           metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_propose_curation',
+      title: 'Propose Tuberosa Curation Clusters',
+      description: 'Cluster a project\'s un-curated knowledge atoms so the calling agent can distill each cluster into a single reusable convention via tuberosa_reflect. Deterministic clustering only — the distillation reasoning is the agent\'s.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          limit: { type: 'number', minimum: 1, description: 'Maximum number of active atoms to pull for clustering. Defaults to 500.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_bootstrap_handbook',
+      title: 'Bootstrap Tuberosa Handbook',
+      description: 'Assemble deterministic repo evidence (detected tech, areas, scripts, doc excerpts, recurring workflow hints) plus an agent instruction for proposing project conventions via tuberosa_reflect. Bootstrap-proposed conventions are review-gated: drafts land pending human confirmation, not auto-activated.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          repoPath: { type: 'string', description: 'Repository root to read package.json / README.md / CONTRIBUTING.md from. Defaults to the server cwd.' },
         },
       },
     },
