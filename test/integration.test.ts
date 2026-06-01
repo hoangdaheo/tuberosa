@@ -4,7 +4,7 @@ import { Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { deepEqual, equal, ok } from 'node:assert/strict';
+import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
 import { Pool } from 'pg';
 import { AgentSessionService } from '../src/agent-session/service.js';
 import { createCache, MemoryCache } from '../src/cache.js';
@@ -354,6 +354,53 @@ test('Postgres store silently filters Phase-5 worktree synthetic ids from uuid c
       rejectedKnowledgeIds: syntheticIds,
       reason: 'worktree synthetic id regression test',
     });
+  } finally {
+    await store.close();
+  }
+});
+
+test('Postgres withTransaction commits on success and rolls back every write on throw', async (t) => {
+  const available = await postgresAvailable();
+  if (!available.ok) {
+    t.skip(available.reason);
+    return;
+  }
+
+  const migrationPool = new Pool({ connectionString: POSTGRES_URL, connectionTimeoutMillis: 1000 });
+  await runMigrations(migrationPool);
+  await migrationPool.end();
+
+  const store = new PostgresKnowledgeStore(POSTGRES_URL);
+  const project = `tx-${randomUUID()}`;
+
+  try {
+    // Commit path: the gap written inside the tx is durable afterwards.
+    const committed = await store.withTransaction((tx) =>
+      tx.createKnowledgeGap({ project, prompt: 'committed', missingSignals: ['file'] }));
+    ok(await store.getKnowledgeGap(committed.id), 'committed gap should persist');
+
+    // Rollback path: two gaps + one proposal written, then throw. A real
+    // BEGIN/ROLLBACK must discard ALL of them — proving partial writes don't leak.
+    await rejects(
+      store.withTransaction(async (tx) => {
+        await tx.createKnowledgeGap({ project, prompt: 'rollback-a', missingSignals: [] });
+        await tx.createKnowledgeGap({ project, prompt: 'rollback-b', missingSignals: [] });
+        await tx.createLearningProposal({
+          project,
+          proposalType: 'missing_label',
+          reason: 'should be rolled back',
+          evidence: [],
+        });
+        throw new Error('integration-tx-boom');
+      }),
+      /integration-tx-boom/,
+    );
+
+    const gaps = await store.listKnowledgeGaps({ project, limit: 100 });
+    equal(gaps.length, 1, 'only the committed gap should remain after rollback');
+    equal(gaps[0]?.id, committed.id);
+    const proposals = await store.listLearningProposals({ project, limit: 100 });
+    equal(proposals.length, 0, 'the rolled-back proposal must not persist');
   } finally {
     await store.close();
   }

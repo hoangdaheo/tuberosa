@@ -127,6 +127,83 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
   private readonly syncRuns = new Map<string, SyncRunRecord>();
   private readonly atlasRuns: AtlasRunRecord[] = [];
 
+  async withTransaction<T>(fn: (tx: KnowledgeStore) => Promise<T>): Promise<T> {
+    const snapshot = this.snapshotState();
+    try {
+      return await fn(this);
+    } catch (error) {
+      this.restoreState(snapshot);
+      throw error;
+    }
+  }
+
+  /**
+   * Deep-copy every mutable collection so a failed transaction can be rolled
+   * back. All collections hold plain-data records (no class instances), so
+   * `structuredClone` reproduces them faithfully, independent of the live maps.
+   */
+  private snapshotState() {
+    const cloneMap = <K, V>(map: Map<K, V>): Map<K, V> =>
+      new Map(structuredClone([...map.entries()]));
+    return {
+      knowledge: cloneMap(this.knowledge),
+      chunks: cloneMap(this.chunks),
+      knowledgeSourceUris: cloneMap(this.knowledgeSourceUris),
+      packs: cloneMap(this.packs),
+      drafts: cloneMap(this.drafts),
+      relations: cloneMap(this.relations),
+      conflicts: cloneMap(this.conflicts),
+      gaps: cloneMap(this.gaps),
+      proposals: cloneMap(this.proposals),
+      agentSessions: cloneMap(this.agentSessions),
+      agentDecisions: cloneMap(this.agentDecisions),
+      sessionReplays: cloneMap(this.sessionReplays),
+      feedback: structuredClone(this.feedback),
+      atoms: cloneMap(this.atoms),
+      atomEmbeddings: cloneMap(this.atomEmbeddings),
+      atomGateEvents: cloneMap(this.atomGateEvents),
+      atomRelations: cloneMap(this.atomRelations),
+      atomImportConflicts: cloneMap(this.atomImportConflicts),
+      sourceFiles: cloneMap(this.sourceFiles),
+      syncRuns: cloneMap(this.syncRuns),
+      atlasRuns: structuredClone(this.atlasRuns),
+    };
+  }
+
+  private restoreState(s: ReturnType<MemoryKnowledgeStore['snapshotState']>): void {
+    // Collections are `readonly` (cannot be reassigned), so restore in place by
+    // clearing each and repopulating from the snapshot's cloned entries.
+    const resetMap = <K, V>(target: Map<K, V>, source: Map<K, V>): void => {
+      target.clear();
+      for (const [k, v] of source) target.set(k, v);
+    };
+    const resetArray = <V>(target: V[], source: V[]): void => {
+      target.length = 0;
+      target.push(...source);
+    };
+    resetMap(this.knowledge, s.knowledge);
+    resetMap(this.chunks, s.chunks);
+    resetMap(this.knowledgeSourceUris, s.knowledgeSourceUris);
+    resetMap(this.packs, s.packs);
+    resetMap(this.drafts, s.drafts);
+    resetMap(this.relations, s.relations);
+    resetMap(this.conflicts, s.conflicts);
+    resetMap(this.gaps, s.gaps);
+    resetMap(this.proposals, s.proposals);
+    resetMap(this.agentSessions, s.agentSessions);
+    resetMap(this.agentDecisions, s.agentDecisions);
+    resetMap(this.sessionReplays, s.sessionReplays);
+    resetArray(this.feedback, s.feedback);
+    resetMap(this.atoms, s.atoms);
+    resetMap(this.atomEmbeddings, s.atomEmbeddings);
+    resetMap(this.atomGateEvents, s.atomGateEvents);
+    resetMap(this.atomRelations, s.atomRelations);
+    resetMap(this.atomImportConflicts, s.atomImportConflicts);
+    resetMap(this.sourceFiles, s.sourceFiles);
+    resetMap(this.syncRuns, s.syncRuns);
+    resetArray(this.atlasRuns, s.atlasRuns);
+  }
+
   async upsertKnowledge(input: KnowledgeInput, chunks: ChunkInput[]): Promise<StoredKnowledge> {
     const now = new Date().toISOString();
     const existing = this.findKnowledgeBySourceUri(input.project, input.sourceUri);
