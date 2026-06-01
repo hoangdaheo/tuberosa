@@ -171,6 +171,15 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       });
     }
 
+    case 'tuberosa_propose_curation': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_propose_curation arguments.project');
+      const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) && args.limit > 0
+        ? Math.floor(args.limit)
+        : undefined;
+      const result = await services.curation.proposeCuration({ project, limit });
+      return toolJson(result);
+    }
+
     case 'tuberosa_list_reflection_drafts': {
       const drafts = await services.operations.listReflectionDrafts(validateReflectionDraftListInput(args));
       return toolJson({
@@ -1196,6 +1205,19 @@ function tools() {
           labels: { type: 'array', items: { type: 'object' } },
           references: { type: 'array', items: { type: 'object' } },
           metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_propose_curation',
+      title: 'Propose Tuberosa Curation Clusters',
+      description: 'Cluster a project\'s un-curated knowledge atoms so the calling agent can distill each cluster into a single reusable convention via tuberosa_reflect. Deterministic clustering only — the distillation reasoning is the agent\'s.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          limit: { type: 'number', minimum: 1, description: 'Maximum number of active atoms to pull for clustering. Defaults to 500.' },
         },
       },
     },

@@ -16,6 +16,7 @@ import type {
   ReflectionDraftPatchInput,
   ReflectionDraftReviewInput,
   SearchCandidate,
+  Trigger,
 } from '../types.js';
 
 export class ReflectionService {
@@ -95,6 +96,46 @@ export class ReflectionService {
     }
 
     const project = draft.project ?? 'personal';
+
+    // Phase 4a — a curated convention draft distills into a scoped
+    // type:'convention' atom rather than an ingested knowledge item. The
+    // source atoms it was distilled from are stamped so they aren't
+    // re-clustered. The non-convention path below is intentionally untouched.
+    const meta = (draft.metadata ?? {}) as Record<string, unknown>;
+    if (meta.convention === true) {
+      const scope = (meta.scope as 'project' | 'team' | 'user') ?? 'project';
+      const created = await this.store.createAtom({
+        project,
+        type: 'convention',
+        claim: draft.title,
+        evidence: [],
+        trigger: (meta.trigger as Trigger) ?? {},
+        producedBy: 'agent_session',
+        scope,
+        teamId: scope === 'team' ? (meta.teamId as string | undefined) : undefined,
+        metadata: {
+          convention: true,
+          curated: true,
+          curationSource: (meta.curationSource as string) ?? 'curation',
+          category: meta.category,
+          steps: meta.steps,
+          author: meta.author,
+          evidenceAtomIds: meta.evidenceAtomIds,
+        },
+      });
+      // createAtom always seeds tier:'draft'; a reviewer-approved convention is verified.
+      await this.store.updateAtom(created.id, { tier: 'verified' });
+      for (const srcId of (meta.evidenceAtomIds as string[] | undefined) ?? []) {
+        const src = await this.store.getAtom(srcId);
+        if (src) {
+          await this.store.updateAtom(srcId, {
+            metadata: { ...(src.metadata ?? {}), distilledIntoAtomId: created.id },
+          });
+        }
+      }
+      return draft;
+    }
+
     await this.ingestion.ingestKnowledge({
       project,
       sourceType: 'reflection',
