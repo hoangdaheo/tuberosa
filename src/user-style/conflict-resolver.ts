@@ -72,7 +72,7 @@ export function resolveStyleConflicts(candidates: RankedCandidate[]): ConflictRe
   for (const user of userStyleCandidates) {
     for (const proj of projectCandidates) {
       if (!isContradiction(user.title ?? '', proj.title ?? '')) continue;
-      const priority = user.metadata!.userStylePriority;
+      const priority = user.metadata?.userStylePriority;
       if (priority === 'personal_workflow') {
         suppressedSet.add(proj.knowledgeId);
         lines.push(`Following your personal workflow: ${user.title}`);
