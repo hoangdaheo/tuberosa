@@ -35,7 +35,7 @@ async function main(): Promise<void> {
         content: await readFile(absolutePath, 'utf8'),
       };
     }));
-    const stored = await services.operations.importFiles({
+    const { results: stored, errors } = await services.operations.importFiles({
       project: options.project,
       mode: options.mode,
       files,
@@ -50,6 +50,7 @@ async function main(): Promise<void> {
         title: item.title,
         sourceUri: item.sourceUri,
       })),
+      errors,
     }, null, 2));
   } finally {
     await services.close();

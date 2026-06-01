@@ -3,6 +3,7 @@ import type { KnowledgeStore } from '../storage/store.js';
 import type { KnowledgeInput, StoredKnowledge } from '../types.js';
 import { DuplicateIngestionError } from '../errors.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
+import { cosineSimilarity } from '../util/vector.js';
 
 export interface DuplicateDecision {
   decision: 'allow' | 'flag' | 'block' | 'reject';
@@ -155,17 +156,3 @@ function buildEmbedSurfaceStored(candidate: StoredKnowledge): string {
   return [candidate.title, candidate.summary, candidate.content].filter(Boolean).join('\n');
 }
 
-export function cosineSimilarity(left: number[], right: number[]): number {
-  const len = Math.min(left.length, right.length);
-  if (len === 0) return 0;
-  let dot = 0;
-  let normL = 0;
-  let normR = 0;
-  for (let i = 0; i < len; i += 1) {
-    dot += left[i] * right[i];
-    normL += left[i] * left[i];
-    normR += right[i] * right[i];
-  }
-  if (normL === 0 || normR === 0) return 0;
-  return dot / (Math.sqrt(normL) * Math.sqrt(normR));
-}

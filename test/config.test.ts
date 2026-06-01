@@ -18,6 +18,37 @@ test('config reads physical mirror debounce with default', () => {
   equal(configured.physicalMirrorDebounceMs, 250);
 });
 
+test('config reads OpenAI fetch timeout with default', () => {
+  const defaultConfig = withEnv({ TUBEROSA_OPENAI_TIMEOUT_MS: undefined }, () => loadConfig());
+  equal(defaultConfig.openAiTimeoutMs, 30000);
+
+  const configured = withEnv({ TUBEROSA_OPENAI_TIMEOUT_MS: '5000' }, () => loadConfig());
+  equal(configured.openAiTimeoutMs, 5000);
+});
+
+test('config byte caps fall back to defaults on missing or invalid env', () => {
+  const defaults = withEnv(
+    { TUBEROSA_MAX_REQUEST_BYTES: undefined, TUBEROSA_MAX_INGEST_CONTENT_BYTES: undefined },
+    () => loadConfig(),
+  );
+  equal(defaults.maxRequestBytes, 10 * 1024 * 1024);
+  equal(defaults.maxIngestContentBytes, 2 * 1024 * 1024);
+
+  const invalid = withEnv(
+    { TUBEROSA_MAX_REQUEST_BYTES: 'not-a-number', TUBEROSA_MAX_INGEST_CONTENT_BYTES: '0' },
+    () => loadConfig(),
+  );
+  equal(invalid.maxRequestBytes, 10 * 1024 * 1024);
+  equal(invalid.maxIngestContentBytes, 2 * 1024 * 1024);
+
+  const configured = withEnv(
+    { TUBEROSA_MAX_REQUEST_BYTES: '1024', TUBEROSA_MAX_INGEST_CONTENT_BYTES: '512' },
+    () => loadConfig(),
+  );
+  equal(configured.maxRequestBytes, 1024);
+  equal(configured.maxIngestContentBytes, 512);
+});
+
 function withEnv<T>(patch: Record<string, string | undefined>, run: () => T): T {
   const previous = new Map<string, string | undefined>();
 

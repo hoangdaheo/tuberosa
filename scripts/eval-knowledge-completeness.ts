@@ -35,6 +35,7 @@ const defaultConfig: AppConfig = {
   cache: 'memory',
   autoMigrate: false,
   modelProvider: 'hash',
+  openAiTimeoutMs: 30_000,
   embeddingDimensions: 1536,
   openAiEmbeddingModel: 'text-embedding-3-small',
   contextCacheTtlSeconds: 0,

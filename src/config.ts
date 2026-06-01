@@ -20,6 +20,7 @@ export interface AppConfig {
   ollamaUrl?: string;
   ollamaRerankModel?: string;
   ollamaTimeoutMs?: number;
+  openAiTimeoutMs: number;
   contextCacheTtlSeconds: number;
   contextMode?: 'compact' | 'layered';
   deepContextBudget?: number;
@@ -99,11 +100,12 @@ export function loadConfig(): AppConfig {
     ollamaUrl: process.env.TUBEROSA_OLLAMA_URL || undefined,
     ollamaRerankModel: process.env.TUBEROSA_OLLAMA_RERANK_MODEL || undefined,
     ollamaTimeoutMs: process.env.TUBEROSA_OLLAMA_TIMEOUT_MS ? Number(process.env.TUBEROSA_OLLAMA_TIMEOUT_MS) : undefined,
+    openAiTimeoutMs: envInt('TUBEROSA_OPENAI_TIMEOUT_MS', 30_000),
     contextCacheTtlSeconds: Number(process.env.CONTEXT_CACHE_TTL_SECONDS ?? 300),
     contextMode: readEnum(process.env.TUBEROSA_CONTEXT_MODE, ['compact', 'layered'] as Array<'compact' | 'layered'>, 'layered'),
     deepContextBudget: Number(process.env.TUBEROSA_DEEP_CONTEXT_BUDGET ?? 60_000),
-    maxRequestBytes: Number(process.env.TUBEROSA_MAX_REQUEST_BYTES ?? 10 * 1024 * 1024),
-    maxIngestContentBytes: Number(process.env.TUBEROSA_MAX_INGEST_CONTENT_BYTES ?? 2 * 1024 * 1024),
+    maxRequestBytes: envInt('TUBEROSA_MAX_REQUEST_BYTES', 10 * 1024 * 1024),
+    maxIngestContentBytes: envInt('TUBEROSA_MAX_INGEST_CONTENT_BYTES', 2 * 1024 * 1024),
     backupDir: process.env.TUBEROSA_BACKUP_DIR ?? '.tuberosa/backups',
     exportBaseDir: process.env.TUBEROSA_EXPORT_BASE_DIR ?? '.tuberosa/exports',
     importBaseDir: process.env.TUBEROSA_IMPORT_BASE_DIR ?? '.tuberosa/imports',
@@ -143,6 +145,16 @@ export function loadConfig(): AppConfig {
     userStyleClusterWindowDays: Number(process.env.TUBEROSA_USER_STYLE_CLUSTER_WINDOW_DAYS ?? 30),
     userStyleMinClusterEvents: Number(process.env.TUBEROSA_USER_STYLE_MIN_CLUSTER_EVENTS ?? 3),
   };
+}
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function readEnum<T extends string>(value: string | undefined, allowed: T[], fallback: T): T {

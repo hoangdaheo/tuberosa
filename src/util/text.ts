@@ -6,8 +6,10 @@ export function normalizeLabel(value: string): string {
   return normalizeText(value).toLowerCase().replace(/[^a-z0-9._/-]+/g, '-').replace(/^-|-$/g, '');
 }
 
+export const TOKEN_CHARS = 4;
+
 export function estimateTokens(value: string): number {
-  return Math.max(1, Math.ceil(value.length / 4));
+  return Math.max(1, Math.ceil(value.length / TOKEN_CHARS));
 }
 
 export function uniqueStrings(values: string[]): string[] {

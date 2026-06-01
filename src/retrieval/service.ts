@@ -37,7 +37,8 @@ import type {
 } from '../types.js';
 import { predictImpact } from './impact-predictor.js';
 import { sha256, stableJson } from '../util/hash.js';
-import { clamp, metadataString, normalizeLabel, sameSignals, truncate, uniqueStrings } from '../util/text.js';
+import { clamp, estimateTokens, metadataString, normalizeLabel, sameSignals, truncate, uniqueStrings } from '../util/text.js';
+import { isRfc4122Uuid } from '../util/uuid.js';
 import { candidateText } from './candidate-helpers.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
 import type { KnowledgeStore } from '../storage/store.js';
@@ -444,7 +445,13 @@ export class RetrievalService {
     cacheKey: string,
     input: NormalizedContextSearchInput,
   ): Promise<ContextPack | undefined> {
-    return input.bypassCache || input.debug ? undefined : this.cache.getJson<ContextPack>(cacheKey);
+    if (input.bypassCache || input.debug) return undefined;
+    try {
+      return await this.cache.getJson<ContextPack>(cacheKey);
+    } catch (error) {
+      console.error('[retrieval] context-pack cache read failed; continuing uncached.', error);
+      return undefined;
+    }
   }
 
   private async createContextQuery(
@@ -1395,7 +1402,11 @@ async function saveCompactContextPack(
   ttlSeconds: number,
 ): Promise<void> {
   await store.saveContextPack(pack);
-  await cache.setJson(cacheKey, pack, ttlSeconds);
+  try {
+    await cache.setJson(cacheKey, pack, ttlSeconds);
+  } catch (error) {
+    console.error('[retrieval] context-pack cache write failed; pack persisted to store.', error);
+  }
 }
 
 function atomToCandidate(atom: KnowledgeAtom, index: number): SearchCandidate {
@@ -1418,7 +1429,7 @@ function atomToCandidate(atom: KnowledgeAtom, index: number): SearchCandidate {
     project: atom.project,
     labels: [],
     references,
-    tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
+    tokenEstimate: estimateTokens(atom.claim),
     trustLevel: 1,
     source: 'atoms',
     // Neutral rawScore (fusion ranks by `rank`, not rawScore — rawScore only acts
@@ -1460,7 +1471,7 @@ function userStyleAtomToCandidate(atom: KnowledgeAtom, index: number): SearchCan
     project: atom.project,
     labels: [],
     references: [],
-    tokenEstimate: Math.max(1, Math.ceil(atom.claim.length / 4)),
+    tokenEstimate: estimateTokens(atom.claim),
     trustLevel: 1,
     source: 'userStyle',
     rawScore: 1,
@@ -2484,9 +2495,7 @@ function hasMetadataTaxonomy(candidate: RankedCandidate, taxonomy: string): bool
 
 function metadataUuidString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadataString(metadata, key);
-  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-    ? value
-    : undefined;
+  return value && isRfc4122Uuid(value) ? value : undefined;
 }
 
 function feedbackStatusFromCandidate(candidate: RankedCandidate): string | undefined {

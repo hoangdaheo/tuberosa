@@ -64,7 +64,7 @@ export interface ApplyResult {
   reingested: number;
   repointed: number;
   archived: number;
-  skipped: Array<{ path: string; reason: 'hash_mismatch' | 'missing_on_disk' | 'unsafe_path' }>;
+  skipped: Array<{ path: string; reason: 'hash_mismatch' | 'missing_on_disk' | 'unsafe_path' | 'ingest_failed' }>;
   /**
    * Deletions detected by the plan but NOT archived because `allowDestructive` was false.
    * They are queued (see `.tuberosa/pending-sync.json`) for human/agent review — additive ops

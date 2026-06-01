@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
 import { StoreError } from '../errors.js';
+import { isPersistedKnowledgeId } from '../util/uuid.js';
 import type {
   AgentContextDecision,
   AgentSession,
@@ -62,6 +63,7 @@ import type {
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
 import { importedSnapshotToPatch } from './atom-import-patch.js';
+import { canonicalKnowledgePair, shouldDropInferredRelationsForStatus } from './shared.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
@@ -109,13 +111,9 @@ type Queryable = Pool | PoolClient;
 // Phase 5 follow-up: Postgres uuid[] casts crash on synthetic knowledge ids such as
 // the Phase-5 worktree provider's `worktree:<sha256>` ids (live-evidence only, never
 // persisted). Every method that takes a knowledge id from outside the store filters
-// through this predicate before the id reaches a `::uuid` / `::uuid[]` cast — the
-// MemoryKnowledgeStore is permissive (returns empty for unknown ids), so this brings
-// Postgres in line.
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isPersistedKnowledgeId(value: unknown): value is string {
-  return typeof value === 'string' && UUID_PATTERN.test(value);
-}
+// through the shared `isPersistedKnowledgeId` predicate before the id reaches a
+// `::uuid` / `::uuid[]` cast — the MemoryKnowledgeStore is permissive (returns empty
+// for unknown ids), so this brings Postgres in line.
 // Clients that were already destroyed during error handling. Used so the
 // `finally` block in transaction wrappers doesn't double-release.
 const destroyedClients = new WeakSet<PoolClient>();
@@ -183,7 +181,13 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   private readonly labels: PostgresLabelStore;
 
   constructor(databaseUrl: string) {
-    this.pool = new Pool({ connectionString: databaseUrl });
+    this.pool = new Pool({
+      connectionString: databaseUrl,
+      max: 10,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+      statement_timeout: 30_000,
+    });
     this.backups = new PostgresBackupStore(this.pool);
     this.contextPacks = new PostgresContextStore(this.pool);
     this.labels = new PostgresLabelStore(this.pool);
@@ -239,35 +243,35 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     return result.rowCount ?? 0;
   }
 
-  private mapSourceFileRow(row: any): SourceFileRecord {
+  private mapSourceFileRow(row: Record<string, unknown>): SourceFileRecord {
     return {
-      id: row.id,
-      project: row.project_name,
-      path: row.path,
-      contentHash: row.content_hash,
-      status: row.status,
-      lastSyncedSha: row.last_synced_sha,
-      priorPaths: row.prior_paths ?? [],
-      knowledgeCount: row.knowledge_count ?? 0,
-      firstSeenAt: row.first_seen_at?.toISOString?.() ?? row.first_seen_at,
-      lastSeenAt: row.last_seen_at?.toISOString?.() ?? row.last_seen_at,
-      archivedAt: row.archived_at ? (row.archived_at.toISOString?.() ?? row.archived_at) : null,
-      metadata: row.metadata ?? {},
+      id: String(row.id),
+      project: String(row.project_name),
+      path: String(row.path),
+      contentHash: (row.content_hash as string | null) ?? null,
+      status: row.status as SourceFileRecord['status'],
+      lastSyncedSha: (row.last_synced_sha as string | null) ?? null,
+      priorPaths: (row.prior_paths as string[] | null) ?? [],
+      knowledgeCount: Number(row.knowledge_count ?? 0),
+      firstSeenAt: toIso(row.first_seen_at),
+      lastSeenAt: toIso(row.last_seen_at),
+      archivedAt: row.archived_at ? toIso(row.archived_at) : null,
+      metadata: (row.metadata as Record<string, unknown> | null) ?? {},
     };
   }
 
-  private mapSyncRunRow(row: any): SyncRunRecord {
+  private mapSyncRunRow(row: Record<string, unknown>): SyncRunRecord {
     return {
-      id: row.id,
-      project: row.project_name,
-      mode: row.mode,
-      fromSha: row.from_sha,
-      toSha: row.to_sha,
-      plan: typeof row.plan === 'string' ? JSON.parse(row.plan) : row.plan,
-      applied: row.applied,
-      trigger: row.trigger,
-      createdAt: row.created_at?.toISOString?.() ?? row.created_at,
-      appliedAt: row.applied_at ? (row.applied_at.toISOString?.() ?? row.applied_at) : null,
+      id: String(row.id),
+      project: String(row.project_name),
+      mode: row.mode as SyncRunRecord['mode'],
+      fromSha: (row.from_sha as string | null) ?? null,
+      toSha: (row.to_sha as string | null) ?? null,
+      plan: typeof row.plan === 'string' ? JSON.parse(row.plan) : (row.plan as SyncRunRecord['plan']),
+      applied: row.applied as boolean,
+      trigger: row.trigger as SyncRunRecord['trigger'],
+      createdAt: toIso(row.created_at),
+      appliedAt: row.applied_at ? toIso(row.applied_at) : null,
     };
   }
 
@@ -377,6 +381,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getSyncRun(id: string): Promise<SyncRunRecord | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const { rows } = await this.pool.query(
       `
         SELECT sr.*, p.name AS project_name
@@ -389,6 +394,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async markSyncRunApplied(id: string): Promise<SyncRunRecord | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const { rows } = await this.pool.query(
       `
         UPDATE sync_runs sr
@@ -622,6 +628,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getKnowledgeRelation(id: string): Promise<KnowledgeRelation | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${relationSelect()}
@@ -673,6 +680,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async deleteKnowledgeRelation(id: string): Promise<boolean> {
+    if (!isPersistedKnowledgeId(id)) return false;
     const result = await this.pool.query('DELETE FROM knowledge_relations WHERE id = $1', [id]);
     return Boolean(result.rowCount);
   }
@@ -730,6 +738,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   private async getKnowledgeConflict(id: string): Promise<KnowledgeConflict | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${conflictSelect()}
@@ -830,6 +839,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getKnowledgeGap(id: string): Promise<KnowledgeGap | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${knowledgeGapSelect()}
@@ -943,6 +953,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getLearningProposal(id: string): Promise<LearningProposal | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         ${learningProposalSelect()}
@@ -1502,6 +1513,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAgentSession(id: string): Promise<AgentSession | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         SELECT s.id, p.name AS project, s.prompt, s.cwd, s.agent_name, s.agent_tool,
@@ -1688,6 +1700,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getReflectionDraft(id: string): Promise<ReflectionDraft | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `
         SELECT d.id, p.name AS project, d.title, d.summary, d.content, d.item_type,
@@ -1926,6 +1939,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAtom(id: string): Promise<KnowledgeAtom | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `SELECT a.*, p.name AS project_name
        FROM knowledge_atoms a
@@ -1983,6 +1997,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const sets: string[] = ['updated_at = now()'];
     const values: unknown[] = [];
     if (patch.claim !== undefined)    { values.push(patch.claim);    sets.push(`claim = $${values.length}`); }
@@ -2010,6 +2025,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async deleteAtom(id: string): Promise<boolean> {
+    if (!isPersistedKnowledgeId(id)) return false;
     const result = await this.pool.query(`DELETE FROM knowledge_atoms WHERE id = $1`, [id]);
     return (result.rowCount ?? 0) > 0;
   }
@@ -2501,6 +2517,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
   }
 
   async getAtomImportConflict(id: string): Promise<AtomImportConflict | undefined> {
+    if (!isPersistedKnowledgeId(id)) return undefined;
     const result = await this.pool.query(
       `SELECT aic.id, aic.atom_id, aic.local_snapshot, aic.imported_snapshot,
               aic.bundle_source, aic.status, aic.resolution_notes,
@@ -3234,10 +3251,6 @@ function mapLearningProposalRow(row: Record<string, unknown>): LearningProposal 
   };
 }
 
-function canonicalKnowledgePair(left: string, right: string): [string, string] {
-  return left.localeCompare(right) <= 0 ? [left, right] : [right, left];
-}
-
 function knowledgeReviewSql(
   review: ListKnowledgeOptions['review'],
 ): string | undefined {
@@ -3336,10 +3349,6 @@ function feedbackExistsSql(type: FeedbackEvent['feedbackType']): string {
         AND ki.id = ANY(fe.rejected_knowledge_ids)
     )
   `;
-}
-
-function shouldDropInferredRelationsForStatus(status: StoredKnowledge['status'] | undefined): boolean {
-  return status === 'archived' || status === 'blocked';
 }
 
 function mapCandidateRow(row: Record<string, unknown>, index: number): SearchCandidate {
