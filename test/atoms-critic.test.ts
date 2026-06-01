@@ -103,7 +103,7 @@ test('AtomCritic.evaluate: writes one telemetry row per evaluation', async () =>
   await critic.evaluate(GOOD);
   const events = await store.listAtomGateEvents({ project: 'tuberosa', windowDays: 30, limit: 100 });
   assert.ok(events.length >= 1);
-  assert.equal(events[0].outcome, 'accepted');
+  assert.equal(events[0]!.outcome, 'accepted');
 });
 
 test('AtomCritic.evaluate: cross-type dedup detects legacy memory and returns queue_legacy_migration', async () => {

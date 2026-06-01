@@ -130,6 +130,7 @@ export function resolveLayeredConflicts(candidates: RankedCandidate[]): Conflict
     for (let j = i + 1; j < withTitle.length; j++) {
       const a = withTitle[i];
       const b = withTitle[j];
+      if (!a || !b) continue;
       if (!isContradiction(a.title ?? '', b.title ?? '')) continue;
 
       // Rule 1: an inviolable personal_workflow atom wins over anything.

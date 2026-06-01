@@ -18,7 +18,7 @@ export function parseKnowledgeMarkdown(
   if (!m) throw new Error(`Knowledge markdown missing frontmatter${where}`);
   let frontmatter: KnowledgeFrontmatter;
   try {
-    frontmatter = yaml.load(m[1]) as KnowledgeFrontmatter;
+    frontmatter = yaml.load(m[1]!) as KnowledgeFrontmatter;
   } catch (error) {
     throw new Error(`Invalid frontmatter${where}: ${(error as Error).message}`);
   }

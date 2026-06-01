@@ -207,7 +207,7 @@ function parseArgs(args: string[]): ErrorLogsCliOptions {
     return { ...base, help: true };
   }
 
-  const command = args[0];
+  const command = args[0]!;
   if (command === '--help' || command === '-h') {
     return { ...base, help: true };
   }
@@ -239,7 +239,7 @@ function parseCollectArgs(command: 'collect' | 'list', args: string[], base: Bas
   };
 
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    const arg = args[index]!;
     if (parseSharedFlag(options, arg)) {
       continue;
     }
@@ -313,7 +313,7 @@ function parseGetArgs(args: string[], base: BaseCliOptions): GetCliOptions {
   };
 
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    const arg = args[index]!;
     if (parseSharedFlag(options, arg)) {
       continue;
     }
@@ -341,7 +341,7 @@ function parseDraftArgs(args: string[], base: BaseCliOptions): DraftCliOptions {
   };
 
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    const arg = args[index]!;
     if (parseSharedFlag(options, arg)) {
       continue;
     }
@@ -395,7 +395,7 @@ function parseResolveArgs(args: string[], base: BaseCliOptions): ResolveCliOptio
   };
 
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    const arg = args[index]!;
     if (parseSharedFlag(options, arg)) {
       continue;
     }

@@ -12,7 +12,7 @@ test('project convention overrides team convention', () => {
   const team = cand({ knowledgeId: 't1', title: 'Never use spaces for indentation.', source: 'lexical', metadata: { conventionScope: 'team' } } as any);
   const r = resolveLayeredConflicts([project, team]);
   assert.deepEqual(r.suppressedCandidateIds, ['t1']);
-  assert.match(r.instructionLines[0], /Project convention/);
+  assert.match(r.instructionLines[0]!, /Project convention/);
 });
 
 test('team convention overrides personal coding_preference', () => {
@@ -27,7 +27,7 @@ test('personal_workflow is inviolable and beats a project convention', () => {
   const personal = cand({ knowledgeId: 'u1', title: 'Never add a co-author trailer.', source: 'userStyle', metadata: { userStyleAtomId: 'a1', userStylePriority: 'personal_workflow' } } as any);
   const r = resolveLayeredConflicts([project, personal]);
   assert.deepEqual(r.suppressedCandidateIds, ['p1']);
-  assert.match(r.instructionLines[0], /personal workflow/i);
+  assert.match(r.instructionLines[0]!, /personal workflow/i);
 });
 
 test('non-conflicting candidates pass through untouched', () => {

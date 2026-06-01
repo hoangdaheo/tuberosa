@@ -344,7 +344,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       `,
       [projectId, input.inputHash, JSON.stringify(input.files), input.generatedAt],
     );
-    return { ...input, id: rows[0].id };
+    return { ...input, id: rows[0]!.id };
   }
 
   async getLatestAtlasRun(project: string): Promise<AtlasRunRecord | undefined> {
@@ -2414,7 +2414,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       ],
     );
 
-    return result.rows[0].id;
+    return result.rows[0]!.id;
   }
 
   private async knowledgeIdsBySourceUri(client: PoolClient, projectId: string, sourceUri: string): Promise<string[]> {
@@ -2480,7 +2480,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       ],
     );
 
-    return result.rows[0].id;
+    return result.rows[0]!.id;
   }
 
   private async updateKnowledgeItem(

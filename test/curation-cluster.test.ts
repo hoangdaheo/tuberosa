@@ -30,12 +30,12 @@ test('clusterUncuratedAtoms: atoms about the same concern cluster together', () 
 
   assert.equal(clusters.length, 1);
   assert.deepEqual(
-    clusters[0].atoms.map((a) => a.id).sort(),
+    clusters[0]!.atoms.map((a) => a.id).sort(),
     ['a1', 'a2', 'a3'],
   );
   // sharedTrigger = intersection of members; only the file is shared by all three.
-  assert.deepEqual(clusters[0].sharedTrigger.files, ['src/components/X.tsx']);
-  assert.equal(clusters[0].suggestedScope, 'project');
+  assert.deepEqual(clusters[0]!.sharedTrigger.files, ['src/components/X.tsx']);
+  assert.equal(clusters[0]!.suggestedScope, 'project');
 });
 
 test('clusterUncuratedAtoms: unrelated atom stays a singleton cluster', () => {
@@ -49,8 +49,8 @@ test('clusterUncuratedAtoms: unrelated atom stays a singleton cluster', () => {
 
   assert.equal(clusters.length, 2);
   // clusters sorted by first atom id; the X.tsx pair comes first.
-  assert.deepEqual(clusters[0].atoms.map((a) => a.id).sort(), ['a1', 'a2']);
-  assert.deepEqual(clusters[1].atoms.map((a) => a.id), ['z9']);
+  assert.deepEqual(clusters[0]!.atoms.map((a) => a.id).sort(), ['a1', 'a2']);
+  assert.deepEqual(clusters[1]!.atoms.map((a) => a.id), ['z9']);
 });
 
 test('clusterUncuratedAtoms: excludes atoms already distilled into a convention', () => {

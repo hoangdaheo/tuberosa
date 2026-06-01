@@ -52,7 +52,7 @@ test('expandLabelsThroughOntology is a no-op when enabled=false', () => {
     { enabled: false },
   );
   assert.equal(labels.length, 1);
-  assert.equal(labels[0].value, 'pgvector');
+  assert.equal(labels[0]!.value, 'pgvector');
 });
 
 test('expandLabelsThroughOntology leaves non-ontology label types untouched', () => {

@@ -28,7 +28,7 @@ test('AtomExtractor redacts secrets from atom claim/verification before storage'
   });
 
   assert.equal(result.stored.length, 1, JSON.stringify(result.rejected));
-  const atom = result.stored[0];
+  const atom = result.stored[0]!;
   assert.ok(!atom.claim.includes(AWS_KEY), `claim still contains secret: ${atom.claim}`);
   assert.ok(atom.claim.includes('[REDACTED'), `claim should carry redaction marker: ${atom.claim}`);
   assert.ok(!(atom.verification?.command ?? '').includes(AWS_KEY), 'verification.command still contains secret');

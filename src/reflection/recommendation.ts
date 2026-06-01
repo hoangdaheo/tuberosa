@@ -504,7 +504,7 @@ export function aggregateRecommendation(
     verdict = 'reject';
     confidence = unknowns.length === 0 ? 'high' : 'medium';
     oneLineRationale = blockers.length === 1
-      ? `Likely reject — one blocker: ${blockers[0].label.toLowerCase()}.`
+      ? `Likely reject — one blocker: ${blockers[0]!.label.toLowerCase()}.`
       : `Likely reject — ${blockers.length} blockers (${blockers.map((b) => b.label.toLowerCase()).join(', ')}).`;
   } else if (cons.length === 0 && allEvaluable) {
     verdict = 'approve';
@@ -518,7 +518,7 @@ export function aggregateRecommendation(
     verdict = 'needs_changes';
     confidence = 'medium';
     oneLineRationale = cons.length === 1
-      ? `Approve after addressing: ${cons[0].label.toLowerCase()}.`
+      ? `Approve after addressing: ${cons[0]!.label.toLowerCase()}.`
       : `Approve after addressing: ${cons.map((c) => c.label.toLowerCase()).join(', ')}.`;
   } else {
     verdict = 'needs_changes';

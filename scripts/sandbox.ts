@@ -294,7 +294,7 @@ async function runPrompts(
     let firstHitRank = 0;
     let hit = expectedSelected.size === 0; // tolerant when no positive expectations
     for (let index = 0; index < selectedSandboxIds.length; index += 1) {
-      if (expectedSelected.has(selectedSandboxIds[index])) {
+      if (expectedSelected.has(selectedSandboxIds[index]!)) {
         hit = true;
         firstHitRank = index + 1;
         break;
@@ -316,7 +316,7 @@ async function runPrompts(
       }
       const knowledge = sandboxIdToKnowledge(sandboxId, fixture);
       if (!knowledge) continue;
-      metrics.perTier[knowledge.tier].selected += 1;
+      metrics.perTier[knowledge.tier]!.selected += 1;
       const itemType = knowledge.itemType;
       const perType = metrics.perItemType[itemType] ?? { hits: 0, total: 0, correctlyHit: 0, precision: 0, recall: 0 };
       perType.hits += 1;
@@ -363,11 +363,11 @@ async function runPrompts(
       if (knowledge.tier === 'D') metrics.duplicateExpected += 1;
       if (knowledge.tier === 'E') metrics.adversarialExpected += 1;
 
-      metrics.perTier[knowledge.tier].expectedSuppressed += 1;
+      metrics.perTier[knowledge.tier]!.expectedSuppressed += 1;
       const blockedAtIngest = ingestionBlockedSandboxIds.has(sandboxId) || duplicateBlockedSandboxIds.has(sandboxId);
       const wasSuppressed = blockedAtIngest || !selectedSet.has(sandboxId);
       if (wasSuppressed) {
-        metrics.perTier[knowledge.tier].suppressed += 1;
+        metrics.perTier[knowledge.tier]!.suppressed += 1;
         if (knowledge.tier === 'C') metrics.staleSuppressed += 1;
         if (knowledge.tier === 'D') metrics.duplicateSuppressed += 1;
         if (knowledge.tier === 'E') metrics.adversarialBlocked += 1;
@@ -377,7 +377,7 @@ async function runPrompts(
     for (const sandboxId of expectedSelected) {
       const knowledge = sandboxIdToKnowledge(sandboxId, fixture);
       if (!knowledge) continue;
-      metrics.perTier[knowledge.tier].expectedSelected += 1;
+      metrics.perTier[knowledge.tier]!.expectedSelected += 1;
       const perType = metrics.perItemType[knowledge.itemType] ?? { hits: 0, total: 0, correctlyHit: 0, precision: 0, recall: 0 };
       perType.total += 1;
       metrics.perItemType[knowledge.itemType] = perType;
@@ -458,7 +458,7 @@ async function runPrompts(
     samples: latencies.length,
     p50: percentile(latencies, 0.5),
     p95: percentile(latencies, 0.95),
-    max: latencies.length > 0 ? latencies[latencies.length - 1] : 0,
+    max: latencies.length > 0 ? latencies[latencies.length - 1]! : 0,
   };
 
   return metrics;
@@ -529,7 +529,7 @@ function safeRate(numerator: number, denominator: number): number {
 function percentile(sorted: number[], q: number): number {
   if (sorted.length === 0) return 0;
   const index = Math.min(sorted.length - 1, Math.floor(q * sorted.length));
-  return sorted[index];
+  return sorted[index]!;
 }
 
 function evaluateThresholds(metrics: SandboxRunMetrics, thresholds: SandboxThresholds): string[] {

@@ -25,9 +25,9 @@ test('AtomExtractor: passes good candidates through critic and stores them as dr
   assert.equal(result.rejected.length, 0);
   const atoms = await store.listAtoms({ project: 'tuberosa', limit: 10 });
   assert.equal(atoms.length, 1);
-  assert.equal(atoms[0].tier, 'draft');
-  assert.equal(atoms[0].audit.producedBy, 'agent_session');
-  assert.equal(atoms[0].audit.producedAtSessionId, 'sess-1');
+  assert.equal(atoms[0]!.tier, 'draft');
+  assert.equal(atoms[0]!.audit!.producedBy, 'agent_session');
+  assert.equal(atoms[0]!.audit!.producedAtSessionId, 'sess-1');
 });
 
 test('AtomExtractor: rejects candidates that fail the critic and records reasons', async () => {
@@ -47,7 +47,7 @@ test('AtomExtractor: rejects candidates that fail the critic and records reasons
   });
   assert.equal(result.stored.length, 0);
   assert.equal(result.rejected.length, 1);
-  assert.ok(result.rejected[0].reasons.some((r) => r.includes('claim')));
+  assert.ok(result.rejected[0]!.reasons!.some((r) => r.includes('claim')));
 });
 
 test('AtomExtractor: returns empty result when provider has no extractAtoms method', async () => {

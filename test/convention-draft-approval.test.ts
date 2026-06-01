@@ -62,7 +62,7 @@ test('approving a convention draft creates a scoped convention atom and stamps s
     (atom) => atom.type === 'convention',
   );
   equal(conventions.length, 1, 'exactly one convention atom should be created');
-  const convention = conventions[0];
+  const convention = conventions[0]!;
   equal(convention.scope, 'project');
   equal(convention.tier, 'verified');
   equal(convention.metadata?.curated, true);

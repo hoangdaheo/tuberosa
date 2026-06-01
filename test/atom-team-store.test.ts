@@ -33,7 +33,7 @@ test('memory store isolates atoms across two different teams', async () => {
   const b = await store.listAtoms({ limit: 10, scope: 'team', teamId: 'team-b' });
   assert.equal(a.length, 1);
   assert.equal(b.length, 1);
-  assert.equal(a[0].teamId, 'team-a');
-  assert.equal(b[0].teamId, 'team-b');
-  assert.notEqual(a[0].id, b[0].id);
+  assert.equal(a[0]!.teamId, 'team-a');
+  assert.equal(b[0]!.teamId, 'team-b');
+  assert.notEqual(a[0]!.id, b[0]!.id);
 });

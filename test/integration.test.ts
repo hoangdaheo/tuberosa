@@ -132,11 +132,11 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
       prompt: 'Update PaywallSelectionModal for the React newsletter paywall flow',
       bypassCache: true,
     });
-    const first = pack.sections[0].items[0];
+    const first = pack.sections[0]!.items[0]!;
 
     equal(pack.project, project);
-    equal(first.title, 'Paywall selection modal');
-    equal(first.references[0].uri, 'src/components/paywall-selection-modal.tsx');
+    equal(first.title!, 'Paywall selection modal');
+    equal(first.references[0]!.uri!, 'src/components/paywall-selection-modal.tsx');
 
     const embedding = await models.embed('PaywallSelectionModal React newsletter paywall products');
     const vectorResults = await store.searchVector(embedding, { project, limit: 5 });
@@ -201,7 +201,7 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
       prompt: 'How should integration memories be approved before retrieval?',
       bypassCache: true,
     });
-    ok(memoryPack.sections[0].items.some((item) => item.itemType === 'memory'));
+    ok(memoryPack.sections[0]!.items!.some((item) => item.itemType === 'memory'));
 
     const reviewed = await store.updateKnowledge(unrelated.id, {
       status: 'needs_review',
@@ -300,7 +300,7 @@ test('Postgres store silently filters Phase-5 worktree synthetic ids from uuid c
       [realId, ...syntheticIds],
       { project },
     );
-    ok(!feedbackSummaries.has(syntheticIds[0]), 'worktree synthetic id leaked into feedback summary map');
+    ok(!feedbackSummaries.has(syntheticIds[0]!), 'worktree synthetic id leaked into feedback summary map');
 
     const chunks = await store.listKnowledgeChunks([realId, ...syntheticIds]);
     ok(chunks.length > 0, 'real knowledge id should still surface chunks');
@@ -316,7 +316,7 @@ test('Postgres store silently filters Phase-5 worktree synthetic ids from uuid c
     deepEqual(emptyChunks, []);
 
     // getKnowledge on a synthetic id returns undefined (was crashing on the uuid cast).
-    equal(await store.getKnowledge(syntheticIds[0]), undefined);
+    equal(await store.getKnowledge(syntheticIds[0]!), undefined);
 
     // Search methods accept rejectedKnowledgeIds with synthetic entries without crashing.
     await store.searchLexical(

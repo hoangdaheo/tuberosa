@@ -39,7 +39,7 @@ test('tuberosa_get_atlas tool returns a single named file', async () => {
     arguments: { project: 'p', file: 'project-map.md' },
   }))) as { structuredContent: { files: { name: string }[] } };
   assert.equal(res.structuredContent.files.length, 1);
-  assert.equal(res.structuredContent.files[0].name, 'project-map.md');
+  assert.equal(res.structuredContent.files[0]!.name, 'project-map.md');
 });
 
 test('atlas resource reads project-map.md as markdown', async () => {
@@ -47,6 +47,6 @@ test('atlas resource reads project-map.md as markdown', async () => {
   const res = (await handleMcpRequest(services, req('resources/read', {
     uri: 'tuberosa://atlas/p/project-map.md',
   }))) as { contents: { uri: string; mimeType: string; text: string }[] };
-  assert.equal(res.contents[0].mimeType, 'text/markdown');
-  assert.match(res.contents[0].text, /# Project Map/);
+  assert.equal(res.contents[0]!.mimeType, 'text/markdown');
+  assert.match(res.contents[0]!.text, /# Project Map/);
 });

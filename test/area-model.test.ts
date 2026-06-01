@@ -40,9 +40,9 @@ test('buildAreaModel: spine groups ledger paths into areas', async () => {
   const byKey = Object.fromEntries(areas.map((a) => [a.key, a]));
 
   assert.deepEqual(Object.keys(byKey).sort(), ['migrations', 'src/retrieval', 'src/storage']);
-  assert.equal(byKey['src/retrieval'].label, 'Retrieval');
-  assert.equal(byKey['src/retrieval'].counts.files, 2);
-  assert.deepEqual(byKey['src/retrieval'].paths, ['src/retrieval/fusion.ts', 'src/retrieval/service.ts']);
+  assert.equal(byKey['src/retrieval']!.label, 'Retrieval');
+  assert.equal(byKey['src/retrieval']!.counts.files, 2);
+  assert.deepEqual(byKey['src/retrieval']!.paths, ['src/retrieval/fusion.ts', 'src/retrieval/service.ts']);
 });
 
 test('buildAreaModel: archived ledger rows are excluded from the spine', async () => {

@@ -120,9 +120,9 @@ export function clusterUncuratedAtoms(
   const parent = eligible.map((_, i) => i);
   const find = (i: number): number => {
     let root = i;
-    while (parent[root] !== root) root = parent[root];
+    while (parent[root] !== root) root = parent[root]!;
     while (parent[i] !== root) {
-      const next = parent[i];
+      const next = parent[i]!;
       parent[i] = root;
       i = next;
     }
@@ -139,7 +139,7 @@ export function clusterUncuratedAtoms(
 
   for (let i = 0; i < eligible.length; i += 1) {
     for (let j = i + 1; j < eligible.length; j += 1) {
-      if (jaccard(keys[i], keys[j]) >= threshold) union(i, j);
+      if (jaccard(keys[i]!, keys[j]!) >= threshold) union(i, j);
     }
   }
 
@@ -147,7 +147,7 @@ export function clusterUncuratedAtoms(
   for (let i = 0; i < eligible.length; i += 1) {
     const root = find(i);
     const list = groups.get(root) ?? [];
-    list.push(eligible[i]);
+    list.push(eligible[i]!);
     groups.set(root, list);
   }
 
@@ -164,8 +164,8 @@ export function clusterUncuratedAtoms(
   }
 
   clusters.sort((a, b) => {
-    const ai = a.atoms[0].id;
-    const bi = b.atoms[0].id;
+    const ai = a.atoms[0]!.id;
+    const bi = b.atoms[0]!.id;
     return ai < bi ? -1 : ai > bi ? 1 : 0;
   });
 

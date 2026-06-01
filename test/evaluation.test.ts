@@ -117,9 +117,9 @@ test('retrieval evaluation treats explicit empty classification arrays as exact 
     }],
   });
 
-  equal(report.cases[0].passed, false);
-  equal(report.cases[0].classificationChecks[0]?.field, 'symbols');
-  equal(report.cases[0].classificationChecks[0]?.passed, false);
+  equal(report.cases[0]!.passed, false);
+  equal(report.cases[0]!.classificationChecks[0]?.field, 'symbols');
+  equal(report.cases[0]!.classificationChecks[0]?.passed, false);
 });
 
 test('retrieval evaluation passes noiseTolerance through to context search', async () => {
@@ -172,8 +172,8 @@ test('knowledge completeness fixture parser validates required evidence', () => 
     }],
   });
 
-  equal(fixture.cases[0].requiredFacts[0].weight, 2);
-  equal(fixture.cases[0].requiredSources?.[0]?.type, 'file');
+  equal(fixture.cases[0]!.requiredFacts[0]!.weight, 2);
+  equal(fixture.cases[0]!.requiredSources?.[0]?.type, 'file');
 
   throws(() => parseKnowledgeCompletenessFixture({
     name: 'invalid fixture',

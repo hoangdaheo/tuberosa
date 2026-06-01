@@ -2144,9 +2144,11 @@ function cosine(left: number[], right: number[]): number {
   const length = Math.min(left.length, right.length);
 
   for (let index = 0; index < length; index += 1) {
-    dot += left[index] * right[index];
-    leftNorm += left[index] * left[index];
-    rightNorm += right[index] * right[index];
+    const l = left[index]!;
+    const r = right[index]!;
+    dot += l * r;
+    leftNorm += l * l;
+    rightNorm += r * r;
   }
 
   if (!leftNorm || !rightNorm) {

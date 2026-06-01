@@ -34,8 +34,8 @@ export function parseSandboxReport(text: string, path = 'eval/sandbox/report.md'
   const rowRegex = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$/gm;
   let match: RegExpExecArray | null;
   while ((match = rowRegex.exec(text)) !== null) {
-    const key = match[1].toLowerCase();
-    const value = match[2];
+    const key = match[1]!.toLowerCase();
+    const value = match[2]!;
     if (key === 'hit rate') headline.hitRate = parsePercent(value);
     else if (key === 'mrr') headline.mrr = parseNumber(value);
     else if (key === 'noise rate') headline.noiseRate = parsePercent(value);
@@ -53,7 +53,7 @@ export function parseSandboxReport(text: string, path = 'eval/sandbox/report.md'
   const statusMatch = /\*\*Status:\*\*\s*(.+?)$/im.exec(text);
   const status: ParsedSandboxReport['status'] = !statusMatch
     ? 'unknown'
-    : /all thresholds passed/i.test(statusMatch[1]) ? 'pass' : 'fail';
+    : /all thresholds passed/i.test(statusMatch[1]!) ? 'pass' : 'fail';
 
   return { headline, status, path };
 }
@@ -82,7 +82,7 @@ export function readSandboxReport(path: string): ParsedSandboxReport | null {
 
 function parsePercent(raw: string): number | undefined {
   const match = /([\d.]+)\s*%/.exec(raw);
-  return match ? Number.parseFloat(match[1]) / 100 : undefined;
+  return match ? Number.parseFloat(match[1]!) / 100 : undefined;
 }
 
 function parseNumber(raw: string): number | undefined {

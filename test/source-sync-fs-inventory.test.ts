@@ -15,6 +15,6 @@ test('walkInventory: returns included files with stable content hashes, flags ig
   const { entries, ignored } = await walkInventory(root, DEFAULT_SYNC_POLICY);
   const paths = entries.map((e) => e.path).sort();
   assert.deepEqual(paths, ['src/a.ts']);
-  assert.match(entries[0].contentHash, /^[a-f0-9]{64}$/);
+  assert.match(entries[0]!.contentHash, /^[a-f0-9]{64}$/);
   assert.ok(ignored.some((i) => i.path === 'pnpm-lock.yaml' && i.reason === 'excluded'));
 });

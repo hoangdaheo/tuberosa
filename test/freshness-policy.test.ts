@@ -64,9 +64,9 @@ test('ContextFitEvaluator marks an old code_ref as current and an old memory as 
     const codeFit = evaluator.evaluate({ classified, candidates: [codeCandidate], now });
     const memoryFit = evaluator.evaluate({ classified, candidates: [memoryCandidate], now });
 
-    const codeReasons = codeFit.candidates[0].fitReasons ?? [];
-    const codeMissing = codeFit.candidates[0].fitMissingSignals ?? [];
-    const memoryMissing = memoryFit.candidates[0].fitMissingSignals ?? [];
+    const codeReasons = codeFit.candidates[0]!.fitReasons ?? [];
+    const codeMissing = codeFit.candidates[0]!.fitMissingSignals ?? [];
+    const memoryMissing = memoryFit.candidates[0]!.fitMissingSignals ?? [];
 
     assert.ok(codeReasons.includes('freshness:current:code_ref'),
       'code_ref at 250d should be current; reasons=' + codeReasons.join(','));
@@ -90,8 +90,8 @@ test('useFreshnessMap=false makes both candidates use the global 365-day boundar
 
     const codeCandidate = buildCandidate('code_ref', fourHundredDaysAgo);
     const memoryCandidate = buildCandidate('memory', fourHundredDaysAgo);
-    const codeMissing = evaluator.evaluate({ classified, candidates: [codeCandidate], now }).candidates[0].fitMissingSignals ?? [];
-    const memoryMissing = evaluator.evaluate({ classified, candidates: [memoryCandidate], now }).candidates[0].fitMissingSignals ?? [];
+    const codeMissing = evaluator.evaluate({ classified, candidates: [codeCandidate], now }).candidates[0]!.fitMissingSignals ?? [];
+    const memoryMissing = evaluator.evaluate({ classified, candidates: [memoryCandidate], now }).candidates[0]!.fitMissingSignals ?? [];
     assert.ok(codeMissing.some((signal) => signal.startsWith('freshness:stale')), 'code_ref past 365d global window should be stale');
     assert.ok(memoryMissing.some((signal) => signal.startsWith('freshness:stale')), 'memory past 365d global window should be stale');
   } finally {

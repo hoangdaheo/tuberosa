@@ -30,7 +30,7 @@ export function deriveAreaKey(path: string): string {
     // src/<dir>/<file> → "src/<dir>"; a file directly under src/ keys on "src".
     return segments.length >= 3 ? `src/${segments[1]}` : 'src';
   }
-  return segments[0];
+  return segments[0]!;
 }
 
 /** Human label for an area key (title-cased last segment). */

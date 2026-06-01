@@ -166,7 +166,7 @@ function buildClusters(logs: ErrorLog[]): ErrorLogCluster[] {
   return [...byFingerprint.entries()]
     .map(([fingerprint, group]) => {
       const sorted = [...group].sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt));
-      const latest = sorted[0];
+      const latest = sorted[0]!;
       return {
         fingerprint,
         title: latest.title,

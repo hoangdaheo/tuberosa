@@ -450,7 +450,7 @@ function inferDomain(files: string[]): string | undefined {
   for (const path of files) {
     const match = path.match(/^src\/([a-z][\w-]+)\//i);
     if (match) {
-      return match[1].toLowerCase();
+      return match[1]!.toLowerCase();
     }
   }
   return undefined;
@@ -495,11 +495,11 @@ function extractContinuationFiles(lower: string): string[] {
 }
 
 function extractSymbols(prompt: string): string[] {
-  const codeSpans = [...prompt.matchAll(/`([^`]+)`/g)].map((match) => match[1]).filter((value) => /^[A-Za-z_$][\w$.:#-]+$/.test(value));
+  const codeSpans = [...prompt.matchAll(/`([^`]+)`/g)].map((match) => match[1]!).filter((value) => /^[A-Za-z_$][\w$.:#-]+$/.test(value));
   const camelCase = prompt.match(/\b[A-Z][A-Za-z0-9_]*(?:Service|Controller|Repository|Provider|Handler|Store|Model|Schema|Config|Client)\b/g) ?? [];
   const pascalCase = (prompt.match(/\b[A-Z][A-Za-z0-9_]{2,}\b/g) ?? [])
     .filter((value) => !isLikelyDocumentIdentifier(value));
-  const functions = [...prompt.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((match) => match[1]);
+  const functions = [...prompt.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((match) => match[1]!);
   return uniqueStrings([...codeSpans, ...camelCase, ...pascalCase, ...functions])
     .filter((value) => !isSymbolStopWord(value, prompt));
 }
@@ -534,7 +534,7 @@ function extractErrors(prompt: string): string[] {
 }
 
 function extractQuotedTerms(prompt: string): string[] {
-  return [...prompt.matchAll(/"([^"]{3,80})"|'([^']{3,80})'/g)].map((match) => match[1] ?? match[2]);
+  return [...prompt.matchAll(/"([^"]{3,80})"|'([^']{3,80})'/g)].map((match) => (match[1] ?? match[2])!);
 }
 
 function buildLexicalQuery(prompt: string, exactTerms: string[]): string {

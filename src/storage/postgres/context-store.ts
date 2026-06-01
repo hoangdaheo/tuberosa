@@ -22,7 +22,7 @@ export class PostgresContextStore {
       [projectId, input.prompt, input.fingerprint, input.classified, input.tokenBudget],
     );
 
-    return result.rows[0].id;
+    return result.rows[0]!.id;
   }
 
   async saveContextPack(pack: ContextPack): Promise<void> {

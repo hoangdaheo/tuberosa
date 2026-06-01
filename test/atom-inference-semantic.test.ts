@@ -40,8 +40,8 @@ test('inferSemanticNeighbors: emits related_to when neighbor has no shared trigg
 
   const links = await inferSemanticNeighbors(candidate, store, models);
   assert.ok(links.length > 0, 'expected at least one neighbor');
-  assert.equal(links[0].toAtomId, neighbor.id);
-  assert.equal(links[0].kind, 'related_to');
+  assert.equal(links[0]!.toAtomId, neighbor.id);
+  assert.equal(links[0]!.kind, 'related_to');
 });
 
 test('inferSemanticNeighbors: emits refines when neighbor is verified AND shares a trigger token', async () => {

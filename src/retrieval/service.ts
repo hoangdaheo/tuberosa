@@ -2301,12 +2301,12 @@ function intentSuppressionAdjustment(
     const strongest = Math.max(...supersededBy.map((relation) => relation.confidence));
     const delta = -Math.min(0.28, 0.18 + strongest * 0.08);
     factor *= penaltyDeltaToFactor(delta);
-    reasons.push(`suppression:superseded:${supersededBy[0].fromKnowledgeId}`);
+    reasons.push(`suppression:superseded:${supersededBy[0]!.fromKnowledgeId}`);
     events.push({
       reason: 'superseded',
       deltaScore: roundFeedbackAdjustment(delta),
       confidence: clamp(strongest, 0, 1),
-      evidence: `superseded by ${supersededBy[0].fromKnowledgeId} (confidence=${strongest.toFixed(2)})`,
+      evidence: `superseded by ${supersededBy[0]!.fromKnowledgeId} (confidence=${strongest.toFixed(2)})`,
     });
   }
 

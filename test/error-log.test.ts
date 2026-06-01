@@ -44,7 +44,7 @@ test('error log service writes sanitized incidents and merges duplicate fingerpr
 
     const listed = await service.listLogs({ project: 'tuberosa', status: 'open', limit: 10 });
     equal(listed.length, 1);
-    equal(listed[0].id, first.id);
+    equal(listed[0]!.id, first.id);
 
     const markdown = await service.readLogMarkdown(first.id);
     ok(markdown?.includes('# Codex command failed'));
@@ -149,10 +149,10 @@ test('error log insight service collects compact agent context with clusters and
 
     equal(collection.totalMatched, 1);
     equal(collection.logs.length, 1);
-    equal('message' in collection.logs[0], false);
-    equal('stack' in collection.logs[0], false);
-    equal(collection.clusters[0].occurrenceCount, 2);
-    equal(collection.rollups.categories[0].value, 'mcp');
+    equal('message' in collection.logs[0]!, false);
+    equal('stack' in collection.logs[0]!, false);
+    equal(collection.clusters[0]!.occurrenceCount, 2);
+    equal(collection.rollups.categories[0]!.value, 'mcp');
     ok(collection.agentBrief.includes('Recurring Patterns'));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
@@ -180,10 +180,10 @@ test('error log insight service creates reflection drafts and links selected log
     const result = await insights.createReflectionDraft({ errorLogIds: [log.id] });
     equal(result.draft.id, 'draft-from-error-log');
     equal(result.linkedErrorLogIds[0], log.id);
-    equal(draftInputs[0].itemType, 'bugfix');
-    equal(draftInputs[0].triggerType, 'error_recovery');
-    equal(draftInputs[0].metadata?.taxonomy, 'incident_lesson');
-    ok(draftInputs[0].references?.some((reference) => reference.uri === `tuberosa://error-logs/${log.id}`));
+    equal(draftInputs[0]!.itemType, 'bugfix');
+    equal(draftInputs[0]!.triggerType, 'error_recovery');
+    equal(draftInputs[0]!.metadata?.taxonomy, 'incident_lesson');
+    ok(draftInputs[0]!.references?.some((reference) => reference.uri === `tuberosa://error-logs/${log.id}`));
 
     const linked = await service.getLog(log.id);
     equal(linked?.reflectionDraftId, 'draft-from-error-log');

@@ -222,7 +222,7 @@ function buildContextFit(input: ContextFitEvaluationInput, candidates: RankedCan
   }
 
   let fitStatus = statusForScore(fitScore, thresholds);
-  const reasons: string[] = [`top candidate:${topCandidates[0].title}`, ...coverage.reasons];
+  const reasons: string[] = [`top candidate:${topCandidates[0]!.title}`, ...coverage.reasons];
   const notes: string[] = [];
 
   // Phase 3 — rerank fallback: never advertise "ready" if the reranker silently fell back.
@@ -264,7 +264,7 @@ function buildContextFit(input: ContextFitEvaluationInput, candidates: RankedCan
     fitReasons: unique(reasons),
     missingSignals: unique([
       ...missingSignals,
-      ...(fitStatus === 'ready' ? [] : topCandidates[0].fitMissingSignals ?? []),
+      ...(fitStatus === 'ready' ? [] : topCandidates[0]!.fitMissingSignals ?? []),
     ]),
     fitDiagnostics: diagnostics,
   };

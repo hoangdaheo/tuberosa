@@ -19,5 +19,5 @@ test('searchAtomsByTrigger filters team atoms by teamId', async () => {
     { project: undefined, scope: 'team', teamId: 'team-a', limit: 10 },
   );
   assert.equal(a.length, 1);
-  assert.equal(a[0].teamId, 'team-a');
+  assert.equal(a[0]!.teamId, 'team-a');
 });

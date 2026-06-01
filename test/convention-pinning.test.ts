@@ -132,9 +132,9 @@ test('convention candidate is pinned to front of essential even when others have
   const essential = essentialItems(pack);
   ok(essential.length > 0, 'essential section should not be empty');
   equal(
-    essential[0].knowledgeId,
+    essential[0]!.knowledgeId,
     'conv-1',
-    `expected convention candidate first in essential; got ${essential[0].knowledgeId} (evidenceCategory=${essential[0].evidenceCategory})`,
+    `expected convention candidate first in essential; got ${essential[0]!.knowledgeId} (evidenceCategory=${essential[0]!.evidenceCategory})`,
   );
 });
 
@@ -158,7 +158,7 @@ test('convention candidate is in essential even when 4 directTaskEvidence candid
   const essential = essentialItems(pack);
   const hasConvention = essential.some((item) => item.knowledgeId === 'conv-1');
   ok(hasConvention, `convention candidate must appear in essential even with 4 competing items; got ${essential.map((i) => i.knowledgeId).join(', ')}`);
-  equal(essential[0].knowledgeId, 'conv-1', `convention must be first in essential`);
+  equal(essential[0]!.knowledgeId, 'conv-1', `convention must be first in essential`);
 });
 
 // ─── Test 3: multiple conventions all pin to front ───
@@ -214,7 +214,7 @@ test('pack with no convention candidates is unaffected by convention pinning log
   const hasConvention = essential.some((item) => item.source === 'convention');
   equal(hasConvention, false, 'no convention item should appear when none were provided');
   // The first essential item should be the top-ranked direct-evidence candidate.
-  equal(essential[0].knowledgeId, 'a', `expected top direct-evidence candidate first; got ${essential[0].knowledgeId}`);
+  equal(essential[0]!.knowledgeId, 'a', `expected top direct-evidence candidate first; got ${essential[0]!.knowledgeId}`);
 });
 
 // ─── Test 5: more than MAX_PINNED_CONVENTIONS — only the cap is pinned ───

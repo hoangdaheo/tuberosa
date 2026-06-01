@@ -74,8 +74,8 @@ test('assembleExtractionInputs: areas preserves input order', () => {
   const areaB = makeArea({ key: 'src/bbb', label: 'Bbb', counts: { files: 5, knowledge: 0, atoms: 0, verifiedAtoms: 0 } });
   const atlas = makeAtlas({ areas: [areaB, areaA] });
   const result = assembleExtractionInputs(atlas);
-  assert.equal(result.areas[0].key, 'src/bbb');
-  assert.equal(result.areas[1].key, 'src/aaa');
+  assert.equal(result.areas[0]!.key, 'src/bbb');
+  assert.equal(result.areas[1]!.key, 'src/aaa');
 });
 
 // ---------------------------------------------------------------------------
@@ -288,7 +288,7 @@ test('assembleExtractionInputs: area hint is first, script hint is last', () => 
   const result = assembleExtractionInputs(atlas);
   assert.equal(result.recurringHints.length, 2);
   assert.ok(
-    result.recurringHints[0].startsWith("Area 'src/retrieval'"),
+    result.recurringHints[0]!.startsWith("Area 'src/retrieval'"),
     `expected first hint to be the area hint; got ${JSON.stringify(result.recurringHints[0])}`,
   );
   assert.ok(

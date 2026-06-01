@@ -29,14 +29,14 @@ test('syncAtomLinks: writes both atom.links JSONB and knowledge_relations rows',
 
   const refreshed = await store.getAtom(a.id);
   assert.equal(refreshed?.links?.length, 1);
-  assert.equal(refreshed?.links?.[0].toAtomId, b.id);
-  assert.equal(refreshed?.links?.[0].kind, 'related_to');
+  assert.equal(refreshed?.links?.[0]!.toAtomId, b.id);
+  assert.equal(refreshed?.links?.[0]!.kind, 'related_to');
 
   const rels = await store.listAtomRelations({ fromAtomId: a.id, limit: 10 });
   assert.equal(rels.length, 1);
-  assert.equal(rels[0].targetAtomId, b.id);
-  assert.equal(rels[0].relationType, 'related_to');
-  assert.equal(rels[0].inferenceSource, 'semantic');
+  assert.equal(rels[0]!.targetAtomId, b.id);
+  assert.equal(rels[0]!.relationType, 'related_to');
+  assert.equal(rels[0]!.inferenceSource, 'semantic');
 });
 
 test('syncAtomLinks: re-sync with same source replaces only that source\'s edges', async () => {

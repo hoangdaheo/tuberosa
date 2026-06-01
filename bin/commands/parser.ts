@@ -17,7 +17,7 @@ export function parseArgs(argv: string[]): CliInvocation {
   let commandResolved = false;
 
   for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
+    const token = argv[index]!;
     if (token === '-h' || token === '--help') {
       command = 'help';
       commandResolved = true;

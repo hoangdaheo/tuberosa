@@ -32,9 +32,9 @@ test('applyPlan: archives knowledge for a deleted file and excludes it from appr
   assert.equal(result.archived, linked.length);
 
   const approved = await store.listKnowledge({ project: 'p', status: 'approved', limit: 100 });
-  assert.equal(approved.find((k) => k.id === linked[0].id), undefined, 'archived item no longer in approved listing');
+  assert.equal(approved.find((k) => k.id === linked[0]!.id), undefined, 'archived item no longer in approved listing');
   const archived = await store.listKnowledge({ project: 'p', status: 'archived', limit: 100 });
-  assert.ok(archived.find((k) => k.id === linked[0].id), 'item is preserved under archived status (tombstone)');
+  assert.ok(archived.find((k) => k.id === linked[0]!.id), 'item is preserved under archived status (tombstone)');
   const sf = await store.getSourceFile({ project: 'p', path: 'src/gone.ts' });
   assert.equal(sf?.status, 'archived');
 });
@@ -58,7 +58,7 @@ test('applyPlan: defers deletions (does not archive) when allowDestructive is fa
   assert.equal(result.archived, 0, 'nothing archived without explicit allowDestructive');
   assert.deepEqual(result.deferredDeletions, [{ path: 'src/gone.ts', knowledgeIds: linked.map((k) => k.id) }]);
   const approved = await store.listKnowledge({ project: 'p', status: 'approved', limit: 100 });
-  assert.ok(approved.find((k) => k.id === linked[0].id), 'knowledge still retrievable (not tombstoned)');
+  assert.ok(approved.find((k) => k.id === linked[0]!.id), 'knowledge still retrievable (not tombstoned)');
 });
 
 test('applyPlan: skips path-traversal entries instead of reading outside the repo', async () => {
@@ -148,6 +148,6 @@ test('applyPlan: rename re-points knowledge sourcePath and preserves knowledge i
   const afterNew = await store.listKnowledgeBySourcePath({ project: 'p', path: 'new.ts' });
   const afterOld = await store.listKnowledgeBySourcePath({ project: 'p', path: 'old.ts' });
   assert.equal(afterNew.length, before.length);
-  assert.equal(afterNew[0].id, before[0].id, 'knowledge id preserved across rename');
+  assert.equal(afterNew[0]!.id, before[0]!.id, 'knowledge id preserved across rename');
   assert.equal(afterOld.length, 0, 'old path no longer resolves');
 });
