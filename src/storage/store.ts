@@ -243,8 +243,8 @@ export interface KnowledgeStore {
   updateAtom(id: string, patch: KnowledgeAtomPatch): Promise<KnowledgeAtom | undefined>;
   deleteAtom(id: string): Promise<boolean>;
   incrementAtomReuse(id: string, when: string): Promise<KnowledgeAtom | undefined>;
-  searchAtomsByEmbedding(embedding: number[], options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user'; userId?: string }): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>>;
-  searchAtomsByTrigger(trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] }, options: { project?: string; limit: number; scope?: 'project' | 'user'; userId?: string }): Promise<KnowledgeAtom[]>;
+  searchAtomsByEmbedding(embedding: number[], options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user' | 'team'; userId?: string; teamId?: string }): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>>;
+  searchAtomsByTrigger(trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] }, options: { project?: string; limit: number; scope?: 'project' | 'user' | 'team'; userId?: string; teamId?: string }): Promise<KnowledgeAtom[]>;
   replaceAtomRelations(
     fromAtomId: string,
     inputs: AtomRelationInput[],

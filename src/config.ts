@@ -68,6 +68,8 @@ export interface AppConfig {
   teamId?: string;
   /** Concern F — master switch for the user-style preference layer. Default true. Optional so older test config literals keep compiling. */
   userStyleEnabled?: boolean;
+  /** Phase 2 — master switch for the convention candidate lane (team + project). Default true. Optional so older test config literals keep compiling. */
+  conventionsEnabled?: boolean;
   /** Concern F — interval between scheduled user-correction clustering runs (hours). */
   userStyleClusterIntervalHours?: number;
   /** Concern F — feedback lookback window for the clusterer (days). */
@@ -136,6 +138,7 @@ export function loadConfig(): AppConfig {
     userId: process.env.TUBEROSA_USER_ID || undefined,
     teamId: process.env.TUBEROSA_TEAM_ID || 'default',
     userStyleEnabled: readBoolean(process.env.TUBEROSA_USER_STYLE_ENABLED, true),
+    conventionsEnabled: readBoolean(process.env.TUBEROSA_CONVENTIONS_ENABLED, true),
     userStyleClusterIntervalHours: Number(process.env.TUBEROSA_USER_STYLE_CLUSTER_INTERVAL_HOURS ?? 1),
     userStyleClusterWindowDays: Number(process.env.TUBEROSA_USER_STYLE_CLUSTER_WINDOW_DAYS ?? 30),
     userStyleMinClusterEvents: Number(process.env.TUBEROSA_USER_STYLE_MIN_CLUSTER_EVENTS ?? 3),

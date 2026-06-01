@@ -17,3 +17,23 @@ test('memory store persists team-scope atom and filters by teamId', async () => 
   const miss = await store.listAtoms({ limit: 10, scope: 'team', teamId: 'other' });
   assert.equal(miss.length, 0);
 });
+
+test('memory store isolates atoms across two different teams', async () => {
+  const store = new MemoryKnowledgeStore();
+  await store.createAtom({
+    project: 'demo', claim: 'Team A: squash merges only', type: 'convention',
+    evidence: [], trigger: {}, producedBy: 'user', scope: 'team', teamId: 'team-a',
+  });
+  await store.createAtom({
+    project: 'demo', claim: 'Team B: rebase and merge', type: 'convention',
+    evidence: [], trigger: {}, producedBy: 'user', scope: 'team', teamId: 'team-b',
+  });
+
+  const a = await store.listAtoms({ limit: 10, scope: 'team', teamId: 'team-a' });
+  const b = await store.listAtoms({ limit: 10, scope: 'team', teamId: 'team-b' });
+  assert.equal(a.length, 1);
+  assert.equal(b.length, 1);
+  assert.equal(a[0].teamId, 'team-a');
+  assert.equal(b[0].teamId, 'team-b');
+  assert.notEqual(a[0].id, b[0].id);
+});
