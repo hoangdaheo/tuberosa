@@ -19,16 +19,16 @@ function req(method: string, params: unknown) {
   return { jsonrpc: '2.0', id: 1, method, params } as Parameters<typeof handleMcpRequest>[1];
 }
 
-test('tuberosa_get_atlas tool returns all five files', async () => {
+test('tuberosa_get_atlas tool returns all six files', async () => {
   const services = await atlasServices();
   const res = (await handleMcpRequest(services, req('tools/call', {
     name: 'tuberosa_get_atlas',
     arguments: { project: 'p' },
   }))) as { structuredContent: { files: { name: string }[] } };
-  assert.equal(res.structuredContent.files.length, 5);
+  assert.equal(res.structuredContent.files.length, 6);
   assert.deepEqual(
     res.structuredContent.files.map((f) => f.name).sort(),
-    ['commands.md', 'flows.md', 'open-gaps.md', 'project-map.md', 'risks.md'],
+    ['commands.md', 'conventions.md', 'flows.md', 'open-gaps.md', 'project-map.md', 'risks.md'],
   );
 });
 

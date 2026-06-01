@@ -23,6 +23,7 @@ export type GateKey =
   | 'grounded_references'
   | 'concrete_labels'
   | 'draft_maturity'
+  | 'distillation_evidence'
   | 'write_gate';
 
 export type GateStatus = 'pass' | 'fail' | 'unknown';
@@ -74,6 +75,7 @@ const HARD_GATES: ReadonlySet<GateKey> = new Set([
   'duplicates',
   'grounded_references',
   'signal_confidence',
+  'distillation_evidence',
   'write_gate',
 ]);
 
@@ -90,6 +92,7 @@ export function evaluateGates(input: EvaluateGatesInput): GateResult[] {
     gateGroundedReferences(input),
     gateConcreteLabels(input),
     gateDraftMaturity(input),
+    gateDistillationEvidence(input),
     gateWriteGate(input),
   ];
 }
@@ -306,6 +309,24 @@ function gateGroundedReferences(input: EvaluateGatesInput): GateResult {
     label: 'Grounded references',
     message: 'Draft only cites conversation references — there is no verifiable source (file, URL, or commit) to ground the lesson.',
   };
+}
+
+function gateDistillationEvidence(input: EvaluateGatesInput): GateResult {
+  const key: GateKey = 'distillation_evidence';
+  const severity: GateSeverity = 'hard';
+  const meta = (input.draft.metadata ?? {}) as Record<string, unknown>;
+  if (meta.convention !== true) {
+    return { key, status: 'pass', severity, label: 'Distillation evidence', message: 'Not a distilled convention — gate not applicable.' };
+  }
+  const steps = Array.isArray(meta.steps) ? meta.steps : [];
+  const evidenceAtomIds = Array.isArray(meta.evidenceAtomIds) ? meta.evidenceAtomIds : [];
+  const hasTrigger = !!meta.trigger && typeof meta.trigger === 'object'
+    && Object.values(meta.trigger as Record<string, unknown>).some((v) => Array.isArray(v) && v.length > 0);
+  if (steps.length > 0 && evidenceAtomIds.length >= 2 && hasTrigger) {
+    return { key, status: 'pass', severity, label: 'Distillation evidence', message: `Convention generalizes ${evidenceAtomIds.length} atoms with ${steps.length} step(s) and a trigger.` };
+  }
+  return { key, status: 'fail', severity, label: 'Distillation evidence',
+    message: `Convention needs ≥2 source atoms (got ${evidenceAtomIds.length}), non-empty steps (got ${steps.length}), and a trigger (${hasTrigger ? 'present' : 'missing'}).` };
 }
 
 function gateConcreteLabels(input: EvaluateGatesInput): GateResult {

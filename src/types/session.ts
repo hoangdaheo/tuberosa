@@ -259,10 +259,17 @@ export interface AgentContextCompliance {
   bypassReason?: string;
 }
 
+export interface HandbookStatus {
+  exists: boolean;
+  conventionCount: number;
+  suggestion?: string;
+}
+
 export interface AgentSessionStartResult {
   session: AgentSession;
   contextPack: ContextPack;
   policy: AgentSessionPolicy;
+  handbook: HandbookStatus;
 }
 
 export interface AgentSessionDecisionResult {
@@ -279,6 +286,12 @@ export interface AgentSessionFinishResult {
   autoApprovedMemory?: ReflectionDraft;
   learningDecision?: AgentSessionLearningDecision;
   compliance: AgentContextCompliance;
+  /**
+   * Phase 4a — informational nudge emitted when un-curated raw atoms have
+   * accumulated for the project past a threshold. Never auto-runs curation;
+   * the agent is invited to call `tuberosa_propose_curation`.
+   */
+  curationNudge?: { count: number; prompt: string; toolCall: string };
 }
 
 export interface AgentSessionPolicy {
