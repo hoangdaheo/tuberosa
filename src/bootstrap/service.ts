@@ -9,6 +9,8 @@ import { exportBootstrapPack } from '../export/bootstrap-pack.js';
 import { inferCoChangeLinks } from '../atoms/inference/co-change.js';
 import { computeAtomGraphDensity } from '../operations/atom-graph-density.js';
 import { buildBootstrapHealthSummary } from './health.js';
+import { gatherAtlasInputs } from '../atlas/inputs.js';
+import { assembleExtractionInputs } from '../curation/bootstrap-extract.js';
 import type { BootstrapHealth, BootstrapReport, BootstrapRunArgs } from './types.js';
 
 export interface BootstrapServiceDeps {
@@ -67,6 +69,27 @@ export class BootstrapService {
       warnings.push(`atlas regeneration failed (non-fatal): ${(err as Error).message}`);
     }
 
+    // 4.5 Convention extraction signals (non-fatal). The CLI runs without an
+    //     agent, so it can only PREPARE: gather deterministic extraction inputs
+    //     and count candidate signals. Actual distillation happens later via the
+    //     `tuberosa_bootstrap_handbook` agent tool (surfaced in nextActions).
+    let conventions: BootstrapReport['conventions'];
+    if (args.conventions !== false) {
+      try {
+        const atlasInputs = await gatherAtlasInputs(this.deps.store, {
+          project: args.project,
+          repoPath: args.repoPath,
+          generatedAt: args.generatedAt,
+        });
+        const extraction = assembleExtractionInputs(atlasInputs);
+        conventions = {
+          candidateSignalCount: extraction.detectedTech.length + extraction.recurringHints.length,
+        };
+      } catch (err) {
+        warnings.push(`convention extraction failed (non-fatal): ${(err as Error).message}`);
+      }
+    }
+
     // 5. Health summary (non-fatal).
     let health: BootstrapHealth = EMPTY_HEALTH;
     try {
@@ -100,13 +123,14 @@ export class BootstrapService {
       };
     }
 
-    const nextActions = this.buildNextActions(args, applied, health);
+    const nextActions = this.buildNextActions(args, applied, health, conventions);
 
     return {
       project: args.project,
       repoPath: args.repoPath,
       sync: { planId, summary: plan.summary, applied },
       atlas,
+      conventions,
       health,
       deep,
       export: exportResult,
@@ -138,7 +162,12 @@ export class BootstrapService {
     return { coChangeEdgesEmitted, graphDensity, warnings };
   }
 
-  private buildNextActions(args: BootstrapRunArgs, applied: ApplyResult, health: BootstrapHealth): string[] {
+  private buildNextActions(
+    args: BootstrapRunArgs,
+    applied: ApplyResult,
+    health: BootstrapHealth,
+    conventions: BootstrapReport['conventions'],
+  ): string[] {
     const actions: string[] = [];
     if (applied.deferredDeletions.length > 0) {
       actions.push(
@@ -150,6 +179,15 @@ export class BootstrapService {
     }
     if (health.gaps > 0) {
       actions.push('Fill knowledge gaps surfaced in .tuberosa/atlas/open-gaps.md.');
+    }
+    // The convention pointer is an agent hand-off, not a repo-health follow-up,
+    // so it should appear whenever signals were assembled — independent of the
+    // other actions and ahead of the empty-fallback line below.
+    if (conventions) {
+      const n = conventions.candidateSignalCount;
+      actions.push(
+        `Run \`tuberosa_bootstrap_handbook project=${args.project}\` (agent) to distill ${n} candidate signal(s) into reviewable convention drafts.`,
+      );
     }
     if (actions.length === 0) {
       actions.push('Bootstrap complete. Use `tuberosa atlas` or start an agent session to consume project knowledge.');

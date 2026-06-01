@@ -85,7 +85,7 @@ The **write gate** runs at draft-creation time AND at approval time. It decides 
 | `UPDATE` | Existing similar memory is enriched (labels/references merged, body appended). |
 | `SKIP` | Draft rejected — duplicate of an existing high-confidence memory. |
 
-Scoring inputs (`src/maintenance/write-gate.ts`):
+Scoring inputs (`src/reflection/write-gate.ts`):
 
 - `cosine` — semantic similarity to existing memories on same project.
 - `labelOverlap` — Jaccard over labels.
@@ -111,11 +111,12 @@ curl -sX POST http://localhost:3027/operations/maintenance/apply  -d '{"planId":
 
 ## Where in the source
 
-- `src/reflection/service.ts` — draft CRUD, review.
-- `src/reflection/write-gate.ts` (alias to maintenance) — scoring.
-- `src/reflection/safety.ts` — runs redaction + injection guard before persisting.
-- `src/reflection/taxonomy.ts` — classifies the draft into `project_fact` / `agent_lesson` / `bug_fix` / `convention`.
-- `src/agent-session/learning-gate.ts` — decides auto vs draft on finish.
+- `src/reflection/service.ts` — draft CRUD, review, and draft sanitization (`sanitizeReflectionDraft`).
+- `src/reflection/write-gate.ts` — ADD / UPDATE / SKIP scoring.
+- `src/reflection/recommendation.ts` — gate evaluation (`evaluateGates`).
+- `src/security/knowledge-safety.ts` — redaction + injection guard, invoked from the reflection service before persisting.
+- Draft category (`project_fact` / `agent_lesson` / `bug_fix` / `convention`) is set in `src/reflection/service.ts` / `src/agent-session/service.ts` (types in `src/types/knowledge.ts`).
+- `learningGate` in `src/agent-session/service.ts` — decides auto vs draft on finish.
 
 ## Eval coverage
 

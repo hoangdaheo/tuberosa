@@ -39,6 +39,26 @@ test('bootstrapCommand: requires --project', async () => {
   assert.ok(io.lines.some((l) => l.includes('--project')));
 });
 
+test('bootstrapCommand: passes conventions:true by default', async () => {
+  const io = fakeIo();
+  const inv: CliInvocation = { command: 'bootstrap', options: { project: 'p' }, positional: [] };
+  let captured: { conventions?: boolean } | undefined;
+  const service: BootstrapServiceLike = { run: async (a) => { captured = a; return REPORT; } };
+  const code = await bootstrapCommand(inv, io, { makeService: async () => service });
+  assert.equal(code.exitCode, 0);
+  assert.equal(captured?.conventions, true);
+});
+
+test('bootstrapCommand: --no-conventions passes conventions:false', async () => {
+  const io = fakeIo();
+  const inv: CliInvocation = { command: 'bootstrap', options: { project: 'p', 'no-conventions': true }, positional: [] };
+  let captured: { conventions?: boolean } | undefined;
+  const service: BootstrapServiceLike = { run: async (a) => { captured = a; return REPORT; } };
+  const code = await bootstrapCommand(inv, io, { makeService: async () => service });
+  assert.equal(code.exitCode, 0);
+  assert.equal(captured?.conventions, false);
+});
+
 test('bootstrapCommand: prose render names deferred deletions next action', async () => {
   const io = fakeIo();
   const withDefer: BootstrapReport = { ...REPORT, nextActions: ['Review 1 deferred deletion(s) in /repo/.tuberosa/pending-sync.json, then archive with `tuberosa sync --apply --yes`.'] };

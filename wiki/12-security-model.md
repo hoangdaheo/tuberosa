@@ -55,7 +55,7 @@ MCP stdio has no per-call auth — the local process is the trust boundary. **If
 `src/security/knowledge-safety.ts` runs on both ingestion **and** retrieval inputs:
 
 - **Patterns matched** (non-exhaustive): bearer tokens, JWTs, Postgres URLs with passwords, basic-auth URLs, GitHub/AWS/Google/Stripe/Slack key shapes, `-----BEGIN ...` private keys.
-- **Where**: `redactString` on knowledge content before storage; `redactSearchInput` on search prompts before embedding.
+- **Where**: `sanitizeKnowledgeInput` (which calls `redactSecrets` internally) on knowledge content before storage; `redactSearchInput` on search prompts before embedding.
 
 **Known gap (H1, queued):** the classifier currently extracts symbols/errors from the *original* prompt, not the redacted one. A secret that survives as a "symbol" can re-appear in `classified.exactTerms`. Until H1 ships, treat the classified block as semi-trusted.
 

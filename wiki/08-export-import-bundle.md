@@ -146,10 +146,7 @@ curl -sX POST http://localhost:3027/operations/import-pack -d '{
     "from":       "snapshot-2026-05-28",
     "project":    "tuberosa",
     "dryRun":     true,
-    "onConflict": "review",
-    "targetUserId":   "nguyen",      # rewrite imported user-style atoms to this user
-    "preserveUserId": false,         # set true to keep original user ids
-    "preservePriority": false        # set true to keep personal_workflow priority
+    "onConflict": "review"
   }
 }
 ```
@@ -184,9 +181,9 @@ When `onConflict: "review"` (default) and an imported atom/knowledge collides wi
 
    ```jsonc
    {
-     "conflictId":      "<id>",
-     "resolution":      "keep_local" | "take_imported" | "merged" | "dismiss",
-     "mergedSnapshot":  { /* only when resolution=merged */ }
+     "id":              "<id>",
+     "action":          "keep_local" | "take_imported" | "merged" | "dismissed",
+     "mergedSnapshot":  { /* only when action=merged */ }
    }
    ```
 

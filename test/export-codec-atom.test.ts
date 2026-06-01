@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { serializeAtom, parseAtomMarkdown, atomFilename } from '../src/export/atom-codec.js';
+import { serializeAtom, parseAtomMarkdown, atomFilename, toAtomInputFromParsed } from '../src/export/atom-codec.js';
 import type { KnowledgeAtom } from '../src/types/atoms.js';
 
 const A: KnowledgeAtom = {
@@ -74,6 +74,22 @@ Ignored body.
 `;
   const parsed = parseAtomMarkdown(md);
   assert.equal(parsed.frontmatter.claim, 'Explicit claim wins.');
+});
+
+test('serializeAtom + toAtomInputFromParsed: team scope and teamId survive the round-trip', () => {
+  const teamAtom: KnowledgeAtom = {
+    ...A,
+    id: 'bf3a2b1f-4c2d-4a0e-9111-000000000002',
+    claim: 'Prefer named exports across the codebase.',
+    type: 'convention',
+    scope: 'team',
+    teamId: 'default',
+  };
+  const { content } = serializeAtom(teamAtom, { revision: 1 });
+  const restored = toAtomInputFromParsed(parseAtomMarkdown(content));
+  assert.equal(restored.scope, 'team');
+  assert.equal(restored.teamId, 'default');
+  assert.equal(restored.userId, undefined);
 });
 
 test('atomFilename: stable slug-and-id pattern', () => {

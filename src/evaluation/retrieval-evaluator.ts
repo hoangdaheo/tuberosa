@@ -65,6 +65,13 @@ export interface RetrievalEvalAtom {
   lastReusedAt?: string;
   /** Status to force after creation (atoms start as active). Lets fixtures seed archived atoms. */
   status?: KnowledgeAtomPatch['status'];
+  /**
+   * Phase 2 — atom scope. Defaults to 'project' in the store. Fixtures set
+   * scope:'team' (cross-project) to exercise the convention retrieval lane.
+   */
+  scope?: KnowledgeAtomInput['scope'];
+  /** Phase 2 — team identity for scope:'team' atoms; must match the eval config teamId to surface. */
+  teamId?: string;
 }
 
 export interface RetrievalEvalRelation {
@@ -293,6 +300,8 @@ export class RetrievalEvaluator {
         trigger: atom.trigger,
         verification: atom.verification,
         producedBy: atom.producedBy ?? 'agent_session',
+        scope: atom.scope,
+        teamId: atom.teamId,
       });
       if (atom.tier || atom.reuseCount !== undefined || atom.lastReusedAt || atom.status) {
         await this.atomCreator.updateAtom(created.id, {

@@ -1407,6 +1407,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       },
       scope,
       userId: scope === 'user' ? input.userId : undefined,
+      teamId: scope === 'team' ? input.teamId : undefined,
       priority: scope === 'user' ? input.priority : undefined,
       metadata: input.metadata ?? {},
     };
@@ -1429,6 +1430,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .filter((atom) => !options.parentKnowledgeId || atom.parentKnowledgeId === options.parentKnowledgeId)
       .filter((atom) => !options.scope || atom.scope === options.scope)
       .filter((atom) => !options.userId || atom.userId === options.userId)
+      .filter((atom) => !options.teamId || atom.teamId === options.teamId)
       .slice(0, options.limit);
   }
 
@@ -1466,13 +1468,14 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByEmbedding(
     queryEmbedding: number[],
-    options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user'; userId?: string },
+    options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user' | 'team'; userId?: string; teamId?: string },
   ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
     const threshold = options.threshold ?? 0.92;
     return [...this.atoms.values()]
       .filter((atom) => !options.project || atom.project === options.project)
       .filter((atom) => !options.scope || atom.scope === options.scope)
       .filter((atom) => !options.userId || atom.userId === options.userId)
+      .filter((atom) => !options.teamId || atom.teamId === options.teamId)
       .map((atom) => {
         const stored = this.atomEmbeddings.get(atom.id);
         // Atoms without a stored embedding fall back to cosine 1.0 so existing
@@ -1487,7 +1490,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByTrigger(
     trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] },
-    options: { project?: string; limit: number; scope?: 'project' | 'user'; userId?: string },
+    options: { project?: string; limit: number; scope?: 'project' | 'user' | 'team'; userId?: string; teamId?: string },
   ): Promise<KnowledgeAtom[]> {
     const wantErrors = (trigger.errors ?? []).map((s) => s.toLowerCase());
     const wantFiles = (trigger.files ?? []).map((s) => s.toLowerCase());
@@ -1505,6 +1508,7 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       .filter((atom) => !options.project || atom.project === options.project)
       .filter((atom) => !options.scope || atom.scope === options.scope)
       .filter((atom) => !options.userId || atom.userId === options.userId)
+      .filter((atom) => !options.teamId || atom.teamId === options.teamId)
       .filter((atom) =>
         matchesAny(atom.trigger.errors, wantErrors)
         || matchesAny(atom.trigger.files, wantFiles)

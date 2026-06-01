@@ -53,7 +53,7 @@ Detailed fusion weights, task profiles, and graph budget live in `config/retriev
 | Variable | Default | Notes |
 |---|---|---|
 | `TUBEROSA_API_KEY` | _empty_ | When set, all routes except `/health` require `Authorization: Bearer <key>`. |
-| `TUBEROSA_REQUIRE_API_KEY_FOR_NON_LOOPBACK` | `false` | When `true` and no key is set, non-loopback requests are refused (the boundary check at `src/index.ts:8` refuses to *start* the server in the dangerous combo). |
+| `TUBEROSA_REQUIRE_API_KEY_FOR_NON_LOOPBACK` | `true` | When `true` and no key is set, non-loopback requests are refused (the boundary check at `src/index.ts:8` refuses to *start* the server in the dangerous combo). |
 | `TUBEROSA_EXPORT_BASE_DIR` | `.tuberosa/exports` | Confines `/operations/export-pack` and `tuberosa_export_pack` outputs. |
 | `TUBEROSA_IMPORT_BASE_DIR` | `.tuberosa/imports` | Confines `/operations/import-pack` and `tuberosa_import_pack` inputs. |
 
@@ -75,7 +75,7 @@ Full security model: [12-security-model.md](12-security-model.md).
 
 | Variable | Default | Notes |
 |---|---|---|
-| `TUBEROSA_PHYSICAL_MIRROR_ENABLED` | `true` | Sync DB to `.tuberosa/current/` (Markdown + JSONL). |
+| `TUBEROSA_PHYSICAL_MIRROR_ENABLED` | `false` | Sync DB to `.tuberosa/current/` (Markdown + JSONL). |
 | `TUBEROSA_PHYSICAL_MIRROR_DIR` | `.tuberosa/current` | Mirror directory. |
 | `TUBEROSA_PHYSICAL_MIRROR_DEBOUNCE_MS` | `500` | Coalesce rapid writes into one sync. |
 
@@ -96,7 +96,7 @@ Source sync (`tuberosa sync` / `tuberosa_sync_sources`) and `tuberosa bootstrap`
 | `TUBEROSA_ERROR_LOG_MAX_BYTES` | `262144` | Max per-log size (256 KiB). |
 | `TUBEROSA_ERROR_LOG_AUTO_CAPTURE` | `true` | Auto-capture HTTP/MCP server errors. |
 | `TUBEROSA_ERROR_LOG_CAPTURE_CLIENT_ERRORS` | `false` | Capture 4xx errors too (not just 5xx). |
-| `TUBEROSA_PERSIST_REPLAY` | `true` | Persist session replays. |
+| `TUBEROSA_PERSIST_REPLAY` | `false` | Persist session replays. |
 
 ## User identity
 

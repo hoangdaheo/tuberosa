@@ -118,7 +118,7 @@ function buildContribution(
   contribution: number,
 ): FusionContribution {
   return {
-    source: candidate.source as FusionContributionStage,
+    source: candidate.source,
     rank: candidate.rank,
     rawScore: candidate.rawScore,
     sourceWeight: sourceWeightValue,
