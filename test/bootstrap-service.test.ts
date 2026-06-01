@@ -39,7 +39,7 @@ test('BootstrapService.run: applies additive sync and regenerates atlas', async 
   assert.ok(report.sync.applied.ingested >= 2, 'ingests added files');
   assert.equal(report.sync.applied.deferredDeletions.length, 0);
   assert.ok(report.atlas, 'atlas present');
-  assert.equal(report.atlas?.files.length, 5);
+  assert.equal(report.atlas?.files.length, 6);
   assert.equal(report.health.sourceCounts.tracked >= 2, true);
   assert.ok(report.nextActions.length >= 1);
   assert.equal(report.export, undefined, 'no export without --export');

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KnowledgeStore, AtlasRunRecord } from '../storage/store.js';
 import { gatherAtlasInputs, type AtlasInputs } from './inputs.js';
-import { buildProjectMap, buildFlows, buildCommands, buildRisks, buildOpenGaps } from './builders.js';
+import { buildProjectMap, buildFlows, buildCommands, buildRisks, buildOpenGaps, buildConventions } from './builders.js';
 import { sha256OfBuffer } from '../export/manifest.js';
 
 export interface AtlasRegenArgs {
@@ -25,6 +25,7 @@ const BUILDERS: { name: string; build: (i: AtlasInputs) => string }[] = [
   { name: 'commands.md', build: buildCommands },
   { name: 'risks.md', build: buildRisks },
   { name: 'open-gaps.md', build: buildOpenGaps },
+  { name: 'conventions.md', build: buildConventions },
 ];
 
 export class AtlasService {

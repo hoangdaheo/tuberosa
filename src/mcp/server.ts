@@ -111,7 +111,7 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
             {
               uriTemplate: 'tuberosa://atlas/{project}/{file}',
               name: 'Project atlas file',
-              description: 'A synthesized project atlas file (project-map.md, flows.md, commands.md, risks.md, open-gaps.md).',
+              description: 'A synthesized project atlas file (project-map.md, flows.md, commands.md, risks.md, open-gaps.md, conventions.md).',
               mimeType: 'text/markdown',
             },
           ],
@@ -1637,13 +1637,13 @@ function tools() {
     {
       name: 'tuberosa_get_atlas',
       title: 'Get Project Atlas',
-      description: 'Return the synthesized project atlas (project-map.md, flows.md, commands.md, risks.md, open-gaps.md) for first-time project understanding. Regenerated in-memory from current knowledge.',
+      description: 'Return the synthesized project atlas (project-map.md, flows.md, commands.md, risks.md, open-gaps.md, conventions.md) for first-time project understanding. Regenerated in-memory from current knowledge.',
       inputSchema: {
         type: 'object',
         required: ['project'],
         properties: {
           project: { type: 'string' },
-          file: { type: 'string', description: 'Optional single file name, e.g. project-map.md. Omit for all five.' },
+          file: { type: 'string', description: 'Optional single file name, e.g. project-map.md. Omit for all six.' },
         },
       },
     },
