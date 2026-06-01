@@ -290,6 +290,7 @@ export const DEFAULT_POLICY: RetrievalPolicy = {
     lexical: 1.0,
     vector: 0.92,
     userStyle: 0.12,
+    convention: 0.12,
   },
   hardSignalBoost: { sources: ['metadata', 'lexical', 'graph', 'worktree'], bonus: 0.18 },
   hardSignalVectorPenalty: -0.08,

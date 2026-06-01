@@ -109,7 +109,7 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
             {
               uriTemplate: 'tuberosa://atlas/{project}/{file}',
               name: 'Project atlas file',
-              description: 'A synthesized project atlas file (project-map.md, flows.md, commands.md, risks.md, open-gaps.md).',
+              description: 'A synthesized project atlas file (project-map.md, flows.md, commands.md, risks.md, open-gaps.md, conventions.md).',
               mimeType: 'text/markdown',
             },
           ],
@@ -161,6 +161,24 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
         ...draft,
         instruction: 'This reflection is pending review. Approve it before it becomes searchable memory.',
       });
+    }
+
+    case 'tuberosa_propose_curation': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_propose_curation arguments.project');
+      const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) && args.limit > 0
+        ? Math.floor(args.limit)
+        : undefined;
+      const result = await services.curation.proposeCuration({ project, limit });
+      return toolJson(result);
+    }
+
+    case 'tuberosa_bootstrap_handbook': {
+      const project = readRequiredMcpString(args.project, 'tuberosa_bootstrap_handbook arguments.project');
+      const repoPath = readOptionalMcpString(args.repoPath, 'tuberosa_bootstrap_handbook arguments.repoPath')
+        ?? services.config.defaultCwd ?? process.cwd();
+      // generatedAt is intentionally NOT an MCP parameter — it is an internal determinism knob for tests; live calls use wall-clock time via the service default.
+      const result = await services.curation.bootstrapHandbook({ project, repoPath });
+      return toolJson(result);
     }
 
     case 'tuberosa_list_reflection_drafts': {
@@ -297,6 +315,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
         session: result.session,
         context: contextPackShortlist(result.contextPack, { includeDeepContext: input.includeDeepContext }),
         policy: result.policy,
+        handbook: result.handbook,
       });
     }
 

@@ -13,6 +13,7 @@ import { ErrorLogInsightService } from '../src/error-log/insights.js';
 import { ErrorLogService } from '../src/error-log/service.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { IngestionService } from '../src/ingest/service.js';
+import { CurationService } from '../src/curation/service.js';
 import { MaintenanceService } from '../src/maintenance/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { BackupService } from '../src/operations/backup-service.js';
@@ -1634,6 +1635,7 @@ function createTestServices(
   const errorLogs = new ErrorLogService({ rootDir: errorLogDir });
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
   const maintenance = new MaintenanceService(store);
+  const curation = new CurationService(store);
 
   return {
     config: { ...config, backupDir, physicalMirrorDir, physicalMirrorEnabled: Boolean(physicalMirrorDir) },
@@ -1649,6 +1651,7 @@ function createTestServices(
     errorLogs,
     errorLogInsights,
     maintenance,
+    curation,
     safety: {} as AppServices['safety'],
     async close() {
       await Promise.allSettled([operations.close(), cache.close(), store.close()]);

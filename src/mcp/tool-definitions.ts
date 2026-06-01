@@ -279,6 +279,32 @@ export function tools() {
       },
     },
     {
+      name: 'tuberosa_propose_curation',
+      title: 'Propose Tuberosa Curation Clusters',
+      description: 'Cluster a project\'s un-curated knowledge atoms so the calling agent can distill each cluster into a single reusable convention via tuberosa_reflect. Deterministic clustering only — the distillation reasoning is the agent\'s.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          limit: { type: 'number', minimum: 1, description: 'Maximum number of active atoms to pull for clustering. Defaults to 500.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_bootstrap_handbook',
+      title: 'Bootstrap Tuberosa Handbook',
+      description: 'Assemble deterministic repo evidence (detected tech, areas, scripts, doc excerpts, recurring workflow hints) plus an agent instruction for proposing project conventions via tuberosa_reflect. Bootstrap-proposed conventions are review-gated: drafts land pending human confirmation, not auto-activated.',
+      inputSchema: {
+        type: 'object',
+        required: ['project'],
+        properties: {
+          project: { type: 'string' },
+          repoPath: { type: 'string', description: 'Repository root to read package.json / README.md / CONTRIBUTING.md from. Defaults to the server cwd.' },
+        },
+      },
+    },
+    {
       name: 'tuberosa_list_reflection_drafts',
       title: 'List Tuberosa Reflection Drafts',
       description: 'List pending or reviewed reflection drafts for review workflow.',
@@ -716,13 +742,13 @@ export function tools() {
     {
       name: 'tuberosa_get_atlas',
       title: 'Get Project Atlas',
-      description: 'Return the synthesized project atlas (project-map.md, flows.md, commands.md, risks.md, open-gaps.md) for first-time project understanding. Regenerated in-memory from current knowledge.',
+      description: 'Return the synthesized project atlas (project-map.md, flows.md, commands.md, risks.md, open-gaps.md, conventions.md) for first-time project understanding. Regenerated in-memory from current knowledge.',
       inputSchema: {
         type: 'object',
         required: ['project'],
         properties: {
           project: { type: 'string' },
-          file: { type: 'string', description: 'Optional single file name, e.g. project-map.md. Omit for all five.' },
+          file: { type: 'string', description: 'Optional single file name, e.g. project-map.md. Omit for all six.' },
         },
       },
     },

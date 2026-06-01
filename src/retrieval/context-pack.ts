@@ -21,6 +21,10 @@ import { composeStartupBrief } from './startup-brief.js';
 
 const ANCHORED_MIN_FINAL_SCORE = 0.6;
 const GENERAL_MIN_FINAL_SCORE = 0.35;
+// Conventions are pinned to the top of `essential`; cap how many so a burst of
+// matching conventions can't crowd out direct evidence or blow the token budget.
+// Overflow conventions fall through to normal ranking in `rest`.
+const MAX_PINNED_CONVENTIONS = 5;
 const GRAPH_EVIDENCE_MIN_RAW_SCORE = 0.45;
 export const DEFAULT_DEEP_CONTEXT_BUDGET = 60_000;
 export const MIN_DEEP_CONTEXT_BUDGET = 30_000;
@@ -67,9 +71,16 @@ export function assembleContextPack(input: AssembleContextPackInput): ContextPac
 
   const prioritized = prioritizeUsefulCandidates(filterAcceptedCandidates(input), input);
   const accepted = capUsefulnessCategories(prioritized, input.usefulnessCaps);
-  const essential = takeWithinBudget(accepted, essentialBudget, 0, 4);
-  const supporting = takeWithinBudget(without(accepted, essential), supportingBudget, 0, 6);
-  const optional = takeWithinBudget(without(accepted, [...essential, ...supporting]), optionalBudget, 0, 8);
+  const conventions = accepted.filter((c) => c.source === 'convention');
+  const pinned = conventions.slice(0, MAX_PINNED_CONVENTIONS);
+  const rest = without(accepted, pinned);          // overflow conventions remain in `rest`
+  const pinnedTokens = sumTokens(pinned);
+  // Essential may exceed the normal 4-item cap when conventions are pinned —
+  // pinned conventions are always prepended; the cap applies only to the remainder.
+  const essentialRest = takeWithinBudget(rest, Math.max(0, essentialBudget - pinnedTokens), 0, 4);
+  const essential = [...pinned, ...essentialRest];
+  const supporting = takeWithinBudget(without(rest, essentialRest), supportingBudget, 0, 6);
+  const optional = takeWithinBudget(without(rest, [...essentialRest, ...supporting]), optionalBudget, 0, 8);
   const selected = [...essential, ...supporting, ...optional];
   const actionableMissingSignals = buildActionableMissingSignals(input.contextFit?.missingSignals ?? []);
 
@@ -193,6 +204,7 @@ function filterAcceptedCandidates(input: AssembleContextPackInput): RankedCandid
     || candidate.finalScore >= threshold
     || isGraphEvidence(candidate)
     || isVerifiedAtomEvidence(candidate)
+    || isConventionEvidence(candidate)
   ));
   return strong.length ? strong : filtered.slice(0, 1);
 }
@@ -212,6 +224,17 @@ function isGraphEvidence(candidate: RankedCandidate): boolean {
 function isVerifiedAtomEvidence(candidate: RankedCandidate): boolean {
   return candidate.source === 'atoms'
     && (candidate.metadata?.atomTier === 'verified' || candidate.metadata?.atomTier === 'canonical')
+    && !candidate.matchReasons.some((reason) => reason.startsWith('suppression:'));
+}
+
+/**
+ * Convention candidates are pinned to the front of the essential section and must
+ * bypass the score floor in filterAcceptedCandidates. A convention surfaces because
+ * it was explicitly matched to the current task type or team scope — its lower fused
+ * score reflects a narrow single-source origin, not low relevance.
+ */
+function isConventionEvidence(candidate: RankedCandidate): boolean {
+  return candidate.source === 'convention'
     && !candidate.matchReasons.some((reason) => reason.startsWith('suppression:'));
 }
 

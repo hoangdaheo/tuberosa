@@ -8,7 +8,7 @@ export type AtomLinkKind = 'supersedes' | 'refines' | 'depends_on' | 'co_changes
 // scope='user' atoms belong to a single human across all their projects; the
 // `priority` discriminator drives conflict resolution against project conventions
 // during retrieval.
-export type AtomScope = 'project' | 'user';
+export type AtomScope = 'project' | 'user' | 'team';
 export type StylePriority = 'personal_workflow' | 'coding_preference';
 
 export type Evidence =
@@ -67,6 +67,7 @@ export interface KnowledgeAtom {
 
   scope: AtomScope;
   userId?: string;
+  teamId?: string;
   priority?: StylePriority;
   /**
    * Free-form metadata. Currently used by user-style atoms to flag low-evidence
@@ -104,6 +105,7 @@ export interface KnowledgeAtomInput {
   // Concern F — user-style preference layer. Default scope is 'project'.
   scope?: AtomScope;
   userId?: string;
+  teamId?: string;
   priority?: StylePriority;
   metadata?: Record<string, unknown>;
 }
@@ -121,6 +123,12 @@ export interface KnowledgeAtomPatch {
   verification?: Verification;
   pitfalls?: string[];
   links?: AtomLink[];
+  /**
+   * Phase 4a — free-form metadata patch. Merged by callers (read-modify-write)
+   * and persisted as the atom's full metadata bag. Used to stamp source atoms
+   * with `distilledIntoAtomId` when a convention is curated from them.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 export interface ListAtomsOptions {
@@ -130,5 +138,6 @@ export interface ListAtomsOptions {
   parentKnowledgeId?: string;
   scope?: AtomScope;
   userId?: string;
+  teamId?: string;
   limit: number;
 }

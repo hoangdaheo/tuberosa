@@ -148,7 +148,7 @@ What `finish` does:
 
 1. Closes the session (status = `finished`, sets `finishedAt`).
 2. Computes a **research trace** if not supplied (derived from decisions + notes + changed files).
-3. Runs the **learning gate** — a small classifier in `src/agent-session/learning-gate.ts` that scores whether the session produced a durable lesson.
+3. Runs the **learning gate** — the `learningGate` function in `src/agent-session/service.ts` (which calls `evaluateGates` from `src/reflection/recommendation.ts`) that scores whether the session produced a durable lesson.
 4. Depending on `learningMode`:
    - `auto` (default) — gate decides: auto-approve as memory, or queue a draft for review.
    - `draft_only` — always queue a draft, never auto-approve.

@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { AgentSessionService } from './agent-session/service.js';
 import { createCache, type Cache } from './cache.js';
 import { loadConfig, type AppConfig } from './config.js';
+import { CurationService } from './curation/service.js';
 import { ErrorLogInsightService } from './error-log/insights.js';
 import { ErrorLogService } from './error-log/service.js';
 import { IngestionService } from './ingest/service.js';
@@ -32,6 +33,7 @@ export interface AppServices {
   sessionReplay: SessionReplayService;
   operations: OperationsService;
   maintenance: MaintenanceService;
+  curation: CurationService;
   close(): Promise<void>;
 }
 
@@ -62,6 +64,7 @@ export async function createAppServices(): Promise<AppServices> {
   const sessionReplay = new SessionReplayService(store);
   const agentSessions = new AgentSessionService(store, retrieval, reflection, models, sessionReplay, config, cache);
   const maintenance = new MaintenanceService(store);
+  const curation = new CurationService(store);
   const operations = new OperationsService(store, ingestion, {
     backupDir: config.backupDir,
     storeKind: config.store,
@@ -104,6 +107,7 @@ export async function createAppServices(): Promise<AppServices> {
     sessionReplay,
     operations,
     maintenance,
+    curation,
     async close() {
       await Promise.allSettled([operations.close(), cache.close(), store.close()]);
     },
