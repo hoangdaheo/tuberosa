@@ -104,7 +104,8 @@ export class CurationService {
       'Bootstrap evidence assembled. Propose ONE convention per recurring hint (recurringHints) and per detected technology (detectedTech) that is worth a project rule. ' +
       'For each, call tuberosa_reflect with metadata: { convention: true, curationSource: \'bootstrap\', scope: \'project\' or \'team\', category, steps, trigger, evidenceAtomIds: [] }. ' +
       'The distillation reasoning is yours — Tuberosa only assembles deterministic evidence. ' +
-      'These bootstrap drafts are REVIEW-GATED: they land pending human confirmation and are NOT auto-activated.';
+      'These bootstrap drafts are REVIEW-GATED: they land pending human confirmation and are NOT auto-activated. ' +
+      'Because bootstrap evidence is repo signals rather than existing atoms, these drafts pass evidenceAtomIds: [] and will trip the distillation-evidence gate (needs ≥2 source atoms) — that blocker is EXPECTED for bootstrap; a human reviewer can approve them on review.';
 
     return { extraction, instruction };
   }

@@ -95,6 +95,11 @@ test('bootstrapHandbook returns deterministic extraction inputs + a review-gated
     ok(result.instruction.includes('bootstrap'));
     ok(/review|pending|confirm/i.test(result.instruction));
 
+    // Explains the expected distillation-evidence gate blocker on bootstrap drafts.
+    ok(/evidenceAtomIds/i.test(result.instruction));
+    ok(/expected/i.test(result.instruction));
+    ok(/distillation-evidence|≥2 source atoms/.test(result.instruction));
+
     // Determinism: same generatedAt -> deep-equal output.
     const again = await svc.bootstrapHandbook({ project, repoPath, generatedAt: '2026-05-29T00:00:00.000Z' });
     deepEqual(again, result);
