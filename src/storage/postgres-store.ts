@@ -1919,15 +1919,16 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     // that branch — the sentinel project name on the input is only used by the
     // in-memory store and must not pollute the projects table.
     const isUserScope = input.scope === 'user';
-    const projectId = isUserScope ? null : await this.ensureProject(this.pool, input.project);
+    const isTeamScope = input.scope === 'team';
+    const projectId = (isUserScope || isTeamScope) ? null : await this.ensureProject(this.pool, input.project);
     const columns = [
       'project_id', 'parent_knowledge_id', 'claim', 'type', 'evidence', 'trigger',
       'verification', 'pitfalls', 'links', 'produced_by', 'produced_session_id', 'embedding',
-      'scope', 'user_id', 'priority', 'metadata',
+      'scope', 'user_id', 'priority', 'metadata', 'team_id',
     ];
     const placeholders = [
       '$1', '$2', '$3', '$4', '$5::jsonb', '$6::jsonb', '$7::jsonb', '$8::jsonb', '$9::jsonb',
-      '$10', '$11', '$12::vector', '$13', '$14', '$15', '$16::jsonb',
+      '$10', '$11', '$12::vector', '$13', '$14', '$15', '$16::jsonb', '$17',
     ];
     const values: unknown[] = [
       projectId,
@@ -1946,7 +1947,12 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       isUserScope ? input.userId ?? null : null,
       isUserScope ? input.priority ?? null : null,
       JSON.stringify(input.metadata ?? {}),
+      isTeamScope ? input.teamId ?? null : null,
     ];
+    // Any new static column/placeholder/value must be appended ABOVE this block.
+    // The id override uses unshift on columns/placeholders but push on values
+    // (its `$N` is `values.length + 1`, computed before the push), so it must
+    // remain the final mutation to keep placeholder numbering aligned.
     if (input.id) {
       columns.unshift('id');
       placeholders.unshift(`$${values.length + 1}`);
@@ -2001,6 +2007,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       values.push(options.userId);
       filters.push(`a.user_id = $${values.length}`);
     }
+    if (options.teamId) {
+      values.push(options.teamId);
+      filters.push(`a.team_id = $${values.length}`);
+    }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     values.push(options.limit);
     const result = await this.db.query(
@@ -2030,6 +2040,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (patch.verification !== undefined) { values.push(JSON.stringify(patch.verification)); sets.push(`verification = $${values.length}::jsonb`); }
     if (patch.pitfalls !== undefined)     { values.push(JSON.stringify(patch.pitfalls));     sets.push(`pitfalls = $${values.length}::jsonb`); }
     if (patch.links !== undefined)        { values.push(JSON.stringify(patch.links));        sets.push(`links = $${values.length}::jsonb`); }
+    if (patch.metadata !== undefined)     { values.push(JSON.stringify(patch.metadata));     sets.push(`metadata = $${values.length}::jsonb`); }
     values.push(id);
     const result = await this.db.query(
       `UPDATE knowledge_atoms SET ${sets.join(', ')} WHERE id = $${values.length} RETURNING *`,
@@ -2067,7 +2078,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByEmbedding(
     embedding: number[],
-    options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user'; userId?: string },
+    options: { project?: string; limit: number; threshold?: number; scope?: 'project' | 'user' | 'team'; userId?: string; teamId?: string },
   ): Promise<Array<{ atom: KnowledgeAtom; cosine: number }>> {
     const threshold = options.threshold ?? 0.0;
     const filters: string[] = ["a.embedding IS NOT NULL", "a.status = 'active'"];
@@ -2083,6 +2094,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (options.userId) {
       params.push(options.userId);
       filters.push(`a.user_id = $${params.length}`);
+    }
+    if (options.teamId) {
+      params.push(options.teamId);
+      filters.push(`a.team_id = $${params.length}`);
     }
     const result = await this.db.query(
       `SELECT a.*, p.name AS project_name,
@@ -2101,7 +2116,7 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
 
   async searchAtomsByTrigger(
     trigger: { errors?: string[]; files?: string[]; symbols?: string[]; taskTypes?: string[] },
-    options: { project?: string; limit: number; scope?: 'project' | 'user'; userId?: string },
+    options: { project?: string; limit: number; scope?: 'project' | 'user' | 'team'; userId?: string; teamId?: string },
   ): Promise<KnowledgeAtom[]> {
     const filters: string[] = ["a.status = 'active'"];
     const values: unknown[] = [];
@@ -2116,6 +2131,10 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     if (options.userId) {
       values.push(options.userId);
       filters.push(`a.user_id = $${values.length}`);
+    }
+    if (options.teamId) {
+      values.push(options.teamId);
+      filters.push(`a.team_id = $${values.length}`);
     }
     const triggerFilters: string[] = [];
     for (const key of ['errors', 'files', 'symbols', 'taskTypes'] as const) {
@@ -3470,10 +3489,14 @@ function mapAgentContextDecisionRow(row: Record<string, unknown>): AgentContextD
 function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom {
   const scope = (row.scope as KnowledgeAtom['scope']) ?? 'project';
   const userId = row.user_id ? String(row.user_id) : undefined;
+  const teamId = row.team_id ? String(row.team_id) : undefined;
   // Concern F: user-scope atoms have null project_id and a sentinel project name
   // for the in-memory side of the store contract. Synthesise the sentinel here
   // so downstream consumers see a stable `project` string.
-  const resolvedProject = scope === 'user' ? `__user:${userId ?? ''}` : project;
+  const resolvedProject =
+    scope === 'user' ? `__user:${userId ?? ''}`
+    : scope === 'team' ? `__team:${teamId ?? ''}`
+    : project;
   return {
     id: String(row.id),
     project: resolvedProject,
@@ -3497,6 +3520,7 @@ function rowToAtom(row: Record<string, unknown>, project: string): KnowledgeAtom
     },
     scope,
     userId,
+    teamId,
     priority: (row.priority as KnowledgeAtom['priority']) ?? undefined,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };

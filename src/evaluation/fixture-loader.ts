@@ -84,6 +84,8 @@ function parseAtom(value: unknown, path: string): RetrievalEvalAtom {
     reuseCount: optionalNumber(item.reuseCount, `${path}.reuseCount`),
     lastReusedAt: optionalString(item.lastReusedAt, `${path}.lastReusedAt`),
     status: optionalString(item.status, `${path}.status`) as RetrievalEvalAtom['status'],
+    scope: optionalString(item.scope, `${path}.scope`) as RetrievalEvalAtom['scope'],
+    teamId: optionalString(item.teamId, `${path}.teamId`),
   };
 }
 

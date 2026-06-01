@@ -45,19 +45,18 @@ src/
 ├─ evaluation/           Eval runners (retrieval, agent-context, safety, …)
 ├─ export/               Exporter, importer, codecs, manifest, bootstrap-pack (Export V2)
 ├─ http/                 server.ts (routes), error mapping
-├─ ingest/               IngestionService, document atomizer, relations/inference
-├─ knowledge/            classifier, deduplication helpers
+├─ ingest/               IngestionService, document atomizer, duplicate-detector
 ├─ knowledge-areas/      area-model.ts — partition knowledge into areas (atlas/export/health spine)
-├─ maintenance/          dedup, decay, write-gate
+├─ maintenance/          service.ts — dedup / decay / re-link maintenance plans
 ├─ mcp/                  server.ts (tools + resources + prompts), schemas
-├─ migrations/           SQL migrations (also at top-level migrations/ for the migrate script)
 ├─ model/                ModelProvider (hash | openai | ollama)
 ├─ operations/           backup-service, physical-mirror, organization, session-replay, error-logs
-├─ reflection/           draft lifecycle, write-gate, safety/taxonomy
+├─ reflection/           draft lifecycle, write-gate, recommendation
+├─ relations/            inference — infer knowledge relations at ingest time
 ├─ retrieval/            classifier, fusion, context-fit, context-pack, service
 ├─ security/             knowledge-safety (redaction + injection guard), safe-paths
 ├─ source-sync/          SourceSyncService — detect add/change/rename/delete, plan, apply
-├─ storage/              postgres-store, memory-store, factory
+├─ storage/              postgres-store, memory-store, factory, migrations.ts (SQL files at top-level migrations/)
 ├─ types/                shared TS types (atoms, knowledge, references)
 └─ user-style/           clusterer, conflict-resolver, finish-session-router
 ```
@@ -69,7 +68,7 @@ src/
 - Binds to `${TUBEROSA_HTTP_HOST}:${PORT}` (default `127.0.0.1:3027`).
 - Boundary check at `src/index.ts:8` refuses to start when host is non-loopback AND no API key is set AND `TUBEROSA_REQUIRE_API_KEY_FOR_NON_LOOPBACK=false`.
 - All routes are JSON; `/health` is public; everything else gates behind `TUBEROSA_API_KEY` if set.
-- Errors flow through `appErrorToHttpBody` (`src/http/errors.ts`): `{error: string, code: string, ...details}`.
+- Errors flow through `appErrorToHttpBody` (`src/errors.ts`): `{error: string, code: string, ...details}`.
 
 ### MCP stdio — `src/mcp-stdio.ts` → `src/mcp/server.ts`
 
