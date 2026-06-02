@@ -138,6 +138,15 @@ import {
   reflectionDraftListSchema,
   reflectionDraftReviewSchema,
 } from './schemas/reflection.js';
+import {
+  errorLogSchema,
+  errorLogPatchSchema,
+  errorLogListSchema,
+  collectErrorLogsSchema,
+  createErrorLogReflectionDraftSchema,
+  resolveErrorLogSchema,
+  errorLogIdArgumentsSchema,
+} from './schemas/error-log.js';
 
 export interface IngestFilesRequest {
   project: string;
@@ -442,50 +451,11 @@ export function validateRestoreBackupInput(value: unknown, backupIdOrPath?: stri
 }
 
 export function validateErrorLogInput(value: unknown): ErrorLogInput {
-  const record = expectObject(value, 'error log input');
-
-  return {
-    project: readOptionalString(record, 'project', 'error log input'),
-    category: readOptionalEnum(record, 'category', ERROR_LOG_CATEGORIES, 'error log input'),
-    severity: readOptionalEnum(record, 'severity', ERROR_LOG_SEVERITIES, 'error log input'),
-    status: readOptionalEnum(record, 'status', ERROR_LOG_STATUSES, 'error log input'),
-    title: readRequiredString(record, 'title', 'error log input'),
-    summary: readOptionalString(record, 'summary', 'error log input'),
-    message: readOptionalString(record, 'message', 'error log input'),
-    stack: readOptionalString(record, 'stack', 'error log input'),
-    toolName: readOptionalString(record, 'toolName', 'error log input'),
-    operation: readOptionalString(record, 'operation', 'error log input'),
-    command: readOptionalString(record, 'command', 'error log input'),
-    cwd: readOptionalString(record, 'cwd', 'error log input'),
-    files: readOptionalStringArray(record, 'files', 'error log input'),
-    symbols: readOptionalStringArray(record, 'symbols', 'error log input'),
-    errors: readOptionalStringArray(record, 'errors', 'error log input'),
-    tags: readOptionalStringArray(record, 'tags', 'error log input'),
-    agentName: readOptionalString(record, 'agentName', 'error log input'),
-    agentTool: readOptionalString(record, 'agentTool', 'error log input'),
-    sessionId: readOptionalString(record, 'sessionId', 'error log input'),
-    contextPackId: readOptionalString(record, 'contextPackId', 'error log input'),
-    reflectionDraftId: readOptionalString(record, 'reflectionDraftId', 'error log input'),
-    references: readOptionalReferences(record.references, 'error log input.references'),
-    metadata: readOptionalObject(record, 'metadata', 'error log input'),
-    fingerprint: readOptionalString(record, 'fingerprint', 'error log input'),
-  };
+  return parseOrThrow(errorLogSchema, value, 'error log input');
 }
 
 export function validateErrorLogPatchInput(value: unknown): ErrorLogPatchInput {
-  const record = expectObject(value, 'error log patch input');
-
-  return {
-    status: readOptionalEnum(record, 'status', ERROR_LOG_STATUSES, 'error log patch input'),
-    category: readOptionalEnum(record, 'category', ERROR_LOG_CATEGORIES, 'error log patch input'),
-    severity: readOptionalEnum(record, 'severity', ERROR_LOG_SEVERITIES, 'error log patch input'),
-    summary: readOptionalString(record, 'summary', 'error log patch input'),
-    notes: readOptionalString(record, 'notes', 'error log patch input'),
-    tags: readOptionalStringArray(record, 'tags', 'error log patch input'),
-    references: readOptionalReferences(record.references, 'error log patch input.references'),
-    reflectionDraftId: readOptionalNullableString(record, 'reflectionDraftId', 'error log patch input'),
-    metadata: readOptionalObject(record, 'metadata', 'error log patch input'),
-  };
+  return parseOrThrow(errorLogPatchSchema, value, 'error log patch input');
 }
 
 export function validateErrorLogListInput(value: unknown): {
@@ -497,80 +467,28 @@ export function validateErrorLogListInput(value: unknown): {
   tag?: string;
   limit: number;
 } {
-  const record = expectObject(value, 'error log list input');
-  const limit = readOptionalPositiveInteger(record, 'limit', 'error log list input') ?? 25;
-
-  return {
-    project: readOptionalString(record, 'project', 'error log list input'),
-    category: readOptionalEnum(record, 'category', ERROR_LOG_CATEGORIES, 'error log list input'),
-    severity: readOptionalEnum(record, 'severity', ERROR_LOG_SEVERITIES, 'error log list input'),
-    status: readOptionalEnum(record, 'status', ERROR_LOG_STATUSES, 'error log list input'),
-    query: readOptionalString(record, 'query', 'error log list input'),
-    tag: readOptionalString(record, 'tag', 'error log list input'),
-    limit: Math.min(limit, 100),
-  };
+  return parseOrThrow(errorLogListSchema, value, 'error log list input');
 }
 
 export function validateCollectErrorLogsInput(value: unknown): CollectErrorLogsOptions {
-  const record = expectObject(value, 'error log collection input');
-  const limit = readOptionalPositiveInteger(record, 'limit', 'error log collection input') ?? 250;
-  const offset = readOptionalNonNegativeInteger(record, 'offset', 'error log collection input') ?? 0;
-
-  return {
-    project: readOptionalString(record, 'project', 'error log collection input'),
-    categories: readOptionalEnumArray(record.categories, ERROR_LOG_CATEGORIES, 'error log collection input.categories'),
-    severities: readOptionalEnumArray(record.severities, ERROR_LOG_SEVERITIES, 'error log collection input.severities'),
-    statuses: readOptionalEnumArray(record.statuses, ERROR_LOG_STATUSES, 'error log collection input.statuses'),
-    query: readOptionalString(record, 'query', 'error log collection input'),
-    tag: readOptionalString(record, 'tag', 'error log collection input'),
-    since: readOptionalIsoDate(record, 'since', 'error log collection input'),
-    until: readOptionalIsoDate(record, 'until', 'error log collection input'),
-    limit: Math.min(limit, 500),
-    offset,
-  };
+  return parseOrThrow(collectErrorLogsSchema, value, 'error log collection input');
 }
 
 export function validateCreateErrorLogReflectionDraftInput(value: unknown): CreateErrorLogReflectionDraftInput {
-  const record = expectObject(value, 'error log reflection draft input');
-  const errorLogIds = readRequiredStringArray(record, 'errorLogIds', 'error log reflection draft input');
-
-  if (errorLogIds.length === 0) {
-    throw validationIssue('error log reflection draft input.errorLogIds', 'must include at least one id.');
-  }
-
-  return {
-    errorLogIds,
-    project: readOptionalString(record, 'project', 'error log reflection draft input'),
-    title: readOptionalString(record, 'title', 'error log reflection draft input'),
-    summary: readOptionalString(record, 'summary', 'error log reflection draft input'),
-    content: readOptionalString(record, 'content', 'error log reflection draft input'),
-    linkLogs: readOptionalBoolean(record, 'linkLogs', 'error log reflection draft input'),
-    metadata: readOptionalObject(record, 'metadata', 'error log reflection draft input'),
-  };
+  return parseOrThrow(createErrorLogReflectionDraftSchema, value, 'error log reflection draft input');
 }
 
 export function validateResolveErrorLogInput(value: unknown, id?: string): ResolveErrorLogInput {
-  const record = expectObject(value, 'error log resolution input');
-  const status = readOptionalEnum(record, 'status', ['fixed', 'wont_fix'], 'error log resolution input');
-
-  return {
-    id: id ?? readRequiredStringWithAliases(record, ['id', 'errorLogId'], 'error log resolution input'),
-    status,
-    rootCause: readRequiredString(record, 'rootCause', 'error log resolution input'),
-    resolutionSummary: readRequiredString(record, 'resolutionSummary', 'error log resolution input'),
-    changedFiles: readOptionalStringArray(record, 'changedFiles', 'error log resolution input'),
-    verificationCommands: readOptionalStringArray(record, 'verificationCommands', 'error log resolution input'),
-    reflectionDraftId: readOptionalString(record, 'reflectionDraftId', 'error log resolution input'),
-    notes: readOptionalString(record, 'notes', 'error log resolution input'),
-    metadata: readOptionalObject(record, 'metadata', 'error log resolution input'),
-  };
+  const parsed = parseOrThrow(
+    resolveErrorLogSchema,
+    withId(value, id),
+    'error log resolution input',
+  ) as ResolveErrorLogInput;
+  return id ? { ...parsed, id } : parsed;
 }
 
 export function validateErrorLogIdArguments(value: unknown): { id: string } {
-  const record = expectObject(value, 'error log arguments');
-  return {
-    id: readRequiredStringWithAliases(record, ['id', 'errorLogId'], 'error log arguments'),
-  };
+  return parseOrThrow(errorLogIdArgumentsSchema, value, 'error log arguments');
 }
 
 export function validateKnowledgeReviewFilter(value: string | null): KnowledgeReviewFilter | undefined {
@@ -638,6 +556,14 @@ export function expectRecord(value: unknown, path: string): Record<string, unkno
 function withSessionId(value: unknown, sessionId?: string): unknown {
   if (sessionId && value && typeof value === 'object' && !Array.isArray(value)) {
     return { ...(value as Record<string, unknown>), sessionId };
+  }
+  return value;
+}
+
+/** Same as withSessionId for an out-of-band `id` (e.g. error-log resolve path param). */
+function withId(value: unknown, id?: string): unknown {
+  if (id && value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>), id };
   }
   return value;
 }
