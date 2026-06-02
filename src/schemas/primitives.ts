@@ -49,3 +49,33 @@ export const zStringArray = z
 
 /** Strictly positive, finite number (matches readOptionalPositiveNumber). */
 export const zPositiveNumber = z.number().finite().positive();
+
+/** Finite number; rejects NaN/Infinity and non-numbers (matches readOptionalNumber). */
+export const zFiniteNumber = z.number().finite();
+
+/** Finite number in [0, 1] (matches readOptional*Confidence). */
+export const zConfidence = z
+  .number()
+  .finite()
+  .min(0, { message: 'must be between 0 and 1.' })
+  .max(1, { message: 'must be between 0 and 1.' });
+
+/** Integer >= 1 (matches readOptionalPositiveInteger). */
+export const zPositiveInteger = z.number().int({ message: 'must be a positive integer.' }).min(1, { message: 'must be a positive integer.' });
+
+/** Integer >= 0 (matches readOptionalNonNegativeInteger). */
+export const zNonNegativeInteger = z.number().int({ message: 'must be a non-negative integer.' }).min(0, { message: 'must be a non-negative integer.' });
+
+/** Plain object (rejects null/array/non-object), matches expectObject / readOptionalObject. */
+export const zRecord = z.record(z.string(), z.unknown());
+
+/**
+ * Nullable, non-blank, length-capped string (matches readOptionalNullableString):
+ * absent stays absent, explicit null is preserved, otherwise must be non-blank.
+ */
+export const zNullableString = z.union([zRequiredString, z.null()]).optional();
+
+/** ISO date string (matches readOptionalIsoDate): non-blank and Date.parse-able. */
+export const zIsoDate = zRequiredString.refine((s) => !Number.isNaN(Date.parse(s)), {
+  message: 'must be an ISO date string.',
+});

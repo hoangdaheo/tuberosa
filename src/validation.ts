@@ -67,8 +67,57 @@ import {
 } from './agent-session/research-trace.js';
 import { contextSearchSchema } from './schemas/context.js';
 import { parseOrThrow } from './schemas/primitives.js';
-export { TASK_TYPES, CONTEXT_MODES, CONTEXT_NOISE_TOLERANCES } from './schemas/enums.js';
-import { CONTEXT_MODES, CONTEXT_NOISE_TOLERANCES } from './schemas/enums.js';
+export {
+  TASK_TYPES,
+  CONTEXT_MODES,
+  CONTEXT_NOISE_TOLERANCES,
+  KNOWLEDGE_ITEM_TYPES,
+  TRIGGER_TYPES,
+  FEEDBACK_TYPES,
+  CONTEXT_QUALITY_FEEDBACK_TYPES,
+  AGENT_SESSION_OUTCOMES,
+  AGENT_LEARNING_MODES,
+  REFLECTION_DRAFT_STATUSES,
+  AGENT_LEARNING_SIGNAL_KINDS,
+  MAINTENANCE_ITEM_KINDS,
+} from './schemas/enums.js';
+import {
+  KNOWLEDGE_REVIEW_FILTERS,
+  KNOWLEDGE_STATUSES,
+  LEARNING_REVIEW_STATUSES,
+  LEARNING_PROPOSAL_TYPES,
+  KNOWLEDGE_ITEM_TYPES,
+  TRIGGER_TYPES,
+  LABEL_TYPES,
+  REFERENCE_TYPES,
+  FEEDBACK_TYPES,
+  CONTEXT_QUALITY_FEEDBACK_TYPES,
+  AGENT_SESSION_OUTCOMES,
+  AGENT_LEARNING_MODES,
+  AGENT_LEARNING_SIGNAL_KINDS,
+  AGENT_LEARNING_SIGNAL_SOURCES,
+  REFLECTION_DRAFT_STATUSES,
+  REFLECTION_REVIEW_DECISIONS,
+  REFLECTION_REVIEW_GRADES,
+  REFLECTION_DUPLICATE_RISKS,
+  ERROR_LOG_CATEGORIES,
+  ERROR_LOG_SEVERITIES,
+  ERROR_LOG_STATUSES,
+  INGESTION_MODES,
+  MAINTENANCE_ITEM_KINDS,
+  MAINTENANCE_RISKS,
+  MAINTENANCE_EVIDENCE_SOURCES,
+  MAINTENANCE_RISK_DEFAULTS,
+} from './schemas/enums.js';
+import {
+  knowledgeSchema,
+  knowledgePatchSchema,
+  knowledgeRelationSchema,
+  knowledgeRelationPatchSchema,
+  knowledgeConflictPatchSchema,
+  knowledgeGapPatchSchema,
+  learningProposalPatchSchema,
+} from './schemas/knowledge.js';
 
 export interface IngestFilesRequest {
   project: string;
@@ -81,250 +130,33 @@ interface ValidationIssue {
   message: string;
 }
 
-export const KNOWLEDGE_ITEM_TYPES = [
-  'spec',
-  'workflow',
-  'memory',
-  'bugfix',
-  'code_ref',
-  'rule',
-  'wiki',
-  'conversation',
-] as const satisfies readonly KnowledgeItemType[];
-
-export const TRIGGER_TYPES = [
-  'complex_task_success',
-  'error_recovery',
-  'user_correction',
-  'non_trivial_workflow',
-  'manual',
-] as const satisfies readonly TriggerType[];
-
-const LABEL_TYPES = [
-  'project',
-  'repo',
-  'domain',
-  'business_area',
-  'task_type',
-  'technology',
-  'workflow_stage',
-  'severity',
-  'file',
-  'symbol',
-  'error',
-  'user_preference',
-] as const satisfies readonly LabelType[];
-
-const REFERENCE_TYPES = ['file', 'url', 'commit', 'tool', 'conversation', 'external'] as const;
-const KNOWLEDGE_RELATION_TYPES = [
-  'contains',
-  'references',
-  'mentions_file',
-  'mentions_symbol',
-  'resolves_error',
-  'supersedes',
-  'depends_on',
-  'related_to',
-  'derived_from_session',
-] as const satisfies readonly KnowledgeRelationType[];
-const KNOWLEDGE_RELATION_TARGET_KINDS = [
-  'knowledge',
-  'file',
-  'symbol',
-  'error',
-  'session',
-  'reference',
-] as const satisfies readonly KnowledgeRelationTargetKind[];
-const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly IngestionMode[];
-export const FEEDBACK_TYPES = [
-  'selected',
-  'rejected',
-  'irrelevant',
-  'stale',
-  'missing_context',
-  'selected_but_noisy',
-  'too_much_adjacent_context',
-  'missing_orientation',
-  'missing_current_handoff',
-  'missing_verification_commands',
-] as const;
-export const CONTEXT_QUALITY_FEEDBACK_TYPES = [
-  'selected_but_noisy',
-  'too_much_adjacent_context',
-  'missing_orientation',
-  'missing_current_handoff',
-  'missing_verification_commands',
-] as const satisfies readonly FeedbackQualityType[];
-export const AGENT_SESSION_OUTCOMES = ['completed', 'failed', 'blocked', 'cancelled'] as const satisfies readonly AgentSessionOutcome[];
-export const AGENT_LEARNING_MODES = ['auto', 'draft_only', 'off'] as const satisfies readonly AgentLearningMode[];
-const KNOWLEDGE_STATUSES = ['approved', 'needs_review', 'archived', 'blocked'] as const satisfies readonly KnowledgeStatus[];
-const KNOWLEDGE_REVIEW_FILTERS = [
-  'questionable',
-  'unsafe',
-  'low_trust',
-  'stale',
-  'rejected',
-  'irrelevant',
-  'orphaned',
-  'auto_memory',
-  'risky_auto_memory',
-] as const satisfies readonly KnowledgeReviewFilter[];
-const KNOWLEDGE_CONFLICT_STATUSES = ['open', 'resolved', 'dismissed'] as const satisfies readonly KnowledgeConflictStatus[];
-const LEARNING_REVIEW_STATUSES = ['open', 'approved', 'dismissed', 'needs_changes'] as const satisfies readonly LearningReviewStatus[];
-const LEARNING_PROPOSAL_TYPES = [
-  'missing_label',
-  'missing_reference',
-  'missing_relation',
-  'supersedes',
-  'auto_memory_cleanup',
-  'user_style_candidate',
-] as const satisfies readonly LearningProposalType[];
-export const REFLECTION_DRAFT_STATUSES = [
-  'pending',
-  'approved',
-  'rejected',
-  'needs_changes',
-] as const satisfies readonly ReflectionDraftStatus[];
-const REFLECTION_REVIEW_DECISIONS = ['approve', 'reject', 'needs_changes'] as const;
-const REFLECTION_REVIEW_GRADES = ['pass', 'concern', 'fail'] as const;
-const REFLECTION_DUPLICATE_RISKS = ['low', 'medium', 'high'] as const;
-const ERROR_LOG_CATEGORIES = [
-  'mcp',
-  'http',
-  'cli',
-  'database',
-  'cache',
-  'model_provider',
-  'retrieval',
-  'ingestion',
-  'reflection',
-  'agent_session',
-  'agent_tool',
-  'test',
-  'unknown',
-] as const satisfies readonly ErrorLogCategory[];
-const ERROR_LOG_SEVERITIES = [
-  'debug',
-  'info',
-  'notice',
-  'warning',
-  'error',
-  'critical',
-  'alert',
-  'emergency',
-] as const satisfies readonly ErrorLogSeverity[];
-const ERROR_LOG_STATUSES = ['open', 'triaged', 'fixed', 'wont_fix', 'archived'] as const satisfies readonly ErrorLogStatus[];
-export const AGENT_LEARNING_SIGNAL_KINDS = [
-  'tip',
-  'decision',
-  'mistake',
-  'verification',
-  'file_change',
-  'user_preference',
-  'follow_up',
-] as const satisfies readonly AgentLearningSignalKind[];
-const AGENT_LEARNING_SIGNAL_SOURCES = ['user', 'agent', 'tool', 'system', 'reviewer'] as const;
-
 export function validateKnowledgeInput(value: unknown): KnowledgeInput {
-  const record = expectObject(value, 'knowledge input');
-
-  return {
-    project: readRequiredString(record, 'project', 'knowledge input'),
-    sourceType: readRequiredString(record, 'sourceType', 'knowledge input'),
-    sourceUri: readRequiredString(record, 'sourceUri', 'knowledge input'),
-    sourceTitle: readOptionalString(record, 'sourceTitle', 'knowledge input'),
-    itemType: readRequiredEnum(record, 'itemType', KNOWLEDGE_ITEM_TYPES, 'knowledge input'),
-    title: readRequiredString(record, 'title', 'knowledge input'),
-    summary: readOptionalString(record, 'summary', 'knowledge input'),
-    content: readRequiredString(record, 'content', 'knowledge input'),
-    trustLevel: readOptionalNumber(record, 'trustLevel', 'knowledge input'),
-    labels: readOptionalLabels(record.labels, 'knowledge input.labels'),
-    references: readOptionalReferences(record.references, 'knowledge input.references'),
-    metadata: readOptionalObject(record, 'metadata', 'knowledge input'),
-    freshnessAt: readOptionalString(record, 'freshnessAt', 'knowledge input'),
-  };
+  return parseOrThrow(knowledgeSchema, value, 'knowledge input');
 }
 
 export function validateKnowledgePatchInput(value: unknown): KnowledgePatchInput {
-  const record = expectObject(value, 'knowledge patch input');
-
-  return {
-    status: readOptionalEnum(record, 'status', KNOWLEDGE_STATUSES, 'knowledge patch input'),
-    title: readOptionalString(record, 'title', 'knowledge patch input'),
-    summary: readOptionalString(record, 'summary', 'knowledge patch input'),
-    trustLevel: readOptionalNumber(record, 'trustLevel', 'knowledge patch input'),
-    freshnessAt: readOptionalNullableString(record, 'freshnessAt', 'knowledge patch input'),
-    metadata: readOptionalObject(record, 'metadata', 'knowledge patch input'),
-    labels: readOptionalLabels(record.labels, 'knowledge patch input.labels'),
-    references: readOptionalReferences(record.references, 'knowledge patch input.references'),
-  };
+  return parseOrThrow(knowledgePatchSchema, value, 'knowledge patch input');
 }
 
 export function validateKnowledgeRelationInput(value: unknown): KnowledgeRelationInput {
-  const record = expectObject(value, 'knowledge relation input');
-  const input: KnowledgeRelationInput = {
-    project: readOptionalString(record, 'project', 'knowledge relation input'),
-    fromKnowledgeId: readRequiredString(record, 'fromKnowledgeId', 'knowledge relation input'),
-    relationType: readRequiredEnum(record, 'relationType', KNOWLEDGE_RELATION_TYPES, 'knowledge relation input'),
-    targetKind: readRequiredEnum(record, 'targetKind', KNOWLEDGE_RELATION_TARGET_KINDS, 'knowledge relation input'),
-    targetKnowledgeId: readOptionalString(record, 'targetKnowledgeId', 'knowledge relation input'),
-    targetValue: readOptionalString(record, 'targetValue', 'knowledge relation input'),
-    confidence: readOptionalRelationConfidence(record, 'confidence', 'knowledge relation input'),
-    inferred: readOptionalBoolean(record, 'inferred', 'knowledge relation input'),
-    metadata: readOptionalObject(record, 'metadata', 'knowledge relation input'),
-  };
-  ensureRelationTarget(input.targetKnowledgeId, input.targetValue, 'knowledge relation input');
-  return input;
+  return parseOrThrow(knowledgeRelationSchema, value, 'knowledge relation input');
 }
 
 export function validateKnowledgeRelationPatchInput(value: unknown): KnowledgeRelationPatchInput {
-  const record = expectObject(value, 'knowledge relation patch input');
-  const patch: KnowledgeRelationPatchInput = {
-    relationType: readOptionalEnum(record, 'relationType', KNOWLEDGE_RELATION_TYPES, 'knowledge relation patch input'),
-    targetKind: readOptionalEnum(record, 'targetKind', KNOWLEDGE_RELATION_TARGET_KINDS, 'knowledge relation patch input'),
-    targetKnowledgeId: readOptionalNullableString(record, 'targetKnowledgeId', 'knowledge relation patch input'),
-    targetValue: readOptionalNullableString(record, 'targetValue', 'knowledge relation patch input'),
-    confidence: readOptionalRelationConfidence(record, 'confidence', 'knowledge relation patch input'),
-    inferred: readOptionalBoolean(record, 'inferred', 'knowledge relation patch input'),
-    metadata: readOptionalObject(record, 'metadata', 'knowledge relation patch input'),
-  };
-  if (patch.targetKnowledgeId === null && patch.targetValue === null) {
-    throw validationIssue('knowledge relation patch input.targetValue', 'must leave at least one target identifier.');
-  }
-
-  return patch;
+  return parseOrThrow(knowledgeRelationPatchSchema, value, 'knowledge relation patch input');
 }
 
 export function validateKnowledgeConflictPatchInput(value: unknown): KnowledgeConflictPatchInput {
-  const record = expectObject(value, 'knowledge conflict patch input');
-  return {
-    status: readOptionalEnum(record, 'status', KNOWLEDGE_CONFLICT_STATUSES, 'knowledge conflict patch input'),
-    metadata: readOptionalObject(record, 'metadata', 'knowledge conflict patch input'),
-  };
+  return parseOrThrow(knowledgeConflictPatchSchema, value, 'knowledge conflict patch input');
 }
 
 export function validateKnowledgeGapPatchInput(value: unknown): KnowledgeGapPatchInput {
-  const record = expectObject(value, 'knowledge gap patch input');
-  return {
-    status: readOptionalEnum(record, 'status', LEARNING_REVIEW_STATUSES, 'knowledge gap patch input'),
-    metadata: readOptionalObject(record, 'metadata', 'knowledge gap patch input'),
-  };
+  return parseOrThrow(knowledgeGapPatchSchema, value, 'knowledge gap patch input');
 }
 
 export function validateLearningProposalPatchInput(value: unknown): LearningProposalPatchInput {
-  const record = expectObject(value, 'learning proposal patch input');
-  return {
-    status: readOptionalEnum(record, 'status', LEARNING_REVIEW_STATUSES, 'learning proposal patch input'),
-    metadata: readOptionalObject(record, 'metadata', 'learning proposal patch input'),
-  };
+  return parseOrThrow(learningProposalPatchSchema, value, 'learning proposal patch input');
 }
-
-export const MAINTENANCE_ITEM_KINDS = [
-  'duplicate_memory',
-  'stale_relation',
-  'superseded_reflection',
-  'weak_label',
-] as const satisfies readonly MaintenanceItemKind[];
 
 export function validateMaintenanceProposeInput(value: unknown): MaintenanceProposeInput {
   const record = expectObject(value, 'maintenance propose input');
@@ -372,15 +204,6 @@ function readMaintenanceItems(value: unknown, path: string): MaintenanceItem[] {
   }
   return value.map((entry, index) => readMaintenanceItem(entry, `${path}[${index}]`));
 }
-
-const MAINTENANCE_RISKS = ['low', 'medium', 'high'] as const;
-const MAINTENANCE_EVIDENCE_SOURCES = ['write_gate', 'relation_expiry', 'label_provenance'] as const;
-const MAINTENANCE_RISK_DEFAULTS: Record<MaintenanceItemKind, 'low' | 'medium' | 'high'> = {
-  duplicate_memory: 'low',
-  weak_label: 'low',
-  stale_relation: 'medium',
-  superseded_reflection: 'high',
-};
 
 function readMaintenanceItem(value: unknown, path: string): MaintenanceItem {
   const record = expectObject(value, path);
