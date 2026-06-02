@@ -119,6 +119,20 @@ import {
   learningProposalPatchSchema,
 } from './schemas/knowledge.js';
 import { ingestFilesSchema } from './schemas/ingest.js';
+import {
+  startAgentSessionSchema,
+  recordContextDecisionSchema,
+  finishAgentSessionSchema,
+  captureLearningSignalSchema,
+  appendSessionNoteSchema,
+} from './schemas/agent-session.js';
+import {
+  reflectionDraftSchema,
+  reflectionDraftPatchSchema,
+  reflectionDraftIdArgumentsSchema,
+  reflectionDraftListSchema,
+  reflectionDraftReviewSchema,
+} from './schemas/reflection.js';
 
 export interface IngestFilesRequest {
   project: string;
@@ -303,15 +317,7 @@ export function validateContextSearchInput(value: unknown): ContextSearchInput {
 }
 
 export function validateStartAgentSessionInput(value: unknown): StartAgentSessionInput {
-  const record = expectObject(value, 'agent session input');
-  const search = validateContextSearchInput(record);
-
-  return {
-    ...search,
-    agentName: readOptionalString(record, 'agentName', 'agent session input'),
-    agentTool: readOptionalString(record, 'agentTool', 'agent session input'),
-    metadata: readOptionalObject(record, 'metadata', 'agent session input'),
-  };
+  return parseOrThrow(startAgentSessionSchema, value, 'agent session input') as StartAgentSessionInput;
 }
 
 export function validateFeedbackInput(value: unknown): FeedbackInput {
@@ -347,104 +353,57 @@ export function validateRecordAgentContextDecisionInput(
   value: unknown,
   sessionId?: string,
 ): RecordAgentContextDecisionInput {
-  const record = expectObject(value, 'agent context decision input');
-
-  return {
-    sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'agent context decision input'),
-    contextPackId: readOptionalString(record, 'contextPackId', 'agent context decision input'),
-    feedbackType: readRequiredEnum(record, 'feedbackType', FEEDBACK_TYPES, 'agent context decision input'),
-    reason: readOptionalString(record, 'reason', 'agent context decision input'),
-    rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'agent context decision input'),
-    metadata: readOptionalObject(record, 'metadata', 'agent context decision input'),
-  };
+  const parsed = parseOrThrow(
+    recordContextDecisionSchema,
+    withSessionId(value, sessionId),
+    'agent context decision input',
+  ) as RecordAgentContextDecisionInput;
+  return sessionId ? { ...parsed, sessionId } : parsed;
 }
 
 export function validateFinishAgentSessionInput(value: unknown, sessionId?: string): FinishAgentSessionInput {
-  const record = expectObject(value, 'finish agent session input');
-  const reflectionDraft = record.reflectionDraft === undefined
-    ? undefined
-    : validateReflectionDraftInput(record.reflectionDraft);
-
-  return {
-    sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'finish agent session input'),
-    outcome: readRequiredEnum(record, 'outcome', AGENT_SESSION_OUTCOMES, 'finish agent session input'),
-    summary: readOptionalString(record, 'summary', 'finish agent session input'),
-    agentOutputSummary: readOptionalString(record, 'agentOutputSummary', 'finish agent session input'),
-    changedFiles: readOptionalStringArray(record, 'changedFiles', 'finish agent session input'),
-    verificationCommands: readOptionalStringArray(record, 'verificationCommands', 'finish agent session input'),
-    learningSignals: readOptionalLearningSignals(record.learningSignals, 'finish agent session input.learningSignals'),
-    contextBypassReason: readOptionalString(record, 'contextBypassReason', 'finish agent session input'),
-    learningMode: readOptionalEnum(record, 'learningMode', AGENT_LEARNING_MODES, 'finish agent session input'),
-    metadata: readOptionalObject(record, 'metadata', 'finish agent session input'),
-    researchTrace: readOptionalResearchTrace(record.researchTrace, 'finish agent session input.researchTrace'),
-    reflectionDraft,
-  };
+  const parsed = parseOrThrow(
+    finishAgentSessionSchema,
+    withSessionId(value, sessionId),
+    'finish agent session input',
+  ) as FinishAgentSessionInput;
+  return sessionId ? { ...parsed, sessionId } : parsed;
 }
 
 export function validateCaptureAgentLearningSignalInput(
   value: unknown,
   sessionId?: string,
 ): CaptureAgentLearningSignalInput {
-  const record = expectObject(value, 'agent learning signal input');
-  const signal = readLearningSignal(record, 'agent learning signal input');
-
-  return {
-    ...signal,
-    sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'agent learning signal input'),
-    author: readOptionalString(record, 'author', 'agent learning signal input'),
-    contextPackId: readOptionalString(record, 'contextPackId', 'agent learning signal input'),
-  };
+  const parsed = parseOrThrow(
+    captureLearningSignalSchema,
+    withSessionId(value, sessionId),
+    'agent learning signal input',
+  ) as unknown as CaptureAgentLearningSignalInput;
+  return sessionId ? { ...parsed, sessionId } : parsed;
 }
 
 export function validateReflectionDraftInput(value: unknown): ReflectionDraftInput {
-  const record = expectObject(value, 'reflection draft input');
-
-  return {
-    project: readOptionalString(record, 'project', 'reflection draft input'),
-    title: readRequiredString(record, 'title', 'reflection draft input'),
-    summary: readRequiredString(record, 'summary', 'reflection draft input'),
-    content: readRequiredString(record, 'content', 'reflection draft input'),
-    itemType: readOptionalEnum(record, 'itemType', KNOWLEDGE_ITEM_TYPES, 'reflection draft input'),
-    triggerType: readRequiredEnum(record, 'triggerType', TRIGGER_TYPES, 'reflection draft input'),
-    labels: readOptionalLabels(record.labels, 'reflection draft input.labels'),
-    references: readOptionalReferences(record.references, 'reflection draft input.references'),
-    metadata: readOptionalObject(record, 'metadata', 'reflection draft input'),
-  };
+  return parseOrThrow(reflectionDraftSchema, value, 'reflection draft input');
 }
 
 export function validateReflectionDraftPatchInput(value: unknown): ReflectionDraftPatchInput {
-  const record = expectObject(value, 'reflection draft patch input');
-
-  return {
-    status: readOptionalEnum(record, 'status', REFLECTION_DRAFT_STATUSES, 'reflection draft patch input'),
-    metadata: readOptionalObject(record, 'metadata', 'reflection draft patch input'),
-    suggestedLabels: readOptionalLabels(record.suggestedLabels, 'reflection draft patch input.suggestedLabels'),
-    references: readOptionalReferences(record.references, 'reflection draft patch input.references'),
-  };
+  return parseOrThrow(reflectionDraftPatchSchema, value, 'reflection draft patch input');
 }
 
 export function validateAppendAgentSessionNoteInput(
   value: unknown,
   sessionId?: string,
 ): AppendAgentSessionNoteInput {
-  const record = expectObject(value, 'agent session note input');
-  return {
-    sessionId: sessionId ?? readRequiredString(record, 'sessionId', 'agent session note input'),
-    note: readRequiredString(record, 'note', 'agent session note input'),
-    author: readOptionalString(record, 'author', 'agent session note input'),
-    feedbackType: readOptionalEnum(record, 'feedbackType', FEEDBACK_TYPES, 'agent session note input'),
-    contextPackId: readOptionalString(record, 'contextPackId', 'agent session note input'),
-    reason: readOptionalString(record, 'reason', 'agent session note input'),
-    rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'agent session note input'),
-    metadata: readOptionalObject(record, 'metadata', 'agent session note input'),
-  };
+  const parsed = parseOrThrow(
+    appendSessionNoteSchema,
+    withSessionId(value, sessionId),
+    'agent session note input',
+  ) as AppendAgentSessionNoteInput;
+  return sessionId ? { ...parsed, sessionId } : parsed;
 }
 
 export function validateReflectionDraftIdArguments(value: unknown): { id: string } {
-  const record = expectObject(value, 'reflection draft arguments');
-  return {
-    id: readRequiredStringWithAliases(record, ['id', 'reflectionDraftId'], 'reflection draft arguments'),
-  };
+  return parseOrThrow(reflectionDraftIdArgumentsSchema, value, 'reflection draft arguments');
 }
 
 export function validateReflectionDraftListInput(value: unknown): {
@@ -452,28 +411,11 @@ export function validateReflectionDraftListInput(value: unknown): {
   status?: ReflectionDraftStatus;
   limit: number;
 } {
-  const record = expectObject(value, 'reflection draft list input');
-  const limit = readOptionalPositiveInteger(record, 'limit', 'reflection draft list input') ?? 25;
-
-  return {
-    project: readOptionalString(record, 'project', 'reflection draft list input'),
-    status: readOptionalEnum(record, 'status', REFLECTION_DRAFT_STATUSES, 'reflection draft list input') ?? 'pending',
-    limit: Math.min(limit, 100),
-  };
+  return parseOrThrow(reflectionDraftListSchema, value, 'reflection draft list input');
 }
 
 export function validateReflectionDraftReviewInput(value: unknown): ReflectionDraftReviewInput {
-  const record = expectObject(value, 'reflection draft review input');
-  const evaluation = readOptionalReviewEvaluation(record.evaluation);
-
-  return {
-    id: readRequiredStringWithAliases(record, ['id', 'reflectionDraftId'], 'reflection draft review input'),
-    decision: readRequiredEnum(record, 'decision', REFLECTION_REVIEW_DECISIONS, 'reflection draft review input'),
-    reviewer: readOptionalString(record, 'reviewer', 'reflection draft review input'),
-    reviewerNote: readOptionalString(record, 'reviewerNote', 'reflection draft review input'),
-    evaluation,
-    metadata: readOptionalObject(record, 'metadata', 'reflection draft review input'),
-  };
+  return parseOrThrow(reflectionDraftReviewSchema, value, 'reflection draft review input');
 }
 
 export function validateCleanupOperationsInput(value: unknown): CleanupOperationsInput {
@@ -704,6 +646,19 @@ export function validateContextPackIdArguments(value: unknown): { contextPackId:
 
 export function expectRecord(value: unknown, path: string): Record<string, unknown> {
   return expectObject(value, path);
+}
+
+/**
+ * When a sessionId is supplied out-of-band (e.g. from a path param), inject it
+ * into the payload so a schema that requires `sessionId` parses; the caller
+ * overrides the field with the param value after parse. Non-object payloads are
+ * returned untouched so the schema still rejects them with the right message.
+ */
+function withSessionId(value: unknown, sessionId?: string): unknown {
+  if (sessionId && value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>), sessionId };
+  }
+  return value;
 }
 
 function readOptionalLearningSignals(value: unknown, path: string): AgentLearningSignal[] | undefined {
