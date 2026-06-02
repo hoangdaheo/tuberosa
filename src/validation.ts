@@ -147,6 +147,10 @@ import {
   resolveErrorLogSchema,
   errorLogIdArgumentsSchema,
 } from './schemas/error-log.js';
+import {
+  maintenanceProposeSchema,
+  maintenanceApplySchema,
+} from './schemas/maintenance.js';
 
 export interface IngestFilesRequest {
   project: string;
@@ -188,138 +192,11 @@ export function validateLearningProposalPatchInput(value: unknown): LearningProp
 }
 
 export function validateMaintenanceProposeInput(value: unknown): MaintenanceProposeInput {
-  const record = expectObject(value, 'maintenance propose input');
-  const kindsRaw = record.kinds;
-  const kinds = kindsRaw === undefined
-    ? undefined
-    : readMaintenanceKinds(kindsRaw, 'maintenance propose input.kinds');
-  return {
-    project: readOptionalString(record, 'project', 'maintenance propose input'),
-    kinds,
-    limit: readOptionalPositiveNumber(record, 'limit', 'maintenance propose input'),
-  };
+  return parseOrThrow(maintenanceProposeSchema, value, 'maintenance propose input');
 }
 
 export function validateMaintenanceApplyInput(value: unknown): MaintenanceApplyInput {
-  const record = expectObject(value, 'maintenance apply input');
-  const items = record.items === undefined
-    ? undefined
-    : readMaintenanceItems(record.items, 'maintenance apply input.items');
-  return {
-    batchId: readOptionalString(record, 'batchId', 'maintenance apply input'),
-    items,
-    approvedItemIds: readOptionalStringArray(record, 'approvedItemIds', 'maintenance apply input'),
-    reviewer: readOptionalString(record, 'reviewer', 'maintenance apply input'),
-    reviewerNote: readOptionalString(record, 'reviewerNote', 'maintenance apply input'),
-    autoApplyLowRisk: readOptionalBoolean(record, 'autoApplyLowRisk', 'maintenance apply input'),
-  };
-}
-
-function readMaintenanceKinds(value: unknown, path: string): MaintenanceItemKind[] {
-  if (!Array.isArray(value)) {
-    throw validationIssue(path, 'must be an array.');
-  }
-  return value.map((entry, index) => {
-    if (typeof entry !== 'string' || !MAINTENANCE_ITEM_KINDS.includes(entry as MaintenanceItemKind)) {
-      throw validationIssue(`${path}[${index}]`, `must be one of: ${MAINTENANCE_ITEM_KINDS.join(', ')}.`);
-    }
-    return entry as MaintenanceItemKind;
-  });
-}
-
-function readMaintenanceItems(value: unknown, path: string): MaintenanceItem[] {
-  if (!Array.isArray(value)) {
-    throw validationIssue(path, 'must be an array.');
-  }
-  return value.map((entry, index) => readMaintenanceItem(entry, `${path}[${index}]`));
-}
-
-function readMaintenanceItem(value: unknown, path: string): MaintenanceItem {
-  const record = expectObject(value, path);
-  const kindRaw = record.kind;
-  if (typeof kindRaw !== 'string' || !MAINTENANCE_ITEM_KINDS.includes(kindRaw as MaintenanceItemKind)) {
-    throw validationIssue(`${path}.kind`, `must be one of: ${MAINTENANCE_ITEM_KINDS.join(', ')}.`);
-  }
-  const kind = kindRaw as MaintenanceItemKind;
-  const labelValue = record.label;
-  let label: MaintenanceItemLabel | undefined;
-  if (labelValue !== undefined && labelValue !== null) {
-    const labelRecord = expectObject(labelValue, `${path}.label`);
-    label = {
-      type: readRequiredEnum(labelRecord, 'type', LABEL_TYPES, `${path}.label`),
-      value: readRequiredString(labelRecord, 'value', `${path}.label`),
-    };
-  }
-  const evidenceRaw = record.evidence;
-  let evidence: MaintenanceEvidence[] | undefined;
-  if (evidenceRaw !== undefined && evidenceRaw !== null) {
-    if (!Array.isArray(evidenceRaw)) {
-      throw validationIssue(`${path}.evidence`, 'must be an array.');
-    }
-    evidence = evidenceRaw.map((entry, i) => {
-      const entryRecord = expectObject(entry, `${path}.evidence[${i}]`);
-      const source = readRequiredString(entryRecord, 'source', `${path}.evidence[${i}]`);
-      if (!MAINTENANCE_EVIDENCE_SOURCES.includes(source as typeof MAINTENANCE_EVIDENCE_SOURCES[number])) {
-        throw validationIssue(
-          `${path}.evidence[${i}].source`,
-          `must be one of: ${MAINTENANCE_EVIDENCE_SOURCES.join(', ')}.`,
-        );
-      }
-      return {
-        source: source as MaintenanceEvidence['source'],
-        reference: readRequiredString(entryRecord, 'reference', `${path}.evidence[${i}]`),
-      };
-    });
-  }
-  const beforeRaw = record.before;
-  let before: MaintenanceBefore | undefined;
-  if (beforeRaw !== undefined && beforeRaw !== null) {
-    const beforeRecord = expectObject(beforeRaw, `${path}.before`);
-    const labelsRaw = beforeRecord.labels;
-    let labels: Array<{ type: string; value: string }> | undefined;
-    if (labelsRaw !== undefined && labelsRaw !== null) {
-      if (!Array.isArray(labelsRaw)) {
-        throw validationIssue(`${path}.before.labels`, 'must be an array.');
-      }
-      labels = labelsRaw.map((entry, i) => {
-        const entryRecord = expectObject(entry, `${path}.before.labels[${i}]`);
-        return {
-          type: readRequiredString(entryRecord, 'type', `${path}.before.labels[${i}]`),
-          value: readRequiredString(entryRecord, 'value', `${path}.before.labels[${i}]`),
-        };
-      });
-    }
-    before = {
-      title: readOptionalString(beforeRecord, 'title', `${path}.before`),
-      summary: readOptionalString(beforeRecord, 'summary', `${path}.before`),
-      status: readOptionalString(beforeRecord, 'status', `${path}.before`),
-      labels,
-    };
-  }
-  // Risk is derived from `kind` by default. Inline payloads from older callers
-  // may omit it; explicit values are validated against the literal union.
-  const riskRaw = record.risk;
-  let risk = MAINTENANCE_RISK_DEFAULTS[kind];
-  if (riskRaw !== undefined) {
-    if (typeof riskRaw !== 'string' || !MAINTENANCE_RISKS.includes(riskRaw as typeof MAINTENANCE_RISKS[number])) {
-      throw validationIssue(`${path}.risk`, `must be one of: ${MAINTENANCE_RISKS.join(', ')}.`);
-    }
-    risk = riskRaw as typeof MAINTENANCE_RISKS[number];
-  }
-  return {
-    id: readRequiredString(record, 'id', path),
-    kind,
-    risk,
-    reason: readOptionalString(record, 'reason', path) ?? '',
-    project: readOptionalString(record, 'project', path),
-    knowledgeId: readOptionalString(record, 'knowledgeId', path),
-    relationId: readOptionalString(record, 'relationId', path),
-    reflectionDraftId: readOptionalString(record, 'reflectionDraftId', path),
-    label,
-    closestKnowledgeId: readOptionalString(record, 'closestKnowledgeId', path),
-    evidence,
-    before,
-  };
+  return parseOrThrow(maintenanceApplySchema, value, 'maintenance apply input');
 }
 
 export function validateIngestFilesRequest(value: unknown): IngestFilesRequest {
