@@ -1320,6 +1320,14 @@
       }
     },
     {
+      "id": "classifier-no-symbol-from-plain-verbs",
+      "prompt": "Simplify the indexer and Provide a short summary of what changed.",
+      "taxon": "classification",
+      "expectedClassification": {
+        "symbols": []
+      }
+    },
+    {
       "id": "verified-atom-outranks-draft",
       "prompt": "Debugging atom-trigger-canary-error during insert.",
       "taskType": "debugging",

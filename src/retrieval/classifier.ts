@@ -498,7 +498,8 @@ function extractSymbols(prompt: string): string[] {
   const codeSpans = [...prompt.matchAll(/`([^`]+)`/g)].map((match) => match[1]!).filter((value) => /^[A-Za-z_$][\w$.:#-]+$/.test(value));
   const camelCase = prompt.match(/\b[A-Z][A-Za-z0-9_]*(?:Service|Controller|Repository|Provider|Handler|Store|Model|Schema|Config|Client)\b/g) ?? [];
   const pascalCase = (prompt.match(/\b[A-Z][A-Za-z0-9_]{2,}\b/g) ?? [])
-    .filter((value) => !isLikelyDocumentIdentifier(value));
+    .filter((value) => !isLikelyDocumentIdentifier(value))
+    .filter((value) => hasSymbolStructure(value));
   const functions = [...prompt.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((match) => match[1]!);
   return uniqueStrings([...codeSpans, ...camelCase, ...pascalCase, ...functions])
     .filter((value) => !isSymbolStopWord(value, prompt));
@@ -905,6 +906,15 @@ function firstSentenceContains(prompt: string, value: string): boolean {
 
 function isLikelyDocumentIdentifier(value: string): boolean {
   return /^[A-Z][A-Z0-9_]+$/.test(value) && value.includes('_') && !/\d/.test(value);
+}
+
+// A real PascalCase code symbol has internal structure: an inner capital (FooBar),
+// a digit (Sha256), or an underscore (Foo_Bar). A lone capitalized English word
+// (Simplify, Provide, Build, Create) has none and must not be treated as a symbol.
+// Explicitly back-ticked identifiers, known suffixes (…Service), and foo() calls are
+// captured by the other lanes in extractSymbols, so this only gates the broad PascalCase lane.
+function hasSymbolStructure(value: string): boolean {
+  return /[A-Z]/.test(value.slice(1)) || /[0-9_]/.test(value);
 }
 
 function extractCompoundTerms(prompt: string): string[] {
