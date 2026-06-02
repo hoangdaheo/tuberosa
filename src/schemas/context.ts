@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import type { ContextSearchInput } from '../types.js';
+import type {
+  ContextSearchInput,
+  FeedbackInput,
+  ContextQualityReportInput,
+} from '../types.js';
 import {
   TASK_TYPES,
   TASK_TYPE_ALIASES,
@@ -7,8 +11,10 @@ import {
   isTaskType,
   CONTEXT_MODES,
   CONTEXT_NOISE_TOLERANCES,
+  FEEDBACK_TYPES,
+  CONTEXT_QUALITY_FEEDBACK_TYPES,
 } from './enums.js';
-import { zRequiredString, zStringArray } from './primitives.js';
+import { zRequiredString, zOptionalString, zStringArray, zRecord, zPositiveInteger } from './primitives.js';
 
 const TASK_TYPE_LIST = TASK_TYPES.join(', ');
 
@@ -70,3 +76,37 @@ export const contextSearchSchema = z.object({
   debug: z.boolean().optional(),
   namespace: namespaceSchema,
 });
+
+export const feedbackSchema = z.object({
+  contextPackId: zOptionalString,
+  project: zOptionalString,
+  feedbackType: z.enum(FEEDBACK_TYPES),
+  reason: zOptionalString,
+  rejectedKnowledgeIds: zStringArray.optional(),
+  metadata: zRecord.optional(),
+}) as z.ZodType<FeedbackInput>;
+
+/** Context-quality report: optional filters; limit defaults to 25, capped at 100. */
+export const contextQualityReportSchema = z
+  .object({
+    project: zOptionalString,
+    feedbackType: z.enum(CONTEXT_QUALITY_FEEDBACK_TYPES).optional(),
+    limit: zPositiveInteger.optional(),
+  })
+  .transform((r) => ({
+    project: r.project,
+    feedbackType: r.feedbackType,
+    limit: Math.min(r.limit ?? 25, 100),
+  })) as unknown as z.ZodType<ContextQualityReportInput>;
+
+/** Required contextPackId honoring `contextPackId` then `id` aliases. */
+export const contextPackIdArgumentsSchema = z
+  .object({ contextPackId: zOptionalString, id: zOptionalString })
+  .transform((r, ctx) => {
+    const contextPackId = r.contextPackId ?? r.id;
+    if (!contextPackId) {
+      ctx.addIssue({ code: 'custom', message: 'must be a non-empty string.', path: ['contextPackId'] });
+      return z.NEVER;
+    }
+    return { contextPackId };
+  });

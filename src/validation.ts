@@ -65,7 +65,12 @@ import {
   MAX_RESEARCH_TRACE_STEP_TEXT,
   MAX_RESEARCH_TRACE_STEPS,
 } from './agent-session/research-trace.js';
-import { contextSearchSchema } from './schemas/context.js';
+import {
+  contextSearchSchema,
+  feedbackSchema,
+  contextQualityReportSchema,
+  contextPackIdArgumentsSchema,
+} from './schemas/context.js';
 import { parseOrThrow } from './schemas/primitives.js';
 export {
   TASK_TYPES,
@@ -321,32 +326,11 @@ export function validateStartAgentSessionInput(value: unknown): StartAgentSessio
 }
 
 export function validateFeedbackInput(value: unknown): FeedbackInput {
-  const record = expectObject(value, 'feedback input');
-
-  return {
-    contextPackId: readOptionalString(record, 'contextPackId', 'feedback input'),
-    project: readOptionalString(record, 'project', 'feedback input'),
-    feedbackType: readRequiredEnum(record, 'feedbackType', FEEDBACK_TYPES, 'feedback input'),
-    reason: readOptionalString(record, 'reason', 'feedback input'),
-    rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'feedback input'),
-    metadata: readOptionalObject(record, 'metadata', 'feedback input'),
-  };
+  return parseOrThrow(feedbackSchema, value, 'feedback input');
 }
 
 export function validateContextQualityReportInput(value: unknown): ContextQualityReportInput {
-  const record = expectObject(value, 'context quality report input');
-  const limit = readOptionalPositiveInteger(record, 'limit', 'context quality report input') ?? 25;
-
-  return {
-    project: readOptionalString(record, 'project', 'context quality report input'),
-    feedbackType: readOptionalEnum(
-      record,
-      'feedbackType',
-      CONTEXT_QUALITY_FEEDBACK_TYPES,
-      'context quality report input',
-    ),
-    limit: Math.min(limit, 100),
-  };
+  return parseOrThrow(contextQualityReportSchema, value, 'context quality report input');
 }
 
 export function validateRecordAgentContextDecisionInput(
@@ -638,10 +622,7 @@ export function validateLearningProposalTypeQuery(value: string | null): Learnin
 }
 
 export function validateContextPackIdArguments(value: unknown): { contextPackId: string } {
-  const record = expectObject(value, 'context pack arguments');
-  return {
-    contextPackId: readRequiredStringWithAliases(record, ['contextPackId', 'id'], 'context pack arguments'),
-  };
+  return parseOrThrow(contextPackIdArgumentsSchema, value, 'context pack arguments');
 }
 
 export function expectRecord(value: unknown, path: string): Record<string, unknown> {
