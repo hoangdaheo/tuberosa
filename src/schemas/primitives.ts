@@ -26,16 +26,26 @@ export function parseOrThrow<T>(schema: z.ZodType<T>, value: unknown, label: str
   throw new ValidationError(message, details);
 }
 
-/** Non-blank string (rejects empty/whitespace-only); value is not mutated. */
-export const zRequiredString = z.string().refine((s) => s.trim().length > 0, {
-  message: 'must be a non-empty string.',
-});
+// Per-field hard caps to prevent DoS via giant inputs (ReDoS / OOM) at the MCP & HTTP boundary.
+// Mirror the original hand-rolled enforceStringLength / readOptionalStringArray limits.
+const MAX_STRING_LENGTH = 2_000_000;
+const MAX_STRING_ARRAY_LENGTH = 4096;
+
+/** Non-blank, length-capped string (rejects empty/whitespace-only); value is not mutated. */
+export const zRequiredString = z
+  .string()
+  .max(MAX_STRING_LENGTH, { message: `must be ${MAX_STRING_LENGTH} characters or fewer.` })
+  .refine((s) => s.trim().length > 0, {
+    message: 'must be a non-empty string.',
+  });
 
 /** Optional string; absent stays absent (matches readOptionalString). */
 export const zOptionalString = zRequiredString.optional();
 
-/** Array of non-blank strings. */
-export const zStringArray = z.array(zRequiredString);
+/** Length-capped array of non-blank strings. */
+export const zStringArray = z
+  .array(zRequiredString)
+  .max(MAX_STRING_ARRAY_LENGTH, { message: `must contain ${MAX_STRING_ARRAY_LENGTH} or fewer entries.` });
 
-/** Strictly positive number (matches readOptionalPositiveNumber). */
-export const zPositiveNumber = z.number().positive();
+/** Strictly positive, finite number (matches readOptionalPositiveNumber). */
+export const zPositiveNumber = z.number().finite().positive();

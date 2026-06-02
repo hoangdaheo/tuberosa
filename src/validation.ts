@@ -11,7 +11,6 @@ import type {
   CreateBackupInput,
   CreateErrorLogReflectionDraftInput,
   FinishAgentSessionInput,
-  ContextNoiseTolerance,
   ContextSearchInput,
   ContextQualityReportInput,
   FeedbackInput,
@@ -58,7 +57,6 @@ import type {
   ResolveErrorLogInput,
   RestoreBackupInput,
   StartAgentSessionInput,
-  TaskType,
   TriggerType,
 } from './types.js';
 import { ValidationError } from './errors.js';
@@ -67,6 +65,10 @@ import {
   MAX_RESEARCH_TRACE_STEP_TEXT,
   MAX_RESEARCH_TRACE_STEPS,
 } from './agent-session/research-trace.js';
+import { contextSearchSchema } from './schemas/context.js';
+import { parseOrThrow } from './schemas/primitives.js';
+export { TASK_TYPES, CONTEXT_MODES, CONTEXT_NOISE_TOLERANCES } from './schemas/enums.js';
+import { CONTEXT_MODES, CONTEXT_NOISE_TOLERANCES } from './schemas/enums.js';
 
 export interface IngestFilesRequest {
   project: string;
@@ -97,26 +99,6 @@ export const TRIGGER_TYPES = [
   'non_trivial_workflow',
   'manual',
 ] as const satisfies readonly TriggerType[];
-
-export const TASK_TYPES = [
-  'debugging',
-  'implementation',
-  'refactor',
-  'review',
-  'planning',
-  'exploration',
-  'testing',
-  'unknown',
-] as const satisfies readonly TaskType[];
-
-const TASK_TYPE_ALIASES = new Map<string, TaskType>([
-  ['bug', 'debugging'],
-  ['bug_fix', 'debugging'],
-  ['bugfix', 'debugging'],
-  ['coding', 'implementation'],
-  ['development', 'implementation'],
-  ['investigation', 'debugging'],
-]);
 
 const LABEL_TYPES = [
   'project',
@@ -154,7 +136,6 @@ const KNOWLEDGE_RELATION_TARGET_KINDS = [
   'reference',
 ] as const satisfies readonly KnowledgeRelationTargetKind[];
 const INGESTION_MODES = ['document', 'atomic'] as const satisfies readonly IngestionMode[];
-export const CONTEXT_MODES = ['compact', 'layered'] as const;
 export const FEEDBACK_TYPES = [
   'selected',
   'rejected',
@@ -233,7 +214,6 @@ const ERROR_LOG_SEVERITIES = [
   'emergency',
 ] as const satisfies readonly ErrorLogSeverity[];
 const ERROR_LOG_STATUSES = ['open', 'triaged', 'fixed', 'wont_fix', 'archived'] as const satisfies readonly ErrorLogStatus[];
-export const CONTEXT_NOISE_TOLERANCES = ['balanced', 'strict'] as const satisfies readonly ContextNoiseTolerance[];
 export const AGENT_LEARNING_SIGNAL_KINDS = [
   'tip',
   'decision',
@@ -507,45 +487,7 @@ export function validateIngestFilesRequest(value: unknown): IngestFilesRequest {
 }
 
 export function validateContextSearchInput(value: unknown): ContextSearchInput {
-  const record = expectObject(value, 'context search input');
-
-  return {
-    prompt: readRequiredString(record, 'prompt', 'context search input'),
-    project: readOptionalString(record, 'project', 'context search input'),
-    repoHint: readOptionalString(record, 'repoHint', 'context search input'),
-    cwd: readOptionalString(record, 'cwd', 'context search input'),
-    taskType: readOptionalTaskType(record, 'taskType', 'context search input'),
-    files: readOptionalStringArray(record, 'files', 'context search input'),
-    symbols: readOptionalStringArray(record, 'symbols', 'context search input'),
-    errors: readOptionalStringArray(record, 'errors', 'context search input'),
-    tokenBudget: clampOptional(readOptionalPositiveNumber(record, 'tokenBudget', 'context search input'), 200_000),
-    contextMode: readOptionalEnum(record, 'contextMode', CONTEXT_MODES, 'context search input'),
-    noiseTolerance: readOptionalEnum(record, 'noiseTolerance', CONTEXT_NOISE_TOLERANCES, 'context search input'),
-    deepContextBudget: readOptionalPositiveNumber(record, 'deepContextBudget', 'context search input'),
-    includeDeepContext: readOptionalBoolean(record, 'includeDeepContext', 'context search input'),
-    rejectedKnowledgeIds: readOptionalStringArray(record, 'rejectedKnowledgeIds', 'context search input'),
-    bypassCache: readOptionalBoolean(record, 'bypassCache', 'context search input'),
-    debug: readOptionalBoolean(record, 'debug', 'context search input'),
-    namespace: readOptionalNamespace(record, 'namespace', 'context search input'),
-  };
-}
-
-function readOptionalNamespace(
-  record: Record<string, unknown>,
-  key: string,
-  label: string,
-): ContextSearchInput['namespace'] {
-  const value = record[key];
-  if (value === undefined || value === null) return undefined;
-  const obj = expectObject(value, `${label}.${key}`);
-  const project = readOptionalString(obj, 'project', `${label}.${key}.project`);
-  const kind = readOptionalString(obj, 'kind', `${label}.${key}.kind`);
-  const agent = readOptionalString(obj, 'agent', `${label}.${key}.agent`);
-  const namespace: ContextSearchInput['namespace'] = {};
-  if (project) namespace.project = project;
-  if (kind) namespace.kind = kind;
-  if (agent) namespace.agent = agent;
-  return Object.keys(namespace).length > 0 ? namespace : undefined;
+  return parseOrThrow(contextSearchSchema, value, 'context search input') as ContextSearchInput;
 }
 
 export function validateStartAgentSessionInput(value: unknown): StartAgentSessionInput {
@@ -1236,10 +1178,6 @@ function readOptionalNumber(record: Record<string, unknown>, key: string, path: 
   return value;
 }
 
-function clampOptional(value: number | undefined, max: number): number | undefined {
-  return value === undefined ? value : Math.min(value, max);
-}
-
 function readOptionalPositiveNumber(record: Record<string, unknown>, key: string, path: string): number | undefined {
   const value = readOptionalNumber(record, key, path);
   if (value !== undefined && value <= 0) {
@@ -1328,37 +1266,6 @@ function readOptionalEnum<T extends string>(
   }
 
   return value as T;
-}
-
-function readOptionalTaskType(
-  record: Record<string, unknown>,
-  key: string,
-  path: string,
-): TaskType | undefined {
-  const value = record[key];
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (typeof value !== 'string') {
-    throw validationIssue(`${path}.${key}`, `must be one of: ${TASK_TYPES.join(', ')}.`);
-  }
-
-  const normalized = taskTypeToken(value);
-  if (TASK_TYPES.includes(normalized as TaskType)) {
-    return normalized as TaskType;
-  }
-
-  const alias = TASK_TYPE_ALIASES.get(normalized);
-  if (alias) {
-    return alias;
-  }
-
-  throw validationIssue(`${path}.${key}`, `must be one of: ${TASK_TYPES.join(', ')}.`);
-}
-
-function taskTypeToken(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
 function readOptionalEnumArray<T extends string>(
