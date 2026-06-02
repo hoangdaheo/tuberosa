@@ -70,7 +70,9 @@ const DEFAULT_TOKEN_BUDGET = 4000;
 const SEARCH_LIMIT = 18;
 const RERANK_LIMIT = 24;
 const REVIEW_TARGET_LIMIT = 12;
-const REVIEW_QUEUE_STATUS_LIMIT = 24;
+// Only the top ~12 review targets (REVIEW_TARGET_LIMIT) are ever surfaced; 8 per
+// status (×6 statuses = 48) is plenty for the top-N selection while cutting the over-fetch.
+const REVIEW_QUEUE_STATUS_LIMIT = 8;
 const CONTINUATION_SESSION_LIMIT = 6;
 const CONTINUATION_FILE_LIMIT = 8;
 const CONTINUATION_SYMBOL_LIMIT = 8;
