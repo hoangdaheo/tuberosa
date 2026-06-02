@@ -118,6 +118,7 @@ import {
   knowledgeGapPatchSchema,
   learningProposalPatchSchema,
 } from './schemas/knowledge.js';
+import { ingestFilesSchema } from './schemas/ingest.js';
 
 export interface IngestFilesRequest {
   project: string;
@@ -294,19 +295,7 @@ function readMaintenanceItem(value: unknown, path: string): MaintenanceItem {
 }
 
 export function validateIngestFilesRequest(value: unknown): IngestFilesRequest {
-  const record = expectObject(value, 'file ingestion input');
-  const project = readRequiredString(record, 'project', 'file ingestion input');
-  const filesValue = record.files;
-
-  if (!Array.isArray(filesValue)) {
-    throw validationIssue('file ingestion input.files', 'must be an array.');
-  }
-
-  return {
-    project,
-    files: filesValue.map((file, index) => validateIngestFileInput(file, project, `file ingestion input.files[${index}]`)),
-    mode: readOptionalEnum(record, 'mode', INGESTION_MODES, 'file ingestion input'),
-  };
+  return parseOrThrow(ingestFilesSchema, value, 'file ingestion input') as IngestFilesRequest;
 }
 
 export function validateContextSearchInput(value: unknown): ContextSearchInput {
@@ -715,20 +704,6 @@ export function validateContextPackIdArguments(value: unknown): { contextPackId:
 
 export function expectRecord(value: unknown, path: string): Record<string, unknown> {
   return expectObject(value, path);
-}
-
-function validateIngestFileInput(value: unknown, defaultProject: string, path: string): IngestFileInput {
-  const record = expectObject(value, path);
-
-  return {
-    project: readOptionalString(record, 'project', path) ?? defaultProject,
-    path: readRequiredString(record, 'path', path),
-    content: readRequiredString(record, 'content', path),
-    itemType: readOptionalEnum(record, 'itemType', KNOWLEDGE_ITEM_TYPES, path),
-    mode: readOptionalEnum(record, 'mode', INGESTION_MODES, path),
-    labels: readOptionalLabels(record.labels, `${path}.labels`),
-    metadata: readOptionalObject(record, 'metadata', path),
-  };
 }
 
 function readOptionalLearningSignals(value: unknown, path: string): AgentLearningSignal[] | undefined {
