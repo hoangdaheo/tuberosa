@@ -23,7 +23,13 @@ import {
   resourceJson,
   type JsonRpcRequest,
 } from './helpers.js';
-import type { ContextFitStatus, ContextPack } from '../types.js';
+import type {
+  ClassifiedQuery,
+  ContextFitStatus,
+  ContextPack,
+  DeepContext,
+  RankedCandidate,
+} from '../types.js';
 import {
   expectRecord,
   validateAppendAgentSessionNoteInput,
@@ -575,8 +581,93 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
 
 const USER_STYLE_TYPES = ['convention', 'gotcha', 'decision', 'fact'] as const;
 
+// The MCP/HTTP response carries only what an agent reads; the stored pack
+// (saveContextPack) and debug:true keep full fidelity. These ceilings bound
+// the inlined deep context so a single search_context can never blow the token
+// limit — the agent fetches full chunks via tuberosa_get_context_pack instead.
+const DEEP_CONTEXT_RESPONSE_TOKEN_CEILING = 10_000;
+const DEEP_CONTEXT_MAX_ITEMS_PER_SECTION = 3;
+const DEEP_CONTEXT_ITEM_CONTENT_CHARS = 1200;
+const SHORTLIST_MAX_REFERENCES = 3;
+
+function truncateText(value: string, max: number): string {
+  // Reserve one char for the ellipsis so the result never exceeds `max`,
+  // keeping DEEP_CONTEXT_ITEM_CONTENT_CHARS a true upper bound on item length.
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+export function projectShortlistItem(item: RankedCandidate) {
+  return {
+    knowledgeId: item.knowledgeId,
+    title: item.title,
+    itemType: item.itemType,
+    project: item.project,
+    score: item.finalScore,
+    reasons: item.matchReasons,
+    fitScore: item.fitScore,
+    evidenceCategory: item.evidenceCategory,
+    references: (item.references ?? []).slice(0, SHORTLIST_MAX_REFERENCES),
+  };
+}
+
+export function slimClassified(classified: ClassifiedQuery) {
+  return {
+    project: classified.project,
+    taskType: classified.taskType,
+    confidence: classified.confidence,
+    files: classified.files,
+    symbols: classified.symbols,
+    errors: classified.errors,
+    technologies: classified.technologies,
+    businessAreas: classified.businessAreas,
+  };
+}
+
+export function boundDeepContextForResponse(
+  deepContext: DeepContext,
+  ceilingTokens: number = DEEP_CONTEXT_RESPONSE_TOKEN_CEILING,
+): { deepContext: DeepContext; truncated: boolean } {
+  let truncated = false;
+  let runningTokens = 0;
+  const sections = deepContext.sections.map((section) => {
+    const items = [] as DeepContext['sections'][number]['items'];
+    for (const item of section.items) {
+      if (items.length >= DEEP_CONTEXT_MAX_ITEMS_PER_SECTION || runningTokens >= ceilingTokens) {
+        truncated = true;
+        break;
+      }
+      const content = truncateText(item.content, DEEP_CONTEXT_ITEM_CONTENT_CHARS);
+      const contextualContent = truncateText(item.contextualContent, DEEP_CONTEXT_ITEM_CONTENT_CHARS);
+      if (content.length < item.content.length || contextualContent.length < item.contextualContent.length) {
+        truncated = true;
+      }
+      const tokenEstimate = Math.ceil((content.length + contextualContent.length) / 4);
+      items.push({ ...item, content, contextualContent, tokenEstimate });
+      runningTokens += tokenEstimate;
+    }
+    if (section.items.length > items.length) {
+      truncated = true;
+    }
+    return { name: section.name, items, tokenEstimate: items.reduce((sum, i) => sum + i.tokenEstimate, 0) };
+  });
+  return {
+    deepContext: {
+      mode: 'layered',
+      budget: deepContext.budget,
+      tokenEstimate: sections.reduce((sum, s) => sum + s.tokenEstimate, 0),
+      sections,
+    },
+    truncated,
+  };
+}
+
 function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?: boolean } = {}) {
   const deepContextReturned = shouldReturnDeepContext(pack, options.includeDeepContext);
+  const full = Boolean(pack.debug); // debug mode: return everything unchanged
+
+  const bounded = pack.deepContext && deepContextReturned && !full
+    ? boundDeepContextForResponse(pack.deepContext)
+    : undefined;
 
   return {
     contextPackId: pack.id,
@@ -586,32 +677,35 @@ function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?:
     taskBrief: pack.taskBrief,
     actionableMissingSignals: pack.actionableMissingSignals,
     project: pack.project,
-    classified: pack.classified,
+    classified: full ? pack.classified : slimClassified(pack.classified),
     sections: pack.sections.map((section) => ({
       name: section.name,
       tokenEstimate: section.tokenEstimate,
-      items: section.items.map((item) => ({
-        knowledgeId: item.knowledgeId,
-        title: item.title,
-        itemType: item.itemType,
-        project: item.project,
-        score: item.finalScore,
-        reasons: item.matchReasons,
-        fitScore: item.fitScore,
-        fitReasons: item.fitReasons,
-        fitMissingSignals: item.fitMissingSignals,
-        evidenceCategory: item.evidenceCategory,
-        evidenceStrength: item.evidenceStrength,
-        usefulnessReason: item.usefulnessReason,
-        actionableMissingSignals: item.actionableMissingSignals,
-        references: item.references,
-      })),
+      items: full
+        ? section.items.map((item) => ({
+          knowledgeId: item.knowledgeId,
+          title: item.title,
+          itemType: item.itemType,
+          project: item.project,
+          score: item.finalScore,
+          reasons: item.matchReasons,
+          fitScore: item.fitScore,
+          fitReasons: item.fitReasons,
+          fitMissingSignals: item.fitMissingSignals,
+          evidenceCategory: item.evidenceCategory,
+          evidenceStrength: item.evidenceStrength,
+          usefulnessReason: item.usefulnessReason,
+          actionableMissingSignals: item.actionableMissingSignals,
+          references: item.references,
+        }))
+        : section.items.map(projectShortlistItem),
     })),
     deepContextAvailable: Boolean(pack.deepContext),
     deepContextReturned,
+    deepContextTruncated: bounded?.truncated ?? false,
     deepContext: pack.deepContext
       ? deepContextReturned
-        ? pack.deepContext
+        ? (full ? pack.deepContext : bounded!.deepContext)
         : {
           budget: pack.deepContext.budget,
           tokenEstimate: pack.deepContext.tokenEstimate,
@@ -628,6 +722,7 @@ function contextPackShortlist(pack: ContextPack, options: { includeDeepContext?:
       searchInstruction(pack.contextFit?.fitStatus, deepContextReturned),
       pack.taskBrief?.followUpSearches,
       pack.impactPrediction,
+      bounded?.truncated ?? false,
     ),
   };
 }
@@ -636,11 +731,16 @@ function composeSearchInstruction(
   base: string,
   followUpSearches: string[] | undefined,
   impactPrediction: ContextPack['impactPrediction'],
+  deepContextTruncated = false,
 ): string {
   // Plan A — long prompts can surface sub-tasks the agent should re-search
   // for as it reaches each step. Append a follow-up hint without dropping the
   // existing fit-status instruction.
   let composed = base;
+  if (deepContextTruncated) {
+    const note = 'Deep context was truncated to keep the response small. Call tuberosa_get_context_pack with this contextPackId for the full chunks.';
+    composed = composed ? `${composed}\n${note}` : note;
+  }
   if (followUpSearches && followUpSearches.length > 0) {
     const note = `Detected ${followUpSearches.length} follow-up sub-task(s) (taskBrief.followUpSearches). Call tuberosa_search_context again with each sub-task as the prompt when you reach that step.`;
     composed = composed ? `${composed}\n${note}` : note;

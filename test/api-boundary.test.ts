@@ -127,7 +127,16 @@ test('valid MCP tool calls are validated then dispatched', async () => {
       contextFit?: { fitStatus?: string };
       orientation?: { inferredTask?: string };
       taskBrief?: { mode?: string; actionItems?: Array<{ action?: string }> };
-      sections?: Array<{ items: Array<{ fitReasons?: string[]; evidenceCategory?: string; usefulnessReason?: string }> }>;
+      sections?: Array<{ items: Array<{
+        score?: number;
+        reasons?: string[];
+        fitScore?: number;
+        evidenceCategory?: string;
+        fitReasons?: string[];
+        usefulnessReason?: string;
+        evidenceStrength?: string;
+        actionableMissingSignals?: unknown;
+      }> }>;
       deepContextReturned?: boolean;
       deepContext?: { sections?: Array<{ itemCount?: number; items?: unknown[] }> };
     };
@@ -138,12 +147,55 @@ test('valid MCP tool calls are validated then dispatched', async () => {
   equal(result.structuredContent?.orientation?.inferredTask, 'understand existing code or workflow');
   equal(result.structuredContent?.taskBrief?.mode, 'implementation');
   equal(result.structuredContent?.taskBrief?.actionItems?.[0]?.action, 'inspect_shortlist');
-  equal(result.structuredContent?.sections?.[0]?.items[0]?.fitReasons?.[0], 'project:agent-memory');
-  equal(result.structuredContent?.sections?.[0]?.items[0]?.evidenceCategory, 'workflowGuidance');
-  equal(result.structuredContent?.sections?.[0]?.items[0]?.usefulnessReason, 'Workflow guidance for wiki context.');
+  // Default (non-debug) shortlist is slim: agent-facing fields kept...
+  const item = result.structuredContent?.sections?.[0]?.items[0];
+  equal(item?.score, 0.9);
+  equal(item?.reasons?.[0], 'metadata match');
+  equal(item?.fitScore, 0.82);
+  equal(item?.evidenceCategory, 'workflowGuidance');
+  // ...diagnostic fields dropped from the default response (kept in stored/debug pack).
+  equal(item?.fitReasons, undefined);
+  equal(item?.usefulnessReason, undefined);
+  equal(item?.evidenceStrength, undefined);
+  equal(item?.actionableMissingSignals, undefined);
   equal(result.structuredContent?.deepContextReturned, false);
   equal(result.structuredContent?.deepContext?.sections?.[0]?.itemCount, 1);
   equal(result.structuredContent?.deepContext?.sections?.[0]?.items, undefined);
+});
+
+test('MCP context search returns full per-item diagnostics when the pack is in debug mode', async () => {
+  const result = await handleMcpRequest(fakeServices({
+    retrieval: {
+      searchContext: async () => samplePack({
+        debug: { fingerprint: 'fp' } as unknown as ContextPack['debug'],
+      }),
+    },
+  }), {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_search_context',
+      arguments: {
+        project: 'agent-memory',
+        prompt: 'Find auth guidance',
+        debug: true,
+      },
+    },
+  }) as {
+    structuredContent?: {
+      sections?: Array<{ items: Array<{
+        fitReasons?: string[];
+        usefulnessReason?: string;
+        evidenceStrength?: string;
+        actionableMissingSignals?: unknown;
+      }> }>;
+    };
+  };
+
+  const item = result.structuredContent?.sections?.[0]?.items[0];
+  equal(item?.fitReasons?.[0], 'project:agent-memory');
+  equal(item?.usefulnessReason, 'Workflow guidance for wiki context.');
+  equal(item?.evidenceStrength, 'moderate');
+  ok(item?.actionableMissingSignals, 'debug pack keeps actionableMissingSignals');
 });
 
 test('MCP taskType aliases normalize before dispatch', async () => {
