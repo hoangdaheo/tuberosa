@@ -56,7 +56,7 @@ import { ContextFitEvaluator, type ContextFitSignal } from './context-fit.js';
 import { fuseCandidates } from './fusion.js';
 import { preprocessLongPrompt } from './preprocessor.js';
 import { freshnessWindowFor, getRetrievalPolicy, getRetrievalPolicyFingerprint, TIER_RANK_MULTIPLIERS } from './policy.js';
-import type { QueryRewriteConfig } from './policy.js';
+import type { QueryRewriteConfig, RetrievalPolicy } from './policy.js';
 import type { AtomTier, KnowledgeAtom } from '../types/atoms.js';
 import { evaluateTierTransition } from '../atoms/tier.js';
 import { WorktreeProvider, type WorktreeSearchResult } from './worktree.js';
@@ -163,7 +163,11 @@ export class RetrievalService {
     // by `findCandidates` so gated searches still embed only once. This keeps
     // probe overhead bounded to one extra lexical + vector store lookup with a
     // small `probeSearchLimit` cap.
-    const rewriteConfig = getRetrievalPolicy().queryRewrite;
+    // Task 7.1 — resolve the retrieval policy once per searchContext call and
+    // thread it down to the helpers that would otherwise re-read the (cached)
+    // getRetrievalPolicy() singleton. Clarity-only: it is the same cached object.
+    const policy = getRetrievalPolicy();
+    const rewriteConfig = policy.queryRewrite;
     const probeProject = normalized.project ?? classified.project;
     let probeConfidence: number | undefined;
     let probeElapsedMs = 0;
@@ -247,6 +251,7 @@ export class RetrievalService {
       // new exactTerms, the lexicalQuery is different and the embedding must be
       // recomputed; otherwise the probe embedding is identical.
       rewriteResult.addedExactTerms.length === 0 ? probeEmbedding : undefined,
+      policy,
     );
     const rankingResult = await this.rankCandidates(
       normalized.prompt,
@@ -255,6 +260,7 @@ export class RetrievalService {
       project,
       debug,
       normalized.disabledSources,
+      policy,
     );
     const rankedCandidates = rankingResult.candidates;
     const fitStartedAt = Date.now();
@@ -281,6 +287,7 @@ export class RetrievalService {
     const impactPrediction = await this.computeImpactPrediction(
       rewriteResult.classified,
       project,
+      policy,
     );
     // Concern F — resolve user-style ↔ project-convention contradictions before
     // pack assembly. Suppressed knowledgeIds drop out of the pack entirely;
@@ -547,6 +554,7 @@ export class RetrievalService {
     project?: string,
     debug?: RetrievalDebugBuilder,
     precomputedEmbedding?: number[],
+    resolvedPolicy: RetrievalPolicy = getRetrievalPolicy(),
   ): Promise<{ candidates: KnowledgeSearchResult; worktree: WorktreeSearchResult }> {
     const options: SearchOptions = {
       project,
@@ -636,7 +644,7 @@ export class RetrievalService {
     // through any source (atoms / metadata / lexical / memory / vector / worktree)
     // and merge depth-2 atom hits into the graph candidate group. Bounded by the
     // policy's walkDepth, edgeWeights, and decayPerHop.
-    const atomGraphHits = await this.expandAtomGraphFromSeeds(safeResults, classified, project);
+    const atomGraphHits = await this.expandAtomGraphFromSeeds(safeResults, classified, project, resolvedPolicy);
     if (atomGraphHits.length > 0) {
       safeResults.graph = [
         ...safeResults.graph,
@@ -779,6 +787,7 @@ export class RetrievalService {
     project?: string,
     debug?: RetrievalDebugBuilder,
     disabledSources?: CandidateSource[],
+    resolvedPolicy: RetrievalPolicy = getRetrievalPolicy(),
   ): Promise<{ candidates: RankedCandidate[]; signal: ContextFitSignal }> {
     const fusionStartedAt = Date.now();
     const disabled = new Set<CandidateSource>(disabledSources ?? []);
@@ -869,7 +878,7 @@ export class RetrievalService {
       });
     }
 
-    const adjusted = await this.applyRankingAdjustments(reranked, classified, project ?? classified.project, debug);
+    const adjusted = await this.applyRankingAdjustments(reranked, classified, project ?? classified.project, debug, resolvedPolicy);
     debug?.recordStage('rerank', adjusted);
     return { candidates: adjusted, signal: rerankSignal };
   }
@@ -879,6 +888,7 @@ export class RetrievalService {
     classified: ClassifiedQuery,
     project?: string,
     debug?: RetrievalDebugBuilder,
+    resolvedPolicy: RetrievalPolicy = getRetrievalPolicy(),
   ): Promise<RankedCandidate[]> {
     const summaries = await this.store.getFeedbackSummaries(
       [...new Set(candidates.map((candidate) => candidate.knowledgeId))],
@@ -891,9 +901,9 @@ export class RetrievalService {
       .filter((candidate) => readLegacyStatus(candidate) !== 'legacy_archived')
       .map((candidate) => applyLegacyReplacedDownweight(candidate))
       .map((candidate) => applyFeedbackSummary(candidate, summaries.get(candidate.knowledgeId), onSuppression))
-      .map((candidate) => applyIntentSuppression(candidate, classified, supersededBy.get(candidate.knowledgeId) ?? [], onSuppression))
+      .map((candidate) => applyIntentSuppression(candidate, classified, supersededBy.get(candidate.knowledgeId) ?? [], onSuppression, resolvedPolicy))
       .map((candidate) => applyAtomTierMultiplier(candidate))
-      .map((candidate) => applyUserStyleMultiplier(candidate))
+      .map((candidate) => applyUserStyleMultiplier(candidate, resolvedPolicy))
       .sort((left, right) => right.finalScore - left.finalScore || left.rank - right.rank)
       .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
   }
@@ -1064,9 +1074,10 @@ export class RetrievalService {
     results: KnowledgeSearchResult,
     classified: ClassifiedQuery,
     project: string | undefined,
+    resolvedPolicy: RetrievalPolicy = getRetrievalPolicy(),
   ): Promise<SearchCandidate[]> {
     if (!project) return [];
-    const policy = getRetrievalPolicy().graph;
+    const policy = resolvedPolicy.graph;
     if (policy.walkDepth < 1) return [];
 
     const seedIds = uniqueStrings(
@@ -1128,12 +1139,13 @@ export class RetrievalService {
   private async computeImpactPrediction(
     classified: ClassifiedQuery,
     project: string | undefined,
+    resolvedPolicy: RetrievalPolicy = getRetrievalPolicy(),
   ): Promise<ImpactPrediction | undefined> {
     if (!IMPACT_PREDICTION_TASK_TYPES.has(classified.taskType)) return undefined;
     if (!project) return undefined;
     const hasSeeds = classified.files.length > 0 || classified.symbols.length > 0;
     if (!hasSeeds) return undefined;
-    const policy = getRetrievalPolicy().graph;
+    const policy = resolvedPolicy.graph;
     const prediction = await predictImpact(this.store, {
       project,
       files: classified.files,
@@ -1532,7 +1544,10 @@ function conventionAtomToCandidate(atom: KnowledgeAtom, index: number): SearchCa
   };
 }
 
-function applyUserStyleMultiplier(candidate: RankedCandidate): RankedCandidate {
+function applyUserStyleMultiplier(
+  candidate: RankedCandidate,
+  policy: RetrievalPolicy = getRetrievalPolicy(),
+): RankedCandidate {
   if (candidate.source !== 'userStyle') return candidate;
   const meta = candidate.metadata as {
     userStyleTier?: AtomTier;
@@ -1540,7 +1555,6 @@ function applyUserStyleMultiplier(candidate: RankedCandidate): RankedCandidate {
   } | undefined;
   const tier = meta?.userStyleTier;
   if (!tier) return candidate;
-  const policy = getRetrievalPolicy();
   let multiplier = policy.userStyle.tierMultipliers[tier];
   if (typeof multiplier !== 'number') return candidate;
   if (meta?.userStylePriority === 'personal_workflow') {
@@ -2222,8 +2236,9 @@ function applyIntentSuppression(
   classified: ClassifiedQuery,
   supersededBy: KnowledgeRelation[],
   onSuppression?: (event: SuppressionEvent) => void,
+  policy: RetrievalPolicy = getRetrievalPolicy(),
 ): RankedCandidate {
-  const adjustment = intentSuppressionAdjustment(candidate, classified, supersededBy);
+  const adjustment = intentSuppressionAdjustment(candidate, classified, supersededBy, policy);
   if (adjustment.factor === 1 && adjustment.boost === 0 && adjustment.events.length === 0) {
     return candidate;
   }
@@ -2291,8 +2306,8 @@ function intentSuppressionAdjustment(
   candidate: RankedCandidate,
   classified: ClassifiedQuery,
   supersededBy: KnowledgeRelation[],
+  policy: RetrievalPolicy = getRetrievalPolicy(),
 ): SuppressionAdjustment {
-  const policy = getRetrievalPolicy();
   const reasons: string[] = [];
   const events: Array<Omit<SuppressionEvent, 'knowledgeId'>> = [];
   let factor = 1;
@@ -2312,14 +2327,14 @@ function intentSuppressionAdjustment(
     });
   }
 
-  if (policy.suppressionEnabled.stale && isStaleCandidate(candidate) && !hasHardEvidence) {
+  if (policy.suppressionEnabled.stale && isStaleCandidate(candidate, policy) && !hasHardEvidence) {
     const delta = -0.14;
     factor *= penaltyDeltaToFactor(delta);
     reasons.push('suppression:freshness:stale');
     events.push({
       reason: 'stale_freshness',
       deltaScore: delta,
-      confidence: staleFreshnessConfidence(candidate),
+      confidence: staleFreshnessConfidence(candidate, policy),
       evidence: `itemType=${candidate.itemType} freshnessAt=${candidate.freshnessAt ?? metadataString(candidate.metadata, 'freshnessAt') ?? 'unknown'}`,
     });
   }
@@ -2414,12 +2429,14 @@ function intentSuppressionAdjustment(
   return { factor, boost, reasons, events };
 }
 
-function staleFreshnessConfidence(candidate: RankedCandidate): number {
+function staleFreshnessConfidence(
+  candidate: RankedCandidate,
+  policy: RetrievalPolicy = getRetrievalPolicy(),
+): number {
   const freshnessAt = candidate.freshnessAt ?? metadataString(candidate.metadata, 'freshnessAt');
   if (!freshnessAt) return 0.5;
   const timestamp = Date.parse(freshnessAt);
   if (Number.isNaN(timestamp)) return 0.5;
-  const policy = getRetrievalPolicy();
   const window = freshnessWindowFor(policy, candidate.itemType);
   const ageDays = Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
   if (ageDays <= window.staleDays) return 0.5;
@@ -2435,7 +2452,10 @@ function hasHardSignalEvidence(candidate: RankedCandidate, classified: Classifie
   ].some((signal) => candidateText(candidate).includes(signal.toLowerCase()));
 }
 
-function isStaleCandidate(candidate: RankedCandidate): boolean {
+function isStaleCandidate(
+  candidate: RankedCandidate,
+  policy: RetrievalPolicy = getRetrievalPolicy(),
+): boolean {
   const metadataStale = candidate.metadata?.stale === true || feedbackStatusFromCandidate(candidate) === 'stale';
   if (metadataStale) {
     return true;
@@ -2451,7 +2471,6 @@ function isStaleCandidate(candidate: RankedCandidate): boolean {
     return false;
   }
 
-  const policy = getRetrievalPolicy();
   const window = freshnessWindowFor(policy, candidate.itemType);
   return Date.now() - timestamp > window.staleDays * 86_400_000;
 }
