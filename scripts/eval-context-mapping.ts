@@ -8,7 +8,7 @@ import {
   type ContextMappingMetrics,
   type ContextMappingReport,
 } from '../src/evaluation/context-mapping-evaluator.js';
-import { loadContextMappingFixture } from '../src/evaluation/context-mapping-fixture-loader.js';
+import { loadContextMappingFixture } from '../src/evaluation/fixture-loader.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { RetrievalService } from '../src/retrieval/service.js';

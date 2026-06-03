@@ -8,7 +8,7 @@ import {
   type KnowledgeCompletenessReport,
   type KnowledgeCompletenessSearcher,
 } from '../src/evaluation/knowledge-completeness-evaluator.js';
-import { loadKnowledgeCompletenessFixture } from '../src/evaluation/knowledge-completeness-fixture-loader.js';
+import { loadKnowledgeCompletenessFixture } from '../src/evaluation/fixture-loader.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { RetrievalService } from '../src/retrieval/service.js';
