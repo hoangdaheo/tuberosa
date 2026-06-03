@@ -18,8 +18,8 @@ export async function makeSyncService(): Promise<SyncServiceLike> {
   const safety = new KnowledgeSafetyService();
   const ingestion = new IngestionService(store, models, {
     safety,
-    maxContentBytes: config.maxIngestContentBytes,
+    maxContentBytes: config.ingest.maxContentBytes,
   });
-  const atlas = new AtlasService(store, { atlasDir: config.atlasDir ?? '.tuberosa/atlas' });
-  return new SourceSyncService({ store, ingestion, atlas, atlasAutoRegen: config.atlasAutoRegen ?? true });
+  const atlas = new AtlasService(store, { atlasDir: config.atlas.dir ?? '.tuberosa/atlas' });
+  return new SourceSyncService({ store, ingestion, atlas, atlasAutoRegen: config.atlas.autoRegen ?? true });
 }

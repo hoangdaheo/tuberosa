@@ -137,7 +137,7 @@ export class OpenAiModelProvider implements ModelProvider {
   private readonly fallback: HashModelProvider;
 
   constructor(private readonly config: AppConfig) {
-    this.fallback = new HashModelProvider(config.embeddingDimensions);
+    this.fallback = new HashModelProvider(config.model.embeddingDimensions);
   }
 
   async embed(text: string): Promise<number[]> {
@@ -158,7 +158,7 @@ export class OpenAiModelProvider implements ModelProvider {
   }
 
   async rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult | undefined> {
-    if (!this.config.openAiRewriteModel) {
+    if (!this.config.model.openAiRewriteModel) {
       return undefined;
     }
 
@@ -191,7 +191,7 @@ export class OpenAiModelProvider implements ModelProvider {
 
     const response = await fetchOpenAiJson(
       this.config,
-      this.config.openAiRewriteModel,
+      this.config.model.openAiRewriteModel,
       systemPrompt,
       'query_rewrite',
       queryRewriteSchema(),
@@ -216,17 +216,17 @@ export class OpenAiModelProvider implements ModelProvider {
       throw new ModelProviderError(`OpenAI query rewrite request failed: ${response.status} ${detail}`);
     }
 
-    return parseQueryRewriteResponse(await response.json(), this.config.openAiRewriteModel);
+    return parseQueryRewriteResponse(await response.json(), this.config.model.openAiRewriteModel);
   }
 
   async rerank(input: RerankInput): Promise<RerankResult> {
-    if (!this.config.openAiRerankModel || input.candidates.length === 0) {
+    if (!this.config.model.openAiRerankModel || input.candidates.length === 0) {
       return this.fallback.rerank(input);
     }
 
     const response = await fetchOpenAiJson(
       this.config,
-      this.config.openAiRerankModel,
+      this.config.model.openAiRerankModel,
       OPENAI_RERANK_SYSTEM_PROMPT,
       'candidate_rerank',
       rerankSchema(input.candidates.length),
@@ -239,7 +239,7 @@ export class OpenAiModelProvider implements ModelProvider {
     }
 
     const decisions = parseRerankResponse(await response.json());
-    return applyProviderRerank(input, decisions, this.config.openAiRerankModel, this.fallback);
+    return applyProviderRerank(input, decisions, this.config.model.openAiRerankModel, this.fallback);
   }
 
   async judgeAtomUtility(input: {
@@ -250,7 +250,7 @@ export class OpenAiModelProvider implements ModelProvider {
     // Reuse the structured-output rerank model for judgments. With no model
     // configured we cannot judge, so we keep the candidate (fail-open) rather
     // than silently dropping borderline atoms.
-    const model = this.config.openAiRerankModel;
+    const model = this.config.model.openAiRerankModel;
     if (!model) {
       return { generalizable: true, reason: 'no judgment model configured', confidence: 0 };
     }
@@ -293,7 +293,7 @@ export class OpenAiModelProvider implements ModelProvider {
     detectedTechnologies?: string[];
     confidence: number;
   }> {
-    const model = this.config.openAiRewriteModel;
+    const model = this.config.model.openAiRewriteModel;
     if (!model) {
       // Fail-open: with no model configured the preprocessor will fall back to
       // the anchor-window slice. Throwing here would force a hard error on the
@@ -403,15 +403,15 @@ async function fetchOpenAiEmbedding(config: AppConfig, text: string): Promise<Re
     return await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${config.openAiApiKey}`,
+        Authorization: `Bearer ${config.model.openAiApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: config.openAiEmbeddingModel,
+        model: config.model.openAiEmbeddingModel,
         input: text,
-        dimensions: config.embeddingDimensions,
+        dimensions: config.model.embeddingDimensions,
       }),
-      signal: AbortSignal.timeout(config.openAiTimeoutMs),
+      signal: AbortSignal.timeout(config.model.openAiTimeoutMs),
     });
   } catch (error) {
     throw new ModelProviderError('OpenAI embedding request failed.', error);
@@ -430,7 +430,7 @@ async function fetchOpenAiJson(
     return await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${config.openAiApiKey}`,
+        Authorization: `Bearer ${config.model.openAiApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -454,7 +454,7 @@ async function fetchOpenAiJson(
           },
         },
       }),
-      signal: AbortSignal.timeout(config.openAiTimeoutMs),
+      signal: AbortSignal.timeout(config.model.openAiTimeoutMs),
     });
   } catch (error) {
     throw new ModelProviderError('OpenAI Responses request failed.', error);

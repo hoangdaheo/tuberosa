@@ -13,8 +13,8 @@ test('CLAUDE.md invariant: embedding dimension in config matches vector(N) in mi
 
   const { loadConfig } = await import('../src/config.js');
   const config = loadConfig();
-  equal(config.embeddingDimensions, Number(declared),
-    `EMBEDDING_DIMENSIONS=${config.embeddingDimensions} must equal vector(${declared}) in migrations/001_init.sql`);
+  equal(config.model.embeddingDimensions, Number(declared),
+    `EMBEDDING_DIMENSIONS=${config.model.embeddingDimensions} must equal vector(${declared}) in migrations/001_init.sql`);
 });
 
 test('CLAUDE.md invariant: mcp-stdio writes only JSON-RPC frames to stdout', async () => {

@@ -4,8 +4,8 @@ import { loadConfig } from '../src/config.js';
 
 test('teamId defaults to "default" and reads TUBEROSA_TEAM_ID', () => {
   delete process.env.TUBEROSA_TEAM_ID;
-  assert.equal(loadConfig().teamId, 'default');
+  assert.equal(loadConfig().userStyle.teamId, 'default');
   process.env.TUBEROSA_TEAM_ID = 'acme';
-  assert.equal(loadConfig().teamId, 'acme');
+  assert.equal(loadConfig().userStyle.teamId, 'acme');
   delete process.env.TUBEROSA_TEAM_ID;
 });

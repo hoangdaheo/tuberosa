@@ -160,7 +160,7 @@ async function runAblation(fixture: SandboxFixture, prompts: SandboxPrompt[]): P
 function createServices() {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const models = new HashModelProvider(SANDBOX_CONFIG.embeddingDimensions);
+  const models = new HashModelProvider(SANDBOX_CONFIG.model.embeddingDimensions);
   const ingestion = new IngestionService(store, models);
   const retrieval = new RetrievalService(store, cache, models, SANDBOX_CONFIG);
   return { ingestion, retrieval, store, cache };
@@ -744,43 +744,67 @@ function usage(): string {
 
 const SANDBOX_CONFIG: AppConfig = {
   env: 'sandbox',
-  port: 3027,
-  databaseUrl: '',
-  redisUrl: '',
-  httpHost: '127.0.0.1',
-  requireApiKeyForNonLoopback: false,
-  store: 'memory',
-  cache: 'memory',
-  autoMigrate: false,
-  modelProvider: 'hash',
-  openAiTimeoutMs: 30_000,
-  embeddingDimensions: 1536,
-  openAiEmbeddingModel: 'text-embedding-3-small',
-  contextCacheTtlSeconds: 0,
-  maxRequestBytes: 10 * 1024 * 1024,
-  maxIngestContentBytes: 2 * 1024 * 1024,
-  backupDir: '.tuberosa/test-backups',
-  exportBaseDir: '.tuberosa/test-exports',
-  importBaseDir: '.tuberosa/test-imports',
-  backupIntervalSeconds: 0,
-  backupStartupDelaySeconds: 0,
-  backupRetentionCount: 24,
-  backupRetentionMaxAgeDays: 30,
-  backupWriteThrough: false,
-  backupWriteThroughThrottleSeconds: 600,
-  physicalMirrorDebounceMs: 500,
-  errorLogDir: '.tuberosa/test-error-logs',
-  errorLogMaxBytes: 256 * 1024,
-  errorLogAutoCapture: true,
-  errorLogCaptureClientErrors: false,
+  http: {
+    port: 3027,
+    host: '127.0.0.1',
+    requireApiKeyForNonLoopback: false,
+    maxRequestBytes: 10 * 1024 * 1024,
+  },
+  storage: {
+    databaseUrl: '',
+    redisUrl: '',
+    store: 'memory',
+    cache: 'memory',
+    autoMigrate: false,
+  },
+  model: {
+    provider: 'hash',
+    openAiTimeoutMs: 30_000,
+    embeddingDimensions: 1536,
+    openAiEmbeddingModel: 'text-embedding-3-small',
+    llmCriticEnabled: false,
+  },
+  context: {
+    cacheTtlSeconds: 0,
+  },
+  ingest: {
+    maxContentBytes: 2 * 1024 * 1024,
+  },
+  backup: {
+    dir: '.tuberosa/test-backups',
+    exportBaseDir: '.tuberosa/test-exports',
+    importBaseDir: '.tuberosa/test-imports',
+    intervalSeconds: 0,
+    startupDelaySeconds: 0,
+    retentionCount: 24,
+    retentionMaxAgeDays: 30,
+    writeThrough: false,
+    writeThroughThrottleSeconds: 600,
+  },
+  mirror: {
+    debounceMs: 500,
+  },
+  errorLog: {
+    dir: '.tuberosa/test-error-logs',
+    maxBytes: 256 * 1024,
+    autoCapture: true,
+    captureClientErrors: false,
+  },
+  worktree: {
+    enabled: true,
+    maxFiles: 50,
+    maxMtimeAgeHours: 72,
+  },
+  archival: {
+    enabled: false,
+    intervalHours: 24,
+  },
+  graphInference: {
+    enabled: false,
+  },
+  atlas: {},
+  userStyle: {},
   persistReplay: false,
-  worktreeEnabled: true,
-  worktreeMaxFiles: 50,
-  worktreeMaxMtimeAgeHours: 72,
-  llmCriticEnabled: false,
-  archivalEnabled: false,
-  graphInferenceEnabled: false,
-  archivalIntervalHours: 24,
 };
 
 main().catch((error: unknown) => {

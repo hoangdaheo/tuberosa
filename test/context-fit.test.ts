@@ -69,8 +69,8 @@ async function seedHandlerCorpus(store: MemoryKnowledgeStore, embedder: HashMode
 test('rerank failure → fitStatus=needs_confirmation, candidates kept, reason recorded', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const embedder = new HashModelProvider(config.embeddingDimensions);
-  const provider = new ThrowingRerankProvider(config.embeddingDimensions);
+  const embedder = new HashModelProvider(config.model.embeddingDimensions);
+  const provider = new ThrowingRerankProvider(config.model.embeddingDimensions);
   const retrieval = new RetrievalService(store, cache, provider, config);
 
   const knowledgeId = await seedHandlerCorpus(store, embedder);
@@ -102,8 +102,8 @@ test('rerank failure → fitStatus=needs_confirmation, candidates kept, reason r
 test('fitDiagnostics.contributors lists top1, top3Avg, coverage, worktreeMatchScore with numbers', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const embedder = new HashModelProvider(config.embeddingDimensions);
-  const provider = new HashModelProvider(config.embeddingDimensions);
+  const embedder = new HashModelProvider(config.model.embeddingDimensions);
+  const provider = new HashModelProvider(config.model.embeddingDimensions);
   const retrieval = new RetrievalService(store, cache, provider, config);
 
   await seedHandlerCorpus(store, embedder);
@@ -145,8 +145,8 @@ test('fitDiagnostics.contributors lists top1, top3Avg, coverage, worktreeMatchSc
 test('rerank failure causes fitDiagnostics.rerankerAvailable=false', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const embedder = new HashModelProvider(config.embeddingDimensions);
-  const provider = new ThrowingRerankProvider(config.embeddingDimensions);
+  const embedder = new HashModelProvider(config.model.embeddingDimensions);
+  const provider = new ThrowingRerankProvider(config.model.embeddingDimensions);
   const retrieval = new RetrievalService(store, cache, provider, config);
 
   await seedHandlerCorpus(store, embedder);

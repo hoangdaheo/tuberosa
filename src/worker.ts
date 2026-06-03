@@ -9,8 +9,8 @@ const services = await createAppServices();
 console.log('Tuberosa worker started. Ingestion is currently API-driven; queued jobs can be added behind this process.');
 
 let archivalTimer: NodeJS.Timeout | undefined;
-if (services.config.archivalEnabled) {
-  const intervalMs = services.config.archivalIntervalHours * 60 * 60 * 1000;
+if (services.config.archival.enabled) {
+  const intervalMs = services.config.archival.intervalHours * 60 * 60 * 1000;
   const sweep = async () => {
     try {
       const report = await runArchivalSweep(services.store);
@@ -29,7 +29,7 @@ if (services.config.archivalEnabled) {
 // jobs are project-scoped.
 let coChangeTimer: NodeJS.Timeout | undefined;
 let pruneTimer: NodeJS.Timeout | undefined;
-if (services.config.graphInferenceEnabled && services.config.defaultProject) {
+if (services.config.graphInference.enabled && services.config.defaultProject) {
   const project = services.config.defaultProject;
   const cwd = services.config.defaultCwd ?? process.cwd();
 
@@ -60,11 +60,11 @@ if (services.config.graphInferenceEnabled && services.config.defaultProject) {
 // Concern F — scheduled user-correction clustering. Skipped when the layer is
 // disabled or TUBEROSA_USER_ID is unset.
 let userStyleClusterTimer: NodeJS.Timeout | undefined;
-if (services.config.userStyleEnabled !== false && services.config.userId) {
-  const intervalMs = (services.config.userStyleClusterIntervalHours ?? 1) * 60 * 60 * 1000;
-  const userId = services.config.userId;
-  const windowDays = services.config.userStyleClusterWindowDays ?? 30;
-  const minClusterEvents = services.config.userStyleMinClusterEvents ?? 3;
+if (services.config.userStyle.enabled !== false && services.config.userStyle.userId) {
+  const intervalMs = (services.config.userStyle.clusterIntervalHours ?? 1) * 60 * 60 * 1000;
+  const userId = services.config.userStyle.userId;
+  const windowDays = services.config.userStyle.clusterWindowDays ?? 30;
+  const minClusterEvents = services.config.userStyle.minClusterEvents ?? 3;
   const run = async () => {
     try {
       const report = await clusterUserCorrections(services.store, services.models, {

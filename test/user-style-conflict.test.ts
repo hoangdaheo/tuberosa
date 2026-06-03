@@ -43,7 +43,7 @@ async function setup(priority: 'personal_workflow' | 'coding_preference'): Promi
     priority,
     trigger: { intentTags: ['style'], symbols: ['export'] },
   });
-  const config = makeTestConfig({ userId: 'alice@example.com', userStyleEnabled: true });
+  const config = makeTestConfig({ userStyle: { userId: 'alice@example.com', enabled: true } });
   return new RetrievalService(store, new MemoryCache(), new HashModelProvider(), config);
 }
 

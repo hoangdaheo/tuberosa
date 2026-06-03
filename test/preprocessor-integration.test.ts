@@ -9,7 +9,7 @@ import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import type { ModelProvider } from '../src/model/provider.js';
 import { makeTestConfig } from './support/test-config.js';
 
-const testConfig = makeTestConfig({ worktreeEnabled: false });
+const testConfig = makeTestConfig({ worktree: { enabled: false, maxFiles: 50, maxMtimeAgeHours: 72 } });
 
 function withPolicy(work: () => Promise<void>): Promise<void> {
   resetRetrievalPolicyCache();

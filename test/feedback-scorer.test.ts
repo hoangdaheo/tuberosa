@@ -121,7 +121,7 @@ test('computeFeedbackPenalty: factor floor is 0.3', () => {
 test('three recent rejections push K below otherwise-identical K\' for the same query', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const provider = new HashModelProvider(config.embeddingDimensions);
+  const provider = new HashModelProvider(config.model.embeddingDimensions);
   const ingestion = new IngestionService(store, provider);
   const retrieval = new RetrievalService(store, cache, provider, config);
 
@@ -184,7 +184,7 @@ test('three recent rejections push K below otherwise-identical K\' for the same 
 test('cumulative stale + rejected + domain-mismatch keeps finalScore >= 0.1 (no negative spiral)', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const provider = new HashModelProvider(config.embeddingDimensions);
+  const provider = new HashModelProvider(config.model.embeddingDimensions);
   const ingestion = new IngestionService(store, provider);
   const retrieval = new RetrievalService(store, cache, provider, config);
 

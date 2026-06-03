@@ -15,7 +15,7 @@ const config = makeTestConfig();
 function setupRetrieval() {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const provider = new HashModelProvider(config.embeddingDimensions);
+  const provider = new HashModelProvider(config.model.embeddingDimensions);
   const safety = new KnowledgeSafetyService();
   const ingestion = new IngestionService(store, provider, { safety });
   return {

@@ -52,7 +52,7 @@ test('prompt-named handoff file surfaces from the worktree into the essential bu
 
     const store = new MemoryKnowledgeStore();
     const cache = new MemoryCache();
-    const models = new HashModelProvider(baseConfig.embeddingDimensions);
+    const models = new HashModelProvider(baseConfig.model.embeddingDimensions);
     const retrieval = new RetrievalService(store, cache, models, baseConfig);
 
     const pack = await retrieval.searchContext({
@@ -109,7 +109,7 @@ test('worktree wins precedence over a conflicting durable memory for continuatio
 
     const store = new MemoryKnowledgeStore();
     const cache = new MemoryCache();
-    const models = new HashModelProvider(baseConfig.embeddingDimensions);
+    const models = new HashModelProvider(baseConfig.model.embeddingDimensions);
     const ingestion = new IngestionService(store, models);
     const retrieval = new RetrievalService(store, cache, models, baseConfig);
 
@@ -180,7 +180,7 @@ test('planning task type opts out of the worktree provider', async () => {
 
     const store = new MemoryKnowledgeStore();
     const cache = new MemoryCache();
-    const models = new HashModelProvider(baseConfig.embeddingDimensions);
+    const models = new HashModelProvider(baseConfig.model.embeddingDimensions);
     const retrieval = new RetrievalService(store, cache, models, baseConfig);
 
     const pack = await retrieval.searchContext({
@@ -214,10 +214,10 @@ test('TUBEROSA_WORKTREE_ENABLED=false disables the provider entirely', async () 
 
     const store = new MemoryKnowledgeStore();
     const cache = new MemoryCache();
-    const models = new HashModelProvider(baseConfig.embeddingDimensions);
+    const models = new HashModelProvider(baseConfig.model.embeddingDimensions);
     const retrieval = new RetrievalService(store, cache, models, {
       ...baseConfig,
-      worktreeEnabled: false,
+      worktree: { ...baseConfig.worktree, enabled: false },
     });
 
     const pack = await retrieval.searchContext({
@@ -247,7 +247,7 @@ test('TUBEROSA_WORKTREE_ENABLED=false disables the provider entirely', async () 
 test('missing cwd is handled gracefully (no worktree candidates, no crash)', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const models = new HashModelProvider(baseConfig.embeddingDimensions);
+  const models = new HashModelProvider(baseConfig.model.embeddingDimensions);
   const retrieval = new RetrievalService(store, cache, models, baseConfig);
 
   const pack = await retrieval.searchContext({

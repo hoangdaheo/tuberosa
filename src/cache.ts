@@ -10,16 +10,16 @@ export interface Cache {
 }
 
 export async function createCache(config: AppConfig): Promise<Cache> {
-  if (config.cache === 'none') {
+  if (config.storage.cache === 'none') {
     return new NullCache();
   }
 
-  if (config.cache === 'memory') {
+  if (config.storage.cache === 'memory') {
     return new MemoryCache();
   }
 
   const client = createClient({
-    url: config.redisUrl,
+    url: config.storage.redisUrl,
     socket: {
       reconnectStrategy: false,
     },

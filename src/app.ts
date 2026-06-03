@@ -41,7 +41,7 @@ const CURRENT_SCHEMA_VERSION = 2;
 
 export async function createAppServices(): Promise<AppServices> {
   const config = loadConfig();
-  if (config.store === 'memory' && config.env !== 'test') {
+  if (config.storage.store === 'memory' && config.env !== 'test') {
     console.error('Tuberosa is running with TUBEROSA_STORE=memory. Knowledge is ephemeral and will disappear when this process exits.');
   }
   await migrateStoreIfNeeded(config);
@@ -50,13 +50,13 @@ export async function createAppServices(): Promise<AppServices> {
   const models = createModelProvider(config);
   const safety = new KnowledgeSafetyService();
   const errorLogs = new ErrorLogService({
-    rootDir: config.errorLogDir,
-    maxBytes: config.errorLogMaxBytes,
+    rootDir: config.errorLog.dir,
+    maxBytes: config.errorLog.maxBytes,
     safety,
   });
   const ingestion = new IngestionService(store, models, {
     safety,
-    maxContentBytes: config.maxIngestContentBytes,
+    maxContentBytes: config.ingest.maxContentBytes,
   });
   const retrieval = new RetrievalService(store, cache, models, config, safety);
   const reflection = new ReflectionService(store, ingestion, safety);
@@ -66,29 +66,29 @@ export async function createAppServices(): Promise<AppServices> {
   const maintenance = new MaintenanceService(store);
   const curation = new CurationService(store);
   const operations = new OperationsService(store, ingestion, {
-    backupDir: config.backupDir,
-    storeKind: config.store,
+    backupDir: config.backup.dir,
+    storeKind: config.storage.store,
     metadata: {
       appVersion: process.env.npm_package_version ?? '0.1.0',
       appCommit: process.env.TUBEROSA_APP_COMMIT || process.env.GIT_COMMIT || undefined,
       schemaVersion: CURRENT_SCHEMA_VERSION,
-      embeddingDimensions: config.embeddingDimensions,
-      modelProvider: config.modelProvider,
-      embeddingModel: config.openAiEmbeddingModel,
+      embeddingDimensions: config.model.embeddingDimensions,
+      modelProvider: config.model.provider,
+      embeddingModel: config.model.openAiEmbeddingModel,
     },
     schedule: {
-      enabled: config.backupIntervalSeconds > 0,
-      intervalSeconds: config.backupIntervalSeconds,
-      startupDelaySeconds: config.backupStartupDelaySeconds,
-      retentionCount: config.backupRetentionCount,
-      retentionMaxAgeDays: config.backupRetentionMaxAgeDays,
-      writeThroughEnabled: config.backupWriteThrough,
-      writeThroughThrottleSeconds: config.backupWriteThroughThrottleSeconds,
+      enabled: config.backup.intervalSeconds > 0,
+      intervalSeconds: config.backup.intervalSeconds,
+      startupDelaySeconds: config.backup.startupDelaySeconds,
+      retentionCount: config.backup.retentionCount,
+      retentionMaxAgeDays: config.backup.retentionMaxAgeDays,
+      writeThroughEnabled: config.backup.writeThrough,
+      writeThroughThrottleSeconds: config.backup.writeThroughThrottleSeconds,
     },
     physicalMirror: {
-      enabled: config.physicalMirrorEnabled,
-      dir: config.physicalMirrorDir,
-      debounceMs: config.physicalMirrorDebounceMs,
+      enabled: config.mirror.enabled,
+      dir: config.mirror.dir,
+      debounceMs: config.mirror.debounceMs,
     },
   });
 
@@ -115,11 +115,11 @@ export async function createAppServices(): Promise<AppServices> {
 }
 
 async function migrateStoreIfNeeded(config: AppConfig): Promise<void> {
-  if (config.store !== 'postgres' || !config.autoMigrate) {
+  if (config.storage.store !== 'postgres' || !config.storage.autoMigrate) {
     return;
   }
 
-  const pool = new Pool({ connectionString: config.databaseUrl });
+  const pool = new Pool({ connectionString: config.storage.databaseUrl });
   try {
     await runMigrations(pool, {
       onApplied: (file) => {

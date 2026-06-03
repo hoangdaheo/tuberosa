@@ -71,7 +71,7 @@ test('recordFeedback fan-out rolls back all learning writes when one proposal th
 
   const store = new FlakyStore();
   const cache = new MemoryCache();
-  const provider = new HashModelProvider(loadConfig().embeddingDimensions);
+  const provider = new HashModelProvider(loadConfig().model.embeddingDimensions);
   const retrieval = new RetrievalService(store, cache, provider, loadConfig());
 
   // 'rejected' feedback over two knowledge ids => two createLearningProposal calls.

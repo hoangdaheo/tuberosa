@@ -161,18 +161,18 @@ function createRoutes(): HttpRoute[] {
       handle: ({ services }) => ({
         ok: true,
         service: 'tuberosa',
-        store: services.config.store,
-        durability: services.config.store === 'postgres' ? 'persistent' : 'ephemeral',
-        backupDir: services.config.backupDir,
-        cache: services.config.cache,
-        modelProvider: services.config.modelProvider,
+        store: services.config.storage.store,
+        durability: services.config.storage.store === 'postgres' ? 'persistent' : 'ephemeral',
+        backupDir: services.config.backup.dir,
+        cache: services.config.storage.cache,
+        modelProvider: services.config.model.provider,
       }),
     },
     {
       method: 'POST',
       match: exactPath('/context/search'),
       handle: async ({ services, request }) => {
-        const body = validateContextSearchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateContextSearchInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const pack = await services.retrieval.searchContext(body);
         services.operations.requestPhysicalMirror('context-searched');
         return pack;
@@ -199,7 +199,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/context/feedback'),
       handle: async ({ services, request }) => {
-        const body = validateFeedbackInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateFeedbackInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const result = await services.retrieval.recordFeedback(body);
         services.operations.requestPhysicalMirror('context-feedback-recorded');
         return result;
@@ -224,8 +224,8 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/user-style-atoms'),
       handle: async ({ services, request }) => {
-        const body = await readJsonBody<Record<string, unknown>>(request, services.config.maxRequestBytes);
-        const userId = (typeof body.userId === 'string' && body.userId) || services.config.userId;
+        const body = await readJsonBody<Record<string, unknown>>(request, services.config.http.maxRequestBytes);
+        const userId = (typeof body.userId === 'string' && body.userId) || services.config.userStyle.userId;
         if (!userId) {
           throw new ValidationError('userId required (set TUBEROSA_USER_ID or include in body).');
         }
@@ -257,7 +257,7 @@ function createRoutes(): HttpRoute[] {
       method: 'GET',
       match: exactPath('/user-style-atoms'),
       handle: async ({ services, url }) => {
-        const userId = url.searchParams.get('userId') ?? services.config.userId;
+        const userId = url.searchParams.get('userId') ?? services.config.userStyle.userId;
         if (!userId) {
           throw new ValidationError('userId query parameter required (or set TUBEROSA_USER_ID).');
         }
@@ -274,7 +274,7 @@ function createRoutes(): HttpRoute[] {
       method: 'PATCH',
       match: pathPattern(/^\/user-style-atoms\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const patch = await readJsonBody<Record<string, unknown>>(request, services.config.maxRequestBytes);
+        const patch = await readJsonBody<Record<string, unknown>>(request, services.config.http.maxRequestBytes);
         const existing = await services.store.getAtom(params.id!);
         if (!existing || existing.scope !== 'user') {
           throw new NotFoundError('User-style atom not found.');
@@ -332,7 +332,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/atom-graph/impact'),
       handle: async ({ services, request }) => {
-        const body = await readJsonBody(request, services.config.maxRequestBytes);
+        const body = await readJsonBody(request, services.config.http.maxRequestBytes);
         if (!body || typeof body !== 'object' || Array.isArray(body)) {
           throw new ValidationError('Request body must be a JSON object.');
         }
@@ -354,7 +354,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/agent-sessions'),
       handle: async ({ services, request }) => {
-        const body = validateStartAgentSessionInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateStartAgentSessionInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const result = await services.agentSessions.startSession(body);
         services.operations.requestPhysicalMirror('agent-session-started');
         return result;
@@ -390,7 +390,7 @@ function createRoutes(): HttpRoute[] {
       match: pathPattern(/^\/agent-sessions\/([^/]+)\/context-decision$/, ['id']),
       handle: async ({ services, request, params }) => {
         const body = validateRecordAgentContextDecisionInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
           params.id!,
         );
         const result = await services.agentSessions.recordContextDecision(body);
@@ -403,7 +403,7 @@ function createRoutes(): HttpRoute[] {
       match: pathPattern(/^\/agent-sessions\/([^/]+)\/learning-signals$/, ['id']),
       handle: async ({ services, request, params }) => {
         const body = validateCaptureAgentLearningSignalInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
           params.id!,
         );
         const result = await services.agentSessions.captureLearningSignal(body);
@@ -416,7 +416,7 @@ function createRoutes(): HttpRoute[] {
       match: pathPattern(/^\/agent-sessions\/([^/]+)\/finish$/, ['id']),
       handle: async ({ services, request, params }) => {
         const body = validateFinishAgentSessionInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
           params.id!,
         );
         const result = await services.agentSessions.finishSession(body);
@@ -429,7 +429,7 @@ function createRoutes(): HttpRoute[] {
       match: pathPattern(/^\/agent-sessions\/([^/]+)\/notes$/, ['id']),
       handle: async ({ services, request, params }) => {
         const body = validateAppendAgentSessionNoteInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
           params.id!,
         );
         const result = await services.agentSessions.appendSessionNote(body);
@@ -441,7 +441,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/ingest/files'),
       handle: async ({ services, request }) => {
-        const body = validateIngestFilesRequest(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateIngestFilesRequest(await readJsonBody(request, services.config.http.maxRequestBytes));
         const result = await services.ingestion.ingestFiles(body.project, body.files, { mode: body.mode });
         if (body.files.length > 1) {
           services.operations.requestWriteThroughBackup('bulk-ingest-files');
@@ -454,7 +454,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/knowledge'),
       handle: async ({ services, request }) => {
-        const body = validateKnowledgeInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateKnowledgeInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const knowledge = await services.ingestion.ingestKnowledge(body);
         services.operations.requestPhysicalMirror('knowledge-ingested');
         return knowledge;
@@ -487,7 +487,7 @@ function createRoutes(): HttpRoute[] {
       method: 'PATCH',
       match: pathPattern(/^\/knowledge\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const body = validateKnowledgePatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateKnowledgePatchInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const knowledge = await services.operations.updateKnowledge(params.id!, body);
         if (!knowledge) {
           throw new NotFoundError('Knowledge item not found.');
@@ -513,7 +513,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/relations'),
       handle: async ({ services, request }) => {
-        const body = validateKnowledgeRelationInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateKnowledgeRelationInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         return services.operations.createKnowledgeRelation(body);
       },
     },
@@ -533,7 +533,7 @@ function createRoutes(): HttpRoute[] {
       method: 'PATCH',
       match: pathPattern(/^\/operations\/relations\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const body = validateKnowledgeRelationPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateKnowledgeRelationPatchInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const relation = await services.operations.updateKnowledgeRelation(params.id!, body);
         if (!relation) {
           throw new NotFoundError('Knowledge relation not found.');
@@ -563,7 +563,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/import-pack'),
       handle: async ({ services, request }) => {
-        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+        const body = (await readJsonBody(request, services.config.http.maxRequestBytes)) as {
           from?: unknown; project?: unknown; dryRun?: unknown; onConflict?: unknown;
         };
         if (typeof body.from !== 'string' || body.from.length === 0) {
@@ -572,7 +572,7 @@ function createRoutes(): HttpRoute[] {
         let safeFrom: string;
         try {
           const { assertSafeBundlePath } = await import('../security/safe-paths.js');
-          safeFrom = await assertSafeBundlePath(services.config.importBaseDir, body.from);
+          safeFrom = await assertSafeBundlePath(services.config.backup.importBaseDir, body.from);
         } catch (err) {
           throw new ValidationError((err as Error).message);
         }
@@ -589,7 +589,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/export-pack'),
       handle: async ({ services, request }) => {
-        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+        const body = (await readJsonBody(request, services.config.http.maxRequestBytes)) as {
           project?: unknown; out?: unknown; includeChunks?: unknown; includeArchived?: unknown;
         };
         if (typeof body.project !== 'string' || typeof body.out !== 'string') {
@@ -598,7 +598,7 @@ function createRoutes(): HttpRoute[] {
         let safeOut: string;
         try {
           const { assertSafeBundlePath } = await import('../security/safe-paths.js');
-          safeOut = await assertSafeBundlePath(services.config.exportBaseDir, body.out);
+          safeOut = await assertSafeBundlePath(services.config.backup.exportBaseDir, body.out);
         } catch (err) {
           throw new ValidationError((err as Error).message);
         }
@@ -633,7 +633,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: pathPattern(/^\/operations\/atom-import-conflicts\/([^/]+)\/resolve$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const body = (await readJsonBody(request, services.config.maxRequestBytes)) as {
+        const body = (await readJsonBody(request, services.config.http.maxRequestBytes)) as {
           action?: unknown; mergedSnapshot?: unknown; notes?: unknown;
         };
         const action = body.action;
@@ -667,7 +667,7 @@ function createRoutes(): HttpRoute[] {
       method: 'PATCH',
       match: pathPattern(/^\/operations\/conflicts\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const body = validateKnowledgeConflictPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateKnowledgeConflictPatchInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const conflict = await services.operations.updateKnowledgeConflict(params.id!, body);
         if (!conflict) {
           throw new NotFoundError('Knowledge conflict not found.');
@@ -685,7 +685,7 @@ function createRoutes(): HttpRoute[] {
       method: 'PATCH',
       match: pathPattern(/^\/operations\/knowledge-gaps\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const body = validateKnowledgeGapPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateKnowledgeGapPatchInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const gap = await services.operations.updateKnowledgeGap(params.id!, body);
         if (!gap) {
           throw new NotFoundError('Knowledge gap not found.');
@@ -703,7 +703,7 @@ function createRoutes(): HttpRoute[] {
       method: 'PATCH',
       match: pathPattern(/^\/operations\/learning-proposals\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const body = validateLearningProposalPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateLearningProposalPatchInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const proposal = await services.operations.updateLearningProposal(params.id!, body);
         if (!proposal) {
           throw new NotFoundError('Learning proposal not found.');
@@ -760,7 +760,7 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/operations/maintenance/preview'),
       handle: async ({ services, request }) => {
         const body = validateMaintenanceProposeInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
         );
         return services.maintenance.propose(body);
       },
@@ -770,7 +770,7 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/operations/maintenance/apply'),
       handle: async ({ services, request }) => {
         const body = validateMaintenanceApplyInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
         );
         const result = await services.maintenance.apply(body);
         services.operations.requestPhysicalMirror('maintenance-applied');
@@ -789,7 +789,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/error-logs'),
       handle: async ({ services, request }) => {
-        const body = validateErrorLogInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateErrorLogInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         return services.errorLogs.recordLog(body);
       },
     },
@@ -808,7 +808,7 @@ function createRoutes(): HttpRoute[] {
       match: exactPath('/operations/error-logs/reflection-drafts'),
       handle: async ({ services, request }) => {
         const body = validateCreateErrorLogReflectionDraftInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
         );
         const result = await services.errorLogInsights.createReflectionDraft(body);
         services.operations.requestPhysicalMirror('error-log-reflection-created');
@@ -820,7 +820,7 @@ function createRoutes(): HttpRoute[] {
       match: pathPattern(/^\/operations\/error-logs\/([^/]+)\/resolve$/, ['id']),
       handle: async ({ services, request, params }) => {
         const body = validateResolveErrorLogInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
           params.id!,
         );
         const result = await services.errorLogInsights.resolve(body);
@@ -847,7 +847,7 @@ function createRoutes(): HttpRoute[] {
       method: 'PATCH',
       match: pathPattern(/^\/operations\/error-logs\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const body = validateErrorLogPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateErrorLogPatchInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const log = await services.errorLogs.updateLog(params.id!, body);
         if (!log) {
           throw new NotFoundError('Error log not found.');
@@ -865,7 +865,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/reflection-drafts'),
       handle: async ({ services, request }) => {
-        const body = validateReflectionDraftInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateReflectionDraftInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const draft = await services.reflection.createDraft(body);
         services.operations.requestPhysicalMirror('reflection-created');
         return draft;
@@ -892,7 +892,7 @@ function createRoutes(): HttpRoute[] {
       method: 'PATCH',
       match: pathPattern(/^\/reflection-drafts\/([^/]+)$/, ['id']),
       handle: async ({ services, request, params }) => {
-        const body = validateReflectionDraftPatchInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateReflectionDraftPatchInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         const draft = await services.reflection.updateDraft(params.id!, body);
         if (!draft) {
           throw new NotFoundError('Reflection draft not found.');
@@ -907,7 +907,7 @@ function createRoutes(): HttpRoute[] {
       match: pathPattern(/^\/reflection-drafts\/([^/]+)\/review$/, ['id']),
       handle: async ({ services, request, params }) => {
         const body = validateReflectionDraftReviewInput({
-          ...await readJsonBody(request, services.config.maxRequestBytes),
+          ...await readJsonBody(request, services.config.http.maxRequestBytes),
           id: params.id!,
         });
         const draft = await services.reflection.reviewDraft(body);
@@ -949,7 +949,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/import-files'),
       handle: async ({ services, request }) => {
-        const body = validateIngestFilesRequest(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateIngestFilesRequest(await readJsonBody(request, services.config.http.maxRequestBytes));
         return services.operations.importFiles(body);
       },
     },
@@ -957,7 +957,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/cleanup'),
       handle: async ({ services, request }) => {
-        const body = validateCleanupOperationsInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateCleanupOperationsInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         return services.operations.cleanup(body);
       },
     },
@@ -965,7 +965,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/backups'),
       handle: async ({ services, request }) => {
-        const body = validateCreateBackupInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateCreateBackupInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         return services.operations.createBackup(body);
       },
     },
@@ -983,7 +983,7 @@ function createRoutes(): HttpRoute[] {
       method: 'POST',
       match: exactPath('/operations/backups/prune'),
       handle: async ({ services, request }) => {
-        const body = validateBackupRetentionInput(await readJsonBody(request, services.config.maxRequestBytes));
+        const body = validateBackupRetentionInput(await readJsonBody(request, services.config.http.maxRequestBytes));
         return services.operations.pruneBackups(body);
       },
     },
@@ -997,7 +997,7 @@ function createRoutes(): HttpRoute[] {
       match: pathPattern(/^\/operations\/backups\/([^/]+)\/restore$/, ['id']),
       handle: async ({ services, request, params }) => {
         const body = validateRestoreBackupInput(
-          await readJsonBody(request, services.config.maxRequestBytes),
+          await readJsonBody(request, services.config.http.maxRequestBytes),
           params.id!,
         );
         return services.operations.restoreBackup(body);
@@ -1068,10 +1068,10 @@ export function isLoopbackRequest(request: IncomingMessage): boolean {
 
 export function isAuthorizedRequest(request: IncomingMessage, config: AppConfig): boolean {
   const provided = readProvidedApiKey(request);
-  if (config.apiKey) {
-    return Boolean(provided && secureEqual(provided, config.apiKey));
+  if (config.http.apiKey) {
+    return Boolean(provided && secureEqual(provided, config.http.apiKey));
   }
-  if (!config.requireApiKeyForNonLoopback) {
+  if (!config.http.requireApiKeyForNonLoopback) {
     return true;
   }
   return isLoopbackRequest(request);

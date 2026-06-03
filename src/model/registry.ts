@@ -77,9 +77,9 @@ export class ProviderRegistry implements ModelProvider {
  * Returns the underlying `ModelProvider` so callers don't need to import the registry type.
  */
 export function buildProviderRegistry(config: AppConfig): ModelProvider | null {
-  if (config.modelProvider !== 'local') return null;
+  if (config.model.provider !== 'local') return null;
 
-  const hash = new HashModelProvider(config.embeddingDimensions);
+  const hash = new HashModelProvider(config.model.embeddingDimensions);
   const registry = new ProviderRegistry(hash);
   registry.register(asCapabilityProvider({
     name: 'hash',
@@ -88,7 +88,7 @@ export function buildProviderRegistry(config: AppConfig): ModelProvider | null {
   }));
   registry.register(asCapabilityProvider({
     name: 'local-cross-encoder',
-    provider: new LocalCrossEncoderProvider({ embeddingDimensions: config.embeddingDimensions, fallback: hash }),
+    provider: new LocalCrossEncoderProvider({ embeddingDimensions: config.model.embeddingDimensions, fallback: hash }),
     capabilities: ['rerank'],
   }));
   return registry;
@@ -101,9 +101,9 @@ export function buildProviderRegistry(config: AppConfig): ModelProvider | null {
  * running Ollama server.
  */
 export function buildOllamaRegistry(config: AppConfig): ModelProvider | null {
-  if (config.modelProvider !== 'ollama') return null;
+  if (config.model.provider !== 'ollama') return null;
 
-  const hash = new HashModelProvider(config.embeddingDimensions);
+  const hash = new HashModelProvider(config.model.embeddingDimensions);
   const registry = new ProviderRegistry(hash);
   registry.register(asCapabilityProvider({
     name: 'hash',
@@ -113,10 +113,10 @@ export function buildOllamaRegistry(config: AppConfig): ModelProvider | null {
   registry.register(asCapabilityProvider({
     name: 'ollama-reranker',
     provider: new OllamaRerankProvider({
-      modelId: config.ollamaRerankModel,
-      ollamaUrl: config.ollamaUrl,
-      timeoutMs: config.ollamaTimeoutMs,
-      embeddingDimensions: config.embeddingDimensions,
+      modelId: config.model.ollamaRerankModel,
+      ollamaUrl: config.model.ollamaUrl,
+      timeoutMs: config.model.ollamaTimeoutMs,
+      embeddingDimensions: config.model.embeddingDimensions,
       fallback: hash,
     }),
     capabilities: ['rerank'],

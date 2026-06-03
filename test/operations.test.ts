@@ -1599,7 +1599,11 @@ function createTestServices(
   const curation = new CurationService(store);
 
   return {
-    config: { ...config, backupDir, physicalMirrorDir, physicalMirrorEnabled: Boolean(physicalMirrorDir) },
+    config: {
+      ...config,
+      backup: { ...config.backup, dir: backupDir },
+      mirror: { ...config.mirror, dir: physicalMirrorDir, enabled: Boolean(physicalMirrorDir) },
+    },
     store,
     cache,
     models,

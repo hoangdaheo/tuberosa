@@ -21,7 +21,7 @@ import type {
   SearchCandidate,
 } from '../src/types.js';
 
-const config = makeTestConfig({ worktreeEnabled: false });
+const config = makeTestConfig({ worktree: { enabled: false, maxFiles: 50, maxMtimeAgeHours: 72 } });
 
 class RecordingRewriteProvider extends HashModelProvider {
   readonly rewriteInputs: QueryRewriteInput[] = [];

@@ -8,8 +8,8 @@ test('loadConfig defaults exportBaseDir under data dir', () => {
   delete process.env.TUBEROSA_IMPORT_BASE_DIR;
   try {
     const config = loadConfig();
-    equal(config.exportBaseDir, '.tuberosa/exports');
-    equal(config.importBaseDir, '.tuberosa/imports');
+    equal(config.backup.exportBaseDir, '.tuberosa/exports');
+    equal(config.backup.importBaseDir, '.tuberosa/imports');
   } finally {
     process.env = prev;
   }
@@ -21,8 +21,8 @@ test('loadConfig honors TUBEROSA_EXPORT_BASE_DIR / IMPORT_BASE_DIR overrides', (
   process.env.TUBEROSA_IMPORT_BASE_DIR = '/tmp/imp';
   try {
     const config = loadConfig();
-    equal(config.exportBaseDir, '/tmp/exp');
-    equal(config.importBaseDir, '/tmp/imp');
+    equal(config.backup.exportBaseDir, '/tmp/exp');
+    equal(config.backup.importBaseDir, '/tmp/imp');
   } finally {
     process.env = prev;
   }

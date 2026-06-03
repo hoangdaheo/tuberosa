@@ -101,7 +101,7 @@ function createTestServices(): AppServices {
   const sessionReplay = new SessionReplayService(store);
   const agentSessions = new AgentSessionService(store, retrieval, reflection, models, sessionReplay, config);
   const operations = new OperationsService(store, ingestion);
-  const errorLogs = new ErrorLogService({ rootDir: config.errorLogDir, safety });
+  const errorLogs = new ErrorLogService({ rootDir: config.errorLog.dir, safety });
   const errorLogInsights = new ErrorLogInsightService(errorLogs, reflection);
   const maintenance = new MaintenanceService(store);
   const curation = new CurationService(store);

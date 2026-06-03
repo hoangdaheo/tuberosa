@@ -13,7 +13,7 @@ test('finishSession: user_preference learning signal becomes a draft user-style 
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
-  const config = makeTestConfig({ userId: 'alice@example.com', userStyleEnabled: true });
+  const config = makeTestConfig({ userStyle: { userId: 'alice@example.com', enabled: true } });
   const retrieval = new RetrievalService(store, cache, models, config);
   const ingestion = new IngestionService(store, models);
   const reflection = new ReflectionService(store, ingestion);
@@ -46,7 +46,7 @@ test('finishSession: skips routing when TUBEROSA_USER_ID is unset', async () => 
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
-  const config = makeTestConfig({ userId: undefined, userStyleEnabled: true });
+  const config = makeTestConfig({ userStyle: { userId: undefined, enabled: true } });
   const retrieval = new RetrievalService(store, cache, models, config);
   const ingestion = new IngestionService(store, models);
   const reflection = new ReflectionService(store, ingestion);

@@ -10,7 +10,7 @@ import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import { makeTestConfig } from './support/test-config.js';
 import { validateFinishAgentSessionInput } from '../src/validation.js';
 
-const config = makeTestConfig({ contextCacheTtlSeconds: 0 });
+const config = makeTestConfig({ context: { cacheTtlSeconds: 0 } });
 
 test('finish-session validation rejects oversized research traces', () => {
   throws(() => validateFinishAgentSessionInput({

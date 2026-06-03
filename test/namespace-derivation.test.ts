@@ -23,7 +23,7 @@ import type {
   StoredKnowledge,
 } from '../src/types.js';
 
-const config = makeTestConfig({ contextCacheTtlSeconds: 0, worktreeEnabled: false });
+const config = makeTestConfig({ context: { cacheTtlSeconds: 0 }, worktree: { enabled: false, maxFiles: 50, maxMtimeAgeHours: 72 } });
 
 function ingestionFor(store: MemoryKnowledgeStore) {
   return new IngestionService(store, new HashModelProvider(1536));

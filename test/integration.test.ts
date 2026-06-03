@@ -463,7 +463,8 @@ test('Redis cache stores, reads, and deletes JSON when Docker is available', asy
     return;
   }
 
-  const cache = await createCache({ ...testConfig(), cache: 'redis', redisUrl: REDIS_URL });
+  const base = testConfig();
+  const cache = await createCache({ ...base, storage: { ...base.storage, cache: 'redis', redisUrl: REDIS_URL } });
   const key = `integration:${randomUUID()}`;
 
   try {
@@ -479,10 +480,14 @@ test('Redis cache stores, reads, and deletes JSON when Docker is available', asy
 
 function testConfig() {
   return makeTestConfig({
-    databaseUrl: POSTGRES_URL,
-    redisUrl: REDIS_URL,
-    store: 'postgres',
-    contextCacheTtlSeconds: 0,
+    storage: {
+      store: 'postgres',
+      cache: 'memory',
+      databaseUrl: POSTGRES_URL,
+      redisUrl: REDIS_URL,
+      autoMigrate: false,
+    },
+    context: { cacheTtlSeconds: 0 },
   });
 }
 

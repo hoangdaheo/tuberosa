@@ -19,7 +19,7 @@ import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import { makeTestConfig } from './support/test-config.js';
 import type { ClassifiedQuery, ContextPack, RankedCandidate } from '../src/types.js';
 
-const config = makeTestConfig({ contextCacheTtlSeconds: 0 });
+const config = makeTestConfig({ context: { cacheTtlSeconds: 0 } });
 
 test('retrieval evaluation fixture produces passing quality metrics', async () => {
   const fixturePath = fileURLToPath(new URL('../eval/retrieval-fixtures.json', import.meta.url));

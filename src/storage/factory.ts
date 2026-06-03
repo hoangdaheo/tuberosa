@@ -4,9 +4,9 @@ import { PostgresKnowledgeStore } from './postgres-store.js';
 import type { KnowledgeStore } from './store.js';
 
 export function createKnowledgeStore(config: AppConfig): KnowledgeStore {
-  if (config.store === 'memory') {
+  if (config.storage.store === 'memory') {
     return new MemoryKnowledgeStore();
   }
 
-  return new PostgresKnowledgeStore(config.databaseUrl);
+  return new PostgresKnowledgeStore(config.storage.databaseUrl);
 }

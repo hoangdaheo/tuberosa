@@ -21,15 +21,15 @@ export async function makeBootstrapService(): Promise<BootstrapServiceLike> {
   const safety = new KnowledgeSafetyService();
   const ingestion = new IngestionService(store, models, {
     safety,
-    maxContentBytes: config.maxIngestContentBytes,
+    maxContentBytes: config.ingest.maxContentBytes,
   });
-  const atlas = new AtlasService(store, { atlasDir: config.atlasDir ?? '.tuberosa/atlas' });
+  const atlas = new AtlasService(store, { atlasDir: config.atlas.dir ?? '.tuberosa/atlas' });
   const sync = new SourceSyncService({ store, ingestion, atlasAutoRegen: false });
   return new BootstrapService({
     store,
     sync,
     atlas,
     maintenance: new MaintenanceService(store),
-    exportBaseDir: config.exportBaseDir,
+    exportBaseDir: config.backup.exportBaseDir,
   });
 }

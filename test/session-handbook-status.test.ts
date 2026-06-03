@@ -13,7 +13,7 @@ test('startSession: reports handbook.exists when a matching convention surfaces'
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
-  const config = makeTestConfig({ teamId: 'team-acme' });
+  const config = makeTestConfig({ userStyle: { teamId: 'team-acme' } });
 
   const claim = 'Refactors in this project must keep public exports backward-compatible.';
   await store.createAtom({
@@ -45,7 +45,7 @@ test('startSession: reports handbook absence with a bootstrap suggestion when no
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
-  const config = makeTestConfig({ teamId: 'team-acme' });
+  const config = makeTestConfig({ userStyle: { teamId: 'team-acme' } });
 
   const retrieval = new RetrievalService(store, cache, models, config);
   const ingestion = new IngestionService(store, models);

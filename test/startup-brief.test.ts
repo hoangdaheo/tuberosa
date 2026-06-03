@@ -10,7 +10,7 @@ import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import { makeTestConfig } from './support/test-config.js';
 
-const config = makeTestConfig({ contextCacheTtlSeconds: 0 });
+const config = makeTestConfig({ context: { cacheTtlSeconds: 0 } });
 
 test('startup brief proceeds and recommends reading current worktree handoff first', async () => {
   const sandbox = createSandbox();

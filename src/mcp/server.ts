@@ -416,7 +416,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       const project = readRequiredMcpString(args.project, 'tuberosa_export_pack arguments.project');
       const outRaw = readRequiredMcpString(args.out, 'tuberosa_export_pack arguments.out');
       const { assertSafeBundlePath } = await import('../security/safe-paths.js');
-      const out = await assertSafeBundlePath(services.config.exportBaseDir, outRaw);
+      const out = await assertSafeBundlePath(services.config.backup.exportBaseDir, outRaw);
       const { exportPack } = await import('../export/exporter.js');
       const report = await exportPack(services.store, {
         project,
@@ -431,7 +431,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       const fromRaw = readRequiredMcpString(args.from, 'tuberosa_import_pack arguments.from');
       const project = typeof args.project === 'string' ? args.project : undefined;
       const { assertSafeBundlePath } = await import('../security/safe-paths.js');
-      const from = await assertSafeBundlePath(services.config.importBaseDir, fromRaw);
+      const from = await assertSafeBundlePath(services.config.backup.importBaseDir, fromRaw);
       const { importPack } = await import('../export/importer.js');
       const report = await importPack(services.store, {
         from,
@@ -485,7 +485,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
 
     case 'tuberosa_record_user_style': {
       const userId = readOptionalMcpString(args.userId, 'tuberosa_record_user_style arguments.userId')
-        ?? services.config.userId;
+        ?? services.config.userStyle.userId;
       if (!userId) {
         throw new ValidationError('userId required (set TUBEROSA_USER_ID or include in arguments).');
       }
@@ -519,7 +519,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
 
     case 'tuberosa_list_user_style': {
       const userId = readOptionalMcpString(args.userId, 'tuberosa_list_user_style arguments.userId')
-        ?? services.config.userId;
+        ?? services.config.userStyle.userId;
       if (!userId) {
         throw new ValidationError('userId required (set TUBEROSA_USER_ID or include in arguments).');
       }
@@ -563,7 +563,7 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
       const project = readRequiredMcpString(args.project, 'tuberosa_get_atlas arguments.project');
       const file = readOptionalMcpString(args.file, 'tuberosa_get_atlas arguments.file');
       const repoPath = services.config.defaultCwd ?? process.cwd();
-      const atlas = new AtlasService(services.store, { atlasDir: services.config.atlasDir ?? '.tuberosa/atlas' });
+      const atlas = new AtlasService(services.store, { atlasDir: services.config.atlas.dir ?? '.tuberosa/atlas' });
       const result = await atlas.regenerate({
         project,
         repoPath,
@@ -808,7 +808,7 @@ async function readResource(services: AppServices, params: Record<string, unknow
     }
     const project = rest.slice(0, slash);
     const file = rest.slice(slash + 1);
-    const atlas = new AtlasService(services.store, { atlasDir: services.config.atlasDir ?? '.tuberosa/atlas' });
+    const atlas = new AtlasService(services.store, { atlasDir: services.config.atlas.dir ?? '.tuberosa/atlas' });
     const result = await atlas.regenerate({
       project,
       repoPath: services.config.defaultCwd ?? process.cwd(),

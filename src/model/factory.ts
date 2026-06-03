@@ -3,19 +3,19 @@ import { HashModelProvider, OpenAiModelProvider, type ModelProvider } from './pr
 import { buildOllamaRegistry, buildProviderRegistry } from './registry.js';
 
 export function createModelProvider(config: AppConfig): ModelProvider {
-  if (config.modelProvider === 'openai' && config.openAiApiKey) {
+  if (config.model.provider === 'openai' && config.model.openAiApiKey) {
     return new OpenAiModelProvider(config);
   }
 
-  if (config.modelProvider === 'local') {
+  if (config.model.provider === 'local') {
     const registry = buildProviderRegistry(config);
     if (registry) return registry;
   }
 
-  if (config.modelProvider === 'ollama') {
+  if (config.model.provider === 'ollama') {
     const registry = buildOllamaRegistry(config);
     if (registry) return registry;
   }
 
-  return new HashModelProvider(config.embeddingDimensions);
+  return new HashModelProvider(config.model.embeddingDimensions);
 }

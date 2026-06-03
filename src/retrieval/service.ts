@@ -128,10 +128,10 @@ export class RetrievalService {
     this.worktreeProvider = worktreeProvider
       ?? new WorktreeProvider(
         {
-          enabled: config.worktreeEnabled,
-          maxFiles: config.worktreeMaxFiles,
-          maxMtimeAgeHours: config.worktreeMaxMtimeAgeHours,
-          maxIngestContentBytes: config.maxIngestContentBytes,
+          enabled: config.worktree.enabled,
+          maxFiles: config.worktree.maxFiles,
+          maxMtimeAgeHours: config.worktree.maxMtimeAgeHours,
+          maxIngestContentBytes: config.ingest.maxContentBytes,
         },
         safety,
       );
@@ -666,7 +666,7 @@ export class RetrievalService {
     classified: ClassifiedQuery,
     options: SearchOptions,
   ): Promise<SearchCandidate[]> {
-    if (!this.config.userId || this.config.userStyleEnabled === false) return [];
+    if (!this.config.userStyle.userId || this.config.userStyle.enabled === false) return [];
     const trigger = {
       errors: classified.errors,
       files: classified.files,
@@ -684,7 +684,7 @@ export class RetrievalService {
     const atoms = await this.store.searchAtomsByTrigger(trigger, {
       project: undefined,
       scope: 'user',
-      userId: this.config.userId,
+      userId: this.config.userStyle.userId,
       limit: options.limit,
     });
     const rejected = new Set(options.rejectedKnowledgeIds ?? []);
@@ -705,7 +705,7 @@ export class RetrievalService {
     options: SearchOptions,
     project?: string,
   ): Promise<SearchCandidate[]> {
-    if (this.config.conventionsEnabled === false) return [];
+    if (this.config.userStyle.conventionsEnabled === false) return [];
     const trigger = {
       errors: classified.errors,
       files: classified.files,
@@ -722,7 +722,7 @@ export class RetrievalService {
       this.store.searchAtomsByTrigger(trigger, {
         project: undefined,
         scope: 'team',
-        teamId: this.config.teamId,
+        teamId: this.config.userStyle.teamId,
         limit: options.limit,
       }),
       this.store.searchAtomsByTrigger(trigger, {
@@ -1192,7 +1192,7 @@ export class RetrievalService {
     const compactPack = stripDebugTrace(pack);
     await timed(
       'save',
-      saveCompactContextPack(this.store, this.cache, cacheKey, compactPack, this.config.contextCacheTtlSeconds),
+      saveCompactContextPack(this.store, this.cache, cacheKey, compactPack, this.config.context.cacheTtlSeconds),
       debug,
     );
   }
@@ -1773,9 +1773,9 @@ function normalizeSearchInput(input: ContextSearchInput, config: AppConfig): Nor
   return {
     ...input,
     tokenBudget: input.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-    contextMode: input.contextMode ?? config.contextMode ?? 'layered',
+    contextMode: input.contextMode ?? config.context.mode ?? 'layered',
     noiseTolerance: input.noiseTolerance ?? 'balanced',
-    deepContextBudget: normalizeDeepContextBudget(input.deepContextBudget ?? config.deepContextBudget),
+    deepContextBudget: normalizeDeepContextBudget(input.deepContextBudget ?? config.context.deepContextBudget),
     rejectedKnowledgeIds: input.rejectedKnowledgeIds ?? [],
     debug: input.debug ?? false,
   };
@@ -1943,7 +1943,7 @@ function fingerprintSearch(
     lexicalQuery: classified.lexicalQuery,
     exactTerms: classified.exactTerms,
     queryRewriteModel: rewrite?.model,
-    rerankModel: config.openAiRerankModel,
+    rerankModel: config.model.openAiRerankModel,
     policyFingerprint: getRetrievalPolicyFingerprint(),
     namespace: input.namespace ?? null,
   }));

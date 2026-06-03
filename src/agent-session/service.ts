@@ -61,9 +61,8 @@ export class AgentSessionService {
     private readonly models?: ModelProvider,
     private readonly replayService?: SessionReplayService,
     private readonly config: Pick<AppConfig, 'persistReplay'> & {
-      llmCriticEnabled?: boolean;
-      userId?: string;
-      userStyleEnabled?: boolean;
+      model?: { llmCriticEnabled?: boolean };
+      userStyle?: { userId?: string; enabled?: boolean };
     } = { persistReplay: false },
     private readonly cache?: Cache,
   ) {}
@@ -240,7 +239,7 @@ export class AgentSessionService {
     const project = session.project ?? 'unknown';
     const critic = new AtomCritic(this.store, this.models, {
       cache: this.cache,
-      llmCriticEnabled: this.config.llmCriticEnabled,
+      llmCriticEnabled: this.config.model?.llmCriticEnabled,
     });
     const extractor = new AtomExtractor(this.store, this.models, critic);
 
@@ -294,19 +293,19 @@ export class AgentSessionService {
     input: FinishAgentSessionInput,
     learningSignals: AgentLearningSignal[],
   ): Promise<void> {
-    if (!this.config.userId || this.config.userStyleEnabled === false) return;
+    if (!this.config.userStyle?.userId || this.config.userStyle?.enabled === false) return;
     if (!this.models) return;
     const signals = learningSignals.filter((s) => s.kind === 'user_preference');
     if (signals.length === 0) return;
 
     const critic = new AtomCritic(this.store, this.models, {
       cache: this.cache,
-      llmCriticEnabled: this.config.llmCriticEnabled,
+      llmCriticEnabled: this.config.model?.llmCriticEnabled,
     });
     for (const signal of signals) {
       try {
         await routeUserPreferenceSignal(this.store, critic, {
-          userId: this.config.userId,
+          userId: this.config.userStyle?.userId,
           sessionId: input.sessionId,
           signal: { text: signal.text },
         });

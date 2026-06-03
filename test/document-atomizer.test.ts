@@ -65,7 +65,7 @@ test('MarkdownAtomizer emits a breadcrumb on every atom', () => {
 test('parent-topic query retrieves the right atom via breadcrumb (not via body)', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
-  const provider = new HashModelProvider(config.embeddingDimensions);
+  const provider = new HashModelProvider(config.model.embeddingDimensions);
   const ingestion = new IngestionService(store, provider);
   const retrieval = new RetrievalService(store, cache, provider, config);
 

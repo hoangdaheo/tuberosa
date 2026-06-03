@@ -185,8 +185,8 @@ function createLocalErrorLogServices(): {
   const config = loadConfig();
   const safety = new KnowledgeSafetyService();
   const errorLogs = new ErrorLogService({
-    rootDir: config.errorLogDir,
-    maxBytes: config.errorLogMaxBytes,
+    rootDir: config.errorLog.dir,
+    maxBytes: config.errorLog.maxBytes,
     safety,
   });
 

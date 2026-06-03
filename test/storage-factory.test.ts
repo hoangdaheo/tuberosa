@@ -7,8 +7,10 @@ import { PostgresKnowledgeStore } from '../src/storage/postgres-store.js';
 
 function configFor(store: 'memory' | 'postgres'): AppConfig {
   return {
-    store,
-    databaseUrl: 'postgres://tuberosa:tuberosa@localhost:5432/tuberosa',
+    storage: {
+      store,
+      databaseUrl: 'postgres://tuberosa:tuberosa@localhost:5432/tuberosa',
+    },
   } as AppConfig;
 }
 

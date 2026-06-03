@@ -9,7 +9,7 @@ import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import { makeTestConfig } from './support/test-config.js';
 
-const config = makeTestConfig({ contextCacheTtlSeconds: 0 });
+const config = makeTestConfig({ context: { cacheTtlSeconds: 0 } });
 
 test('agent sessions start with context, record decisions, retry rejected context, and finish with a reflection draft', async () => {
   const { agentSessions, ingestion } = createTestServices();

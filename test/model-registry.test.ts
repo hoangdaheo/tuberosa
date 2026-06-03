@@ -3,22 +3,24 @@ import { equal, ok } from 'node:assert/strict';
 import type { AppConfig } from '../src/config.js';
 import { buildOllamaRegistry, buildProviderRegistry, ProviderRegistry } from '../src/model/registry.js';
 
-function baseConfig(overrides: Partial<AppConfig>): AppConfig {
+function baseConfig(modelOverrides: Partial<AppConfig['model']>): AppConfig {
   return {
-    modelProvider: 'hash',
-    embeddingDimensions: 1536,
-    ...overrides,
+    model: {
+      provider: 'hash',
+      embeddingDimensions: 1536,
+      ...modelOverrides,
+    },
   } as AppConfig;
 }
 
 test('buildProviderRegistry returns null when modelProvider is not local', () => {
-  equal(buildProviderRegistry(baseConfig({ modelProvider: 'hash' })), null);
-  equal(buildProviderRegistry(baseConfig({ modelProvider: 'openai' })), null);
-  equal(buildProviderRegistry(baseConfig({ modelProvider: 'ollama' })), null);
+  equal(buildProviderRegistry(baseConfig({ provider: 'hash' })), null);
+  equal(buildProviderRegistry(baseConfig({ provider: 'openai' })), null);
+  equal(buildProviderRegistry(baseConfig({ provider: 'ollama' })), null);
 });
 
 test('buildProviderRegistry composes hash + local cross-encoder when modelProvider=local', () => {
-  const registry = buildProviderRegistry(baseConfig({ modelProvider: 'local' }));
+  const registry = buildProviderRegistry(baseConfig({ provider: 'local' }));
   ok(registry instanceof ProviderRegistry, 'expected a ProviderRegistry instance');
   const description = (registry as ProviderRegistry).describe();
   const capabilities = new Map(description.map((entry) => [entry.capability, entry.providerName]));
@@ -28,14 +30,14 @@ test('buildProviderRegistry composes hash + local cross-encoder when modelProvid
 });
 
 test('buildOllamaRegistry returns null when modelProvider is not ollama', () => {
-  equal(buildOllamaRegistry(baseConfig({ modelProvider: 'hash' })), null);
-  equal(buildOllamaRegistry(baseConfig({ modelProvider: 'local' })), null);
-  equal(buildOllamaRegistry(baseConfig({ modelProvider: 'openai' })), null);
+  equal(buildOllamaRegistry(baseConfig({ provider: 'hash' })), null);
+  equal(buildOllamaRegistry(baseConfig({ provider: 'local' })), null);
+  equal(buildOllamaRegistry(baseConfig({ provider: 'openai' })), null);
 });
 
 test('buildOllamaRegistry composes hash + ollama rerank when modelProvider=ollama', () => {
   const registry = buildOllamaRegistry(baseConfig({
-    modelProvider: 'ollama',
+    provider: 'ollama',
     ollamaUrl: 'http://localhost:11434',
     ollamaRerankModel: 'qwen2.5:3b',
   }));

@@ -7,7 +7,7 @@ import { RetrievalService } from '../src/retrieval/service.js';
 import { makeTestConfig } from './support/test-config.js';
 
 function withTeamId(teamId: string) {
-  return makeTestConfig({ teamId });
+  return makeTestConfig({ userStyle: { teamId } });
 }
 
 test('searchContext: team convention atom surfaces cross-project via convention source', async () => {

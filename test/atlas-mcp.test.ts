@@ -12,7 +12,7 @@ async function atlasServices(): Promise<AppServices> {
   await store.upsertSourceFile({ project: 'p', path: 'src/a/x.ts', contentHash: 'h', status: 'tracked' });
   const atlasDir = await mkdtemp(join(tmpdir(), 'atlas-mcp-'));
   // The atlas tool + resource paths only touch services.store and services.config.
-  return { store, config: { atlasDir, defaultCwd: process.cwd() } } as unknown as AppServices;
+  return { store, config: { atlas: { dir: atlasDir }, defaultCwd: process.cwd() } } as unknown as AppServices;
 }
 
 function req(method: string, params: unknown) {

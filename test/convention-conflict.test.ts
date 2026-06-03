@@ -37,7 +37,7 @@ test('searchContext: team convention beats personal coding_preference (Team conv
     trigger: { intentTags: ['style'], symbols: ['export'] },
   });
 
-  const config = makeTestConfig({ teamId: 'team-acme', userId: 'alice@example.com', userStyleEnabled: true });
+  const config = makeTestConfig({ userStyle: { teamId: 'team-acme', userId: 'alice@example.com', enabled: true } });
   const service = new RetrievalService(store, new MemoryCache(), new HashModelProvider(), config);
 
   const pack = await service.searchContext({

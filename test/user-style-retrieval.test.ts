@@ -8,7 +8,7 @@ import { createUserStyleAtom } from '../src/user-style/store-helpers.js';
 import { makeTestConfig } from './support/test-config.js';
 
 function withUserId(userId: string | undefined) {
-  return makeTestConfig({ userId, userStyleEnabled: true });
+  return makeTestConfig({ userStyle: { userId, enabled: true } });
 }
 
 test('searchContext: matching user-style atom surfaces with userStyle: matchReason', async () => {

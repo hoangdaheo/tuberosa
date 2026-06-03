@@ -13,7 +13,7 @@ import type {
   ReflectionDraftInput,
 } from '../src/types.js';
 
-const config = makeTestConfig({ contextCacheTtlSeconds: 0, worktreeEnabled: false });
+const config = makeTestConfig({ context: { cacheTtlSeconds: 0 }, worktree: { enabled: false, maxFiles: 50, maxMtimeAgeHours: 72 } });
 void config;
 
 interface Phase10Fixture {

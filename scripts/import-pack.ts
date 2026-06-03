@@ -29,7 +29,7 @@ const report = await importPack(services.store, {
   onConflict: values['on-conflict'] === 'skip' ? 'skip' : 'review',
   preserveUserId: Boolean(values['preserve-user-id']),
   preservePriority: Boolean(values['preserve-priority']),
-  targetUserId: values['target-user-id'] ?? services.config.userId,
+  targetUserId: values['target-user-id'] ?? services.config.userStyle.userId,
 });
 console.log(JSON.stringify(report, null, 2));
 await services.close();
