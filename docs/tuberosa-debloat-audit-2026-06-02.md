@@ -165,12 +165,19 @@ through the critic's embed/dedup (not `extractAtoms`), so they *can* be created 
 
 ### Safe removals (low risk, verified)
 
-| Item | LOC | Evidence |
-|---|---|---|
-| `BootstrapService` | ~203 | never instantiated |
-| `organization-cli.ts` | ~140 | incomplete multi-user, out of scope |
-| `error-log/auto-capture.ts` | ~11 | stub |
-| Merge 3 eval fixture loaders → 1 | ~560 saved | duplicated parsing |
+> **CORRECTION (SP3 execution, 2026-06-03):** the three "safe removal" code items below were re-verified by grep across `bin/`, `scripts/`, and `test/` (not just `src/`) and are **all LIVE — none were removed**:
+> - `BootstrapService` is instantiated at `bin/commands/bootstrap-factory.ts:28`, wired into the `tuberosa bootstrap` CLI, and covered by 3 tests. (The original `grep "new BootstrapService" src` missed `bin/`.)
+> - `organization-cli.ts` is used by `scripts/organization.ts` (the `pnpm run organization` ops command) and `test/organization-cli.test.ts` — it is live ops machinery the owner chose to keep.
+> - `error-log/auto-capture.ts` is imported by `src/http/server.ts` and `src/mcp/server.ts` (`shouldAutoCapture`).
+>
+> Net code removed by SP3 item 5: **zero**. Only the eval-fixture-loader merge below is a real consolidation. Lesson: verify `bin/` + `scripts/` + `test/` before declaring code dead.
+
+| Item | LOC | Evidence | SP3 outcome |
+|---|---|---|---|
+| `BootstrapService` | ~203 | ~~never instantiated~~ | KEPT — live (bin CLI + 3 tests) |
+| `organization-cli.ts` | ~140 | ~~incomplete multi-user~~ | KEPT — live (`pnpm run organization` + test) |
+| `error-log/auto-capture.ts` | ~11 | ~~stub~~ | KEPT — imported by http + mcp servers |
+| Merge 3 eval fixture loaders → 1 | ~560 saved | duplicated parsing | planned (SP3 item 6) |
 
 ### Simplify (medium)
 
