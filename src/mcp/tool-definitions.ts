@@ -738,6 +738,9 @@ export function tools(): ToolEntry[] {
       },
     },
     {
+      // Intentionally distinct from tuberosa_list_error_logs: that returns a raw paginated
+      // list (errorLogs.listLogs); this returns analysis — agentBrief, rollups, and fingerprint
+      // clusters (errorLogInsights.collect). Different service + shape + workflow; do not merge.
       name: 'tuberosa_collect_error_logs',
       title: 'Collect Tuberosa Error Logs',
       description: 'Collect matching filesystem-backed error incidents into compact agent context, rollups, and fingerprint clusters.',
@@ -793,6 +796,9 @@ export function tools(): ToolEntry[] {
       },
     },
     {
+      // Intentionally distinct from tuberosa_atom_gate_stats: that reports windowed gate
+      // telemetry (computeAtomGateStats); this reports relations-per-atom graph density
+      // (computeAtomGraphDensity). Different computation and inputs; do not merge.
       name: 'tuberosa_atom_graph_density',
       title: 'Inspect Tuberosa Atom Graph Density',
       description: 'Per-project atom graph density: atom count, edge count, edges per atom, edges by kind and by inference source.',
