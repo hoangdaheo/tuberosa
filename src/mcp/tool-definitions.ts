@@ -14,6 +14,16 @@ import {
   TRIGGER_TYPES,
 } from '../validation.js';
 
+export type ToolCategory = 'core' | 'admin-ops' | 'diagnostics';
+
+export interface ToolEntry {
+  name: string;
+  title: string;
+  description: string;
+  inputSchema: object;
+  category: ToolCategory;
+}
+
 function learningSignalSchema() {
   return {
     type: 'object',
@@ -32,12 +42,14 @@ function learningSignalSchema() {
   };
 }
 
-export function tools() {
+export function tools(): ToolEntry[] {
   return [
+    // --- core: agent-facing retrieval / session / learning ---
     {
       name: 'tuberosa_search_context',
       title: 'Search Tuberosa Context',
       description: 'Classify a user task and return a ranked context shortlist with provenance and confidence. For prompts >6000 tokens, the response surfaces `taskBrief.followUpSearches` (sub-tasks) — call this tool again with each sub-task as the prompt when you reach that step.',
+      category: 'core',
       inputSchema: {
         type: 'object',
         required: ['prompt'],
@@ -75,21 +87,10 @@ export function tools() {
       },
     },
     {
-      name: 'tuberosa_get_context_pack',
-      title: 'Get Tuberosa Context Pack',
-      description: 'Read a selected context pack by id.',
-      inputSchema: {
-        type: 'object',
-        required: ['contextPackId'],
-        properties: {
-          contextPackId: { type: 'string' },
-        },
-      },
-    },
-    {
       name: 'tuberosa_start_session',
       title: 'Start Tuberosa Agent Session',
       description: 'Create an agent session and return the initial context shortlist plus fit policy.',
+      category: 'core',
       inputSchema: {
         type: 'object',
         required: ['prompt'],
@@ -133,6 +134,7 @@ export function tools() {
       name: 'tuberosa_record_context_decision',
       title: 'Record Tuberosa Session Context Decision',
       description: 'Record selected, rejected, stale, irrelevant, or missing context for an agent session.',
+      category: 'core',
       inputSchema: {
         type: 'object',
         required: ['sessionId', 'feedbackType'],
@@ -150,6 +152,7 @@ export function tools() {
       name: 'tuberosa_finish_session',
       title: 'Finish Tuberosa Agent Session',
       description: 'Finish an agent session and create automatic learning unless disabled or replaced by an explicit reflection draft.',
+      category: 'core',
       inputSchema: {
         type: 'object',
         required: ['sessionId', 'outcome'],
@@ -217,9 +220,96 @@ export function tools() {
       },
     },
     {
+      name: 'tuberosa_append_session_note',
+      title: 'Append Tuberosa Agent Session Note',
+      description: 'Append a post-finish note to an agent session. Optional feedbackType records context-quality feedback (selected_but_noisy, too_much_adjacent_context, missing_orientation, missing_current_handoff, missing_verification_commands) tied to the session for ranking and review.',
+      category: 'core',
+      inputSchema: {
+        type: 'object',
+        required: ['sessionId', 'note'],
+        properties: {
+          sessionId: { type: 'string' },
+          note: { type: 'string' },
+          author: { type: 'string' },
+          feedbackType: { type: 'string', enum: [...FEEDBACK_TYPES] },
+          contextPackId: { type: 'string' },
+          reason: { type: 'string' },
+          rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_get_context_pack',
+      title: 'Get Tuberosa Context Pack',
+      description: 'Read a selected context pack by id.',
+      category: 'core',
+      inputSchema: {
+        type: 'object',
+        required: ['contextPackId'],
+        properties: {
+          contextPackId: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_reflect',
+      title: 'Create Tuberosa Reflection Draft',
+      description: 'Create a reviewable learning draft after a complex task, correction, error recovery, or workflow discovery.',
+      category: 'core',
+      inputSchema: {
+        type: 'object',
+        required: ['title', 'summary', 'content', 'triggerType'],
+        properties: {
+          project: { type: 'string' },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          content: { type: 'string' },
+          itemType: { type: 'string', enum: [...KNOWLEDGE_ITEM_TYPES] },
+          triggerType: { type: 'string', enum: [...TRIGGER_TYPES] },
+          labels: { type: 'array', items: { type: 'object' } },
+          references: { type: 'array', items: { type: 'object' } },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_feedback_context',
+      title: 'Record Tuberosa Context Feedback',
+      description: 'Record whether a context pack was selected, rejected, stale, irrelevant, or missing important context.',
+      category: 'core',
+      inputSchema: {
+        type: 'object',
+        required: ['feedbackType'],
+        properties: {
+          contextPackId: { type: 'string' },
+          project: { type: 'string' },
+          feedbackType: { type: 'string', enum: [...FEEDBACK_TYPES] },
+          reason: { type: 'string' },
+          rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_collect_context_quality_feedback',
+      title: 'Collect Context Quality Feedback',
+      description: 'Collect noisy or missing-context feedback with linked packs, sessions, review records, and suggested actions.',
+      category: 'core',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          feedbackType: { type: 'string', enum: [...CONTEXT_QUALITY_FEEDBACK_TYPES] },
+          limit: { type: 'number' },
+        },
+      },
+    },
+    {
       name: 'tuberosa_capture_learning_signal',
       title: 'Capture Tuberosa Learning Signal',
       description: 'Capture a structured tip, decision, mistake, verification, file change, preference, or follow-up for an active agent session.',
+      category: 'core',
       inputSchema: {
         type: 'object',
         required: ['sessionId', 'kind', 'text'],
@@ -240,54 +330,48 @@ export function tools() {
       },
     },
     {
-      name: 'tuberosa_append_session_note',
-      title: 'Append Tuberosa Agent Session Note',
-      description: 'Append a post-finish note to an agent session. Optional feedbackType records context-quality feedback (selected_but_noisy, too_much_adjacent_context, missing_orientation, missing_current_handoff, missing_verification_commands) tied to the session for ranking and review.',
+      name: 'tuberosa_record_user_style',
+      title: 'Record User-Style Preference',
+      description: 'Record a cross-project personal style preference (scope=user atom). When userId is omitted, falls back to TUBEROSA_USER_ID.',
+      category: 'core',
       inputSchema: {
         type: 'object',
-        required: ['sessionId', 'note'],
+        required: ['claim', 'type', 'trigger'],
         properties: {
+          userId: { type: 'string', description: 'Defaults to TUBEROSA_USER_ID when set.' },
+          claim: { type: 'string' },
+          type: { type: 'string', enum: ['convention', 'gotcha', 'decision', 'fact'] },
+          priority: { type: 'string', enum: ['personal_workflow', 'coding_preference'], description: 'Defaults to coding_preference.' },
+          trigger: { type: 'object' },
+          evidence: { type: 'array' },
+          pitfalls: { type: 'array', items: { type: 'string' } },
           sessionId: { type: 'string' },
-          note: { type: 'string' },
-          author: { type: 'string' },
-          feedbackType: { type: 'string', enum: [...FEEDBACK_TYPES] },
-          contextPackId: { type: 'string' },
-          reason: { type: 'string' },
-          rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
-          metadata: { type: 'object' },
         },
       },
     },
     {
-      name: 'tuberosa_reflect',
-      title: 'Create Tuberosa Reflection Draft',
-      description: 'Create a reviewable learning draft after a complex task, correction, error recovery, or workflow discovery.',
+      name: 'tuberosa_list_user_style',
+      title: 'List User-Style Preferences',
+      description: 'List user-style atoms for the given user (or the configured TUBEROSA_USER_ID).',
+      category: 'core',
       inputSchema: {
         type: 'object',
-        required: ['title', 'summary', 'content', 'triggerType'],
         properties: {
-          project: { type: 'string' },
-          title: { type: 'string' },
-          summary: { type: 'string' },
-          content: { type: 'string' },
-          itemType: { type: 'string', enum: [...KNOWLEDGE_ITEM_TYPES] },
-          triggerType: { type: 'string', enum: [...TRIGGER_TYPES] },
-          labels: { type: 'array', items: { type: 'object' } },
-          references: { type: 'array', items: { type: 'object' } },
-          metadata: { type: 'object' },
+          userId: { type: 'string', description: 'Defaults to TUBEROSA_USER_ID when set.' },
         },
       },
     },
     {
-      name: 'tuberosa_propose_curation',
-      title: 'Propose Tuberosa Curation Clusters',
-      description: 'Cluster a project\'s un-curated knowledge atoms so the calling agent can distill each cluster into a single reusable convention via tuberosa_reflect. Deterministic clustering only — the distillation reasoning is the agent\'s.',
+      name: 'tuberosa_get_atlas',
+      title: 'Get Project Atlas',
+      description: 'Return the synthesized project atlas (project-map.md, flows.md, commands.md, risks.md, open-gaps.md, conventions.md) for first-time project understanding. Regenerated in-memory from current knowledge.',
+      category: 'core',
       inputSchema: {
         type: 'object',
         required: ['project'],
         properties: {
           project: { type: 'string' },
-          limit: { type: 'number', minimum: 1, description: 'Maximum number of active atoms to pull for clustering. Defaults to 500.' },
+          file: { type: 'string', description: 'Optional single file name, e.g. project-map.md. Omit for all six.' },
         },
       },
     },
@@ -295,6 +379,7 @@ export function tools() {
       name: 'tuberosa_bootstrap_handbook',
       title: 'Bootstrap Tuberosa Handbook',
       description: 'Assemble deterministic repo evidence (detected tech, areas, scripts, doc excerpts, recurring workflow hints) plus an agent instruction for proposing project conventions via tuberosa_reflect. Bootstrap-proposed conventions are review-gated: drafts land pending human confirmation, not auto-activated.',
+      category: 'core',
       inputSchema: {
         type: 'object',
         required: ['project'],
@@ -305,103 +390,86 @@ export function tools() {
       },
     },
     {
-      name: 'tuberosa_list_reflection_drafts',
-      title: 'List Tuberosa Reflection Drafts',
-      description: 'List pending or reviewed reflection drafts for review workflow.',
+      name: 'tuberosa_propose_curation',
+      title: 'Propose Tuberosa Curation Clusters',
+      description: 'Cluster a project\'s un-curated knowledge atoms so the calling agent can distill each cluster into a single reusable convention via tuberosa_reflect. Deterministic clustering only — the distillation reasoning is the agent\'s.',
+      category: 'core',
       inputSchema: {
         type: 'object',
+        required: ['project'],
         properties: {
           project: { type: 'string' },
-          status: { type: 'string', enum: [...REFLECTION_DRAFT_STATUSES] },
-          limit: { type: 'number' },
+          limit: { type: 'number', minimum: 1, description: 'Maximum number of active atoms to pull for clustering. Defaults to 500.' },
         },
       },
     },
     {
-      name: 'tuberosa_get_reflection_draft',
-      title: 'Get Tuberosa Reflection Draft',
-      description: 'Read one reflection draft and its provenance, duplicate candidates, labels, and references.',
+      name: 'tuberosa_predict_impact',
+      title: 'Predict Edit Impact',
+      description: 'Predict which atoms are likely affected by edits to the given files or symbols. Walks the atom graph up to `depth` hops (default uses retrieval-policy.graph.walkDepth, typically 2) and aggregates the depth-bounded neighborhood.',
+      category: 'core',
       inputSchema: {
         type: 'object',
+        required: ['project'],
         properties: {
-          id: { type: 'string' },
-          reflectionDraftId: { type: 'string' },
+          project: { type: 'string' },
+          files: { type: 'array', items: { type: 'string' } },
+          symbols: { type: 'array', items: { type: 'string' } },
+          depth: { type: 'number', description: 'Hop depth ≥ 1. Defaults to graph.walkDepth.' },
         },
       },
     },
     {
-      name: 'tuberosa_review_reflection_draft',
-      title: 'Review Tuberosa Reflection Draft',
-      description: 'Approve, reject, or mark a reflection draft as needing changes with compact rubric metadata.',
+      name: 'tuberosa_record_error_log',
+      title: 'Record Tuberosa Error Log',
+      description: 'Save a sanitized development or runtime error to the physical Tuberosa error-log journal.',
+      category: 'core',
       inputSchema: {
         type: 'object',
-        required: ['decision'],
+        required: ['title'],
         properties: {
-          id: { type: 'string' },
-          reflectionDraftId: { type: 'string' },
-          decision: { type: 'string', enum: ['approve', 'reject', 'needs_changes'] },
-          reviewer: { type: 'string' },
-          reviewerNote: { type: 'string' },
-          evaluation: {
-            type: 'object',
-            properties: {
-              accuracy: { type: 'string', enum: ['pass', 'concern', 'fail'] },
-              usefulness: { type: 'string', enum: ['pass', 'concern', 'fail'] },
-              scope: { type: 'string', enum: ['pass', 'concern', 'fail'] },
-              privacySafety: { type: 'string', enum: ['pass', 'concern', 'fail'] },
-              labels: { type: 'string', enum: ['pass', 'concern', 'fail'] },
-              references: { type: 'string', enum: ['pass', 'concern', 'fail'] },
-              duplicateRisk: { type: 'string', enum: ['low', 'medium', 'high'] },
-            },
-          },
-          metadata: { type: 'object' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_feedback_context',
-      title: 'Record Tuberosa Context Feedback',
-      description: 'Record whether a context pack was selected, rejected, stale, irrelevant, or missing important context.',
-      inputSchema: {
-        type: 'object',
-        required: ['feedbackType'],
-        properties: {
+          project: { type: 'string' },
+          category: { type: 'string' },
+          severity: { type: 'string' },
+          status: { type: 'string' },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          message: { type: 'string' },
+          stack: { type: 'string' },
+          toolName: { type: 'string' },
+          operation: { type: 'string' },
+          command: { type: 'string' },
+          cwd: { type: 'string' },
+          files: { type: 'array', items: { type: 'string' } },
+          symbols: { type: 'array', items: { type: 'string' } },
+          errors: { type: 'array', items: { type: 'string' } },
+          tags: { type: 'array', items: { type: 'string' } },
+          agentName: { type: 'string' },
+          agentTool: { type: 'string' },
+          sessionId: { type: 'string' },
           contextPackId: { type: 'string' },
-          project: { type: 'string' },
-          feedbackType: { type: 'string', enum: [...FEEDBACK_TYPES] },
-          reason: { type: 'string' },
-          rejectedKnowledgeIds: { type: 'array', items: { type: 'string' } },
+          reflectionDraftId: { type: 'string' },
+          references: { type: 'array', items: { type: 'object' } },
           metadata: { type: 'object' },
+          fingerprint: { type: 'string' },
         },
       },
     },
+
+    // --- admin-ops: human / maintenance / review / import-export ---
     {
-      name: 'tuberosa_collect_context_quality_feedback',
-      title: 'Collect Context Quality Feedback',
-      description: 'Collect noisy or missing-context feedback with linked packs, sessions, review records, and suggested actions.',
+      name: 'tuberosa_sync_sources',
+      title: 'Sync Project Sources',
+      description: 'Detect added/changed/renamed/deleted files for a project and return a reviewable cleanup plan. Pass apply:true with a planId to apply it (archives for deleted files are always surfaced for the user to confirm).',
+      category: 'admin-ops',
       inputSchema: {
         type: 'object',
+        required: ['project'],
         properties: {
           project: { type: 'string' },
-          feedbackType: { type: 'string', enum: [...CONTEXT_QUALITY_FEEDBACK_TYPES] },
-          limit: { type: 'number' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_propose_maintenance',
-      title: 'Propose Tuberosa Maintenance',
-      description: 'Phase 10 — Generate a preview batch of duplicate memories, stale relations, superseded reflections, and weak inferred labels. Reviewer-gated; never auto-applied.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          project: { type: 'string' },
-          kinds: {
-            type: 'array',
-            items: { type: 'string', enum: [...MAINTENANCE_ITEM_KINDS] },
-            description: 'Restrict scanning to specific maintenance kinds. Defaults to all four.',
-          },
-          limit: { type: 'number', description: 'Maximum number of items in the returned batch. Defaults to 50.' },
+          path: { type: 'string', description: 'Repo root; defaults to the server cwd.' },
+          apply: { type: 'boolean', description: 'Apply a previously returned planId.' },
+          planId: { type: 'string' },
         },
       },
     },
@@ -409,6 +477,7 @@ export function tools() {
       name: 'tuberosa_apply_maintenance',
       title: 'Apply Tuberosa Maintenance',
       description: 'Phase 10 — Apply an approved maintenance batch. Pass batchId (preferred) or an explicit items[] payload; approvedItemIds gates which items mutate. Idempotent.',
+      category: 'admin-ops',
       inputSchema: {
         type: 'object',
         properties: {
@@ -447,37 +516,149 @@ export function tools() {
       },
     },
     {
-      name: 'tuberosa_record_error_log',
-      title: 'Record Tuberosa Error Log',
-      description: 'Save a sanitized development or runtime error to the physical Tuberosa error-log journal.',
+      name: 'tuberosa_propose_maintenance',
+      title: 'Propose Tuberosa Maintenance',
+      description: 'Phase 10 — Generate a preview batch of duplicate memories, stale relations, superseded reflections, and weak inferred labels. Reviewer-gated; never auto-applied.',
+      category: 'admin-ops',
       inputSchema: {
         type: 'object',
-        required: ['title'],
         properties: {
           project: { type: 'string' },
-          category: { type: 'string' },
-          severity: { type: 'string' },
+          kinds: {
+            type: 'array',
+            items: { type: 'string', enum: [...MAINTENANCE_ITEM_KINDS] },
+            description: 'Restrict scanning to specific maintenance kinds. Defaults to all four.',
+          },
+          limit: { type: 'number', description: 'Maximum number of items in the returned batch. Defaults to 50.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_export_pack',
+      title: 'Export Tuberosa Project Pack',
+      description: 'Write a portable .tuberosa-pack/ directory for the given project (atoms, knowledge, edges, manifest).',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        required: ['project', 'out'],
+        properties: {
+          project: { type: 'string' },
+          out: { type: 'string', description: 'Output directory; created if missing.' },
+          includeChunks: { type: 'boolean', description: 'Include chunks/ subtree. Defaults to true.' },
+          includeArchived: { type: 'boolean', description: 'Include archived/legacy_archived atoms. Defaults to false.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_import_pack',
+      title: 'Import Tuberosa Project Pack',
+      description: 'Import a .tuberosa-pack/ directory. Atom id conflicts queue for human review by default.',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        required: ['from'],
+        properties: {
+          from: { type: 'string' },
+          project: { type: 'string', description: 'Override the pack manifest project name.' },
+          dryRun: { type: 'boolean' },
+          onConflict: { type: 'string', enum: ['review', 'skip'], description: 'Default: review.' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_list_atom_import_conflicts',
+      title: 'List Atom Import Conflicts',
+      description: 'List queued atom-import conflicts (default status=open).',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
           status: { type: 'string' },
-          title: { type: 'string' },
-          summary: { type: 'string' },
-          message: { type: 'string' },
-          stack: { type: 'string' },
-          toolName: { type: 'string' },
-          operation: { type: 'string' },
-          command: { type: 'string' },
-          cwd: { type: 'string' },
-          files: { type: 'array', items: { type: 'string' } },
-          symbols: { type: 'array', items: { type: 'string' } },
-          errors: { type: 'array', items: { type: 'string' } },
-          tags: { type: 'array', items: { type: 'string' } },
-          agentName: { type: 'string' },
-          agentTool: { type: 'string' },
-          sessionId: { type: 'string' },
-          contextPackId: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_resolve_atom_import_conflict',
+      title: 'Resolve Atom Import Conflict',
+      description: 'Resolve an atom import conflict (keep_local | take_imported | merged | dismissed).',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        required: ['id', 'action'],
+        properties: {
+          id: { type: 'string' },
+          action: { type: 'string', enum: ['keep_local', 'take_imported', 'merged', 'dismissed'] },
+          mergedSnapshot: { type: 'object' },
+          notes: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_resurrect_atom',
+      title: 'Resurrect Archived Tuberosa Atom',
+      description: 'Move an archived atom back to active so it competes in retrieval again.',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        required: ['atomId'],
+        properties: { atomId: { type: 'string' } },
+      },
+    },
+    {
+      name: 'tuberosa_list_reflection_drafts',
+      title: 'List Tuberosa Reflection Drafts',
+      description: 'List pending or reviewed reflection drafts for review workflow.',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          status: { type: 'string', enum: [...REFLECTION_DRAFT_STATUSES] },
+          limit: { type: 'number' },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_get_reflection_draft',
+      title: 'Get Tuberosa Reflection Draft',
+      description: 'Read one reflection draft and its provenance, duplicate candidates, labels, and references.',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
           reflectionDraftId: { type: 'string' },
-          references: { type: 'array', items: { type: 'object' } },
+        },
+      },
+    },
+    {
+      name: 'tuberosa_review_reflection_draft',
+      title: 'Review Tuberosa Reflection Draft',
+      description: 'Approve, reject, or mark a reflection draft as needing changes with compact rubric metadata.',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        required: ['decision'],
+        properties: {
+          id: { type: 'string' },
+          reflectionDraftId: { type: 'string' },
+          decision: { type: 'string', enum: ['approve', 'reject', 'needs_changes'] },
+          reviewer: { type: 'string' },
+          reviewerNote: { type: 'string' },
+          evaluation: {
+            type: 'object',
+            properties: {
+              accuracy: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              usefulness: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              scope: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              privacySafety: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              labels: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              references: { type: 'string', enum: ['pass', 'concern', 'fail'] },
+              duplicateRisk: { type: 'string', enum: ['low', 'medium', 'high'] },
+            },
+          },
           metadata: { type: 'object' },
-          fingerprint: { type: 'string' },
         },
       },
     },
@@ -485,6 +666,7 @@ export function tools() {
       name: 'tuberosa_list_error_logs',
       title: 'List Tuberosa Error Logs',
       description: 'List filesystem-backed error incidents by project, category, severity, status, query, or tag.',
+      category: 'admin-ops',
       inputSchema: {
         type: 'object',
         properties: {
@@ -499,47 +681,10 @@ export function tools() {
       },
     },
     {
-      name: 'tuberosa_collect_error_logs',
-      title: 'Collect Tuberosa Error Logs',
-      description: 'Collect matching filesystem-backed error incidents into compact agent context, rollups, and fingerprint clusters.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          project: { type: 'string' },
-          categories: { type: 'array', items: { type: 'string' } },
-          severities: { type: 'array', items: { type: 'string' } },
-          statuses: { type: 'array', items: { type: 'string' } },
-          query: { type: 'string' },
-          tag: { type: 'string' },
-          since: { type: 'string' },
-          until: { type: 'string' },
-          limit: { type: 'number' },
-          offset: { type: 'number' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_create_error_log_reflection_draft',
-      title: 'Create Error Log Reflection Draft',
-      description: 'Create a pending reflection draft from selected error logs and optionally link it back to those incidents.',
-      inputSchema: {
-        type: 'object',
-        required: ['errorLogIds'],
-        properties: {
-          errorLogIds: { type: 'array', items: { type: 'string' } },
-          project: { type: 'string' },
-          title: { type: 'string' },
-          summary: { type: 'string' },
-          content: { type: 'string' },
-          linkLogs: { type: 'boolean' },
-          metadata: { type: 'object' },
-        },
-      },
-    },
-    {
       name: 'tuberosa_get_error_log',
       title: 'Get Tuberosa Error Log',
       description: 'Read one filesystem-backed error incident by id.',
+      category: 'admin-ops',
       inputSchema: {
         type: 'object',
         properties: {
@@ -552,6 +697,7 @@ export function tools() {
       name: 'tuberosa_update_error_log',
       title: 'Update Tuberosa Error Log',
       description: 'Update status, category, notes, references, or reflection linkage for an error incident.',
+      category: 'admin-ops',
       inputSchema: {
         type: 'object',
         properties: {
@@ -573,6 +719,7 @@ export function tools() {
       name: 'tuberosa_resolve_error_log',
       title: 'Resolve Tuberosa Error Log',
       description: 'Mark an error incident resolved with root cause, fix summary, changed files, verification commands, and optional reflection linkage.',
+      category: 'admin-ops',
       inputSchema: {
         type: 'object',
         required: ['rootCause', 'resolutionSummary'],
@@ -591,19 +738,52 @@ export function tools() {
       },
     },
     {
-      name: 'tuberosa_resurrect_atom',
-      title: 'Resurrect Archived Tuberosa Atom',
-      description: 'Move an archived atom back to active so it competes in retrieval again.',
+      name: 'tuberosa_collect_error_logs',
+      title: 'Collect Tuberosa Error Logs',
+      description: 'Collect matching filesystem-backed error incidents into compact agent context, rollups, and fingerprint clusters.',
+      category: 'admin-ops',
       inputSchema: {
         type: 'object',
-        required: ['atomId'],
-        properties: { atomId: { type: 'string' } },
+        properties: {
+          project: { type: 'string' },
+          categories: { type: 'array', items: { type: 'string' } },
+          severities: { type: 'array', items: { type: 'string' } },
+          statuses: { type: 'array', items: { type: 'string' } },
+          query: { type: 'string' },
+          tag: { type: 'string' },
+          since: { type: 'string' },
+          until: { type: 'string' },
+          limit: { type: 'number' },
+          offset: { type: 'number' },
+        },
       },
     },
+    {
+      name: 'tuberosa_create_error_log_reflection_draft',
+      title: 'Create Error Log Reflection Draft',
+      description: 'Create a pending reflection draft from selected error logs and optionally link it back to those incidents.',
+      category: 'admin-ops',
+      inputSchema: {
+        type: 'object',
+        required: ['errorLogIds'],
+        properties: {
+          errorLogIds: { type: 'array', items: { type: 'string' } },
+          project: { type: 'string' },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          content: { type: 'string' },
+          linkLogs: { type: 'boolean' },
+          metadata: { type: 'object' },
+        },
+      },
+    },
+
+    // --- diagnostics: telemetry / graph inspection ---
     {
       name: 'tuberosa_atom_gate_stats',
       title: 'Inspect Tuberosa Atom Gate Stats',
       description: 'Inspect write-gate acceptance/rejection rates and top triviality patterns over a window.',
+      category: 'diagnostics',
       inputSchema: {
         type: 'object',
         properties: {
@@ -616,140 +796,11 @@ export function tools() {
       name: 'tuberosa_atom_graph_density',
       title: 'Inspect Tuberosa Atom Graph Density',
       description: 'Per-project atom graph density: atom count, edge count, edges per atom, edges by kind and by inference source.',
+      category: 'diagnostics',
       inputSchema: {
         type: 'object',
         required: ['project'],
         properties: { project: { type: 'string' } },
-      },
-    },
-    {
-      name: 'tuberosa_export_pack',
-      title: 'Export Tuberosa Project Pack',
-      description: 'Write a portable .tuberosa-pack/ directory for the given project (atoms, knowledge, edges, manifest).',
-      inputSchema: {
-        type: 'object',
-        required: ['project', 'out'],
-        properties: {
-          project: { type: 'string' },
-          out: { type: 'string', description: 'Output directory; created if missing.' },
-          includeChunks: { type: 'boolean', description: 'Include chunks/ subtree. Defaults to true.' },
-          includeArchived: { type: 'boolean', description: 'Include archived/legacy_archived atoms. Defaults to false.' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_import_pack',
-      title: 'Import Tuberosa Project Pack',
-      description: 'Import a .tuberosa-pack/ directory. Atom id conflicts queue for human review by default.',
-      inputSchema: {
-        type: 'object',
-        required: ['from'],
-        properties: {
-          from: { type: 'string' },
-          project: { type: 'string', description: 'Override the pack manifest project name.' },
-          dryRun: { type: 'boolean' },
-          onConflict: { type: 'string', enum: ['review', 'skip'], description: 'Default: review.' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_list_atom_import_conflicts',
-      title: 'List Atom Import Conflicts',
-      description: 'List queued atom-import conflicts (default status=open).',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          project: { type: 'string' },
-          status: { type: 'string' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_resolve_atom_import_conflict',
-      title: 'Resolve Atom Import Conflict',
-      description: 'Resolve an atom import conflict (keep_local | take_imported | merged | dismissed).',
-      inputSchema: {
-        type: 'object',
-        required: ['id', 'action'],
-        properties: {
-          id: { type: 'string' },
-          action: { type: 'string', enum: ['keep_local', 'take_imported', 'merged', 'dismissed'] },
-          mergedSnapshot: { type: 'object' },
-          notes: { type: 'string' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_predict_impact',
-      title: 'Predict Edit Impact',
-      description: 'Predict which atoms are likely affected by edits to the given files or symbols. Walks the atom graph up to `depth` hops (default uses retrieval-policy.graph.walkDepth, typically 2) and aggregates the depth-bounded neighborhood.',
-      inputSchema: {
-        type: 'object',
-        required: ['project'],
-        properties: {
-          project: { type: 'string' },
-          files: { type: 'array', items: { type: 'string' } },
-          symbols: { type: 'array', items: { type: 'string' } },
-          depth: { type: 'number', description: 'Hop depth ≥ 1. Defaults to graph.walkDepth.' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_record_user_style',
-      title: 'Record User-Style Preference',
-      description: 'Record a cross-project personal style preference (scope=user atom). When userId is omitted, falls back to TUBEROSA_USER_ID.',
-      inputSchema: {
-        type: 'object',
-        required: ['claim', 'type', 'trigger'],
-        properties: {
-          userId: { type: 'string', description: 'Defaults to TUBEROSA_USER_ID when set.' },
-          claim: { type: 'string' },
-          type: { type: 'string', enum: ['convention', 'gotcha', 'decision', 'fact'] },
-          priority: { type: 'string', enum: ['personal_workflow', 'coding_preference'], description: 'Defaults to coding_preference.' },
-          trigger: { type: 'object' },
-          evidence: { type: 'array' },
-          pitfalls: { type: 'array', items: { type: 'string' } },
-          sessionId: { type: 'string' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_list_user_style',
-      title: 'List User-Style Preferences',
-      description: 'List user-style atoms for the given user (or the configured TUBEROSA_USER_ID).',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          userId: { type: 'string', description: 'Defaults to TUBEROSA_USER_ID when set.' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_sync_sources',
-      title: 'Sync Project Sources',
-      description: 'Detect added/changed/renamed/deleted files for a project and return a reviewable cleanup plan. Pass apply:true with a planId to apply it (archives for deleted files are always surfaced for the user to confirm).',
-      inputSchema: {
-        type: 'object',
-        required: ['project'],
-        properties: {
-          project: { type: 'string' },
-          path: { type: 'string', description: 'Repo root; defaults to the server cwd.' },
-          apply: { type: 'boolean', description: 'Apply a previously returned planId.' },
-          planId: { type: 'string' },
-        },
-      },
-    },
-    {
-      name: 'tuberosa_get_atlas',
-      title: 'Get Project Atlas',
-      description: 'Return the synthesized project atlas (project-map.md, flows.md, commands.md, risks.md, open-gaps.md, conventions.md) for first-time project understanding. Regenerated in-memory from current knowledge.',
-      inputSchema: {
-        type: 'object',
-        required: ['project'],
-        properties: {
-          project: { type: 'string' },
-          file: { type: 'string', description: 'Optional single file name, e.g. project-map.md. Omit for all six.' },
-        },
       },
     },
   ];

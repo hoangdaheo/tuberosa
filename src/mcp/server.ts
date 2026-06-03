@@ -77,7 +77,7 @@ export async function handleMcpRequest(services: AppServices, request: JsonRpcRe
         return {};
 
       case 'tools/list':
-        return { tools: tools() };
+        return { tools: tools().map(({ category: _cat, ...rest }) => rest) };
 
       case 'tools/call':
         return await callTool(services, expectRecord(request.params ?? {}, 'tools/call params'));

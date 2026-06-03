@@ -6,6 +6,7 @@ import type { AppServices } from '../src/app.js';
 import { appErrorToJsonRpcError, ValidationError } from '../src/errors.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { handleMcpRequest } from '../src/mcp/server.js';
+import { tools } from '../src/mcp/tool-definitions.js';
 import { makeTestConfig } from './support/test-config.js';
 import type { ContextPack, ContextQualityReport, ReflectionDraft } from '../src/types.js';
 
@@ -962,6 +963,22 @@ test('malformed MCP tool inputs map to JSON-RPC invalid params errors', async ()
   equal(rpcError.code, -32602);
   equal(rpcError.data.code, 'validation_error');
   equal(rpcError.data.status, 400);
+});
+
+test('MCP tools: 36 tools, each categorized, wire response excludes category', async () => {
+  const list = tools();
+  equal(list.length, 36);
+  const cats = new Set(['core', 'admin-ops', 'diagnostics']);
+  for (const t of list) {
+    equal(cats.has((t as { category?: string }).category ?? ''), true, `tool ${t.name} missing valid category`);
+  }
+
+  // Confirm the wire response strips category
+  const wireResponse = await handleMcpRequest(fakeServices(), { method: 'tools/list' }) as { tools: Array<Record<string, unknown>> };
+  for (const wireTool of wireResponse.tools) {
+    equal('category' in wireTool, false, `wire tool ${wireTool.name} must not expose category`);
+  }
+  equal(wireResponse.tools.length, 36);
 });
 
 function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
