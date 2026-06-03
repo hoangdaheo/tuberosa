@@ -368,6 +368,16 @@ Expected: `NO EXPORTS DROPPED` (or only intended additions). If any export is mi
 
 ## Item 2 — config/env grouping + minimal local recipe
 
+> **Revised during execution (owner decision):** verification found **29 test files inline a full `AppConfig` literal** (no shared factory) plus 9 src consumers. To nest `AppConfig` without a 40-file churn, do it **factory-first**: (2.0) introduce one `makeTestConfig()` helper and migrate the 29 inline literals to it (flat shape, no behavior change, kills the duplication); then (2.1) nest the shape touching only `config.ts` + the one factory + the 9 consumers. This also removes the 29× literal duplication (real boilerplate).
+
+### Task 2.0: Introduce `makeTestConfig()` and migrate the 29 inline literals
+
+**Files:** Create `test/helpers/test-config.ts` (or follow an existing test-helper convention); modify the ~29 test files that inline an `AppConfig` literal.
+
+- [ ] **Step 1:** Add `export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig { return { ...DEFAULTS, ...overrides }; }` where `DEFAULTS` is the common flat literal the tests currently repeat (memory store/cache, hash provider, etc.).
+- [ ] **Step 2:** Replace each inline `const config: AppConfig = {...}` with `makeTestConfig({ ...per-test overrides })`. No behavior change.
+- [ ] **Step 3:** `pnpm test` → all green. Commit `refactor(sp3): add makeTestConfig and de-duplicate test config literals`.
+
 ### Task 2.1: Define the nested `AppConfig` shape (failing test first)
 
 **Files:**

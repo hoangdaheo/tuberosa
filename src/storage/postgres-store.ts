@@ -64,6 +64,12 @@ import type {
 } from '../types/export-bundle.js';
 import { importedSnapshotToPatch } from './atom-import-patch.js';
 import { canonicalKnowledgePair, shouldDropInferredRelationsForStatus } from './shared.js';
+import {
+  LABEL_PROVENANCE_METADATA_KEY,
+  labelProvenanceKey,
+  mergeLabelProvenanceIntoMetadata,
+  withLabelProvenanceMetadata,
+} from './shared/label-provenance.js';
 import { sha256 } from '../util/hash.js';
 import { estimateTokens, normalizeLabel } from '../util/text.js';
 import { getRetrievalPolicy } from '../retrieval/policy.js';
@@ -3063,51 +3069,6 @@ function rowToAtomImportConflict(row: Record<string, unknown>): AtomImportConfli
     createdAt: toIso(row.created_at),
     resolvedAt: row.resolved_at ? toIso(row.resolved_at) : undefined,
   };
-}
-
-const LABEL_PROVENANCE_METADATA_KEY = 'labelProvenance';
-
-
-function labelProvenanceKey(label: { type: string; value: string }): string {
-  return `${label.type}:${normalizeLabel(label.value)}`;
-}
-
-function buildLabelProvenanceMap(labels: LabelInput[]): Record<string, LabelInput['provenance']> {
-  const map: Record<string, LabelInput['provenance']> = {};
-  for (const label of labels) {
-    if (label.provenance) {
-      map[labelProvenanceKey(label)] = label.provenance;
-    }
-  }
-  return map;
-}
-
-function mergeLabelProvenanceIntoMetadata(
-  metadata: Record<string, unknown>,
-  labels: LabelInput[],
-): Record<string, unknown> {
-  const provenanceMap = buildLabelProvenanceMap(labels);
-  if (Object.keys(provenanceMap).length === 0) {
-    if (!(LABEL_PROVENANCE_METADATA_KEY in metadata)) {
-      return metadata;
-    }
-    const next = { ...metadata };
-    delete next[LABEL_PROVENANCE_METADATA_KEY];
-    return next;
-  }
-  return { ...metadata, [LABEL_PROVENANCE_METADATA_KEY]: provenanceMap };
-}
-
-function withLabelProvenanceMetadata(input: KnowledgeInput): KnowledgeInput {
-  if (!input.labels || input.labels.length === 0) {
-    return input;
-  }
-  const baseMetadata = input.metadata ?? {};
-  const next = mergeLabelProvenanceIntoMetadata(baseMetadata, input.labels);
-  if (next === baseMetadata) {
-    return input;
-  }
-  return { ...input, metadata: next };
 }
 
 /**
