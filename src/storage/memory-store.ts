@@ -63,6 +63,10 @@ import {
   readNamespaceFromMetadata,
   writeNamespaceToMetadata,
 } from './knowledge-namespace.js';
+import {
+  mergeLabelProvenanceIntoMetadata,
+  withLabelProvenanceMetadata,
+} from './shared/label-provenance.js';
 import type { SessionReplayBundle } from '../operations/session-replay.js';
 import type {
   AtomGateEvent,
@@ -208,13 +212,15 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
     const now = new Date().toISOString();
     const existing = this.findKnowledgeBySourceUri(input.project, input.sourceUri);
     const id = existing?.id ?? randomUUID();
+    // Mirror postgres: stamp label provenance into metadata before deriving namespace.
+    const provenanceInput = withLabelProvenanceMetadata(input);
     const namespace = deriveNamespace({
-      project: input.project,
-      itemType: input.itemType,
-      metadata: input.metadata,
-      namespace: input.namespace,
+      project: provenanceInput.project,
+      itemType: provenanceInput.itemType,
+      metadata: provenanceInput.metadata,
+      namespace: provenanceInput.namespace,
     });
-    const metadataWithNamespace = writeNamespaceToMetadata(input.metadata, namespace);
+    const metadataWithNamespace = writeNamespaceToMetadata(provenanceInput.metadata, namespace);
     const stored: StoredKnowledge = {
       id,
       project: input.project,
@@ -421,13 +427,16 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
       return undefined;
     }
 
-    const mergedMetadata = patch.metadata ? { ...current.metadata, ...patch.metadata } : current.metadata;
+    const mergedMetadataBase = patch.metadata ? { ...current.metadata, ...patch.metadata } : (current.metadata ?? {});
+    const mergedMetadataWithProvenance = patch.labels
+      ? mergeLabelProvenanceIntoMetadata(mergedMetadataBase, patch.labels)
+      : mergedMetadataBase;
     const namespace = patch.namespace ?? current.namespace ?? deriveNamespace({
       project: current.project,
       itemType: current.itemType,
-      metadata: mergedMetadata,
+      metadata: mergedMetadataWithProvenance,
     });
-    const metadataWithNamespace = writeNamespaceToMetadata(mergedMetadata, namespace);
+    const metadataWithNamespace = writeNamespaceToMetadata(mergedMetadataWithProvenance, namespace);
     const updated: StoredKnowledge = {
       ...current,
       status: patch.status ?? current.status,
