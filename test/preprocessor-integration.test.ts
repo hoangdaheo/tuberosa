@@ -7,48 +7,9 @@ import { DEFAULT_POLICY, resetRetrievalPolicyCache, setRetrievalPolicy } from '.
 import { RetrievalService } from '../src/retrieval/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import type { ModelProvider } from '../src/model/provider.js';
-import type { AppConfig } from '../src/config.js';
+import { makeTestConfig } from './support/test-config.js';
 
-const testConfig: AppConfig = {
-  env: 'test',
-  port: 3027,
-  databaseUrl: '',
-  redisUrl: '',
-  httpHost: '127.0.0.1',
-  requireApiKeyForNonLoopback: false,
-  store: 'memory',
-  cache: 'memory',
-  autoMigrate: false,
-  modelProvider: 'hash',
-  openAiTimeoutMs: 30_000,
-  embeddingDimensions: 1536,
-  openAiEmbeddingModel: 'text-embedding-3-small',
-  contextCacheTtlSeconds: 60,
-  maxRequestBytes: 10 * 1024 * 1024,
-  maxIngestContentBytes: 2 * 1024 * 1024,
-  backupDir: '.tuberosa/test-backups',
-  exportBaseDir: '.tuberosa/test-exports',
-  importBaseDir: '.tuberosa/test-imports',
-  backupIntervalSeconds: 0,
-  backupStartupDelaySeconds: 0,
-  backupRetentionCount: 24,
-  backupRetentionMaxAgeDays: 30,
-  backupWriteThrough: false,
-  backupWriteThroughThrottleSeconds: 600,
-  physicalMirrorDebounceMs: 500,
-  errorLogDir: '.tuberosa/test-error-logs',
-  errorLogMaxBytes: 256 * 1024,
-  errorLogAutoCapture: true,
-  errorLogCaptureClientErrors: false,
-  persistReplay: false,
-  worktreeEnabled: false,
-  worktreeMaxFiles: 50,
-  worktreeMaxMtimeAgeHours: 72,
-  llmCriticEnabled: false,
-  archivalEnabled: false,
-  graphInferenceEnabled: false,
-  archivalIntervalHours: 24,
-};
+const testConfig = makeTestConfig({ worktreeEnabled: false });
 
 function withPolicy(work: () => Promise<void>): Promise<void> {
   resetRetrievalPolicyCache();

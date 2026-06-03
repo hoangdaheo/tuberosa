@@ -7,19 +7,13 @@ import { RetrievalService } from '../src/retrieval/service.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { AgentSessionService } from '../src/agent-session/service.js';
-import { loadConfig } from '../src/config.js';
+import { makeTestConfig } from './support/test-config.js';
 
 test('finishSession: user_preference learning signal becomes a draft user-style atom', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
-  const config = {
-    ...loadConfig(),
-    userId: 'alice@example.com',
-    userStyleEnabled: true,
-    store: 'memory' as const,
-    cache: 'memory' as const,
-  };
+  const config = makeTestConfig({ userId: 'alice@example.com', userStyleEnabled: true });
   const retrieval = new RetrievalService(store, cache, models, config);
   const ingestion = new IngestionService(store, models);
   const reflection = new ReflectionService(store, ingestion);
@@ -52,13 +46,7 @@ test('finishSession: skips routing when TUBEROSA_USER_ID is unset', async () => 
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
-  const config = {
-    ...loadConfig(),
-    userId: undefined,
-    userStyleEnabled: true,
-    store: 'memory' as const,
-    cache: 'memory' as const,
-  };
+  const config = makeTestConfig({ userId: undefined, userStyleEnabled: true });
   const retrieval = new RetrievalService(store, cache, models, config);
   const ingestion = new IngestionService(store, models);
   const reflection = new ReflectionService(store, ingestion);

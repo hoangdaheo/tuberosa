@@ -3,52 +3,13 @@ import { Readable } from 'node:stream';
 import test from 'node:test';
 import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
 import type { AppServices } from '../src/app.js';
-import type { AppConfig } from '../src/config.js';
 import { appErrorToJsonRpcError, ValidationError } from '../src/errors.js';
 import { handleHttpRequest } from '../src/http/server.js';
 import { handleMcpRequest } from '../src/mcp/server.js';
+import { makeTestConfig } from './support/test-config.js';
 import type { ContextPack, ContextQualityReport, ReflectionDraft } from '../src/types.js';
 
-const config: AppConfig = {
-  env: 'test',
-  port: 3027,
-  databaseUrl: '',
-  redisUrl: '',
-  httpHost: '127.0.0.1',
-  requireApiKeyForNonLoopback: false,
-  store: 'memory',
-  cache: 'memory',
-  autoMigrate: false,
-  modelProvider: 'hash',
-  openAiTimeoutMs: 30_000,
-  embeddingDimensions: 1536,
-  openAiEmbeddingModel: 'text-embedding-3-small',
-  contextCacheTtlSeconds: 60,
-  maxRequestBytes: 10 * 1024 * 1024,
-  maxIngestContentBytes: 2 * 1024 * 1024,
-  backupDir: '.tuberosa/test-backups',
-  exportBaseDir: '.tuberosa/test-exports',
-  importBaseDir: '.tuberosa/test-imports',
-  backupIntervalSeconds: 0,
-  backupStartupDelaySeconds: 0,
-  backupRetentionCount: 24,
-  backupRetentionMaxAgeDays: 30,
-  backupWriteThrough: false,
-  backupWriteThroughThrottleSeconds: 600,
-  physicalMirrorDebounceMs: 500,
-  errorLogDir: ".tuberosa/test-error-logs",
-  errorLogMaxBytes: 256 * 1024,
-  errorLogAutoCapture: true,
-  errorLogCaptureClientErrors: false,
-  persistReplay: false,
-  worktreeEnabled: true,
-  worktreeMaxFiles: 50,
-  worktreeMaxMtimeAgeHours: 72,
-  llmCriticEnabled: false,
-  archivalEnabled: false,
-  graphInferenceEnabled: false,
-  archivalIntervalHours: 24,
-};
+const config = makeTestConfig();
 
 test('malformed HTTP inputs return structured validation errors', async () => {
   const response = await dispatchHttp(fakeServices(), {

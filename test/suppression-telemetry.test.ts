@@ -7,49 +7,10 @@ import { IngestionService } from '../src/ingest/service.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { KnowledgeSafetyService, RegexSuspiciousContentClassifier, type SuspiciousContentClassifier } from '../src/security/knowledge-safety.js';
 import { DEFAULT_POLICY, resetRetrievalPolicyCache, setRetrievalPolicy } from '../src/retrieval/policy.js';
-import type { AppConfig } from '../src/config.js';
 import type { ContextPack, KnowledgeInput, SuppressionEvent } from '../src/types.js';
+import { makeTestConfig } from './support/test-config.js';
 
-const config: AppConfig = {
-  env: 'test',
-  port: 3027,
-  databaseUrl: '',
-  redisUrl: '',
-  httpHost: '127.0.0.1',
-  requireApiKeyForNonLoopback: false,
-  store: 'memory',
-  cache: 'memory',
-  autoMigrate: false,
-  modelProvider: 'hash',
-  openAiTimeoutMs: 30_000,
-  embeddingDimensions: 1536,
-  openAiEmbeddingModel: 'text-embedding-3-small',
-  contextCacheTtlSeconds: 60,
-  maxRequestBytes: 10 * 1024 * 1024,
-  maxIngestContentBytes: 2 * 1024 * 1024,
-  backupDir: '.tuberosa/test-backups',
-  exportBaseDir: '.tuberosa/test-exports',
-  importBaseDir: '.tuberosa/test-imports',
-  backupIntervalSeconds: 0,
-  backupStartupDelaySeconds: 0,
-  backupRetentionCount: 24,
-  backupRetentionMaxAgeDays: 30,
-  backupWriteThrough: false,
-  backupWriteThroughThrottleSeconds: 600,
-  physicalMirrorDebounceMs: 500,
-  errorLogDir: '.tuberosa/test-error-logs',
-  errorLogMaxBytes: 256 * 1024,
-  errorLogAutoCapture: true,
-  errorLogCaptureClientErrors: false,
-  persistReplay: false,
-  worktreeEnabled: true,
-  worktreeMaxFiles: 50,
-  worktreeMaxMtimeAgeHours: 72,
-  llmCriticEnabled: false,
-  archivalEnabled: false,
-  graphInferenceEnabled: false,
-  archivalIntervalHours: 24,
-};
+const config = makeTestConfig();
 
 function setupRetrieval() {
   const store = new MemoryKnowledgeStore();

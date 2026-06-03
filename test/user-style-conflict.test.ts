@@ -4,8 +4,8 @@ import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import { MemoryCache } from '../src/cache.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { RetrievalService } from '../src/retrieval/service.js';
-import { loadConfig } from '../src/config.js';
 import { createUserStyleAtom } from '../src/user-style/store-helpers.js';
+import { makeTestConfig } from './support/test-config.js';
 
 async function setup(priority: 'personal_workflow' | 'coding_preference'): Promise<RetrievalService> {
   const store = new MemoryKnowledgeStore();
@@ -43,13 +43,7 @@ async function setup(priority: 'personal_workflow' | 'coding_preference'): Promi
     priority,
     trigger: { intentTags: ['style'], symbols: ['export'] },
   });
-  const config = {
-    ...loadConfig(),
-    userId: 'alice@example.com',
-    userStyleEnabled: true,
-    store: 'memory' as const,
-    cache: 'memory' as const,
-  };
+  const config = makeTestConfig({ userId: 'alice@example.com', userStyleEnabled: true });
   return new RetrievalService(store, new MemoryCache(), new HashModelProvider(), config);
 }
 

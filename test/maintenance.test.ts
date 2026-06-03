@@ -1,10 +1,10 @@
 import test from 'node:test';
 import { equal, ok } from 'node:assert/strict';
-import type { AppConfig } from '../src/config.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { MaintenanceService } from '../src/maintenance/service.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
+import { makeTestConfig } from './support/test-config.js';
 import type {
   KnowledgeRelation,
   MaintenanceBatch,
@@ -13,46 +13,7 @@ import type {
   ReflectionDraftInput,
 } from '../src/types.js';
 
-const config: AppConfig = {
-  env: 'test',
-  port: 3027,
-  databaseUrl: '',
-  redisUrl: '',
-  httpHost: '127.0.0.1',
-  requireApiKeyForNonLoopback: false,
-  store: 'memory',
-  cache: 'memory',
-  autoMigrate: false,
-  modelProvider: 'hash',
-  openAiTimeoutMs: 30_000,
-  embeddingDimensions: 1536,
-  openAiEmbeddingModel: 'text-embedding-3-small',
-  contextCacheTtlSeconds: 0,
-  maxRequestBytes: 10 * 1024 * 1024,
-  maxIngestContentBytes: 2 * 1024 * 1024,
-  backupDir: '.tuberosa/test-backups',
-  exportBaseDir: '.tuberosa/test-exports',
-  importBaseDir: '.tuberosa/test-imports',
-  backupIntervalSeconds: 0,
-  backupStartupDelaySeconds: 0,
-  backupRetentionCount: 24,
-  backupRetentionMaxAgeDays: 30,
-  backupWriteThrough: false,
-  backupWriteThroughThrottleSeconds: 600,
-  physicalMirrorDebounceMs: 500,
-  errorLogDir: '.tuberosa/test-error-logs',
-  errorLogMaxBytes: 256 * 1024,
-  errorLogAutoCapture: true,
-  errorLogCaptureClientErrors: false,
-  persistReplay: false,
-  worktreeEnabled: false,
-  worktreeMaxFiles: 50,
-  worktreeMaxMtimeAgeHours: 72,
-  llmCriticEnabled: false,
-  archivalEnabled: false,
-  graphInferenceEnabled: false,
-  archivalIntervalHours: 24,
-};
+const config = makeTestConfig({ contextCacheTtlSeconds: 0, worktreeEnabled: false });
 void config;
 
 interface Phase10Fixture {

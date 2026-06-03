@@ -7,18 +7,13 @@ import { RetrievalService } from '../src/retrieval/service.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { AgentSessionService } from '../src/agent-session/service.js';
-import { loadConfig } from '../src/config.js';
+import { makeTestConfig } from './support/test-config.js';
 
 test('startSession: reports handbook.exists when a matching convention surfaces', async () => {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
-  const config = {
-    ...loadConfig(),
-    teamId: 'team-acme',
-    store: 'memory' as const,
-    cache: 'memory' as const,
-  };
+  const config = makeTestConfig({ teamId: 'team-acme' });
 
   const claim = 'Refactors in this project must keep public exports backward-compatible.';
   await store.createAtom({
@@ -50,12 +45,7 @@ test('startSession: reports handbook absence with a bootstrap suggestion when no
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
   const models = new HashModelProvider(1536);
-  const config = {
-    ...loadConfig(),
-    teamId: 'team-acme',
-    store: 'memory' as const,
-    cache: 'memory' as const,
-  };
+  const config = makeTestConfig({ teamId: 'team-acme' });
 
   const retrieval = new RetrievalService(store, cache, models, config);
   const ingestion = new IngestionService(store, models);

@@ -3,7 +3,6 @@ import { equal, ok } from 'node:assert/strict';
 import { AgentSessionService } from '../src/agent-session/service.js';
 import type { AppServices } from '../src/app.js';
 import { MemoryCache } from '../src/cache.js';
-import type { AppConfig } from '../src/config.js';
 import { CurationService } from '../src/curation/service.js';
 import { ErrorLogInsightService } from '../src/error-log/insights.js';
 import { ErrorLogService } from '../src/error-log/service.js';
@@ -17,27 +16,10 @@ import { ReflectionService } from '../src/reflection/service.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { KnowledgeSafetyService } from '../src/security/knowledge-safety.js';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
+import { makeTestConfig } from './support/test-config.js';
 import type { KnowledgeAtomInput } from '../src/types/atoms.js';
 
-const config: AppConfig = {
-  env: 'test',
-  port: 3027,
-  databaseUrl: '',
-  redisUrl: '',
-  httpHost: '127.0.0.1',
-  requireApiKeyForNonLoopback: false,
-  store: 'memory',
-  cache: 'memory',
-  autoMigrate: false,
-  modelProvider: 'hash',
-  embeddingDimensions: 1536,
-  openAiEmbeddingModel: 'text-embedding-3-small',
-  contextCacheTtlSeconds: 60,
-  maxRequestBytes: 10 * 1024 * 1024,
-  maxIngestContentBytes: 2 * 1024 * 1024,
-  backupDir: '.tuberosa/test-backups',
-  exportBaseDir: '.tuberosa/test-exports',
-} as AppConfig;
+const config = makeTestConfig();
 
 function atomInput(overrides: Partial<KnowledgeAtomInput> & Pick<KnowledgeAtomInput, 'project' | 'claim'>): KnowledgeAtomInput {
   return {

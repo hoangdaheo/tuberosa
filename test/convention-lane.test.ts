@@ -4,10 +4,10 @@ import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import { MemoryCache } from '../src/cache.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { RetrievalService } from '../src/retrieval/service.js';
-import { loadConfig, type AppConfig } from '../src/config.js';
+import { makeTestConfig } from './support/test-config.js';
 
-function withTeamId(teamId: string): AppConfig {
-  return { ...loadConfig(), teamId, store: 'memory', cache: 'memory' };
+function withTeamId(teamId: string) {
+  return makeTestConfig({ teamId });
 }
 
 test('searchContext: team convention atom surfaces cross-project via convention source', async () => {

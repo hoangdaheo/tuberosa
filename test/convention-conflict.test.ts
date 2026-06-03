@@ -4,7 +4,7 @@ import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import { MemoryCache } from '../src/cache.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { RetrievalService } from '../src/retrieval/service.js';
-import { loadConfig } from '../src/config.js';
+import { makeTestConfig } from './support/test-config.js';
 import { createUserStyleAtom } from '../src/user-style/store-helpers.js';
 
 // Phase 2 Task 4: the pack conflict resolver is the 3-layer resolveLayeredConflicts.
@@ -37,14 +37,7 @@ test('searchContext: team convention beats personal coding_preference (Team conv
     trigger: { intentTags: ['style'], symbols: ['export'] },
   });
 
-  const config = {
-    ...loadConfig(),
-    teamId: 'team-acme',
-    userId: 'alice@example.com',
-    userStyleEnabled: true,
-    store: 'memory' as const,
-    cache: 'memory' as const,
-  };
+  const config = makeTestConfig({ teamId: 'team-acme', userId: 'alice@example.com', userStyleEnabled: true });
   const service = new RetrievalService(store, new MemoryCache(), new HashModelProvider(), config);
 
   const pack = await service.searchContext({

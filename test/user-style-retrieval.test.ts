@@ -4,11 +4,11 @@ import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
 import { MemoryCache } from '../src/cache.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { RetrievalService } from '../src/retrieval/service.js';
-import { loadConfig, type AppConfig } from '../src/config.js';
 import { createUserStyleAtom } from '../src/user-style/store-helpers.js';
+import { makeTestConfig } from './support/test-config.js';
 
-function withUserId(userId: string | undefined): AppConfig {
-  return { ...loadConfig(), userId, userStyleEnabled: true, store: 'memory', cache: 'memory' };
+function withUserId(userId: string | undefined) {
+  return makeTestConfig({ userId, userStyleEnabled: true });
 }
 
 test('searchContext: matching user-style atom surfaces with userStyle: matchReason', async () => {

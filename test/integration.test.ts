@@ -8,13 +8,13 @@ import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
 import { Pool } from 'pg';
 import { AgentSessionService } from '../src/agent-session/service.js';
 import { createCache, MemoryCache } from '../src/cache.js';
-import type { AppConfig } from '../src/config.js';
 import { IngestionService } from '../src/ingest/service.js';
 import { HashModelProvider } from '../src/model/provider.js';
 import { ReflectionService } from '../src/reflection/service.js';
 import { RetrievalService } from '../src/retrieval/service.js';
 import { PostgresKnowledgeStore } from '../src/storage/postgres-store.js';
 import { runMigrations } from '../src/storage/migrations.js';
+import { makeTestConfig } from './support/test-config.js';
 
 const POSTGRES_URL = process.env.TUBEROSA_INTEGRATION_DATABASE_URL
   ?? process.env.DATABASE_URL
@@ -477,47 +477,13 @@ test('Redis cache stores, reads, and deletes JSON when Docker is available', asy
   }
 });
 
-function testConfig(): AppConfig {
-  return {
-    env: 'test',
-    port: 3027,
+function testConfig() {
+  return makeTestConfig({
     databaseUrl: POSTGRES_URL,
     redisUrl: REDIS_URL,
-    httpHost: '127.0.0.1',
-    requireApiKeyForNonLoopback: false,
     store: 'postgres',
-    cache: 'memory',
-    autoMigrate: false,
-    modelProvider: 'hash',
-    openAiTimeoutMs: 30_000,
-    embeddingDimensions: 1536,
-    openAiEmbeddingModel: 'text-embedding-3-small',
     contextCacheTtlSeconds: 0,
-    maxRequestBytes: 10 * 1024 * 1024,
-    maxIngestContentBytes: 2 * 1024 * 1024,
-    backupDir: '.tuberosa/test-backups',
-    exportBaseDir: '.tuberosa/test-exports',
-    importBaseDir: '.tuberosa/test-imports',
-    backupIntervalSeconds: 0,
-    backupStartupDelaySeconds: 0,
-    backupRetentionCount: 24,
-    backupRetentionMaxAgeDays: 30,
-    backupWriteThrough: false,
-    backupWriteThroughThrottleSeconds: 600,
-    physicalMirrorDebounceMs: 500,
-    errorLogDir: ".tuberosa/test-error-logs",
-    errorLogMaxBytes: 256 * 1024,
-    errorLogAutoCapture: true,
-    errorLogCaptureClientErrors: false,
-  persistReplay: false,
-    worktreeEnabled: true,
-    worktreeMaxFiles: 50,
-    worktreeMaxMtimeAgeHours: 72,
-    llmCriticEnabled: false,
-    archivalEnabled: false,
-  graphInferenceEnabled: false,
-    archivalIntervalHours: 24,
-  };
+  });
 }
 
 async function postgresAvailable(): Promise<{ ok: true } | { ok: false; reason: string }> {
