@@ -94,7 +94,7 @@ import type {
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
 import { importedSnapshotToPatch } from './atom-import-patch.js';
-import { canonicalKnowledgePair, shouldDropInferredRelationsForStatus } from './shared.js';
+import { canonicalKnowledgePair, packStatusForFeedback, shouldDropInferredRelationsForStatus } from './shared.js';
 import type {
   SourceFileRecord,
   SourceFileStatus,
@@ -2082,18 +2082,6 @@ const FEEDBACK_TYPES_THAT_AFFECT_RANKING = new Set<FeedbackInput['feedbackType']
   'irrelevant',
   'stale',
 ]);
-
-function packStatusForFeedback(feedbackType: FeedbackInput['feedbackType']): ContextPack['status'] | undefined {
-  if (feedbackType === 'selected' || feedbackType === 'selected_but_noisy') {
-    return 'selected';
-  }
-
-  if (feedbackType === 'rejected' || feedbackType === 'irrelevant' || feedbackType === 'stale') {
-    return 'rejected';
-  }
-
-  return undefined;
-}
 
 function ensureFeedbackSummary(
   summaries: Map<string, KnowledgeFeedbackSummary>,

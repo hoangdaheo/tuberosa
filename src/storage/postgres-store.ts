@@ -63,7 +63,7 @@ import type {
   AtomImportConflictAction,
 } from '../types/export-bundle.js';
 import { importedSnapshotToPatch } from './atom-import-patch.js';
-import { canonicalKnowledgePair, shouldDropInferredRelationsForStatus } from './shared.js';
+import { canonicalKnowledgePair, packStatusForFeedback, shouldDropInferredRelationsForStatus } from './shared.js';
 import {
   LABEL_PROVENANCE_METADATA_KEY,
   labelProvenanceKey,
@@ -2895,18 +2895,6 @@ function knowledgeReviewSql(
   }
 
   return orphaned;
-}
-
-function packStatusForFeedback(feedbackType: FeedbackInput['feedbackType']): ContextPack['status'] | undefined {
-  if (feedbackType === 'selected' || feedbackType === 'selected_but_noisy') {
-    return 'selected';
-  }
-
-  if (feedbackType === 'rejected' || feedbackType === 'irrelevant' || feedbackType === 'stale') {
-    return 'rejected';
-  }
-
-  return undefined;
 }
 
 function feedbackExistsSql(type: FeedbackEvent['feedbackType']): string {
