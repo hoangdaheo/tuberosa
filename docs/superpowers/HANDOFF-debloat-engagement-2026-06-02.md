@@ -144,41 +144,42 @@ verified. Owner decisions: keep ops, keep both surfaces.
 
 ---
 
-## 5. SP2 — Wire the LEARN pillar (do AFTER SP3)
+## 5. SP2 — Wire the LEARN pillar — STATUS: SHIPPED 2026-06-05
 
-**Goal:** make atoms → conventions → auto-improving memory actually function, per the owner's
-"wire it up" decision. This is the biggest *add*.
+**Branch:** `sp2-wire-learn-pillar`
 
-**Verified root cause (do not skip — this is why the pillar is dead):**
-- `extractAtoms` is **optional** on the interface: `src/model/provider.ts:27` (`extractAtoms?(...)`).
-- Only `HashModelProvider` implements it: `provider.ts:86` returns `this.fixtureAtoms` (test only).
-- `OpenAiModelProvider` (`provider.ts:136`) implements `judgeAtomUtility` (`:245`) but **NOT**
-  `extractAtoms`. `src/model/local-provider.ts` and `src/model/ollama-provider.ts` implement
-  neither.
-- Therefore `src/atoms/extractor.ts:41` (`if (!this.models.extractAtoms) return {stored:[],...}`)
-  always early-returns with a real provider → **0 atoms** → empty curation/conventions/handbook.
-- Owner's `.env` uses `TUBEROSA_MODEL_PROVIDER=ollama`.
+**Summary:** `extractAtoms` now exists on both `OpenAiModelProvider` and `OllamaGenerationProvider`
+via a shared extraction module. The full session→atom→curation nudge loop was validated live with
+`qwen2.5:3b-instruct`. All gates green: build clean, 796/796 unit tests, eval:retrieval /
+eval:agent-context / eval:knowledge-completeness green, integration 5/5.
 
-**Work (each its own task):**
-1. **Implement `extractAtoms` in `OpenAiModelProvider`** (`provider.ts`, near the existing
-   `judgeAtomUtility` at :245) using `/v1/responses` with a structured JSON output schema that
-   returns `ExtractedAtomCandidate[]` (claim, type ∈ fact|procedure|decision|gotcha|convention,
-   evidence, trigger, verification). Follow the existing rewrite/rerank structured-output pattern.
-2. **Implement `extractAtoms` for Ollama** (`ollama-provider.ts`) — JSON-mode prompt; or, if the
-   local model is weak at structured extraction, document that atom extraction requires
-   `openai` and gate cleanly.
-3. **Verify the loop end-to-end:** finish a session → atoms created → curation nudge fires
-   (`agent-session/service.ts:202`, threshold 5) → `tuberosa_propose_curation` clusters →
-   conventions distilled → appear in retrieval's convention lane + atlas `conventions.md`.
-4. **Tune the critic** (`src/atoms/critic.ts`, 4-stage gate) so real atoms pass without flooding;
-   measure reject reasons via `atom_gate_events`.
-5. Consider the **dual-persistence** simplification (approved learning becomes *either* a
-   convention atom *or* a legacy memory — `reflection/service.ts:100-159`) — optional unify.
+**Commits shipped:**
+- `c4d5941` — shared atom-extraction prompt, schema, and parser (`src/model/atom-extraction.ts`)
+- `6612c4f` — `TUBEROSA_OLLAMA_EXTRACT_MODEL` config for atom extraction
+- `54e722d` — `extractAtoms` on `OpenAiModelProvider` via shared extraction module
+- `2bb572d` — `OllamaGenerationProvider` — `extractAtoms` + `judgeAtomUtility` via `/api/chat`
+- `f87457e` — `ProviderRegistry` extraction passthrough + ollama wiring (honest capability check:
+  `extractAtoms` only exists on the registry when a provider backs it)
+- `2b84156` — stream Ollama generation to survive undici 300s headers timeout (discovered live:
+  undici hard-caps non-streaming header wait at 300s regardless of `AbortSignal`; stream:true +
+  NDJSON accumulation; default generation timeout now 600s; reader cancelled in finally)
+- `def2fcc` — require ≥1 evidence entry in extraction schema (grammar-enforced) (discovered live:
+  `qwen2.5:3b` emitted `evidence:[]` and every atom died at the critic floor; `minItems:1` forces
+  grammar-constrained models to emit evidence; critic untouched)
 
-**Eval gates:** `pnpm run eval:knowledge-completeness`, `pnpm run eval:agent-context`,
-`pnpm run eval:retrieval`, `pnpm test`. Add fixtures proving atoms/conventions populate and surface.
-**Risk:** med-high (touches model provider + learning path). Requires an `OPENAI_API_KEY` to test
-the OpenAI path; the hash provider's `fixtureAtoms` can drive deterministic tests.
+**Live validation (owner-witnessed):** 6/6 sessions extracted 6/6 atoms, floor:accepted:6, 0 gaps,
+curation nudge fired at 5. Owner enabled `TUBEROSA_OLLAMA_EXTRACT_MODEL=qwen2.5:3b-instruct` in
+`.env`. (`qwen3.5:latest` was impractical — see §7.)
+
+**Original goal:** make atoms → conventions → auto-improving memory actually function, per the
+owner's "wire it up" decision. This is the biggest *add*.
+
+**Verified root cause (historical — now fixed):**
+- `extractAtoms` was **optional** on the interface: `src/model/provider.ts:27` (`extractAtoms?(...)`).
+- Only `HashModelProvider` implemented it (test fixture only). `OpenAiModelProvider`,
+  `LocalModelProvider`, and `OllamaGenerationProvider` implemented neither `extractAtoms` nor the
+  shared extraction logic.
+- Therefore `src/atoms/extractor.ts:41` always early-returned with a real provider → **0 atoms**.
 
 **Kickoff prompt (paste into a fresh SP2 session):**
 > Read `docs/superpowers/HANDOFF-debloat-engagement-2026-06-02.md` (esp. §5) and
@@ -233,6 +234,15 @@ should be done first so docs are accurate. **No code-logic changes** — docs + 
   empty until SP2 lands; `risks.md` lists unverified atoms. Consider lazy builder selection (SP3-ish).
 - **Reflection 13-gate framework** (`reflection/recommendation.ts`, 611 LOC) — measure hard-gate
   pass rate before deciding whether to slim (SP2-adjacent).
+- **Dual-persistence unification deferred** (owner decision 2026-06-05) — approved learning writes
+  to *both* convention-atom path and legacy memory path (`reflection/service.ts:100-159`). Owner
+  chose not to unify during SP2; revisit as a focused SP3/post-SP3 task.
+- **`extractPromptIntent` not passed through registry under ollama/local** — the long-prompt
+  intent-extraction path is not wired through `ProviderRegistry` for ollama or local providers.
+  This is a FIND-pillar concern, not LEARN; SP2 did not change it. Revisit in SP3 or a follow-up.
+- **`qwen3.5:latest` impractical on current hardware for extraction** — thinking model, >5 min per
+  request on CPU-only. `qwen2.5:3b-instruct` validated instead (small, fast, grammar-constrained).
+  Revisit larger/thinking models when GPU hardware is available.
 
 ---
 
