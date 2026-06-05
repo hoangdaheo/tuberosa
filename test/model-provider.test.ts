@@ -2,9 +2,26 @@ import test from 'node:test';
 import { deepEqual, equal, ok } from 'node:assert/strict';
 import {
   buildOpenAiRerankPayload,
+  OpenAiModelProvider,
   OPENAI_RERANK_SYSTEM_PROMPT,
 } from '../src/model/provider.js';
 import type { ClassifiedQuery, RankedCandidate } from '../src/types.js';
+import { makeTestConfig } from './support/test-config.js';
+
+function openAiConfig(overrides: Record<string, unknown> = {}) {
+  return makeTestConfig({
+    model: {
+      provider: 'openai',
+      embeddingDimensions: 1536,
+      openAiEmbeddingModel: 'text-embedding-3-small',
+      openAiTimeoutMs: 30_000,
+      llmCriticEnabled: false,
+      openAiApiKey: 'test-key',
+      openAiRerankModel: 'gpt-test',
+      ...overrides,
+    },
+  });
+}
 
 test('OpenAI rerank prompt and payload emphasize concrete retrieval evidence', () => {
   ok(OPENAI_RERANK_SYSTEM_PROMPT.includes('concrete evidence coverage'));
@@ -97,6 +114,40 @@ test('OpenAI rerank prompt and payload emphasize concrete retrieval evidence', (
   equal(staleEvidence.freshness.staleMetadata, true);
   equal(staleEvidence.freshness.staleLanguage, true);
   deepEqual(staleEvidence.riskSignals, ['feedback:stale:1', 'suppression:freshness:stale']);
+});
+
+test('OpenAI extractAtoms parses structured atoms from /v1/responses', async (t) => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  let requestBody: Record<string, unknown> | undefined;
+  globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+    requestBody = JSON.parse(init?.body ?? '{}');
+    return new Response(JSON.stringify({
+      output_text: JSON.stringify({
+        atoms: [{
+          claim: 'Run pnpm run eval:retrieval before fusion changes.',
+          type: 'convention',
+          evidence: [{ kind: 'file', path: 'eval/retrieval-fixtures.json' }],
+          trigger: { files: ['src/retrieval/fusion.ts'] },
+        }],
+      }),
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  const provider = new OpenAiModelProvider(openAiConfig());
+  const atoms = await provider.extractAtoms({
+    project: 'tuberosa',
+    sessionPrompt: 'refactor fusion weights',
+    summary: 'tuned weights, ran eval',
+  });
+  equal(atoms.length, 1);
+  equal(atoms[0]!.type, 'convention');
+  equal((requestBody as { model?: string }).model, 'gpt-test');
+});
+
+test('OpenAI extractAtoms returns [] when no rerank model is configured', async () => {
+  const provider = new OpenAiModelProvider(openAiConfig({ openAiRerankModel: undefined }));
+  deepEqual(await provider.extractAtoms({ project: 'p', sessionPrompt: 'x' }), []);
 });
 
 function rankedCandidate(overrides: Partial<RankedCandidate> = {}): RankedCandidate {

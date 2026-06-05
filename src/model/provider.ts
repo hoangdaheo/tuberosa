@@ -10,6 +10,14 @@ import type {
   RerankResult,
 } from '../types.js';
 import { clamp, truncate } from '../util/text.js';
+import {
+  ATOM_EXTRACTION_SYSTEM_PROMPT,
+  ATOM_UTILITY_SYSTEM_PROMPT,
+  atomExtractionSchema,
+  atomUtilitySchema,
+  parseAtomUtilityVerdict,
+  parseExtractedAtoms,
+} from './atom-extraction.js';
 
 export type ExtractedAtomCandidate = {
   claim: string;
@@ -273,12 +281,43 @@ export class OpenAiModelProvider implements ModelProvider {
     if (!outputText) {
       throw new ModelProviderError('OpenAI atom-utility response did not include output text.');
     }
-    const parsed = parseJsonObject(outputText, 'OpenAI atom-utility response');
-    return {
-      generalizable: parsed.generalizable === true,
-      reason: typeof parsed.reason === 'string' ? truncate(parsed.reason, 200) : '',
-      confidence: typeof parsed.confidence === 'number' ? clamp(parsed.confidence, 0, 1) : 0,
-    };
+    return parseAtomUtilityVerdict(outputText);
+  }
+
+  async extractAtoms(input: {
+    project: string;
+    sessionPrompt: string;
+    summary?: string;
+    changedFiles?: string[];
+    decisions?: Array<{ decision: string; reason?: string; knowledgeIds?: string[] }>;
+    verificationCommands?: string[];
+  }): Promise<ExtractedAtomCandidate[]> {
+    // SP2 — reuse the structured-output rerank model slot, same as
+    // judgeAtomUtility. No model configured -> no atoms (fail-open).
+    const model = this.config.model.openAiRerankModel;
+    if (!model) {
+      return [];
+    }
+
+    const response = await fetchOpenAiJson(
+      this.config,
+      model,
+      ATOM_EXTRACTION_SYSTEM_PROMPT,
+      'atom_extraction',
+      atomExtractionSchema(),
+      input,
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new ModelProviderError(`OpenAI atom-extraction request failed: ${response.status} ${detail}`);
+    }
+
+    const outputText = extractOutputText(await response.json());
+    if (!outputText) {
+      throw new ModelProviderError('OpenAI atom-extraction response did not include output text.');
+    }
+    return parseExtractedAtoms(outputText);
   }
 
   async extractPromptIntent(input: {
@@ -378,25 +417,6 @@ function promptIntentSchema(): Record<string, unknown> {
   };
 }
 
-const ATOM_UTILITY_SYSTEM_PROMPT = [
-  'You audit a candidate engineering lesson for a coding-agent memory.',
-  'Decide if it is generalizable — i.e. would help a future agent on a similar but different task.',
-  'Reject if it merely describes one-time events (test runs, commits, status updates) or restates trivia.',
-  'Return JSON only: { "generalizable": bool, "reason": string, "confidence": 0..1 }.',
-].join(' ');
-
-function atomUtilitySchema(): Record<string, unknown> {
-  return {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      generalizable: { type: 'boolean' },
-      reason: { type: 'string' },
-      confidence: { type: 'number', minimum: 0, maximum: 1 },
-    },
-    required: ['generalizable', 'reason', 'confidence'],
-  };
-}
 
 async function fetchOpenAiEmbedding(config: AppConfig, text: string): Promise<Response> {
   try {
