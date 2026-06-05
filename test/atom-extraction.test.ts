@@ -30,6 +30,12 @@ test('schemas have an object root (required by OpenAI strict + Ollama format)', 
   assert.equal(atomUtilitySchema().type, 'object');
 });
 
+test('extraction schema evidence array has minItems:1 (grammar-enforced for local models)', () => {
+  const schema = atomExtractionSchema();
+  const evidenceSchema = (schema as any).properties.atoms.items.properties.evidence;
+  assert.equal(evidenceSchema.minItems, 1);
+});
+
 test('parseExtractedAtoms keeps a fully valid atom', () => {
   const atoms = parseExtractedAtoms(JSON.stringify({ atoms: [VALID_ATOM] }));
   assert.equal(atoms.length, 1);

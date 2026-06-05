@@ -40,6 +40,8 @@ export const ATOM_UTILITY_SYSTEM_PROMPT = [
  * Root is an object (not a bare array): OpenAI strict mode and Ollama's
  * `format` both require an object root. Optional fields are nullable +
  * required, which is what OpenAI strict mode demands; the parser strips nulls.
+ * evidence requires minItems:1 because grammar-constrained local models
+ * otherwise emit empty evidence and every atom dies at the critic floor.
  */
 export function atomExtractionSchema(): Record<string, unknown> {
   return {
@@ -57,6 +59,7 @@ export function atomExtractionSchema(): Record<string, unknown> {
             type: { type: 'string', enum: [...ATOM_TYPES] },
             evidence: {
               type: 'array',
+              minItems: 1,
               maxItems: 6,
               items: {
                 type: 'object',
