@@ -43,7 +43,7 @@ Use the bundled `docker compose up --build -d`. The defaults already point at th
 
 If you set `OPENAI_API_KEY` and don't set `TUBEROSA_MODEL_PROVIDER`, the provider defaults to `openai`.
 
-> Note: the automatic "learn from sessions" loop (atom extraction) is not yet wired to a shipping provider — that is tracked as SP2 of the de-bloat engagement. Retrieval works on all providers; only the auto-learning half waits on SP2.
+> Note: the automatic "learn from sessions" loop (atom extraction + LLM critic) is wired to a shipping provider. Under `ollama`, set `TUBEROSA_OLLAMA_EXTRACT_MODEL` (e.g. `qwen3.5:latest`); under `openai` it uses `OPENAI_RERANK_MODEL`. Leave it unset to turn atom extraction off — retrieval (FIND) is unaffected on all providers.
 
 ## Full reference, grouped (matches the code `AppConfig`)
 
@@ -67,7 +67,7 @@ You will not normally touch these — they exist for tuning. Listed by the group
 | | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` |
 | | `OPENAI_REWRITE_MODEL` / `OPENAI_RERANK_MODEL` | (unset) |
 | | `TUBEROSA_OPENAI_TIMEOUT_MS` | `30000` |
-| | `TUBEROSA_OLLAMA_URL` / `TUBEROSA_OLLAMA_RERANK_MODEL` / `TUBEROSA_OLLAMA_TIMEOUT_MS` | (unset) |
+| | `TUBEROSA_OLLAMA_URL` / `TUBEROSA_OLLAMA_RERANK_MODEL` / `TUBEROSA_OLLAMA_EXTRACT_MODEL` / `TUBEROSA_OLLAMA_TIMEOUT_MS` | (unset) |
 | | `TUBEROSA_LLM_CRITIC_ENABLED` | `true` when provider is `openai`, else `false` |
 | **context** | `TUBEROSA_CONTEXT_MODE` | `layered` |
 | | `CONTEXT_CACHE_TTL_SECONDS` | `300` |

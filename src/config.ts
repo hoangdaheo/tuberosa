@@ -26,6 +26,8 @@ export interface AppConfig {
     openAiTimeoutMs: number;
     ollamaUrl?: string;
     ollamaRerankModel?: string;
+    /** SP2 — Ollama generation model for atom extraction + LLM critic. Unset = extraction off. */
+    ollamaExtractModel?: string;
     ollamaTimeoutMs?: number;
     /** Concern D — enable the stage-4 LLM critic. Defaults to whether the provider can judge. */
     llmCriticEnabled: boolean;
@@ -132,6 +134,7 @@ export function loadConfig(): AppConfig {
       openAiTimeoutMs: envInt('TUBEROSA_OPENAI_TIMEOUT_MS', 30_000),
       ollamaUrl: process.env.TUBEROSA_OLLAMA_URL || undefined,
       ollamaRerankModel: process.env.TUBEROSA_OLLAMA_RERANK_MODEL || undefined,
+      ollamaExtractModel: process.env.TUBEROSA_OLLAMA_EXTRACT_MODEL || undefined,
       ollamaTimeoutMs: process.env.TUBEROSA_OLLAMA_TIMEOUT_MS ? Number(process.env.TUBEROSA_OLLAMA_TIMEOUT_MS) : undefined,
       llmCriticEnabled: readBoolean(
         process.env.TUBEROSA_LLM_CRITIC_ENABLED,
