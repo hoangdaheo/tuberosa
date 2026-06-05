@@ -88,3 +88,30 @@ test('ProviderRegistry falls back to fallback provider when capability is missin
   const reranked = await registry.rerank({ candidates: [], context: { prompt: 'p' } } as never);
   equal(reranked.model, 'fallback');
 });
+
+test('registry has NO extractAtoms when extract model is unset (honest capability check)', () => {
+  const registry = buildOllamaRegistry(baseConfig({
+    provider: 'ollama',
+    ollamaUrl: 'http://localhost:11434',
+    ollamaRerankModel: 'reranker',
+  }));
+  ok(registry);
+  equal((registry as ProviderRegistry).extractAtoms, undefined);
+  equal((registry as ProviderRegistry).judgeAtomUtility, undefined);
+});
+
+test('registry passes extractAtoms + judgeAtomUtility through when extract model is set', () => {
+  const registry = buildOllamaRegistry(baseConfig({
+    provider: 'ollama',
+    ollamaUrl: 'http://localhost:11434',
+    ollamaRerankModel: 'reranker',
+    ollamaExtractModel: 'qwen3.5:latest',
+  }));
+  ok(registry);
+  equal(typeof (registry as ProviderRegistry).extractAtoms, 'function');
+  equal(typeof (registry as ProviderRegistry).judgeAtomUtility, 'function');
+  const description = (registry as ProviderRegistry).describe();
+  const capabilities = new Map(description.map((entry) => [entry.capability, entry.providerName]));
+  equal(capabilities.get('extractAtoms'), 'ollama-generation');
+  equal(capabilities.get('judgeAtomUtility'), 'ollama-generation');
+});

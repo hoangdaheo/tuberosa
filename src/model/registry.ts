@@ -9,8 +9,9 @@ import { HashModelProvider } from './provider.js';
 import type { ModelProvider } from './provider.js';
 import { LocalCrossEncoderProvider } from './local-provider.js';
 import { OllamaRerankProvider } from './ollama-provider.js';
+import { OllamaGenerationProvider } from './ollama-generation.js';
 
-export type ModelCapability = 'embed' | 'rewriteQuery' | 'rerank';
+export type ModelCapability = 'embed' | 'rewriteQuery' | 'rerank' | 'extractAtoms' | 'judgeAtomUtility';
 
 export interface CapabilityProvider extends ModelProvider {
   /** Capabilities the provider can fulfil natively. Missing capabilities defer to the fallback. */
@@ -32,7 +33,17 @@ export interface RegistryEntry {
  * provider implements `ModelProvider` so it drops into `RetrievalService` unchanged.
  */
 export class ProviderRegistry implements ModelProvider {
+  /**
+   * SP2 — extraction capabilities are instance properties assigned only when
+   * a provider supplies them. A registry without an extraction provider has
+   * NO extractAtoms property, which is what AtomExtractor's capability
+   * check requires.
+   */
+  extractAtoms?: ModelProvider['extractAtoms'];
+  judgeAtomUtility?: ModelProvider['judgeAtomUtility'];
+
   private readonly entries = new Map<ModelCapability, CapabilityProvider>();
+  private readonly extractionEntries: RegistryEntry[] = [];
   private readonly fallback: ModelProvider;
 
   constructor(fallback: ModelProvider) {
@@ -47,11 +58,28 @@ export class ProviderRegistry implements ModelProvider {
     }
   }
 
+  registerExtraction(
+    name: string,
+    provider: Pick<ModelProvider, 'extractAtoms' | 'judgeAtomUtility'>,
+  ): void {
+    if (provider.extractAtoms && !this.extractAtoms) {
+      this.extractAtoms = provider.extractAtoms.bind(provider);
+      this.extractionEntries.push({ capability: 'extractAtoms', providerName: name });
+    }
+    if (provider.judgeAtomUtility && !this.judgeAtomUtility) {
+      this.judgeAtomUtility = provider.judgeAtomUtility.bind(provider);
+      this.extractionEntries.push({ capability: 'judgeAtomUtility', providerName: name });
+    }
+  }
+
   describe(): RegistryEntry[] {
-    return [...this.entries.entries()].map(([capability, provider]) => ({
-      capability,
-      providerName: provider.name,
-    }));
+    return [
+      ...[...this.entries.entries()].map(([capability, provider]) => ({
+        capability,
+        providerName: provider.name,
+      })),
+      ...this.extractionEntries,
+    ];
   }
 
   async embed(text: string): Promise<number[]> {
@@ -121,7 +149,28 @@ export function buildOllamaRegistry(config: AppConfig): ModelProvider | null {
     }),
     capabilities: ['rerank'],
   }));
+
+  if (config.model.ollamaExtractModel) {
+    registry.registerExtraction('ollama-generation', new OllamaGenerationProvider({
+      modelId: config.model.ollamaExtractModel,
+      ollamaUrl: config.model.ollamaUrl,
+    }));
+  } else {
+    noteExtractionDisabledOnce();
+  }
+
   return registry;
+}
+
+let hasLoggedExtractionDisabled = false;
+
+function noteExtractionDisabledOnce(): void {
+  if (hasLoggedExtractionDisabled) return;
+  hasLoggedExtractionDisabled = true;
+  if ((process.env.NODE_ENV ?? '') === 'test' || process.env.TUBEROSA_SILENT_OLLAMA_PROVIDER === 'true') return;
+  process.stderr.write(
+    '[tuberosa] atom extraction disabled under ollama; set TUBEROSA_OLLAMA_EXTRACT_MODEL (e.g. qwen3.5:latest) to enable the LEARN pillar.\n',
+  );
 }
 
 function asCapabilityProvider(input: { name: string; provider: ModelProvider; capabilities: ModelCapability[] }): CapabilityProvider {
