@@ -15,7 +15,7 @@ import {
  * Separate from OllamaRerankProvider: the rerank model is a cross-encoder
  * that cannot generate text. This provider calls `/api/chat` with a JSON
  * schema `format` (Ollama structured outputs) using a generation model
- * (TUBEROSA_OLLAMA_EXTRACT_MODEL, e.g. qwen3.5:latest).
+ * (TUBEROSA_OLLAMA_EXTRACT_MODEL, e.g. qwen2.5:3b-instruct; thinking models like qwen3.5 are impractical on CPU-only hosts).
  *
  * Requests are STREAMED (`stream: true`). This is not just an optimization:
  * with `stream: false` Ollama sends no response headers until the entire

@@ -169,7 +169,7 @@ function noteExtractionDisabledOnce(): void {
   hasLoggedExtractionDisabled = true;
   if ((process.env.NODE_ENV ?? '') === 'test' || process.env.TUBEROSA_SILENT_OLLAMA_PROVIDER === 'true') return;
   process.stderr.write(
-    '[tuberosa] atom extraction disabled under ollama; set TUBEROSA_OLLAMA_EXTRACT_MODEL (e.g. qwen3.5:latest) to enable the LEARN pillar.\n',
+    '[tuberosa] atom extraction disabled under ollama; set TUBEROSA_OLLAMA_EXTRACT_MODEL (e.g. qwen2.5:3b-instruct) to enable the LEARN pillar.\n',
   );
 }
 

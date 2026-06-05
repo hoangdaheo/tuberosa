@@ -43,7 +43,7 @@ Use the bundled `docker compose up --build -d`. The defaults already point at th
 
 If you set `OPENAI_API_KEY` and don't set `TUBEROSA_MODEL_PROVIDER`, the provider defaults to `openai`.
 
-> Note: the automatic "learn from sessions" loop (atom extraction + LLM critic) is wired to a shipping provider. Under `ollama`, set `TUBEROSA_OLLAMA_EXTRACT_MODEL` (e.g. `qwen3.5:latest`); under `openai` it uses `OPENAI_RERANK_MODEL`. Leave it unset to turn atom extraction off — retrieval (FIND) is unaffected on all providers.
+> Note: the automatic "learn from sessions" loop (atom extraction + LLM critic) is wired to a shipping provider. Under `ollama`, set `TUBEROSA_OLLAMA_EXTRACT_MODEL` (e.g. `qwen2.5:3b-instruct`; thinking models like `qwen3.5:latest` need GPU-class hardware to answer in reasonable time); under `openai` it uses `OPENAI_RERANK_MODEL`. Leave it unset to turn atom extraction off — retrieval (FIND) is unaffected on all providers.
 
 ## Full reference, grouped (matches the code `AppConfig`)
 
