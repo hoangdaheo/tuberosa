@@ -13,3 +13,5 @@ npm-debug.log*
 nash*
 snapshot-1/*
 .git/
+docs/supperpowers/
+docs/audit-specs/
