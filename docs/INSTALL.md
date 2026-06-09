@@ -36,6 +36,14 @@ Confirm the dry-run output includes — and nothing secret leaks in:
 | `.claude/skills/tuberosa-onboard-project/SKILL.md` | the skill `init --with-skills` installs |
 | `LICENSE`, `README.md`, `package.json` | npm always includes these |
 
+> **Bundled skills are gated.** `.claude/skills/bundled-skills.json` is the single
+> source of truth for which skills ship and which `init --with-skills` copies. The
+> `prepack` hook runs `verify:bundled-skills`, which fails the pack/publish if the
+> manifest, the on-disk skill files, and the `package.json` `files` allowlist
+> disagree. To add a skill to the package: (1) add its folder under
+> `.claude/skills/`, (2) add one entry to `bundled-skills.json`, (3) run
+> `pnpm run verify:bundled-skills` — it names exactly which directory to add to `files`.
+
 ❌ Must **not** appear: `.env`, `.tuberosa/`, `.git/`, `node_modules/`, test fixtures with
 secrets. The `files` allowlist in `package.json` already restricts the set — the dry-run is your
 last check. (`.npmignore` is not used; the `files` allowlist wins.)
