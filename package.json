@@ -1,5 +1,5 @@
 {
-  "name": "tuberosa",
+  "name": "@hoangdaheo/tuberosa",
   "version": "0.2.0",
   "description": "Local-first MCP context broker for agentic AI knowledge matching and reflection memory.",
   "type": "module",
@@ -26,7 +26,8 @@
     "ai"
   ],
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
   },
   "packageManager": "pnpm@11.1.2",
   "main": "dist/src/index.js",
