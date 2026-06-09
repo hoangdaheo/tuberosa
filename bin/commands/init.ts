@@ -4,6 +4,7 @@ import type { CliInvocation, CommandIo, CommandResult, SpawnFn, FsAdapter } from
 import { DEFAULT_MCP_PORT } from './types.js';
 import { composeTemplate } from './compose-template.js';
 import { BUNDLED_SKILLS_MANIFEST, parseManifest, manifestSkillFilePaths } from './bundled-skills.js';
+import { resolvePackageRoot } from './package-root.js';
 
 export interface InitContext {
   root: string;
@@ -20,7 +21,7 @@ export interface InitContext {
  * Behaviour:
  *   1. Detect Docker. If present (and not `--no-docker`), write `.tuberosa/compose.yml`
  *      from the embedded template and `docker compose up -d`. Wait for Postgres health,
- *      run `pnpm run migrate`, and print the MCP snippet.
+ *      apply the package's bundled migrations in-package, and print the MCP snippet.
  *   2. If Docker is absent (or `--no-docker`), fall back to embedded-mode: print the
  *      `TUBEROSA_STORE=memory …` env vars the user needs and skip docker entirely.
  *   3. Copy `.env.example → .env` when missing.
@@ -66,15 +67,8 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   }
 
   if (!context.skipMigrate) {
-    const migrate = await spawn('pnpm', ['run', 'migrate'], {
-      cwd: context.root,
-      env: { ...io.env, DATABASE_URL: io.env.DATABASE_URL ?? `postgres://tuberosa:tuberosa@127.0.0.1:${context.postgresPort}/tuberosa` },
-      timeoutMs: 120_000,
-    });
-    if (migrate.exitCode !== 0) {
-      io.err(`pnpm run migrate failed (exit ${migrate.exitCode}): ${migrate.stderr.trim() || migrate.stdout.trim()}`);
-      return { exitCode: 1 };
-    }
+    const migrateExit = await runMigrations(io, fs, spawn, context);
+    if (migrateExit !== 0) return { exitCode: migrateExit };
   }
 
   printSuccess(io, context);
@@ -198,6 +192,40 @@ async function writeComposeIfMissing(io: CommandIo, fs: FsAdapter, composePath: 
   });
   await fs.writeFile(composePath, yaml);
   io.out(`Wrote ${composePath}.`);
+}
+
+/**
+ * Apply the database migrations that ship *inside the Tuberosa package*.
+ *
+ * This must NOT shell out to `pnpm run migrate` in the user's project: that
+ * script only exists in the Tuberosa checkout, so `npx tuberosa init` in any
+ * other project failed with `[ERR_PNPM_NO_SCRIPT] Missing script: migrate`.
+ *
+ * Instead we run the package's own migrate entry (`dist/scripts/migrate.js`
+ * when published, `scripts/migrate.ts` in a tsx checkout) with the package root
+ * as the child's cwd. `runMigrations()` resolves its SQL directory from
+ * `process.cwd()/migrations`, so that cwd is what makes the bundled `migrations/`
+ * directory resolvable regardless of where the user invoked the CLI.
+ */
+async function runMigrations(io: CommandIo, fs: FsAdapter, spawn: SpawnFn, context: InitContext): Promise<number> {
+  const packageRoot = await resolvePackageRoot(io.env, fs);
+  if (!packageRoot) {
+    io.err('Could not locate the Tuberosa package root to run migrations. Set TUBEROSA_PACKAGE_ROOT or re-run with --skip-migrate.');
+    return 1;
+  }
+  const distEntry = `${packageRoot}/dist/scripts/migrate.js`;
+  const tsxEntry = `${packageRoot}/scripts/migrate.ts`;
+  const args: string[] = (await fs.exists(distEntry)) ? [distEntry] : ['--import', 'tsx', tsxEntry];
+  const migrate = await spawn('node', args, {
+    cwd: packageRoot,
+    env: { ...io.env, DATABASE_URL: io.env.DATABASE_URL ?? `postgres://tuberosa:tuberosa@127.0.0.1:${context.postgresPort}/tuberosa` },
+    timeoutMs: 120_000,
+  });
+  if (migrate.exitCode !== 0) {
+    io.err(`migrations failed (exit ${migrate.exitCode}): ${migrate.stderr.trim() || migrate.stdout.trim()}`);
+    return 1;
+  }
+  return 0;
 }
 
 async function waitForPostgresHealth(io: CommandIo, spawn: SpawnFn, composePath: string, cwd: string): Promise<boolean> {

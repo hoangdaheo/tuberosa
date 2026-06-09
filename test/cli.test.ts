@@ -149,25 +149,112 @@ describe('doctor command', () => {
     assert.equal(result.exitCode, 1);
     assert.ok(harness.stdout.some((line) => /mcp stdout sanity/i.test(line)));
   });
+
+  it('finds bundled migrations + MCP entry under the package root, not the user cwd', async () => {
+    const spawn = makeSpawn((command, args) => {
+      if (command === 'pnpm') return { exitCode: 0, stdout: '11.1.2', stderr: '' };
+      if (command === 'docker') return { exitCode: 1, stdout: '', stderr: 'not found' };
+      if (command === 'lsof' && args.includes('-iTCP:3027')) return { exitCode: 1, stdout: '', stderr: '' };
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }, []);
+    // User project (/work/proj) has NO migrations/ or src/ — they ship inside the
+    // package (/pkg). This is the `npx tuberosa doctor` from a foreign project case.
+    const fs = makeFs({
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      '/pkg/migrations': '',
+      '/pkg/dist/src/mcp-stdio.js': "process.stdout.write('frame')",
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
+    const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
+    assert.equal(checks.find((c) => c.name === 'migrations')?.status, 'ok', 'migrations resolved from package root');
+    assert.equal(checks.find((c) => c.name === 'mcp stdout sanity')?.status, 'ok', 'compiled dist entry counts as healthy');
+  });
 });
 
 describe('init command', () => {
   it('runs docker compose + migrate and prints the MCP snippet when docker is present', async () => {
+    const calls: RecordedSpawn[] = [];
     const spawn = makeSpawn((command, args) => {
       if (command === 'docker' && args[0] === '--version') return { exitCode: 0, stdout: 'docker 24', stderr: '' };
       if (command === 'docker' && args.includes('exec')) return { exitCode: 0, stdout: 'accepting', stderr: '' };
       if (command === 'docker' && args.includes('up')) return { exitCode: 0, stdout: '', stderr: '' };
-      if (command === 'pnpm' && args[0] === 'run') return { exitCode: 0, stdout: '', stderr: '' };
       return { exitCode: 0, stdout: '', stderr: '' };
-    }, []);
-    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
-    const harness = makeIo({ fs, spawn });
+    }, calls);
+    // The migrations live inside the installed package (/pkg), not the user's
+    // project (/work/proj). Pin the package root so the test exercises the real
+    // module-relative resolution path deterministically.
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      '/pkg/dist/scripts/migrate.js': '',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
     assert.equal(result.exitCode, 0);
     assert.ok(harness.stdout.some((line) => /Tuberosa is up/.test(line)));
     assert.ok(harness.stdout.some((line) => /mcp_servers.tuberosa/.test(line)));
     assert.equal(await fs.exists('/work/proj/.tuberosa/compose.yml'), true);
     assert.equal(await fs.exists('/work/proj/.env'), true);
+    // Regression: init must NOT shell out to `pnpm run migrate` (that script only
+    // exists in the Tuberosa checkout, so it failed in every foreign project).
+    assert.ok(
+      !calls.some((c) => c.command === 'pnpm' && c.args[0] === 'run' && c.args[1] === 'migrate'),
+      'init must not run `pnpm run migrate`',
+    );
+    const migrate = calls.find((c) => c.command === 'node' && c.args.some((a) => /migrate\.js$/.test(a)));
+    assert.ok(migrate, 'init should run the package-bundled migrate entry with node');
+    assert.deepEqual(migrate!.args, ['/pkg/dist/scripts/migrate.js']);
+    assert.equal(migrate!.cwd, '/pkg', 'migrate child cwd must be the package root so migrations/ resolves');
+    assert.equal(migrate!.env?.DATABASE_URL, 'postgres://tuberosa:tuberosa@127.0.0.1:5432/tuberosa');
+  });
+
+  it('falls back to the tsx migrate entry when dist is absent (fresh checkout)', async () => {
+    const calls: RecordedSpawn[] = [];
+    const spawn = makeSpawn((command, args) => {
+      if (command === 'docker' && args[0] === '--version') return { exitCode: 0, stdout: 'docker 24', stderr: '' };
+      if (command === 'docker' && args.includes('exec')) return { exitCode: 0, stdout: 'accepting', stderr: '' };
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }, calls);
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      // no dist/ — only the TypeScript source is present
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    const migrate = calls.find((c) => c.command === 'node' && c.args.some((a) => /migrate\.ts$/.test(a)));
+    assert.ok(migrate, 'init should fall back to `node --import tsx scripts/migrate.ts`');
+    assert.deepEqual(migrate!.args, ['--import', 'tsx', '/pkg/scripts/migrate.ts']);
+    assert.equal(migrate!.cwd, '/pkg');
+  });
+
+  it('fails clearly (not via pnpm) when the package root cannot be located for migrations', async () => {
+    const spawn = makeSpawn((command, args) => {
+      if (command === 'docker' && args[0] === '--version') return { exitCode: 0, stdout: 'docker 24', stderr: '' };
+      if (command === 'docker' && args.includes('exec')) return { exitCode: 0, stdout: 'accepting', stderr: '' };
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }, []);
+    // Point at a root that has no package.json — resolution fails.
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/nope' }, spawn });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 1);
+    assert.ok(harness.stderr.some((line) => /package root/i.test(line)));
+  });
+
+  it('skips migrations entirely with --skip-migrate', async () => {
+    const calls: RecordedSpawn[] = [];
+    const spawn = makeSpawn((command, args) => {
+      if (command === 'docker' && args[0] === '--version') return { exitCode: 0, stdout: 'docker 24', stderr: '' };
+      if (command === 'docker' && args.includes('exec')) return { exitCode: 0, stdout: 'accepting', stderr: '' };
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }, calls);
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
+    const harness = makeIo({ fs, spawn });
+    const result = await initCommand({ command: 'init', options: { 'skip-migrate': true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.ok(!calls.some((c) => /migrate/.test(c.args.join(' '))), 'no migrate child should be spawned');
   });
 
   it('falls back to embedded mode when docker is absent', async () => {
@@ -273,15 +360,20 @@ describe('init command', () => {
 });
 
 describe('mcp command', () => {
-  it('prefers compiled dist entry when available and applies embedded defaults', async () => {
+  it('resolves the entrypoint from the package root, not cwd, and runs in the user cwd', async () => {
     const calls: RecordedSpawn[] = [];
     const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), calls);
-    const fs = makeFs({ '/work/proj/dist/src/mcp-stdio.js': '' });
-    const harness = makeIo({ fs, spawn });
+    // The entrypoint ships inside the package (/pkg); the user invokes from /work/proj.
+    const fs = makeFs({
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      '/pkg/dist/src/mcp-stdio.js': '',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     const result = await mcpCommand({ command: 'mcp', options: {}, positional: [] }, harness.io);
     assert.equal(result.exitCode, 0);
     assert.equal(calls[0]!.command, 'node');
-    assert.deepEqual(calls[0]!.args, ['/work/proj/dist/src/mcp-stdio.js']);
+    assert.deepEqual(calls[0]!.args, ['/pkg/dist/src/mcp-stdio.js']);
+    assert.equal(calls[0]!.cwd, '/work/proj', 'child cwd is the user project, so the mirror lands there');
     assert.equal(calls[0]!.env?.TUBEROSA_STORE, 'memory');
     assert.equal(calls[0]!.env?.TUBEROSA_MODEL_PROVIDER, 'hash');
   });
@@ -289,11 +381,33 @@ describe('mcp command', () => {
   it('falls back to tsx entry when dist is missing', async () => {
     const calls: RecordedSpawn[] = [];
     const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), calls);
-    const fs = makeFs({ '/work/proj/src/mcp-stdio.ts': '' });
-    const harness = makeIo({ fs, spawn });
+    const fs = makeFs({
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      '/pkg/src/mcp-stdio.ts': '',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     await mcpCommand({ command: 'mcp', options: {}, positional: [] }, harness.io);
     assert.equal(calls[0]!.command, 'node');
-    assert.deepEqual(calls[0]!.args, ['--import', 'tsx', '/work/proj/src/mcp-stdio.ts']);
+    assert.deepEqual(calls[0]!.args, ['--import', 'tsx', '/pkg/src/mcp-stdio.ts']);
+  });
+
+  it('honours --root as an entrypoint override (legacy power-user path)', async () => {
+    const calls: RecordedSpawn[] = [];
+    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), calls);
+    const fs = makeFs({ '/checkout/dist/src/mcp-stdio.js': '' });
+    const harness = makeIo({ fs, spawn });
+    const result = await mcpCommand({ command: 'mcp', options: { root: '/checkout' }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(calls[0]!.args, ['/checkout/dist/src/mcp-stdio.js']);
+  });
+
+  it('errors clearly when the package cannot be located', async () => {
+    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
+    const fs = makeFs({}); // no package.json anywhere the resolver can see
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/nope' }, spawn });
+    const result = await mcpCommand({ command: 'mcp', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 1);
+    assert.ok(harness.stderr.some((line) => /Could not locate the Tuberosa package/.test(line)));
   });
 
   it('preserves user-set env vars instead of overwriting them', () => {

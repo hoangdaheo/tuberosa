@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import type { CliInvocation, CommandIo, CommandResult } from './types.js';
 import { DEFAULT_MCP_PORT } from './types.js';
+import { resolvePackageRoot } from './package-root.js';
 
 export type DoctorStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
@@ -37,6 +38,11 @@ export async function runDoctorChecks(invocation: CliInvocation, io: CommandIo):
   const portOption = typeof invocation.options.port === 'string' ? Number(invocation.options.port) : DEFAULT_MCP_PORT;
   const port = Number.isFinite(portOption) ? portOption : DEFAULT_MCP_PORT;
   const root = typeof invocation.options.root === 'string' ? resolve(io.cwd, invocation.options.root) : io.cwd;
+  // migrations/ and the MCP entrypoint ship *inside the package*, not in the
+  // user's project. Resolve the package root so `npx tuberosa doctor` from a
+  // foreign project doesn't false-warn about "missing" bundled files. Fall back
+  // to the project root only when resolution fails (degraded, but never crashes).
+  const packageRoot = (io.fs && (await resolvePackageRoot(io.env, io.fs))) || root;
 
   const checks: DoctorCheck[] = [];
   checks.push(checkNode(io));
@@ -44,8 +50,8 @@ export async function runDoctorChecks(invocation: CliInvocation, io: CommandIo):
   checks.push(await checkDocker(io));
   checks.push(await checkPort(io, port));
   checks.push(await checkPostgres(io));
-  checks.push(await checkMigrations(io, root));
-  checks.push(await checkMcpStdio(io, root));
+  checks.push(await checkMigrations(io, packageRoot));
+  checks.push(await checkMcpStdio(io, packageRoot));
   return checks;
 }
 
@@ -136,7 +142,9 @@ async function checkPostgres(io: CommandIo): Promise<DoctorCheck> {
     return {
       name: 'postgres reachability',
       status: 'skip',
-      detail: 'DATABASE_URL not set; will use embedded-mode defaults.',
+      detail: 'DATABASE_URL not set in this shell; assuming embedded-mode defaults. '
+        + '(env set in .mcp.json is only visible to the MCP server your agent spawns, not to this terminal — '
+        + 'export DATABASE_URL here to check a real DB.)',
     };
   }
   if (!io.spawn) return { name: 'postgres reachability', status: 'skip', detail: 'spawn unavailable' };
@@ -153,29 +161,37 @@ async function checkPostgres(io: CommandIo): Promise<DoctorCheck> {
   };
 }
 
-async function checkMigrations(io: CommandIo, root: string): Promise<DoctorCheck> {
+async function checkMigrations(io: CommandIo, packageRoot: string): Promise<DoctorCheck> {
   if (!io.fs) return { name: 'migrations', status: 'skip', detail: 'fs unavailable' };
-  const path = `${root}/migrations`;
+  const path = `${packageRoot}/migrations`;
   if (!(await io.fs.exists(path))) {
     return {
       name: 'migrations',
       status: 'warn',
-      detail: 'migrations/ directory not found',
-      remediation: 'Run `pnpm run migrate` from the project root.',
+      detail: `migrations/ directory not found under the Tuberosa package (${packageRoot})`,
+      remediation: 'Reinstall Tuberosa — the migrations/ directory ships inside the package. `tuberosa init` applies them.',
     };
   }
-  return { name: 'migrations', status: 'ok', detail: 'migrations/ present' };
+  return { name: 'migrations', status: 'ok', detail: 'migrations/ present (bundled with the package)' };
 }
 
-async function checkMcpStdio(io: CommandIo, root: string): Promise<DoctorCheck> {
+async function checkMcpStdio(io: CommandIo, packageRoot: string): Promise<DoctorCheck> {
   if (!io.fs) return { name: 'mcp stdout sanity', status: 'skip', detail: 'fs unavailable' };
-  const entry = `${root}/src/mcp-stdio.ts`;
-  if (!(await io.fs.exists(entry))) {
+  // The published package ships the compiled `dist/src/mcp-stdio.js`; a fresh
+  // checkout has the `src/mcp-stdio.ts` source. Either is a healthy install.
+  const tsxEntry = `${packageRoot}/src/mcp-stdio.ts`;
+  const distEntry = `${packageRoot}/dist/src/mcp-stdio.js`;
+  const entry = (await io.fs.exists(tsxEntry))
+    ? tsxEntry
+    : (await io.fs.exists(distEntry))
+      ? distEntry
+      : undefined;
+  if (!entry) {
     return {
       name: 'mcp stdout sanity',
       status: 'warn',
-      detail: 'src/mcp-stdio.ts not found — running outside a Tuberosa checkout?',
-      remediation: 'Run this command from a Tuberosa repo root or install via `npx tuberosa`.',
+      detail: `MCP entrypoint not found under the Tuberosa package (${packageRoot})`,
+      remediation: 'Reinstall Tuberosa, or run from a checkout where `dist/src/mcp-stdio.js` or `src/mcp-stdio.ts` exists.',
     };
   }
   try {
@@ -187,7 +203,7 @@ async function checkMcpStdio(io: CommandIo, root: string): Promise<DoctorCheck> 
       return {
         name: 'mcp stdout sanity',
         status: 'fail',
-        detail: 'src/mcp-stdio.ts contains console.log — would corrupt MCP JSON-RPC frames',
+        detail: `${entry} contains console.log — would corrupt MCP JSON-RPC frames`,
         remediation: 'Replace console.log with process.stderr.write for diagnostics.',
       };
     }
@@ -196,7 +212,7 @@ async function checkMcpStdio(io: CommandIo, root: string): Promise<DoctorCheck> 
     return {
       name: 'mcp stdout sanity',
       status: 'warn',
-      detail: `could not read src/mcp-stdio.ts: ${(error as Error).message}`,
+      detail: `could not read ${entry}: ${(error as Error).message}`,
     };
   }
 }

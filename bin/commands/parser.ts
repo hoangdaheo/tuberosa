@@ -86,7 +86,7 @@ export function usage(): string {
     '  --apply             Apply the sync plan (additive ops; archives also need --yes).',
     '  --yes               Confirm destructive archiving during `sync --apply`.',
     '  --no-docker         Force embedded-mode for `init` even when Docker is available.',
-    '  --skip-migrate      Skip `pnpm run migrate` after compose comes up.',
+    '  --skip-migrate      Skip applying database migrations after compose comes up.',
     '  --with-skills       Copy bundled agent skills into <root>/.claude/skills/ (init).',
     '  --port <number>     Override the HTTP port (default 3027).',
     '  --root <path>       Use <path> as the project root instead of cwd.',

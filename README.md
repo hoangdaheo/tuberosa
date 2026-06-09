@@ -611,6 +611,8 @@ The fixture seeds an in-memory store, runs each prompt through the real ingestio
 | `/operations/export-pack` returns 400 "absolute path is not allowed" | Use a path *relative* to `TUBEROSA_EXPORT_BASE_DIR` (default `.tuberosa/exports`). |
 | `vector dimension mismatch` | `EMBEDDING_DIMENSIONS` must equal the `vector(N)` in `migrations/001_init.sql`. |
 | MCP client sees no tools | Use the absolute repo path, check the command's `PATH` for Node/pnpm, verify with MCP Inspector, ensure stdout is JSON-RPC only. |
+| `tuberosa doctor` says `DATABASE_URL not set` even though it's in `.mcp.json` | `.mcp.json` `env` is only seen by the MCP server your agent spawns, **not** your interactive shell. Export it in the shell to check a real DB: `DATABASE_URL=… tuberosa doctor`. |
+| `npx tuberosa mcp` / `migrate` fails with `Missing script` or `Could not find MCP entrypoint` | Update Tuberosa — older versions resolved bundled assets from your cwd instead of the installed package. The CLI now finds `migrations/` and the MCP entry inside the package automatically. |
 | `DuplicateIngestionError` on re-ingest | Expected — the `DuplicateDetector` auto-rejects textual + semantic duplicates. Treat it as "skipped". |
 
 ---
