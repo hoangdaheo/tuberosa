@@ -191,6 +191,51 @@ describe('init command', () => {
     await initCommand({ command: 'init', options: { 'no-docker': true }, positional: [] }, harness.io);
     assert.ok(harness.stdout.some((line) => /forced by --no-docker/.test(line)));
   });
+
+  it('copies the bundled comprehension skill into .claude/skills when --with-skills is passed', async () => {
+    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      // The installed package ships its skills here; TUBEROSA_SKILLS_SRC points the
+      // copier at that bundled skills root (overrides module-relative resolution).
+      '/pkg/.claude/skills/tuberosa-onboard-project/SKILL.md': '# onboard skill\n',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
+    const result = await initCommand(
+      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      harness.io,
+    );
+    assert.equal(result.exitCode, 0);
+    assert.equal(
+      await fs.exists('/work/proj/.claude/skills/tuberosa-onboard-project/SKILL.md'),
+      true,
+      'comprehension skill should be copied into the project',
+    );
+    assert.equal(
+      await fs.readFile('/work/proj/.claude/skills/tuberosa-onboard-project/SKILL.md'),
+      '# onboard skill\n',
+    );
+    assert.ok(harness.stdout.some((line) => /tuberosa-onboard-project/.test(line)));
+  });
+
+  it('does not overwrite an existing skill file when --with-skills is passed', async () => {
+    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/.claude/skills/tuberosa-onboard-project/SKILL.md': '# bundled\n',
+      '/work/proj/.claude/skills/tuberosa-onboard-project/SKILL.md': '# user-edited\n',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
+    await initCommand(
+      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      harness.io,
+    );
+    assert.equal(
+      await fs.readFile('/work/proj/.claude/skills/tuberosa-onboard-project/SKILL.md'),
+      '# user-edited\n',
+      'existing user skill must be preserved, not clobbered',
+    );
+  });
 });
 
 describe('mcp command', () => {

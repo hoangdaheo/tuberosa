@@ -32,12 +32,13 @@ If ToolSearch says no matching `tuberosa_*` tools exist, or the MCP server disco
 
 | Task | Read this skill |
 |------|-----------------|
-| What is Tuberosa? Which tools exist? FIND vs LEARN | `.claude/skills/tuberosa/tuberosa-guide/SKILL.md` |
-| Drive a coding task through the session loop | `.claude/skills/tuberosa/tuberosa-agent-loop/SKILL.md` |
-| Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa/tuberosa-operating/SKILL.md` |
+| What is Tuberosa? Which tools exist? FIND vs LEARN | `.claude/skills/tuberosa-guide/SKILL.md` |
+| Drive a coding task through the session loop | `.claude/skills/tuberosa-agent-loop/SKILL.md` |
+| Onboard / comprehend a project into Tuberosa (and keep it fresh) | `.claude/skills/tuberosa-onboard-project/SKILL.md` |
+| Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa-operating/SKILL.md` |
 | Set up the environment | `docs/SETUP.md` |
 
-These teach the rule above; they do not replace it.
+These teach the rule above; they do not replace it. The skills live at a **flat** path (`.claude/skills/<name>/SKILL.md`) so Claude Code's Skill tool discovers them — skills nested two levels deep are never auto-loaded.
 
 ## Commands
 

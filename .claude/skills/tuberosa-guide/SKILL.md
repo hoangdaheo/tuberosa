@@ -38,8 +38,8 @@ Pick the row that matches what you want, then read that file.
 
 | I want to… | Read |
 | --- | --- |
-| Drive a coding task through Tuberosa (the session loop) | `.claude/skills/tuberosa/tuberosa-agent-loop/SKILL.md` |
-| Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa/tuberosa-operating/SKILL.md` |
+| Drive a coding task through Tuberosa (the session loop) | `.claude/skills/tuberosa-agent-loop/SKILL.md` |
+| Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa-operating/SKILL.md` |
 | Set up the environment | `docs/SETUP.md` |
 
 ## One Note

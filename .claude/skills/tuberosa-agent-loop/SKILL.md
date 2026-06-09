@@ -7,7 +7,7 @@ description: "Use when an agent is about to start a non-trivial coding task in t
 
 This skill teaches you **how** to run a Tuberosa session for a coding task.
 
-> The **rule** that says you *must* do this lives in [`CLAUDE.md`](../../../../CLAUDE.md) under "Tuberosa MCP startup rule". This skill does not repeat the rule — it shows you how to follow it. For an overview of all Tuberosa tools, read [`tuberosa-guide`](../tuberosa-guide/SKILL.md).
+> The **rule** that says you *must* do this lives in [`CLAUDE.md`](../../../CLAUDE.md) under "Tuberosa MCP startup rule". This skill does not repeat the rule — it shows you how to follow it. For an overview of all Tuberosa tools, read [`tuberosa-guide`](../tuberosa-guide/SKILL.md).
 
 The loop has 6 steps, always in this order:
 
@@ -101,5 +101,5 @@ start → read fit/orientation/brief → (verify if weak) → record decision �
 
 ## See also
 
-- [`CLAUDE.md`](../../../../CLAUDE.md) — "Tuberosa MCP startup rule" (the binding rule this skill helps you follow).
+- [`CLAUDE.md`](../../../CLAUDE.md) — "Tuberosa MCP startup rule" (the binding rule this skill helps you follow).
 - [`tuberosa-guide`](../tuberosa-guide/SKILL.md) — overview of all Tuberosa tools and resources.

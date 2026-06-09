@@ -1,7 +1,16 @@
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { CliInvocation, CommandIo, CommandResult, SpawnFn, FsAdapter } from './types.js';
 import { DEFAULT_MCP_PORT } from './types.js';
 import { composeTemplate } from './compose-template.js';
+
+/**
+ * Consumer-facing skills the published package bundles and `--with-skills` copies
+ * into the user's `.claude/skills/`. Paths are relative to the bundled skills root.
+ * Kept as an explicit manifest (not a directory walk) so the copy works through the
+ * minimal FsAdapter surface and stays trivially testable.
+ */
+const BUNDLED_SKILLS = ['tuberosa-onboard-project/SKILL.md'] as const;
 
 export interface InitContext {
   root: string;
@@ -34,6 +43,9 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   }
 
   await ensureEnvFile(io, fs, context);
+  if (invocation.options['with-skills'] === true) {
+    await copyBundledSkills(io, fs, context.root);
+  }
   const dockerAvailable = !context.forceEmbedded && (await detectDocker(spawn));
   if (!dockerAvailable) {
     return printEmbeddedMode(io, context, context.forceEmbedded ? 'forced by --no-docker' : 'docker not detected');
@@ -101,6 +113,69 @@ async function ensureEnvFile(io: CommandIo, fs: FsAdapter, context: InitContext)
   const contents = await fs.readFile(examplePath);
   await fs.writeFile(envPath, contents);
   io.out(`Wrote ${envPath} from .env.example.`);
+}
+
+/**
+ * `--with-skills` — copy the package's bundled agent skills into `<root>/.claude/skills/`.
+ *
+ * Source resolution, in order:
+ *   1. `TUBEROSA_SKILLS_SRC` env var (points directly at the skills root) — escape hatch + test seam.
+ *   2. Module-relative candidates: from `bin/commands/init.{ts,js}` the package root is two or
+ *      three levels up (tsx checkout vs compiled `dist/bin/commands/`), with skills under
+ *      `.claude/skills`. The first candidate that actually contains the manifest wins.
+ *
+ * Never overwrites an existing destination file — user edits are preserved (we only fill gaps).
+ */
+async function copyBundledSkills(io: CommandIo, fs: FsAdapter, root: string): Promise<void> {
+  const srcRoot = await resolveSkillsSource(io, fs);
+  if (!srcRoot) {
+    io.err('--with-skills: could not locate bundled skills. Set TUBEROSA_SKILLS_SRC to the skills root.');
+    return;
+  }
+  let copied = 0;
+  for (const rel of BUNDLED_SKILLS) {
+    const srcPath = `${srcRoot}/${rel}`;
+    const destPath = `${root}/.claude/skills/${rel}`;
+    if (!(await fs.exists(srcPath))) {
+      io.err(`--with-skills: bundled skill missing at ${srcPath}; skipping.`);
+      continue;
+    }
+    if (await fs.exists(destPath)) {
+      io.out(`Skill already present, leaving it in place: ${rel} (delete to re-copy).`);
+      continue;
+    }
+    await fs.mkdir(dirname(destPath), true);
+    await fs.writeFile(destPath, await fs.readFile(srcPath));
+    io.out(`Copied skill ${rel} → ${destPath}`);
+    copied += 1;
+  }
+  if (copied > 0) {
+    io.out(`Installed ${copied} skill(s) under ${root}/.claude/skills/. Restart Claude Code to discover them.`);
+  }
+}
+
+async function resolveSkillsSource(io: CommandIo, fs: FsAdapter): Promise<string | undefined> {
+  const override = io.env.TUBEROSA_SKILLS_SRC;
+  const candidates = override
+    ? [override]
+    : skillsSourceCandidates();
+  for (const candidate of candidates) {
+    if (await fs.exists(`${candidate}/${BUNDLED_SKILLS[0]}`)) return candidate;
+  }
+  return undefined;
+}
+
+/** Module-relative guesses for the bundled skills root (tsx checkout and compiled dist). */
+function skillsSourceCandidates(): string[] {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    return [
+      resolve(here, '../../.claude/skills'), // bin/commands → repo root
+      resolve(here, '../../../.claude/skills'), // dist/bin/commands → package root
+    ];
+  } catch {
+    return [];
+  }
 }
 
 async function detectDocker(spawn: SpawnFn): Promise<boolean> {

@@ -1,8 +1,33 @@
 {
   "name": "tuberosa",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first MCP context broker for agentic AI knowledge matching and reflection memory.",
   "type": "module",
+  "license": "MIT",
+  "author": "hoangdaheo",
+  "homepage": "https://github.com/hoangdaheo/tuberosa#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hoangdaheo/tuberosa.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hoangdaheo/tuberosa/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "context-broker",
+    "rag",
+    "retrieval",
+    "coding-agent",
+    "claude",
+    "pgvector",
+    "local-first",
+    "ai"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "packageManager": "pnpm@11.1.2",
   "main": "dist/src/index.js",
   "bin": {
@@ -12,7 +37,8 @@
     "dist/",
     "bin/",
     ".env.example",
-    "migrations/"
+    "migrations/",
+    ".claude/skills/tuberosa-onboard-project/"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

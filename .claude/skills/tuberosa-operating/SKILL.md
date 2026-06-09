@@ -9,7 +9,7 @@ A runbook for a **human operator** driving Tuberosa. Tuberosa is a local-first M
 
 This file is grouped by **what you want to do** (a human action), not by tool category. Each action shows **When**, **How**, and **What to expect**.
 
-> Want the tool category map (core vs admin-ops) or a full tool list? Read `.claude/skills/tuberosa/tuberosa-guide/SKILL.md`.
+> Want the tool category map (core vs admin-ops) or a full tool list? Read `.claude/skills/tuberosa-guide/SKILL.md`.
 
 ## Actions At A Glance
 
@@ -85,5 +85,5 @@ The LEARN loop pulls small reusable facts ("atoms") out of content. It is **OFF*
 
 ## See Also
 
-- `.claude/skills/tuberosa/tuberosa-guide/SKILL.md` — Tuberosa overview, tool list, and tool category map.
+- `.claude/skills/tuberosa-guide/SKILL.md` — Tuberosa overview, tool list, and tool category map.
 - `docs/SETUP.md` — environment setup and provider matrix.
