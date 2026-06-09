@@ -38,6 +38,7 @@
     "bin/",
     ".env.example",
     "migrations/",
+    ".claude/skills/bundled-skills.json",
     ".claude/skills/tuberosa-onboard-project/"
   ],
   "scripts": {
