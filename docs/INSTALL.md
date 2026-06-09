@@ -1,16 +1,11 @@
 # Installing & Publishing Tuberosa
 
-Tuberosa is published **privately** to **GitHub Packages** as the scoped package
-**`@hoangdaheo/tuberosa`** (tied to the private `hoangdaheo/tuberosa` repo). The package exposes a
-`tuberosa` binary, so once installed it runs as `tuberosa <command>` (or `npx @hoangdaheo/tuberosa
-<command>` for a one-shot). This guide has two halves:
+Tuberosa ships as an npm package with a `tuberosa` binary, so consumers run it through `npx`
+exactly like other MCP-aware CLIs (`npx gitnexus analyze`, `npx <pkg> <command>`). This guide
+has two halves:
 
-- **Part A — Maintainer: publish to GitHub Packages** (build → pack → publish → verify).
+- **Part A — Maintainer: publish to npm/pnpm** (build → pack → version → publish → verify).
 - **Part B — End user: install & wire it up** (quick start, skill injection, MCP registration, Docker).
-
-> Because the package is private, **both publishing and installing require a GitHub token** with the
-> right `packages` scope (publishers need `write:packages`, installers need `read:packages`). There
-> are no npmjs.com credentials involved.
 
 Everything here is **local-first**: the default runtime uses the deterministic `hash` model
 provider and the in-memory store, so it works offline with **zero external API calls**. An
@@ -20,7 +15,7 @@ provider and the in-memory store, so it works offline with **zero external API c
 
 ## Part A — Publish to npm / pnpm
 
-Run from the repo root on Node ≥22.13 with pnpm ≥11.1.2 (after `pnpm run build`, `node dist/bin/tuberosa.js doctor` checks both).
+Run from the repo root on Node ≥22.13 with pnpm ≥11.1.2 (`npx tuberosa doctor` checks both).
 
 ### A1. Build & package sanity
 
@@ -55,54 +50,36 @@ last check. (`.npmignore` is not used; the `files` allowlist wins.)
 
 ### A2. Versioning & metadata
 
-`package.json` is already wired for GitHub Packages:
-
-- `name: "@hoangdaheo/tuberosa"` — the scope **must** equal the GitHub repo owner.
-- `publishConfig: { registry: "https://npm.pkg.github.com", access: "restricted" }` — routes publish
-  to GitHub Packages; private repo ⇒ private package.
-- `repository` points at `github.com/hoangdaheo/tuberosa` (GitHub Packages requires this to link the package).
-- `engines` (`node >=22.13`, `pnpm >=11.1.2`). The repo `.npmrc` maps the `@hoangdaheo` scope to the registry.
-
-Bump the version with npm so it also tags the commit:
+`package.json` already declares `repository`, `homepage`, `bugs`, `license: MIT`, `keywords`,
+`publishConfig.access: public`, and `engines` (`node >=22.13`, `pnpm >=11.1.2`). Bump the version
+with npm so it also tags the commit:
 
 ```bash
 npm version patch   # or: minor / major  → updates package.json + creates a git tag
 ```
 
-### A3. Authenticate, then publish
-
-GitHub Packages auth uses a **GitHub Personal Access Token (classic)** with the `write:packages`
-scope (create it at GitHub → Settings → Developer settings → Personal access tokens). Put the token
-in your **user-level** `~/.npmrc` (never the repo):
+### A3. Publish (dry-run first)
 
 ```bash
-# one time — replace TOKEN with your PAT
-printf '//npm.pkg.github.com/:_authToken=%s\n' "TOKEN" >> ~/.npmrc
+npm publish --dry-run          # final contents + registry checks, no upload
+npm publish                    # real publish (scoped/public per publishConfig.access)
 ```
 
-Then dry-run and publish from the repo root:
-
-```bash
-npm publish --dry-run          # final contents + routing check, no upload
-npm publish                    # real publish to https://npm.pkg.github.com (private)
-```
-
-- The `prepack` hook runs `pnpm run build && pnpm run verify:bundled-skills` automatically before the
-  tarball is built, so a stale `dist/` or a drifted bundled-skills manifest blocks the publish.
-- **CI:** set `NODE_AUTH_TOKEN` and reference it from `.npmrc`
-  (`//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}`); GitHub Actions' `GITHUB_TOKEN` already has
-  `packages:write` when the workflow declares that permission.
+- **2FA / CI:** interactive publish prompts for an OTP. In CI, set `NODE_AUTH_TOKEN` (or
+  `NPM_TOKEN` wired into `.npmrc` as `//registry.npmjs.org/:_authToken=${NPM_TOKEN}`) and publish
+  with `npm publish --provenance` from a trusted workflow.
+- pnpm equivalent: `pnpm publish --dry-run` then `pnpm publish` (respects the same `files`/`publishConfig`).
 
 ### A4. Verify the published artifact locally (before trusting it)
 
 Install the packed tarball into a throwaway directory and smoke-test the binary:
 
 ```bash
-pnpm run build && npm pack                 # writes hoangdaheo-tuberosa-<version>.tgz (scoped name)
+pnpm run build && npm pack                 # writes tuberosa-<version>.tgz
 mkdir /tmp/tuberosa-verify && cd /tmp/tuberosa-verify
 npm init -y >/dev/null
-npm i /path/to/tuberosa/hoangdaheo-tuberosa-<version>.tgz
-npx tuberosa doctor                        # exits 0 when the install is sound (bin name stays `tuberosa`)
+npm i /path/to/tuberosa/tuberosa-<version>.tgz
+npx tuberosa doctor                        # exits 0 when the install is sound
 npx tuberosa --help                        # confirms the command surface
 ```
 
@@ -113,23 +90,12 @@ from a real install.
 
 ## Part B — End-user install
 
-**First, authenticate to install the private package.** In your user-level `~/.npmrc` (one time),
-map the scope to GitHub Packages and add a token with `read:packages`:
+### B1. Quick start
 
 ```bash
-printf '@hoangdaheo:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "READ_TOKEN" >> ~/.npmrc
-```
-
-Then either install it once (recommended) and use the `tuberosa` binary, or run it via scoped `npx`:
-
-```bash
-npm i -g @hoangdaheo/tuberosa   # installs the `tuberosa` binary on PATH
-tuberosa init                   # Docker present → Postgres+Redis+migrate; otherwise embedded (memory) mode
-tuberosa doctor                 # verify Node, pnpm, port 3027, Postgres reachability, MCP stdout sanity
-tuberosa mcp                    # run the MCP stdio server (embedded defaults: memory store + hash provider)
-
-# …or without a global install (one-shot):
-npx @hoangdaheo/tuberosa init
+npx tuberosa init        # Docker present → Postgres+Redis+migrate; otherwise embedded (memory) mode
+npx tuberosa doctor      # verify Node, pnpm, port 3027, Postgres reachability, MCP stdout sanity
+npx tuberosa mcp         # run the MCP stdio server (embedded defaults: memory store + hash provider)
 ```
 
 `init` is idempotent and auto-falls-back to embedded mode when Docker is absent (or pass
@@ -141,8 +107,7 @@ across restarts.
 Tuberosa bundles the **project-comprehension** skill and installs it for you:
 
 ```bash
-tuberosa init --with-skills          # copies bundled skills → ./.claude/skills/<name>/SKILL.md
-# (or: npx @hoangdaheo/tuberosa init --with-skills)
+npx tuberosa init --with-skills      # copies bundled skills → ./.claude/skills/<name>/SKILL.md
 ```
 
 - Skills are written to a **flat** path (`.claude/skills/tuberosa-onboard-project/SKILL.md`) —
@@ -151,8 +116,8 @@ tuberosa init --with-skills          # copies bundled skills → ./.claude/skill
   re-copy it.
 - Restart Claude Code afterward so the Skill tool discovers the new skill.
 - Manual alternative (any agent runtime): copy
-  `node_modules/@hoangdaheo/tuberosa/.claude/skills/tuberosa-onboard-project/SKILL.md` into your
-  project's `.claude/skills/tuberosa-onboard-project/SKILL.md` yourself.
+  `node_modules/tuberosa/.claude/skills/tuberosa-onboard-project/SKILL.md` into your project's
+  `.claude/skills/tuberosa-onboard-project/SKILL.md` yourself.
 - Override the source root with `TUBEROSA_SKILLS_SRC=/path/to/skills` if you vendor your own.
 
 Once installed, the skill drives onboarding: `init → doctor → bootstrap --deep → review drafts`,
@@ -167,10 +132,9 @@ Claude Code / Codex / Cursor read a TOML/JSON MCP block. The embedded defaults (
 
 ```toml
 [mcp_servers.tuberosa]
-command = "tuberosa"            # after `npm i -g @hoangdaheo/tuberosa` (see B1)
-args = ["mcp"]
+command = "npx"
+args = ["tuberosa", "mcp"]
 env = { TUBEROSA_STORE = "memory", TUBEROSA_CACHE = "memory", TUBEROSA_MODEL_PROVIDER = "hash" }
-# No global install? Use:  command = "npx", args = ["@hoangdaheo/tuberosa", "mcp"]
 ```
 
 **JSON (`claude_desktop_config.json` / clients using JSON):**
@@ -179,8 +143,8 @@ env = { TUBEROSA_STORE = "memory", TUBEROSA_CACHE = "memory", TUBEROSA_MODEL_PRO
 {
   "mcpServers": {
     "tuberosa": {
-      "command": "tuberosa",
-      "args": ["mcp"],
+      "command": "npx",
+      "args": ["tuberosa", "mcp"],
       "env": {
         "TUBEROSA_STORE": "memory",
         "TUBEROSA_CACHE": "memory",
@@ -191,10 +155,8 @@ env = { TUBEROSA_STORE = "memory", TUBEROSA_CACHE = "memory", TUBEROSA_MODEL_PRO
 }
 ```
 
-No global install? Set `"command": "npx"` and `"args": ["@hoangdaheo/tuberosa", "mcp"]` instead
-(the consumer's `~/.npmrc` must be authenticated to GitHub Packages for the `@hoangdaheo` scope).
 `tuberosa mcp` already applies these defaults itself and keeps **stdout JSON-RPC-clean** (diagnostics
-go to stderr), so the block above is belt-and-suspenders. `tuberosa init` prints a copy of this
+go to stderr), so the block above is belt-and-suspenders. `npx tuberosa init` prints a copy of this
 snippet tailored to your setup.
 
 ### B4. Optional — full Postgres-backed stack (durable)
@@ -202,7 +164,7 @@ snippet tailored to your setup.
 For persistent knowledge across restarts, run the Docker stack and point the env at it:
 
 ```bash
-tuberosa init                           # writes .tuberosa/compose.yml, brings up Postgres+Redis, migrates
+npx tuberosa init                       # writes .tuberosa/compose.yml, brings up Postgres+Redis, migrates
 # then set the durable env for the MCP block:
 #   TUBEROSA_STORE=postgres
 #   TUBEROSA_CACHE=redis
