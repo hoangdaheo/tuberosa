@@ -200,7 +200,7 @@ recipe, no examples). Write it against the post-SP1/SP3/SP2 shape so nothing nee
 1. **Local env setup guide** — uses the SP3 minimal env recipe. Cover: no-dependency mode
    (`TUBEROSA_STORE=memory TUBEROSA_CACHE=memory TUBEROSA_MODEL_PROVIDER=hash`), the docker
    compose path (postgres+redis, port 3027 loopback), and the ollama/openai provider choice
-   (note: atom extraction needs openai per SP2). One-screen "happy path".
+   (note: atom extraction works on both openai and ollama per SP2 — see the provider matrix in docs/SETUP.md / docs/MINIMAL_ENV.md; FIND works on all providers). One-screen "happy path".
 2. **Agent skill** (`.claude/skills/…`) — teaches an agent the real loop: start_session → read
    `contextFit`/`orientation`/`taskBrief` → record decision → finish_session → reflect. Document
    the **slim** pack shape from SP1 Fix 2 and `tuberosa_get_context_pack` for full deep context.

@@ -28,6 +28,17 @@ Inspect `contextFit`, `orientation`, and `taskBrief` before proceeding. Record a
 
 If ToolSearch says no matching `tuberosa_*` tools exist, or the MCP server disconnects, state that explicitly in the response and continue from direct repo evidence. Do not rationalize skipping Tuberosa as a product judgment unless the tool call was actually attempted or the task is trivial.
 
+### Tuberosa skills (teaching layer)
+
+| Task | Read this skill |
+|------|-----------------|
+| What is Tuberosa? Which tools exist? FIND vs LEARN | `.claude/skills/tuberosa/tuberosa-guide/SKILL.md` |
+| Drive a coding task through the session loop | `.claude/skills/tuberosa/tuberosa-agent-loop/SKILL.md` |
+| Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa/tuberosa-operating/SKILL.md` |
+| Set up the environment | `docs/SETUP.md` |
+
+These teach the rule above; they do not replace it.
+
 ## Commands
 
 ```bash
@@ -135,7 +146,7 @@ When `TUBEROSA_PHYSICAL_MIRROR_ENABLED=true`, every write to Postgres is debounc
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **tuberosa** (10374 symbols, 21807 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **tuberosa** (10233 symbols, 22075 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
