@@ -3,14 +3,7 @@ import { fileURLToPath } from 'node:url';
 import type { CliInvocation, CommandIo, CommandResult, SpawnFn, FsAdapter } from './types.js';
 import { DEFAULT_MCP_PORT } from './types.js';
 import { composeTemplate } from './compose-template.js';
-
-/**
- * Consumer-facing skills the published package bundles and `--with-skills` copies
- * into the user's `.claude/skills/`. Paths are relative to the bundled skills root.
- * Kept as an explicit manifest (not a directory walk) so the copy works through the
- * minimal FsAdapter surface and stays trivially testable.
- */
-const BUNDLED_SKILLS = ['tuberosa-onboard-project/SKILL.md'] as const;
+import { BUNDLED_SKILLS_MANIFEST, parseManifest, manifestSkillFilePaths } from './bundled-skills.js';
 
 export interface InitContext {
   root: string;
@@ -129,11 +122,23 @@ async function ensureEnvFile(io: CommandIo, fs: FsAdapter, context: InitContext)
 async function copyBundledSkills(io: CommandIo, fs: FsAdapter, root: string): Promise<void> {
   const srcRoot = await resolveSkillsSource(io, fs);
   if (!srcRoot) {
-    io.err('--with-skills: could not locate bundled skills. Set TUBEROSA_SKILLS_SRC to the skills root.');
+    io.err('--with-skills: could not locate bundled skills manifest. Set TUBEROSA_SKILLS_SRC to the skills root.');
+    return;
+  }
+  const manifestPath = `${srcRoot}/${BUNDLED_SKILLS_MANIFEST}`;
+  if (!(await fs.exists(manifestPath))) {
+    io.err(`--with-skills: bundled skills manifest missing at ${manifestPath}; skipping.`);
+    return;
+  }
+  let relPaths: string[];
+  try {
+    relPaths = manifestSkillFilePaths(parseManifest(await fs.readFile(manifestPath)));
+  } catch (error) {
+    io.err(`--with-skills: invalid bundled skills manifest: ${(error as Error).message}; skipping.`);
     return;
   }
   let copied = 0;
-  for (const rel of BUNDLED_SKILLS) {
+  for (const rel of relPaths) {
     const srcPath = `${srcRoot}/${rel}`;
     const destPath = `${root}/.claude/skills/${rel}`;
     if (!(await fs.exists(srcPath))) {
@@ -156,11 +161,9 @@ async function copyBundledSkills(io: CommandIo, fs: FsAdapter, root: string): Pr
 
 async function resolveSkillsSource(io: CommandIo, fs: FsAdapter): Promise<string | undefined> {
   const override = io.env.TUBEROSA_SKILLS_SRC;
-  const candidates = override
-    ? [override]
-    : skillsSourceCandidates();
+  const candidates = override ? [override] : skillsSourceCandidates();
   for (const candidate of candidates) {
-    if (await fs.exists(`${candidate}/${BUNDLED_SKILLS[0]}`)) return candidate;
+    if (await fs.exists(`${candidate}/${BUNDLED_SKILLS_MANIFEST}`)) return candidate;
   }
   return undefined;
 }

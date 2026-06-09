@@ -198,6 +198,8 @@ describe('init command', () => {
       '/work/proj/.env.example': 'X=1\n',
       // The installed package ships its skills here; TUBEROSA_SKILLS_SRC points the
       // copier at that bundled skills root (overrides module-relative resolution).
+      '/pkg/.claude/skills/bundled-skills.json':
+        '{"skills":[{"name":"tuberosa-onboard-project","files":["SKILL.md"]}]}',
       '/pkg/.claude/skills/tuberosa-onboard-project/SKILL.md': '# onboard skill\n',
     });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
@@ -222,6 +224,8 @@ describe('init command', () => {
     const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
     const fs = makeFs({
       '/work/proj/.env.example': 'X=1\n',
+      '/pkg/.claude/skills/bundled-skills.json':
+        '{"skills":[{"name":"tuberosa-onboard-project","files":["SKILL.md"]}]}',
       '/pkg/.claude/skills/tuberosa-onboard-project/SKILL.md': '# bundled\n',
       '/work/proj/.claude/skills/tuberosa-onboard-project/SKILL.md': '# user-edited\n',
     });
@@ -235,6 +239,36 @@ describe('init command', () => {
       '# user-edited\n',
       'existing user skill must be preserved, not clobbered',
     );
+  });
+
+  it('copies every skill the manifest lists', async () => {
+    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/.claude/skills/bundled-skills.json':
+        '{"skills":[{"name":"skill-a","files":["SKILL.md"]},{"name":"skill-b","files":["SKILL.md"]}]}',
+      '/pkg/.claude/skills/skill-a/SKILL.md': '# a\n',
+      '/pkg/.claude/skills/skill-b/SKILL.md': '# b\n',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
+    await initCommand(
+      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      harness.io,
+    );
+    assert.equal(await fs.readFile('/work/proj/.claude/skills/skill-a/SKILL.md'), '# a\n');
+    assert.equal(await fs.readFile('/work/proj/.claude/skills/skill-b/SKILL.md'), '# b\n');
+  });
+
+  it('skips skill copy with a clear message when the manifest is missing', async () => {
+    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
+    const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
+    const result = await initCommand(
+      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      harness.io,
+    );
+    assert.equal(result.exitCode, 0, 'a missing manifest must not fail init');
+    assert.ok(harness.stderr.some((line) => /manifest/i.test(line)), 'should warn about the missing manifest');
   });
 });
 
