@@ -59,9 +59,9 @@ Add an embedding pipeline to the existing `local` provider, reusing the exact la
 
 **Audit correction folded in:** there are TWO embedding columns, not one.
 
-- New migration `006_embedding_dim_384.sql`:
-  - `knowledge_chunks.embedding` (`migrations/001_init.sql:116`): drop any vector index, `SET embedding = NULL`, `ALTER ... TYPE vector(384)`, recreate index.
-  - `knowledge_atoms.embedding` (`migrations/005_knowledge_atoms.sql:27`): same treatment.
+- New migration `014_embedding_dim_384.sql` (migrations currently run through `013`):
+  - `knowledge_chunks.embedding` (`migrations/001_init.sql:116`): drop the HNSW index `idx_chunks_embedding_hnsw`, `ALTER ... TYPE vector(384) USING NULL::vector(384)`, recreate the index.
+  - `knowledge_atoms.embedding` (`migrations/005_knowledge_atoms.sql:27`): same treatment with `idx_atoms_embedding`.
 - `EMBEDDING_DIMENSIONS` default changes 1536 → 384 (`src/config.ts:129`); `.env.example` updated to match.
 - **Startup validation:** on Postgres store startup, read the column's `atttypmod` and compare with `config.model.embeddingDimensions`. Mismatch → fail fast with a message naming both numbers and pointing at `tuberosa init` (which migrates). This enforces the existing "dimensions must be consistent" constraint mechanically instead of by documentation.
 - **Breaking change, stated plainly:** existing installs lose stored embeddings (1536-d vectors cannot be cast to 384-d; they are nulled). Recovery is the re-embed backfill below. Release notes must say this.
@@ -111,7 +111,7 @@ Add an embedding pipeline to the existing `local` provider, reusing the exact la
 - Unit: local embed pipeline with injected embedder (dims, normalization, fallback-to-hash on load failure, the single-warning behavior).
 - Unit: startup dimension validation (matching, mismatched, column missing).
 - CLI tests (`test/cli.test.ts` pattern): init hard-fail without Docker; `--embedded` path; warm-up failure is fatal; `mcp --embedded` env; `buildEnv` new defaults + user-override precedence.
-- Migration test (Docker-gated integration suite): 006 applies on top of 001..005, both columns at 384, reembed backfill fills nulls.
+- Migration test (Docker-gated integration suite): 014 applies on top of 001..013, both columns at 384 with HNSW indexes recreated, reembed backfill fills nulls. The integration suite's own `HashModelProvider(1536)` fixtures move to 384 to keep inserting valid vectors.
 - Full gates before merge: `pnpm test`, `pnpm run eval:retrieval`, `pnpm run eval:agent-context`, `pnpm run verify:bundled-skills`, `pnpm run build`.
 
 ---
