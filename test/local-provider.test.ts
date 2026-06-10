@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { LocalCrossEncoderProvider, type LocalCrossEncoderScorer, type LocalEmbedder } from '../src/model/local-provider.js';
+import { LocalCrossEncoderProvider, toVector, type LocalCrossEncoderScorer, type LocalEmbedder } from '../src/model/local-provider.js';
 import type { RankedCandidate, RerankInput } from '../src/types.js';
 
 function buildCandidate(overrides: Partial<RankedCandidate> = {}): RankedCandidate {
@@ -148,6 +148,7 @@ describe('local embeddings', () => {
   });
 
   it('falls back to hash when local models are disabled via env', async () => {
+    const prev = process.env.TUBEROSA_DISABLE_LOCAL_MODELS;
     process.env.TUBEROSA_DISABLE_LOCAL_MODELS = 'true';
     try {
       const provider = new LocalCrossEncoderProvider({ embeddingDimensions: 384 });
@@ -155,7 +156,8 @@ describe('local embeddings', () => {
       const vector = await provider.embed('hello');
       assert.equal(vector.length, 384);
     } finally {
-      delete process.env.TUBEROSA_DISABLE_LOCAL_MODELS;
+      if (prev === undefined) delete process.env.TUBEROSA_DISABLE_LOCAL_MODELS;
+      else process.env.TUBEROSA_DISABLE_LOCAL_MODELS = prev;
     }
   });
 
@@ -167,5 +169,17 @@ describe('local embeddings', () => {
     };
     const provider = new LocalCrossEncoderProvider({ embedder });
     assert.equal(await provider.hasLocalEmbedder(), true);
+  });
+
+  it('toVector handles Tensor-style { data } output', () => {
+    assert.deepEqual(toVector({ data: new Float32Array([0.5, 0.25]) }), [0.5, 0.25]);
+  });
+
+  it('toVector flattens one level of nested arrays', () => {
+    assert.deepEqual(toVector([[0.1, 0.2]]), [0.1, 0.2]);
+  });
+
+  it('toVector throws on unknown shapes', () => {
+    assert.throws(() => toVector('garbage'));
   });
 });

@@ -294,8 +294,11 @@ class TransformersEmbedder implements LocalEmbedder {
   }
 }
 
-/** Transformers feature-extraction returns a Tensor ({ data: Float32Array }) or nested arrays. */
-function toVector(raw: unknown): number[] {
+/**
+ * Transformers feature-extraction returns a Tensor ({ data: Float32Array }) or nested arrays.
+ * @internal exported for tests — converts transformers feature-extraction output.
+ */
+export function toVector(raw: unknown): number[] {
   if (raw && typeof raw === 'object' && 'data' in raw) {
     const data = (raw as { data: ArrayLike<number> }).data;
     return Array.from(data, (value) => Number(value));
