@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe, it } from 'node:test';
 import { equal } from 'node:assert/strict';
 import { loadConfig } from '../src/config.js';
 
@@ -47,6 +47,29 @@ test('config byte caps fall back to defaults on missing or invalid env', () => {
   );
   equal(configured.http.maxRequestBytes, 1024);
   equal(configured.ingest.maxContentBytes, 512);
+});
+
+describe('full-featured defaults (Spec A)', () => {
+  it('defaults the model provider to local when no OpenAI key is set', () => {
+    const config = withEnv({ TUBEROSA_MODEL_PROVIDER: undefined, OPENAI_API_KEY: undefined }, () => loadConfig());
+    equal(config.model.provider, 'local');
+  });
+
+  it('still prefers openai when an API key is present', () => {
+    const config = withEnv({ TUBEROSA_MODEL_PROVIDER: undefined, OPENAI_API_KEY: 'sk-test' }, () => loadConfig());
+    equal(config.model.provider, 'openai');
+  });
+
+  it('defaults embedding dimensions to 384 and the model to bge-small', () => {
+    const config = withEnv({ EMBEDDING_DIMENSIONS: undefined, TUBEROSA_EMBEDDING_MODEL: undefined }, () => loadConfig());
+    equal(config.model.embeddingDimensions, 384);
+    equal(config.model.embeddingModel, 'Xenova/bge-small-en-v1.5');
+  });
+
+  it('honors TUBEROSA_EMBEDDING_MODEL', () => {
+    const config = withEnv({ TUBEROSA_EMBEDDING_MODEL: 'Xenova/other-model' }, () => loadConfig());
+    equal(config.model.embeddingModel, 'Xenova/other-model');
+  });
 });
 
 function withEnv<T>(patch: Record<string, string | undefined>, run: () => T): T {

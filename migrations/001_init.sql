@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
   content text NOT NULL,
   contextual_content text NOT NULL,
   token_estimate integer NOT NULL DEFAULT 0,
-  embedding vector(1536),
+  embedding vector(384),
   search_vector tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('english', coalesce(contextual_content, '')), 'A') ||
     setweight(to_tsvector('english', coalesce(content, '')), 'B')

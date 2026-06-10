@@ -86,7 +86,7 @@ export class LocalCrossEncoderProvider implements ModelProvider {
   private hasLoggedEmbedFailure = false;
 
   constructor(options: LocalRerankerOptions = {}) {
-    this.fallback = options.fallback ?? new HashModelProvider(options.embeddingDimensions ?? 1536);
+    this.fallback = options.fallback ?? new HashModelProvider(options.embeddingDimensions ?? 384);
     this.modelId = options.modelId ?? process.env.TUBEROSA_RERANKER_MODEL ?? DEFAULT_MODEL_ID;
     this.topK = options.topK ?? Number(process.env.TUBEROSA_RERANKER_TOPK ?? DEFAULT_TOP_K);
     this.cacheDir = options.cacheDir ?? process.env.TUBEROSA_MODEL_CACHE_DIR ?? DEFAULT_CACHE_DIR;

@@ -123,6 +123,7 @@ function baseConfig(httpOverrides: Partial<AppConfig['http']>): AppConfig {
     model: {
       provider: 'hash',
       embeddingDimensions: 1536,
+      embeddingModel: 'Xenova/bge-small-en-v1.5',
       openAiEmbeddingModel: 'text-embedding-3-small',
       openAiTimeoutMs: 30_000,
       llmCriticEnabled: false,

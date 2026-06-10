@@ -108,7 +108,7 @@ describe('LocalCrossEncoderProvider', () => {
   it('embed and rewriteQuery delegate to the fallback', async () => {
     const provider = new LocalCrossEncoderProvider({});
     const embedding = await provider.embed('hello world');
-    assert.ok(Array.isArray(embedding) && embedding.length === 1536);
+    assert.ok(Array.isArray(embedding) && embedding.length === 384);
     assert.equal(await provider.rewriteQuery({ prompt: 'x', classified: {} as never }), undefined);
   });
 });

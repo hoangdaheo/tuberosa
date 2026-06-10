@@ -19,6 +19,8 @@ export interface AppConfig {
   model: {
     provider: 'hash' | 'openai' | 'local' | 'ollama';
     embeddingDimensions: number;
+    /** Local embedding model id (TUBEROSA_EMBEDDING_MODEL). 384-dim by default. */
+    embeddingModel: string;
     openAiApiKey?: string;
     openAiEmbeddingModel: string;
     openAiRewriteModel?: string;
@@ -125,8 +127,9 @@ export function loadConfig(): AppConfig {
       autoMigrate: readBoolean(process.env.TUBEROSA_AUTO_MIGRATE, true),
     },
     model: {
-      provider: readEnum(process.env.TUBEROSA_MODEL_PROVIDER, ['hash', 'openai', 'local', 'ollama'], process.env.OPENAI_API_KEY ? 'openai' : 'hash'),
-      embeddingDimensions: Number(process.env.EMBEDDING_DIMENSIONS ?? 1536),
+      provider: readEnum(process.env.TUBEROSA_MODEL_PROVIDER, ['hash', 'openai', 'local', 'ollama'], process.env.OPENAI_API_KEY ? 'openai' : 'local'),
+      embeddingDimensions: Number(process.env.EMBEDDING_DIMENSIONS ?? 384),
+      embeddingModel: process.env.TUBEROSA_EMBEDDING_MODEL ?? 'Xenova/bge-small-en-v1.5',
       openAiApiKey: process.env.OPENAI_API_KEY || undefined,
       openAiEmbeddingModel: process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
       openAiRewriteModel: process.env.OPENAI_REWRITE_MODEL || undefined,
@@ -138,7 +141,7 @@ export function loadConfig(): AppConfig {
       ollamaTimeoutMs: process.env.TUBEROSA_OLLAMA_TIMEOUT_MS ? Number(process.env.TUBEROSA_OLLAMA_TIMEOUT_MS) : undefined,
       llmCriticEnabled: readBoolean(
         process.env.TUBEROSA_LLM_CRITIC_ENABLED,
-        (process.env.TUBEROSA_MODEL_PROVIDER ?? (process.env.OPENAI_API_KEY ? 'openai' : 'hash')) === 'openai',
+        (process.env.TUBEROSA_MODEL_PROVIDER ?? (process.env.OPENAI_API_KEY ? 'openai' : 'local')) === 'openai',
       ),
     },
     context: {
