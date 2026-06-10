@@ -32,11 +32,23 @@ test('Postgres store supports retrieval, pgvector search, and feedback when Dock
 
   const migrationPool = new Pool({ connectionString: POSTGRES_URL, connectionTimeoutMillis: 1000 });
   await runMigrations(migrationPool);
+
+  const chunkDim = await migrationPool.query(
+    `SELECT format_type(atttypid, atttypmod) AS type FROM pg_attribute
+     WHERE attrelid = 'knowledge_chunks'::regclass AND attname = 'embedding'`,
+  );
+  equal(chunkDim.rows[0]?.type, 'vector(384)');
+  const atomDim = await migrationPool.query(
+    `SELECT format_type(atttypid, atttypmod) AS type FROM pg_attribute
+     WHERE attrelid = 'knowledge_atoms'::regclass AND attname = 'embedding'`,
+  );
+  equal(atomDim.rows[0]?.type, 'vector(384)');
+
   await migrationPool.end();
 
   const store = new PostgresKnowledgeStore(POSTGRES_URL);
   const cache = new MemoryCache();
-  const models = new HashModelProvider(1536);
+  const models = new HashModelProvider(384);
   const ingestion = new IngestionService(store, models);
   const retrieval = new RetrievalService(store, cache, models, testConfig());
   const reflection = new ReflectionService(store, ingestion);
@@ -275,7 +287,7 @@ test('Postgres store silently filters Phase-5 worktree synthetic ids from uuid c
   await migrationPool.end();
 
   const store = new PostgresKnowledgeStore(POSTGRES_URL);
-  const models = new HashModelProvider(1536);
+  const models = new HashModelProvider(384);
   const ingestion = new IngestionService(store, models);
   const project = `integration-worktree-${randomUUID()}`;
 

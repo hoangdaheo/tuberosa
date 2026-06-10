@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS knowledge_atoms (
 
   produced_by          text NOT NULL CHECK (produced_by IN ('agent_session','user','migration_llm')),
   produced_session_id  uuid REFERENCES agent_sessions(id) ON DELETE SET NULL,
-  embedding            vector(1536),
+  embedding            vector(384),
 
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now()
