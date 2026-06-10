@@ -62,7 +62,7 @@ export class OllamaRerankProvider implements ModelProvider {
   private hasLoggedFailure = false;
 
   constructor(options: OllamaRerankerOptions = {}) {
-    this.fallback = options.fallback ?? new HashModelProvider(options.embeddingDimensions ?? 1536);
+    this.fallback = options.fallback ?? new HashModelProvider(options.embeddingDimensions ?? 384);
     this.modelId = options.modelId ?? process.env.TUBEROSA_OLLAMA_RERANK_MODEL ?? DEFAULT_MODEL_ID;
     this.ollamaUrl = trimTrailingSlash(options.ollamaUrl ?? process.env.TUBEROSA_OLLAMA_URL ?? DEFAULT_OLLAMA_URL);
     this.topK = options.topK ?? Number(process.env.TUBEROSA_RERANKER_TOPK ?? DEFAULT_TOP_K);
