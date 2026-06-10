@@ -7,6 +7,7 @@ test('loadConfig groups storage/model/backup/http with defaults', () => {
   try {
     delete process.env.TUBEROSA_STORE;
     delete process.env.OPENAI_API_KEY;
+    delete process.env.TUBEROSA_MODEL_PROVIDER;
     const cfg = loadConfig();
     equal(cfg.storage.store, 'postgres');
     equal(cfg.model.provider, 'local');
