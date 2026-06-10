@@ -48,6 +48,7 @@
     "mcp": "node --import tsx src/mcp-stdio.ts",
     "worker": "tsx src/worker.ts",
     "migrate": "tsx scripts/migrate.ts",
+    "reembed": "tsx scripts/reembed.ts",
     "import:docs": "tsx scripts/import-docs.ts",
     "seed:self": "tsx scripts/seed-tuberosa-src.ts",
     "backfill:domains": "tsx scripts/backfill-domains.ts",

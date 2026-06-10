@@ -31,7 +31,7 @@ describe('validateEmbeddingDimensions', () => {
     const db = stubDb({ knowledge_chunks: 'vector(1536)', knowledge_atoms: 'vector(1536)' });
     await assert.rejects(
       () => validateEmbeddingDimensions(db, 384),
-      /vector\(1536\).*EMBEDDING_DIMENSIONS=384.*tuberosa init/s,
+      /vector\(1536\).*EMBEDDING_DIMENSIONS=384.*tuberosa init.*reembed/s,
     );
   });
 

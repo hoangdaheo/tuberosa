@@ -182,4 +182,22 @@ describe('local embeddings', () => {
   it('toVector throws on unknown shapes', () => {
     assert.throws(() => toVector('garbage'));
   });
+
+  it('latches after dimension mismatch: injected embedder called EXACTLY ONCE across two embed() calls', async () => {
+    let callCount = 0;
+    const embedder: LocalEmbedder = {
+      async embed() {
+        callCount += 1;
+        return [1, 2]; // 2 dims, expected 384 → mismatch
+      },
+    };
+    const provider = new LocalCrossEncoderProvider({ embedder, embeddingDimensions: 384 });
+    const v1 = await provider.embed('first call');
+    const v2 = await provider.embed('second call');
+    // Both calls must still return valid hash fallback vectors
+    assert.equal(v1.length, 384);
+    assert.equal(v2.length, 384);
+    // The real (wrong-dim) embedder must have been called exactly once
+    assert.equal(callCount, 1, 'embedder should be latched after first dimension mismatch');
+  });
 });

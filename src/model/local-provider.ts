@@ -111,6 +111,8 @@ export class LocalCrossEncoderProvider implements ModelProvider {
         this.logEmbedFailure(
           `local embedder returned ${vector.length} dims, expected ${this.expectedDimensions}; check TUBEROSA_EMBEDDING_MODEL vs EMBEDDING_DIMENSIONS`,
         );
+        // Latch: disable the embedder so subsequent calls skip ONNX inference entirely.
+        this.embedderPromise = Promise.resolve(null);
         return this.fallback.embed(text);
       }
       return vector;

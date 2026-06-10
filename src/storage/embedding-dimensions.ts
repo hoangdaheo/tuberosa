@@ -31,7 +31,7 @@ export async function validateEmbeddingDimensions(db: DimensionQueryable, expect
     if (actual !== null && actual !== expected) {
       throw new Error(
         `Embedding dimension mismatch: ${target.table}.${target.column} is vector(${actual}) `
-        + `but EMBEDDING_DIMENSIONS=${expected}. Run 'npx tuberosa init' to apply migrations, `
+        + `but EMBEDDING_DIMENSIONS=${expected}. Run 'npx tuberosa init' to apply migrations (then 'pnpm run reembed' restores cleared embeddings), `
         + `or set EMBEDDING_DIMENSIONS=${actual} to match the database.`,
       );
     }
