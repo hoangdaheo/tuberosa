@@ -199,7 +199,18 @@ export class LocalCrossEncoderProvider implements ModelProvider {
       return null;
     }
     try {
-      const transformers = (await dynamicImport('@xenova/transformers')) as TransformersModule | null;
+      const result = await dynamicImport('@xenova/transformers');
+      if ('error' in result) {
+        const err = result.error;
+        const isNotFound = err.message.includes('Cannot find') || (err as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND';
+        this.logEmbedFailure(
+          isNotFound
+            ? '@xenova/transformers is not installed; install it to enable local embeddings'
+            : `import of '@xenova/transformers' failed: ${err.message}`,
+        );
+        return null;
+      }
+      const transformers = result.module as TransformersModule | null;
       if (!transformers || typeof transformers.pipeline !== 'function') {
         this.logEmbedFailure('@xenova/transformers is not installed; install it to enable local embeddings');
         return null;
@@ -236,7 +247,18 @@ export class LocalCrossEncoderProvider implements ModelProvider {
       return null;
     }
     try {
-      const transformers = (await dynamicImport('@xenova/transformers')) as TransformersModule | null;
+      const result = await dynamicImport('@xenova/transformers');
+      if ('error' in result) {
+        const err = result.error;
+        const isNotFound = err.message.includes('Cannot find') || (err as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND';
+        this.logLoadFailure(
+          isNotFound
+            ? '@xenova/transformers is not installed; install it to enable local reranking'
+            : `import of '@xenova/transformers' failed: ${err.message}`,
+        );
+        return null;
+      }
+      const transformers = result.module as TransformersModule | null;
       if (!transformers || typeof transformers.pipeline !== 'function') {
         this.logLoadFailure('@xenova/transformers is not installed; install it to enable local reranking');
         return null;
@@ -325,12 +347,12 @@ function normalizeScore(entry: unknown): number {
 }
 
 /** Indirection so bundlers / tsc don't try to resolve the optional package statically. */
-async function dynamicImport(specifier: string): Promise<unknown> {
+async function dynamicImport(specifier: string): Promise<{ module: unknown } | { error: Error }> {
   try {
     // eslint-disable-next-line no-new-func
     const importer = new Function('s', 'return import(s)') as (s: string) => Promise<unknown>;
-    return await importer(specifier);
-  } catch {
-    return null;
+    return { module: await importer(specifier) };
+  } catch (error) {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
   }
 }

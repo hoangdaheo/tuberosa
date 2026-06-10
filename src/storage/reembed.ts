@@ -39,6 +39,7 @@ export async function reembedMissing(
       );
       if (batch.rows.length === 0) break;
       for (const row of batch.rows) {
+        // Must embed SOMETHING (even '') — skipping would leave the row NULL and the loop would never terminate.
         const vector = await embed(row.text ?? '');
         await db.query(
           `UPDATE ${target.table} SET embedding = $1::vector WHERE id = $2`,
