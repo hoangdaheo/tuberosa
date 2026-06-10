@@ -10,19 +10,23 @@ test('CLAUDE.md invariant: all migrations agree on one embedding dimension that 
   ok(files.length >= 1, 'expected at least one .sql file in migrations/');
 
   // Collect every vector(N) occurrence across all migration files.
-  const allDims: number[] = [];
+  // Strip `--` line comments first so prose like "-- vector(1536)" cannot
+  // trip the scan — only real declarations count.
+  const found: Array<{ file: string; dim: number }> = [];
   for (const file of files) {
     const sql = await readFile(`${dir}/${file}`, 'utf8');
-    const hits = [...sql.matchAll(/vector\((\d+)\)/g)];
+    const withoutComments = sql.replace(/--[^\n]*/g, '');
+    const hits = [...withoutComments.matchAll(/vector\((\d+)\)/g)];
     for (const m of hits) {
-      allDims.push(Number(m[1]));
+      found.push({ file, dim: Number(m[1]) });
     }
   }
 
-  ok(allDims.length >= 1, 'expected at least one vector(N) declaration across all migrations');
-  const sqlDims = new Set(allDims);
-  equal(sqlDims.size, 1, `all vector(N) declarations across all migrations must agree on one dimension, got ${[...sqlDims].join(',')}`);
-  const declared = allDims[0]!;
+  ok(found.length >= 1, 'expected at least one vector(N) declaration across all migrations');
+  const sqlDims = new Set(found.map((f) => f.dim));
+  const byFile = [...new Set(found.map((f) => `${f.file}=${f.dim}`))].join(', ');
+  equal(sqlDims.size, 1, `all vector(N) declarations across all migrations must agree on one dimension; dimension mismatch: ${byFile}`);
+  const declared = found[0]!.dim;
 
   const { loadConfig } = await import('../src/config.js');
   const config = loadConfig();
