@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type {
   QueryRewriteInput,
   QueryRewriteResult,
@@ -19,9 +21,10 @@ import type { ModelProvider } from './provider.js';
  * continues to function. This keeps the project install-light and the eval
  * harness deterministic.
  *
- * Embeddings + query rewrite delegate to the fallback hash provider so a single
- * `TUBEROSA_MODEL_PROVIDER=local` setting is enough to compose
- * `hash embeddings + local rerank`.
+ * Embeddings run on a lazily-loaded local model (`Xenova/bge-small-en-v1.5` by
+ * default, 384-dim). Query rewrite delegates to the fallback hash provider.
+ * When the model cannot load (offline, TUBEROSA_DISABLE_LOCAL_MODELS=true),
+ * embed() falls back to hash with ONE stderr warning — never silently.
  */
 export interface LocalRerankerOptions {
   /** Pretrained reranker model id. Defaults to `Xenova/bge-reranker-base`. */
@@ -40,6 +43,13 @@ export interface LocalRerankerOptions {
   fallback?: ModelProvider;
   /** Embedding dimension (only used when constructing the default hash fallback). */
   embeddingDimensions?: number;
+  /** Pretrained embedding model id. Defaults to `Xenova/bge-small-en-v1.5` (384-dim). */
+  embeddingModelId?: string;
+  /**
+   * Optional injected embedder. When provided, the provider uses it instead of
+   * loading the ONNX pipeline. Tests rely on this to stay deterministic/offline.
+   */
+  embedder?: LocalEmbedder;
 }
 
 export interface LocalCrossEncoderScorer {
@@ -49,8 +59,17 @@ export interface LocalCrossEncoderScorer {
   dispose?(): Promise<void> | void;
 }
 
+export interface LocalEmbedder {
+  /** Return one embedding vector for the text. */
+  embed(text: string): Promise<number[]>;
+  /** Optional dispose hook for the underlying pipeline. */
+  dispose?(): Promise<void> | void;
+}
+
 const DEFAULT_MODEL_ID = 'onnx-community/bge-reranker-v2-m3-ONNX';
 const DEFAULT_TOP_K = 16;
+const DEFAULT_EMBEDDING_MODEL_ID = 'Xenova/bge-small-en-v1.5';
+const DEFAULT_CACHE_DIR = join(homedir(), '.cache', 'tuberosa', 'models');
 
 export class LocalCrossEncoderProvider implements ModelProvider {
   readonly name = 'local-cross-encoder';
@@ -58,22 +77,52 @@ export class LocalCrossEncoderProvider implements ModelProvider {
   private readonly fallback: ModelProvider;
   private readonly modelId: string;
   private readonly topK: number;
-  private readonly cacheDir?: string;
+  private readonly cacheDir: string;
+  private readonly embeddingModelId: string;
+  private readonly expectedDimensions?: number;
   private scorerPromise: Promise<LocalCrossEncoderScorer | null> | null = null;
+  private embedderPromise: Promise<LocalEmbedder | null> | null = null;
   private hasLoggedLoadFailure = false;
+  private hasLoggedEmbedFailure = false;
 
   constructor(options: LocalRerankerOptions = {}) {
     this.fallback = options.fallback ?? new HashModelProvider(options.embeddingDimensions ?? 1536);
     this.modelId = options.modelId ?? process.env.TUBEROSA_RERANKER_MODEL ?? DEFAULT_MODEL_ID;
     this.topK = options.topK ?? Number(process.env.TUBEROSA_RERANKER_TOPK ?? DEFAULT_TOP_K);
-    this.cacheDir = options.cacheDir ?? process.env.TUBEROSA_MODEL_CACHE_DIR;
+    this.cacheDir = options.cacheDir ?? process.env.TUBEROSA_MODEL_CACHE_DIR ?? DEFAULT_CACHE_DIR;
+    this.embeddingModelId = options.embeddingModelId ?? process.env.TUBEROSA_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL_ID;
+    this.expectedDimensions = options.embeddingDimensions;
     if (options.scorer) {
       this.scorerPromise = Promise.resolve(options.scorer);
+    }
+    if (options.embedder) {
+      this.embedderPromise = Promise.resolve(options.embedder);
     }
   }
 
   async embed(text: string): Promise<number[]> {
-    return this.fallback.embed(text);
+    const embedder = await this.loadEmbedder();
+    if (!embedder) {
+      return this.fallback.embed(text);
+    }
+    try {
+      const vector = await embedder.embed(text);
+      if (this.expectedDimensions !== undefined && vector.length !== this.expectedDimensions) {
+        this.logEmbedFailure(
+          `local embedder returned ${vector.length} dims, expected ${this.expectedDimensions}; check TUBEROSA_EMBEDDING_MODEL vs EMBEDDING_DIMENSIONS`,
+        );
+        return this.fallback.embed(text);
+      }
+      return vector;
+    } catch (error) {
+      this.logEmbedFailure(`local embedder threw: ${error instanceof Error ? error.message : String(error)}`);
+      return this.fallback.embed(text);
+    }
+  }
+
+  /** True when the real local embedding pipeline is loadable (used by the init warm-up). */
+  async hasLocalEmbedder(): Promise<boolean> {
+    return (await this.loadEmbedder()) !== null;
   }
 
   async rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult | undefined> {
@@ -136,6 +185,43 @@ export class LocalCrossEncoderProvider implements ModelProvider {
     return { candidates: merged, model: this.modelId };
   }
 
+  private async loadEmbedder(): Promise<LocalEmbedder | null> {
+    if (this.embedderPromise) return this.embedderPromise;
+    this.embedderPromise = this.createDefaultEmbedder();
+    return this.embedderPromise;
+  }
+
+  private async createDefaultEmbedder(): Promise<LocalEmbedder | null> {
+    if (localModelsDisabled()) {
+      this.logEmbedFailure('local models disabled (NODE_ENV=test or TUBEROSA_DISABLE_LOCAL_MODELS=true)');
+      return null;
+    }
+    try {
+      const transformers = (await dynamicImport('@xenova/transformers')) as TransformersModule | null;
+      if (!transformers || typeof transformers.pipeline !== 'function') {
+        this.logEmbedFailure('@xenova/transformers is not installed; install it to enable local embeddings');
+        return null;
+      }
+      if (transformers.env) {
+        transformers.env.cacheDir = this.cacheDir;
+      }
+      const pipeline = await transformers.pipeline('feature-extraction', this.embeddingModelId, {
+        quantized: true,
+      });
+      return new TransformersEmbedder(pipeline);
+    } catch (error) {
+      this.logEmbedFailure(`local embedder init failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  private logEmbedFailure(reason: string): void {
+    if (this.hasLoggedEmbedFailure) return;
+    this.hasLoggedEmbedFailure = true;
+    if ((process.env.NODE_ENV ?? '') === 'test' || process.env.TUBEROSA_SILENT_LOCAL_PROVIDER === 'true') return;
+    process.stderr.write(`[tuberosa] local embedder unavailable; falling back to hash embeddings — ${reason}\n`);
+  }
+
   private async loadScorer(): Promise<LocalCrossEncoderScorer | null> {
     if (this.scorerPromise) return this.scorerPromise;
     this.scorerPromise = this.createDefaultScorer();
@@ -143,6 +229,10 @@ export class LocalCrossEncoderProvider implements ModelProvider {
   }
 
   private async createDefaultScorer(): Promise<LocalCrossEncoderScorer | null> {
+    if (localModelsDisabled()) {
+      this.logLoadFailure('local models disabled (NODE_ENV=test or TUBEROSA_DISABLE_LOCAL_MODELS=true)');
+      return null;
+    }
     try {
       const transformers = (await dynamicImport('@xenova/transformers')) as TransformersModule | null;
       if (!transformers || typeof transformers.pipeline !== 'function') {
@@ -189,6 +279,32 @@ class TransformersScorer implements LocalCrossEncoderScorer {
     if (!Array.isArray(raw)) return candidates.map(() => 0);
     return raw.map((entry) => normalizeScore(entry));
   }
+}
+
+function localModelsDisabled(): boolean {
+  return (process.env.NODE_ENV ?? '') === 'test' || process.env.TUBEROSA_DISABLE_LOCAL_MODELS === 'true';
+}
+
+class TransformersEmbedder implements LocalEmbedder {
+  constructor(private readonly pipeline: TransformersPipeline) {}
+
+  async embed(text: string): Promise<number[]> {
+    const raw = await this.pipeline(text, { pooling: 'mean', normalize: true });
+    return toVector(raw);
+  }
+}
+
+/** Transformers feature-extraction returns a Tensor ({ data: Float32Array }) or nested arrays. */
+function toVector(raw: unknown): number[] {
+  if (raw && typeof raw === 'object' && 'data' in raw) {
+    const data = (raw as { data: ArrayLike<number> }).data;
+    return Array.from(data, (value) => Number(value));
+  }
+  if (Array.isArray(raw)) {
+    const flat = Array.isArray(raw[0]) ? (raw[0] as unknown[]) : raw;
+    return flat.map((value) => Number(value));
+  }
+  throw new Error('unexpected feature-extraction output shape');
 }
 
 function normalizeScore(entry: unknown): number {

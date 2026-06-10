@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { LocalCrossEncoderProvider, type LocalCrossEncoderScorer } from '../src/model/local-provider.js';
+import { LocalCrossEncoderProvider, type LocalCrossEncoderScorer, type LocalEmbedder } from '../src/model/local-provider.js';
 import type { RankedCandidate, RerankInput } from '../src/types.js';
 
 function buildCandidate(overrides: Partial<RankedCandidate> = {}): RankedCandidate {
@@ -110,5 +110,62 @@ describe('LocalCrossEncoderProvider', () => {
     const embedding = await provider.embed('hello world');
     assert.ok(Array.isArray(embedding) && embedding.length === 1536);
     assert.equal(await provider.rewriteQuery({ prompt: 'x', classified: {} as never }), undefined);
+  });
+});
+
+describe('local embeddings', () => {
+  it('uses the injected embedder for embed()', async () => {
+    const embedder: LocalEmbedder = {
+      async embed() {
+        return [0.1, 0.2, 0.3];
+      },
+    };
+    const provider = new LocalCrossEncoderProvider({ embedder, embeddingDimensions: 3 });
+    const vector = await provider.embed('hello');
+    assert.deepEqual(vector, [0.1, 0.2, 0.3]);
+  });
+
+  it('falls back to hash when the embedder throws', async () => {
+    const embedder: LocalEmbedder = {
+      async embed() {
+        throw new Error('boom');
+      },
+    };
+    const provider = new LocalCrossEncoderProvider({ embedder, embeddingDimensions: 384 });
+    const vector = await provider.embed('hello');
+    assert.equal(vector.length, 384); // hash fallback respects configured dims
+  });
+
+  it('falls back to hash when the embedder returns wrong dimensions', async () => {
+    const embedder: LocalEmbedder = {
+      async embed() {
+        return [1, 2]; // 2 dims, expected 384
+      },
+    };
+    const provider = new LocalCrossEncoderProvider({ embedder, embeddingDimensions: 384 });
+    const vector = await provider.embed('hello');
+    assert.equal(vector.length, 384);
+  });
+
+  it('falls back to hash when local models are disabled via env', async () => {
+    process.env.TUBEROSA_DISABLE_LOCAL_MODELS = 'true';
+    try {
+      const provider = new LocalCrossEncoderProvider({ embeddingDimensions: 384 });
+      assert.equal(await provider.hasLocalEmbedder(), false);
+      const vector = await provider.embed('hello');
+      assert.equal(vector.length, 384);
+    } finally {
+      delete process.env.TUBEROSA_DISABLE_LOCAL_MODELS;
+    }
+  });
+
+  it('reports hasLocalEmbedder() = true with an injected embedder', async () => {
+    const embedder: LocalEmbedder = {
+      async embed() {
+        return [0.5];
+      },
+    };
+    const provider = new LocalCrossEncoderProvider({ embedder });
+    assert.equal(await provider.hasLocalEmbedder(), true);
   });
 });
