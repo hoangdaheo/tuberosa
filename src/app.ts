@@ -14,6 +14,7 @@ import { SessionReplayService } from './operations/session-replay.js';
 import { ReflectionService } from './reflection/service.js';
 import { RetrievalService } from './retrieval/service.js';
 import { KnowledgeSafetyService } from './security/knowledge-safety.js';
+import { validateEmbeddingDimensions } from './storage/embedding-dimensions.js';
 import { createKnowledgeStore } from './storage/factory.js';
 import { runMigrations } from './storage/migrations.js';
 import type { KnowledgeStore } from './storage/store.js';
@@ -115,19 +116,22 @@ export async function createAppServices(): Promise<AppServices> {
 }
 
 async function migrateStoreIfNeeded(config: AppConfig): Promise<void> {
-  if (config.storage.store !== 'postgres' || !config.storage.autoMigrate) {
+  if (config.storage.store !== 'postgres') {
     return;
   }
 
   const pool = new Pool({ connectionString: config.storage.databaseUrl });
   try {
-    await runMigrations(pool, {
-      onApplied: (file) => {
-        if (config.env !== 'test') {
-          console.error(`Applied database migration ${file}`);
-        }
-      },
-    });
+    if (config.storage.autoMigrate) {
+      await runMigrations(pool, {
+        onApplied: (file) => {
+          if (config.env !== 'test') {
+            console.error(`Applied database migration ${file}`);
+          }
+        },
+      });
+    }
+    await validateEmbeddingDimensions(pool, config.model.embeddingDimensions);
   } finally {
     await pool.end();
   }
