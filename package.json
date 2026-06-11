@@ -42,7 +42,8 @@
     ".claude/skills/tuberosa-onboard-project/",
     ".claude/skills/tuberosa-guide/",
     ".claude/skills/tuberosa-agent-loop/",
-    ".claude/skills/tuberosa-operating/"
+    ".claude/skills/tuberosa-operating/",
+    ".claude/skills/tuberosa-using/"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
