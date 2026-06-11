@@ -20,7 +20,7 @@ In short: FIND reads knowledge in. LEARN writes new knowledge back. Under the `h
 
 ## Tool Map
 
-The tools are grouped into three categories. The counts below are verified against `src/mcp/tool-definitions.ts`.
+The tools are grouped into three categories. The counts below are indicative (the authoritative list is what your MCP client shows for the tuberosa server).
 
 | Group | Count | What it is for | Examples |
 | --- | --- | --- | --- |
@@ -39,7 +39,7 @@ Pick the row that matches what you want, then read that file.
 | I want to… | Read |
 | --- | --- |
 | Drive a coding task through Tuberosa (the session loop) | `.claude/skills/tuberosa-agent-loop/SKILL.md` |
-| Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa-operating/SKILL.md` |
+| Operate Tuberosa as a human (ingest, review, curate) | `.claude/skills/tuberosa-operating/SKILL.md` |
 | Set up the environment | `npx tuberosa init` (one command; run `npx tuberosa doctor` if anything fails) |
 
 ## One Note

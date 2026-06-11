@@ -1,6 +1,6 @@
 ---
 name: tuberosa-operating
-description: "Use when a human operator wants to drive Tuberosa: ingest sources, review reflection drafts, approve conventions, run evals, read the atlas, or turn on learning. Examples: \"How do I review Tuberosa drafts?\", \"Run the Tuberosa evals\""
+description: "Use when a human operator wants to drive Tuberosa: ingest sources, review reflection drafts, approve conventions, read the atlas, or turn on learning. Examples: \"How do I review Tuberosa drafts?\", \"Ingest my docs into Tuberosa\""
 ---
 
 # Tuberosa Operating Runbook

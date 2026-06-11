@@ -21,8 +21,8 @@ Call `tuberosa_start_session`. Always pass these:
 
 | Field | Value |
 | --------------- | -------------------------------------------------- |
-| `project` | `"tuberosa"` |
-| `cwd` | `"/home/nash/tuberosa"` |
+| `project` | `"<your project name>"` |
+| `cwd` | `"<absolute path to your project root>"` |
 | `prompt` | the user's request, word for word |
 | `contextMode` | `"layered"` |
 | `noiseTolerance`| `"strict"` |

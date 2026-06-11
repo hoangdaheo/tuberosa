@@ -172,4 +172,4 @@ changed? ─ B ── sync (dry-run) → sync --apply [--yes for deletes] → re
 | Write understanding | `tuberosa_reflect` (drafts) | `src/agent-session/` |
 | Approve knowledge | `tuberosa_list/get/review_reflection_draft` | `src/mcp/server.ts` |
 
-If you think a genuinely new command is missing (e.g. a one-shot `tuberosa comprehend`), do **not** bolt it on. Propose it as a separate, scoped change **with a failing test/eval first** — the repo rule "retrieval/ingest improvements require eval coverage first" applies.
+If you think a genuinely new command is missing (e.g. a one-shot `tuberosa comprehend`), do **not** bolt it on. Propose it to the Tuberosa maintainers instead — workarounds layered on top of the CLI tend to rot.
