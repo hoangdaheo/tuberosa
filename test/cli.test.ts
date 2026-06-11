@@ -8,6 +8,12 @@ import { composeTemplate } from '../bin/commands/compose-template.js';
 import { defaultSpawn } from '../bin/commands/io.js';
 import { dispatch } from '../bin/tuberosa.js';
 import type { CommandIo, FsAdapter, SpawnFn, SpawnResult } from '../bin/commands/types.js';
+import {
+  buildServerEntry,
+  mergeMcpJson,
+  renderTomlSection,
+  tomlHasTuberosaEntry,
+} from '../bin/commands/mcp-install.js';
 
 interface RecordedSpawn {
   command: string;
@@ -602,5 +608,75 @@ describe('defaultSpawn', () => {
   it('still reports exit 0 for a child that finishes in time', async () => {
     const result = await defaultSpawn('node', ['-e', 'process.exit(0)'], { timeoutMs: 30_000 });
     assert.equal(result.exitCode, 0);
+  });
+});
+
+describe('mcp install pure helpers', () => {
+  it('builds the full-feature server entry with explicit env', () => {
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    assert.equal(entry.command, 'npx');
+    assert.deepEqual(entry.args, ['tuberosa', 'mcp']);
+    assert.deepEqual(entry.env, {
+      TUBEROSA_STORE: 'postgres',
+      TUBEROSA_CACHE: 'redis',
+      TUBEROSA_MODEL_PROVIDER: 'local',
+      DATABASE_URL: 'postgres://tuberosa:tuberosa@127.0.0.1:5432/tuberosa',
+      REDIS_URL: 'redis://127.0.0.1:6379',
+    });
+  });
+
+  it('writes a fresh .mcp.json when no file exists', () => {
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    const result = mergeMcpJson(undefined, entry, false);
+    assert.equal(result.status, 'written');
+    const doc = JSON.parse((result as { contents: string }).contents);
+    assert.equal(doc.mcpServers.tuberosa.command, 'npx');
+  });
+
+  it('merges into existing JSON preserving foreign servers and unknown keys', () => {
+    const existing = JSON.stringify({
+      $schema: 'https://example.com/schema.json',
+      mcpServers: { gitnexus: { command: 'gitnexus', args: ['mcp'] } },
+    });
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    const result = mergeMcpJson(existing, entry, false);
+    assert.equal(result.status, 'written');
+    const doc = JSON.parse((result as { contents: string }).contents);
+    assert.equal(doc.$schema, 'https://example.com/schema.json');
+    assert.equal(doc.mcpServers.gitnexus.command, 'gitnexus');
+    assert.deepEqual(doc.mcpServers.tuberosa.args, ['tuberosa', 'mcp']);
+  });
+
+  it('skips when tuberosa is already configured, unless --force', () => {
+    const existing = JSON.stringify({ mcpServers: { tuberosa: { command: 'old' } } });
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    assert.equal(mergeMcpJson(existing, entry, false).status, 'exists');
+    const forced = mergeMcpJson(existing, entry, true);
+    assert.equal(forced.status, 'written');
+    const doc = JSON.parse((forced as { contents: string }).contents);
+    assert.equal(doc.mcpServers.tuberosa.command, 'npx');
+  });
+
+  it('refuses to touch unparseable or non-object JSON', () => {
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    assert.equal(mergeMcpJson('{not json', entry, false).status, 'invalid');
+    assert.equal(mergeMcpJson('[1,2]', entry, false).status, 'invalid');
+  });
+
+  it('renders a TOML section with marker and env sub-table', () => {
+    const toml = renderTomlSection(buildServerEntry({ postgresPort: 5432, redisPort: 6379 }));
+    assert.ok(toml.includes('# added by tuberosa mcp install'));
+    assert.ok(toml.includes('[mcp_servers.tuberosa]'));
+    assert.ok(toml.includes('command = "npx"'));
+    assert.ok(toml.includes('args = ["tuberosa", "mcp"]'));
+    assert.ok(toml.includes('[mcp_servers.tuberosa.env]'));
+    assert.ok(toml.includes('DATABASE_URL = "postgres://tuberosa:tuberosa@127.0.0.1:5432/tuberosa"'));
+  });
+
+  it('detects an existing [mcp_servers.tuberosa] TOML entry', () => {
+    assert.equal(tomlHasTuberosaEntry('[mcp_servers.tuberosa]\ncommand = "x"\n'), true);
+    assert.equal(tomlHasTuberosaEntry('  [mcp_servers.tuberosa]\n'), true);
+    assert.equal(tomlHasTuberosaEntry('[mcp_servers.other]\n'), false);
+    assert.equal(tomlHasTuberosaEntry(''), false);
   });
 });
