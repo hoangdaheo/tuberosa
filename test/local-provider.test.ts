@@ -183,6 +183,24 @@ describe('local embeddings', () => {
     assert.throws(() => toVector('garbage'));
   });
 
+  it('probeEmbeddingDimensions returns raw dims even when they mismatch the config', async () => {
+    const embedder: LocalEmbedder = { async embed() { return [1, 2]; } };
+    const provider = new LocalCrossEncoderProvider({ embedder, embeddingDimensions: 384 });
+    assert.equal(await provider.probeEmbeddingDimensions(), 2);
+  });
+
+  it('probeEmbeddingDimensions returns null when the embedder is unavailable', async () => {
+    const prev = process.env.TUBEROSA_DISABLE_LOCAL_MODELS;
+    process.env.TUBEROSA_DISABLE_LOCAL_MODELS = 'true';
+    try {
+      const provider = new LocalCrossEncoderProvider({ embeddingDimensions: 384 });
+      assert.equal(await provider.probeEmbeddingDimensions(), null);
+    } finally {
+      if (prev === undefined) delete process.env.TUBEROSA_DISABLE_LOCAL_MODELS;
+      else process.env.TUBEROSA_DISABLE_LOCAL_MODELS = prev;
+    }
+  });
+
   it('latches after dimension mismatch: injected embedder called EXACTLY ONCE across two embed() calls', async () => {
     let callCount = 0;
     const embedder: LocalEmbedder = {

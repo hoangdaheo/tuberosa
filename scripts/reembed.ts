@@ -10,27 +10,32 @@ if (config.storage.store !== 'postgres') {
   process.exit(0);
 }
 
-// Carry-over D: gate against irreversible hash backfill when provider=local and model is unavailable.
-if (config.model.provider === 'local' && process.env.TUBEROSA_REEMBED_ALLOW_HASH !== 'true') {
-  const probe = new LocalCrossEncoderProvider({
+// Single provider instance: for local, use one LocalCrossEncoderProvider as both
+// the availability gate and the embed source — avoids loading two ONNX sessions.
+let embedSource: { embed(text: string): Promise<number[]> };
+if (config.model.provider === 'local') {
+  const local = new LocalCrossEncoderProvider({
     embeddingDimensions: config.model.embeddingDimensions,
     embeddingModelId: config.model.embeddingModel,
   });
-  if (!(await probe.hasLocalEmbedder())) {
+  if (!(await local.hasLocalEmbedder()) && process.env.TUBEROSA_REEMBED_ALLOW_HASH !== 'true') {
     process.stderr.write(
       '[tuberosa] reembed aborted: the local embedding model is unavailable and backfilling with hash vectors '
       + 'would be irreversible. Fix the model (run `npx tuberosa init`) or set TUBEROSA_REEMBED_ALLOW_HASH=true to override.\n',
     );
     process.exit(1);
   }
+  embedSource = local;
+} else {
+  embedSource = createModelProvider(config);
 }
 
 const pool = new Pool({ connectionString: config.storage.databaseUrl });
-const provider = createModelProvider(config);
 
-// Carry-over E: catch framing so a failure prints one guided line before rethrowing.
+// Catch prints one guided line and sets a flag; finally always closes the pool.
+let failed = false;
 try {
-  const result = await reembedMissing(pool, (text) => provider.embed(text), {
+  const result = await reembedMissing(pool, (text) => embedSource.embed(text), {
     onProgress: (table, done) => process.stderr.write(`[tuberosa] reembed ${table}: ${done}\n`),
   });
   process.stderr.write(
@@ -38,8 +43,8 @@ try {
   );
 } catch (error) {
   process.stderr.write(`[tuberosa] reembed failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-  throw error;
+  failed = true;
 } finally {
   await pool.end();
 }
+if (failed) process.exit(1);

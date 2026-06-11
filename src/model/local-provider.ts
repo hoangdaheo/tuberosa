@@ -127,6 +127,22 @@ export class LocalCrossEncoderProvider implements ModelProvider {
     return (await this.loadEmbedder()) !== null;
   }
 
+  /**
+   * Probe the REAL local embedder (no hash fallback): returns the raw dimension
+   * count it produces, or null when the model is unavailable. Used by the init
+   * warm-up to hard-fail on dimension mismatch instead of silently degrading.
+   */
+  async probeEmbeddingDimensions(): Promise<number | null> {
+    const embedder = await this.loadEmbedder();
+    if (!embedder) return null;
+    try {
+      const vector = await embedder.embed('tuberosa warmup probe');
+      return vector.length;
+    } catch {
+      return null;
+    }
+  }
+
   async rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult | undefined> {
     return this.fallback.rewriteQuery(input);
   }
@@ -202,7 +218,8 @@ export class LocalCrossEncoderProvider implements ModelProvider {
       const result = await dynamicImport('@xenova/transformers');
       if ('error' in result) {
         const err = result.error;
-        const isNotFound = err.message.includes('Cannot find') || (err as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND';
+        const isNotFound = err.message.includes('@xenova/transformers')
+          && (err.message.includes('Cannot find') || (err as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND');
         this.logEmbedFailure(
           isNotFound
             ? '@xenova/transformers is not installed; install it to enable local embeddings'
@@ -250,7 +267,8 @@ export class LocalCrossEncoderProvider implements ModelProvider {
       const result = await dynamicImport('@xenova/transformers');
       if ('error' in result) {
         const err = result.error;
-        const isNotFound = err.message.includes('Cannot find') || (err as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND';
+        const isNotFound = err.message.includes('@xenova/transformers')
+          && (err.message.includes('Cannot find') || (err as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND');
         this.logLoadFailure(
           isNotFound
             ? '@xenova/transformers is not installed; install it to enable local reranking'
