@@ -93,7 +93,7 @@ from a real install.
 ### B1. Quick start
 
 ```bash
-npx tuberosa init        # Docker present → Postgres+Redis+migrate; otherwise embedded (memory) mode
+npx tuberosa init        # requires Docker (Postgres+Redis+migrate+model warm-up); --embedded for volatile trial mode
 npx tuberosa doctor      # verify Node, pnpm, port 3027, Postgres reachability, MCP stdout sanity
 npx tuberosa mcp         # run the MCP stdio server (full stack: Postgres + Redis + local embeddings)
 ```
