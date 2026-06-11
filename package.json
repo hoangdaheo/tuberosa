@@ -39,7 +39,10 @@
     ".env.example",
     "migrations/",
     ".claude/skills/bundled-skills.json",
-    ".claude/skills/tuberosa-onboard-project/"
+    ".claude/skills/tuberosa-onboard-project/",
+    ".claude/skills/tuberosa-guide/",
+    ".claude/skills/tuberosa-agent-loop/",
+    ".claude/skills/tuberosa-operating/"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
