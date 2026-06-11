@@ -13,8 +13,8 @@ import {
 /**
  * prepack gate: the bundled-skills manifest is the single source of truth. Fail the
  * pack/publish if the manifest, the on-disk skill files, and package.json "files"
- * disagree — so the package can never ship a skill `init --with-skills` won't copy,
- * or promise a skill it doesn't ship.
+ * disagree — so the package can never ship a skill init's default skills install
+ * won't copy, or promise a skill it doesn't ship.
  */
 async function main(): Promise<void> {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
