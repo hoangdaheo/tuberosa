@@ -28,7 +28,7 @@ export interface RegistryEntry {
 /**
  * Phase 4 — Provider registry that composes capabilities across providers.
  *
- * Goal: let a user run `hash embeddings + local cross-encoder rerank` (i.e., no OpenAI key
+ * Goal: let a user run `local embeddings + local cross-encoder rerank (hash as fallback)` (i.e., no OpenAI key
  * but with the ~150MB BGE reranker download) without writing new wiring. The composed
  * provider implements `ModelProvider` so it drops into `RetrievalService` unchanged.
  */

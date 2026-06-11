@@ -3,17 +3,10 @@ import type { AppServices } from './app.js';
 import { appErrorToJsonRpcError } from './errors.js';
 import { handleMcpRequest } from './mcp/server.js';
 
-// Embedded mode: TUBEROSA_EMBEDDED=1/true opts into the volatile trial stack
-// (memory store, no Redis, hash embeddings). Useful when Postgres / Redis are
-// unavailable and the caller cannot pass CLI flags directly (e.g. MCP configs
-// that only support env vars).
-if (process.env.TUBEROSA_EMBEDDED === '1' || process.env.TUBEROSA_EMBEDDED === 'true') {
-  process.env.TUBEROSA_STORE = 'memory';
-  process.env.TUBEROSA_CACHE = 'memory';
-  process.env.TUBEROSA_MODEL_PROVIDER = 'hash';
-} else if (!process.env.TUBEROSA_CACHE) {
-  // Non-embedded direct-launch fallback: keep cache in-process so the MCP
-  // server can initialize without Redis even when started without `tuberosa mcp`.
+// TUBEROSA_EMBEDDED is now handled centrally in loadConfig() — no env mutation needed here.
+// Non-embedded direct-launch fallback: keep cache in-process so the MCP server can
+// initialize without Redis even when started without `tuberosa mcp`.
+if (!process.env.TUBEROSA_CACHE) {
   process.env.TUBEROSA_CACHE = 'memory';
 }
 

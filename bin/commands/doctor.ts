@@ -182,6 +182,9 @@ async function checkEmbeddingModel(io: CommandIo): Promise<DoctorCheck> {
     return { name: 'embedding model', status: 'skip', detail: `provider is '${provider}' — no local model needed` };
   }
   if (!io.fs) return { name: 'embedding model', status: 'skip', detail: 'fs unavailable' };
+  // io.env is used (not os.homedir) so tests can inject a fake HOME without
+  // touching the real home directory. '~' is a display-only placeholder and
+  // should never be reached in practice because HOME is always set in real shells.
   const cacheDir = io.env.TUBEROSA_MODEL_CACHE_DIR ?? `${io.env.HOME ?? '~'}/.cache/tuberosa/models`;
   const model = io.env.TUBEROSA_EMBEDDING_MODEL ?? 'Xenova/bge-small-en-v1.5';
   const modelPath = `${cacheDir}/${model}`;

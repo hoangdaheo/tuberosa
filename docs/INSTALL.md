@@ -95,12 +95,10 @@ from a real install.
 ```bash
 npx tuberosa init        # Docker present → Postgres+Redis+migrate; otherwise embedded (memory) mode
 npx tuberosa doctor      # verify Node, pnpm, port 3027, Postgres reachability, MCP stdout sanity
-npx tuberosa mcp         # run the MCP stdio server (embedded defaults: memory store + hash provider)
+npx tuberosa mcp         # run the MCP stdio server (full stack: Postgres + Redis + local embeddings)
 ```
 
-`init` is idempotent and auto-falls-back to embedded mode when Docker is absent (or pass
-`--no-docker`). Embedded mode keeps everything in memory — great for trying Tuberosa, volatile
-across restarts.
+`init` requires Docker and hard-fails without it. Use `--embedded` (or `TUBEROSA_EMBEDDED=1`) for volatile trial mode — everything in memory, no Docker needed, data lost on restart.
 
 ### B2. Skill injection (canonical mechanism)
 
@@ -125,8 +123,7 @@ and keeping knowledge fresh via `sync` + `hook install`.
 
 ### B3. Register as an MCP server (local-first, zero external services)
 
-Claude Code / Codex / Cursor read a TOML/JSON MCP block. The embedded defaults (`memory` store +
-`memory` cache + `hash` provider) need no Postgres, Redis, or API key:
+Claude Code / Codex / Cursor read a TOML/JSON MCP block. The full-stack defaults (Postgres + Redis + local embeddings) need no API key — just run `npx tuberosa init` first. For volatile trial mode, add `TUBEROSA_EMBEDDED = "1"`:
 
 **TOML (Claude Code / Codex):**
 
@@ -134,7 +131,8 @@ Claude Code / Codex / Cursor read a TOML/JSON MCP block. The embedded defaults (
 [mcp_servers.tuberosa]
 command = "npx"
 args = ["tuberosa", "mcp"]
-env = { TUBEROSA_STORE = "memory", TUBEROSA_CACHE = "memory", TUBEROSA_MODEL_PROVIDER = "hash" }
+# No env needed for full stack (after `npx tuberosa init`).
+# For volatile trial mode (no Docker): env = { TUBEROSA_EMBEDDED = "1" }
 ```
 
 **JSON (`claude_desktop_config.json` / clients using JSON):**
@@ -144,38 +142,25 @@ env = { TUBEROSA_STORE = "memory", TUBEROSA_CACHE = "memory", TUBEROSA_MODEL_PRO
   "mcpServers": {
     "tuberosa": {
       "command": "npx",
-      "args": ["tuberosa", "mcp"],
-      "env": {
-        "TUBEROSA_STORE": "memory",
-        "TUBEROSA_CACHE": "memory",
-        "TUBEROSA_MODEL_PROVIDER": "hash"
-      }
+      "args": ["tuberosa", "mcp"]
     }
   }
 }
 ```
 
-`tuberosa mcp` already applies these defaults itself and keeps **stdout JSON-RPC-clean** (diagnostics
-go to stderr), so the block above is belt-and-suspenders. `npx tuberosa init` prints a copy of this
-snippet tailored to your setup.
+`tuberosa mcp` defaults to the full stack (Postgres + Redis + local embeddings) and keeps **stdout JSON-RPC-clean** (diagnostics go to stderr). `npx tuberosa init` prints a copy of this snippet tailored to your setup.
 
-### B4. Optional — full Postgres-backed stack (durable)
+### B4. Volatile trial mode (no Docker required)
 
-For persistent knowledge across restarts, run the Docker stack and point the env at it:
+For a quick try without Postgres or Redis, use `--embedded` or `TUBEROSA_EMBEDDED=1`:
 
 ```bash
-npx tuberosa init                       # writes .tuberosa/compose.yml, brings up Postgres+Redis, migrates
-# then set the durable env for the MCP block:
-#   TUBEROSA_STORE=postgres
-#   TUBEROSA_CACHE=redis
-#   DATABASE_URL=postgres://tuberosa:tuberosa@127.0.0.1:5432/tuberosa
-#   REDIS_URL=redis://127.0.0.1:6379
-#   TUBEROSA_MODEL_PROVIDER=hash      # still local-first; no external API
+npx tuberosa init --embedded   # memory store, hash embeddings — data lost on exit
+npx tuberosa mcp --embedded    # same for the MCP server
+# or via env: TUBEROSA_EMBEDDED=1 npx tuberosa mcp
 ```
 
-Stay on `hash` to remain fully offline. Switching the model provider to `ollama` or `openai`
-(to turn on automatic atom extraction / the LEARN pillar) is a separate, opt-in choice — see
-`docs/SETUP.md` and `.claude/skills/tuberosa-operating/SKILL.md` §6.
+Switching the model provider to `ollama` or `openai` (to turn on automatic atom extraction / the LEARN pillar) is a separate, opt-in choice — see `docs/SETUP.md` and `.claude/skills/tuberosa-operating/SKILL.md` §6.
 
 ---
 

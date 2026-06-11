@@ -49,6 +49,28 @@ test('config byte caps fall back to defaults on missing or invalid env', () => {
   equal(configured.ingest.maxContentBytes, 512);
 });
 
+describe('TUBEROSA_EMBEDDED centralization', () => {
+  it('TUBEROSA_EMBEDDED=1 flips store/cache/provider to the trial stack', () => {
+    const config = withEnv(
+      { TUBEROSA_EMBEDDED: '1', TUBEROSA_STORE: undefined, TUBEROSA_CACHE: undefined, TUBEROSA_MODEL_PROVIDER: undefined },
+      () => loadConfig(),
+    );
+    equal(config.storage.store, 'memory');
+    equal(config.storage.cache, 'memory');
+    equal(config.model.provider, 'hash');
+  });
+
+  it('explicit TUBEROSA_STORE wins over TUBEROSA_EMBEDDED', () => {
+    const config = withEnv(
+      { TUBEROSA_EMBEDDED: '1', TUBEROSA_STORE: 'postgres', TUBEROSA_MODEL_PROVIDER: undefined, OPENAI_API_KEY: undefined },
+      () => loadConfig(),
+    );
+    equal(config.storage.store, 'postgres');
+    // provider is still hash because TUBEROSA_MODEL_PROVIDER was not explicitly set
+    equal(config.model.provider, 'hash');
+  });
+});
+
 describe('full-featured defaults (Spec A)', () => {
   it('defaults the model provider to local when no OpenAI key is set', () => {
     const config = withEnv({ TUBEROSA_MODEL_PROVIDER: undefined, OPENAI_API_KEY: undefined }, () => loadConfig());

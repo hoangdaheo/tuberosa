@@ -110,6 +110,11 @@ export interface AppConfig {
 }
 
 export function loadConfig(): AppConfig {
+  // TUBEROSA_EMBEDDED=1/true opts into the volatile trial stack (memory store,
+  // memory cache, hash embeddings) without needing Docker or Postgres. Explicit
+  // TUBEROSA_STORE / TUBEROSA_CACHE / TUBEROSA_MODEL_PROVIDER vars always win.
+  const embedded = process.env.TUBEROSA_EMBEDDED === '1' || process.env.TUBEROSA_EMBEDDED === 'true';
+
   return {
     env: process.env.NODE_ENV ?? 'development',
     http: {
@@ -120,14 +125,14 @@ export function loadConfig(): AppConfig {
       maxRequestBytes: envInt('TUBEROSA_MAX_REQUEST_BYTES', 10 * 1024 * 1024),
     },
     storage: {
-      store: readEnum(process.env.TUBEROSA_STORE, ['postgres', 'memory'], 'postgres'),
-      cache: readEnum(process.env.TUBEROSA_CACHE, ['redis', 'memory', 'none'], 'redis'),
+      store: readEnum(process.env.TUBEROSA_STORE, ['postgres', 'memory'], embedded ? 'memory' : 'postgres'),
+      cache: readEnum(process.env.TUBEROSA_CACHE, ['redis', 'memory', 'none'], embedded ? 'memory' : 'redis'),
       databaseUrl: process.env.DATABASE_URL ?? 'postgres://tuberosa:tuberosa@localhost:5432/tuberosa',
       redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
       autoMigrate: readBoolean(process.env.TUBEROSA_AUTO_MIGRATE, true),
     },
     model: {
-      provider: readEnum(process.env.TUBEROSA_MODEL_PROVIDER, ['hash', 'openai', 'local', 'ollama'], process.env.OPENAI_API_KEY ? 'openai' : 'local'),
+      provider: readEnum(process.env.TUBEROSA_MODEL_PROVIDER, ['hash', 'openai', 'local', 'ollama'], embedded ? 'hash' : (process.env.OPENAI_API_KEY ? 'openai' : 'local')),
       embeddingDimensions: Number(process.env.EMBEDDING_DIMENSIONS ?? 384),
       embeddingModel: process.env.TUBEROSA_EMBEDDING_MODEL ?? 'Xenova/bge-small-en-v1.5',
       openAiApiKey: process.env.OPENAI_API_KEY || undefined,
