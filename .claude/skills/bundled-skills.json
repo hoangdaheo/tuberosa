@@ -3,6 +3,7 @@
     { "name": "tuberosa-onboard-project", "files": ["SKILL.md"] },
     { "name": "tuberosa-guide", "files": ["SKILL.md"] },
     { "name": "tuberosa-agent-loop", "files": ["SKILL.md"] },
-    { "name": "tuberosa-operating", "files": ["SKILL.md"] }
+    { "name": "tuberosa-operating", "files": ["SKILL.md"] },
+    { "name": "tuberosa-using", "files": ["SKILL.md"] }
   ]
 }
