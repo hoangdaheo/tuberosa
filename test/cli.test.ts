@@ -324,7 +324,10 @@ describe('init command', () => {
     });
     const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
     assert.equal(result.exitCode, 0); // reembed failure is a warning, not fatal
-    assert.ok(spawnCalls.some((call) => call.args.some((arg) => arg.includes('reembed'))));
+    const indexOf = (needle: string) => spawnCalls.findIndex((call) => call.args.some((arg) => arg.includes(needle)));
+    assert.ok(indexOf('reembed') >= 0);
+    assert.ok(indexOf('migrate') < indexOf('warmup-embeddings'), 'migrate must run before warm-up');
+    assert.ok(indexOf('warmup-embeddings') < indexOf('reembed'), 'warm-up must run before reembed');
     assert.ok(harness.stderr.join('\n').includes('reembed'));
   });
 
