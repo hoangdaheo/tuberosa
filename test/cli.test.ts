@@ -8,6 +8,13 @@ import { composeTemplate } from '../bin/commands/compose-template.js';
 import { defaultSpawn } from '../bin/commands/io.js';
 import { dispatch } from '../bin/tuberosa.js';
 import type { CommandIo, FsAdapter, SpawnFn, SpawnResult } from '../bin/commands/types.js';
+import {
+  buildServerEntry,
+  mergeMcpJson,
+  renderTomlSection,
+  tomlHasTuberosaEntry,
+  mcpInstallCommand,
+} from '../bin/commands/mcp-install.js';
 
 interface RecordedSpawn {
   command: string;
@@ -394,7 +401,7 @@ describe('init command', () => {
     assert.equal(callFor('reembed')?.timeoutMs, 1_800_000, 'reembed must allow a large-corpus backfill');
   });
 
-  it('copies the bundled comprehension skill into .claude/skills when --with-skills is passed', async () => {
+  it('copies bundled skills into .claude/skills by default', async () => {
     const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
     const fs = makeFs({
       '/work/proj/.env.example': 'X=1\n',
@@ -406,7 +413,7 @@ describe('init command', () => {
     });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
     const result = await initCommand(
-      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      { command: 'init', options: { 'no-docker': true }, positional: [] },
       harness.io,
     );
     assert.equal(result.exitCode, 0);
@@ -422,7 +429,28 @@ describe('init command', () => {
     assert.ok(harness.stdout.some((line) => /tuberosa-onboard-project/.test(line)));
   });
 
-  it('does not overwrite an existing skill file when --with-skills is passed', async () => {
+  it('--no-skills skips the skills copy', async () => {
+    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/.claude/skills/bundled-skills.json':
+        '{"skills":[{"name":"tuberosa-onboard-project","files":["SKILL.md"]}]}',
+      '/pkg/.claude/skills/tuberosa-onboard-project/SKILL.md': '# onboard skill\n',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
+    const result = await initCommand(
+      { command: 'init', options: { 'no-docker': true, 'no-skills': true }, positional: [] },
+      harness.io,
+    );
+    assert.equal(result.exitCode, 0);
+    assert.equal(
+      await fs.exists('/work/proj/.claude/skills/tuberosa-onboard-project/SKILL.md'),
+      false,
+      'skill file must not be copied when --no-skills is passed',
+    );
+  });
+
+  it('does not overwrite an existing skill file', async () => {
     const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
     const fs = makeFs({
       '/work/proj/.env.example': 'X=1\n',
@@ -433,7 +461,7 @@ describe('init command', () => {
     });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
     await initCommand(
-      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      { command: 'init', options: { 'no-docker': true }, positional: [] },
       harness.io,
     );
     assert.equal(
@@ -454,7 +482,7 @@ describe('init command', () => {
     });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
     await initCommand(
-      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      { command: 'init', options: { 'no-docker': true }, positional: [] },
       harness.io,
     );
     assert.equal(await fs.readFile('/work/proj/.claude/skills/skill-a/SKILL.md'), '# a\n');
@@ -466,11 +494,67 @@ describe('init command', () => {
     const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
     const result = await initCommand(
-      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      { command: 'init', options: { 'no-docker': true }, positional: [] },
       harness.io,
     );
     assert.equal(result.exitCode, 0, 'a missing manifest must not fail init');
     assert.ok(harness.stderr.some((line) => /manifest/i.test(line)), 'should warn about the missing manifest');
+  });
+
+  it('copies skills by default in --embedded mode too', async () => {
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      '/pkg/.claude/skills/bundled-skills.json': '{"skills":[{"name":"tuberosa-guide","files":["SKILL.md"]}]}',
+      '/pkg/.claude/skills/tuberosa-guide/SKILL.md': '# guide',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' } });
+    const result = await initCommand({ command: 'init', options: { embedded: true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.claude/skills/tuberosa-guide/SKILL.md'), true);
+  });
+
+  it('writes MCP configs after the stack is up and reports them', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), true);
+    assert.equal(await fs.exists('/work/proj/.cursor/mcp.json'), true);
+    assert.ok(harness.stdout.some((line) => line.includes('.mcp.json')));
+  });
+
+  it('--no-mcp-config skips the config writer', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });
+    const result = await initCommand({ command: 'init', options: { 'no-mcp-config': true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), false);
+  });
+
+  it('an fs error during config write warns but does not fail init', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const throwingFs: FsAdapter = {
+      ...fs,
+      async writeFile(path, contents) {
+        if (path.endsWith('.mcp.json')) throw new Error('EACCES: permission denied');
+        return fs.writeFile(path, contents);
+      },
+    };
+    const harness = makeIo({ fs: throwingFs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.ok(harness.stderr.some((line) => line.includes('MCP config write failed')));
+    assert.ok(harness.stdout.some((line) => /Tuberosa is up/.test(line)), 'success banner still prints');
+  });
+
+  it('a config-writer refusal (invalid JSON) warns but does not fail init', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/work/proj/.mcp.json': '{broken', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0, 'init succeeded — config write is best-effort');
+    assert.equal(await fs.readFile('/work/proj/.mcp.json'), '{broken');
+    assert.ok(harness.stderr.some((line) => line.includes('not valid JSON')));
   });
 });
 
@@ -602,5 +686,203 @@ describe('defaultSpawn', () => {
   it('still reports exit 0 for a child that finishes in time', async () => {
     const result = await defaultSpawn('node', ['-e', 'process.exit(0)'], { timeoutMs: 30_000 });
     assert.equal(result.exitCode, 0);
+  });
+});
+
+describe('mcp install pure helpers', () => {
+  it('builds the full-feature server entry with explicit env', () => {
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    assert.equal(entry.command, 'npx');
+    assert.deepEqual(entry.args, ['tuberosa', 'mcp']);
+    assert.deepEqual(entry.env, {
+      TUBEROSA_STORE: 'postgres',
+      TUBEROSA_CACHE: 'redis',
+      TUBEROSA_MODEL_PROVIDER: 'local',
+      DATABASE_URL: 'postgres://tuberosa:tuberosa@127.0.0.1:5432/tuberosa',
+      REDIS_URL: 'redis://127.0.0.1:6379',
+    });
+  });
+
+  it('writes a fresh .mcp.json when no file exists', () => {
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    const result = mergeMcpJson(undefined, entry, false);
+    assert.equal(result.status, 'written');
+    const doc = JSON.parse((result as { contents: string }).contents);
+    assert.equal(doc.mcpServers.tuberosa.command, 'npx');
+  });
+
+  it('merges into existing JSON preserving foreign servers and unknown keys', () => {
+    const existing = JSON.stringify({
+      $schema: 'https://example.com/schema.json',
+      mcpServers: { gitnexus: { command: 'gitnexus', args: ['mcp'] } },
+    });
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    const result = mergeMcpJson(existing, entry, false);
+    assert.equal(result.status, 'written');
+    const doc = JSON.parse((result as { contents: string }).contents);
+    assert.equal(doc.$schema, 'https://example.com/schema.json');
+    assert.equal(doc.mcpServers.gitnexus.command, 'gitnexus');
+    assert.deepEqual(doc.mcpServers.tuberosa.args, ['tuberosa', 'mcp']);
+  });
+
+  it('skips when tuberosa is already configured, unless --force', () => {
+    const existing = JSON.stringify({ mcpServers: { tuberosa: { command: 'old' } } });
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    assert.equal(mergeMcpJson(existing, entry, false).status, 'exists');
+    const forced = mergeMcpJson(existing, entry, true);
+    assert.equal(forced.status, 'written');
+    const doc = JSON.parse((forced as { contents: string }).contents);
+    assert.equal(doc.mcpServers.tuberosa.command, 'npx');
+  });
+
+  it('refuses to touch unparseable or non-object JSON', () => {
+    const entry = buildServerEntry({ postgresPort: 5432, redisPort: 6379 });
+    assert.equal(mergeMcpJson('{not json', entry, false).status, 'invalid');
+    assert.equal(mergeMcpJson('[1,2]', entry, false).status, 'invalid');
+  });
+
+  it('renders a TOML section with marker and env sub-table', () => {
+    const toml = renderTomlSection(buildServerEntry({ postgresPort: 5432, redisPort: 6379 }));
+    assert.ok(toml.includes('# added by tuberosa mcp install'));
+    assert.ok(toml.includes('[mcp_servers.tuberosa]'));
+    assert.ok(toml.includes('command = "npx"'));
+    assert.ok(toml.includes('args = ["tuberosa", "mcp"]'));
+    assert.ok(toml.includes('[mcp_servers.tuberosa.env]'));
+    assert.ok(toml.includes('DATABASE_URL = "postgres://tuberosa:tuberosa@127.0.0.1:5432/tuberosa"'));
+  });
+
+  it('escapes quotes and backslashes in TOML string values', () => {
+    const entry = {
+      command: 'npx',
+      args: ['tuberosa', 'mcp'],
+      env: { DATABASE_URL: 'postgres://u:p"w\\x@host/db' },
+    };
+    const toml = renderTomlSection(entry);
+    assert.ok(toml.includes('DATABASE_URL = "postgres://u:p\\"w\\\\x@host/db"'));
+  });
+
+  it('detects an existing [mcp_servers.tuberosa] TOML entry', () => {
+    assert.equal(tomlHasTuberosaEntry('[mcp_servers.tuberosa]\ncommand = "x"\n'), true);
+    assert.equal(tomlHasTuberosaEntry('  [mcp_servers.tuberosa]\n'), true);
+    assert.equal(tomlHasTuberosaEntry('[mcp_servers.other]\n'), false);
+    assert.equal(tomlHasTuberosaEntry(''), false);
+  });
+});
+
+describe('mcp install command', () => {
+  const HOME = '/home/u';
+
+  it('writes .mcp.json and .cursor/mcp.json by default; codex only when ~/.codex exists', async () => {
+    const fs = makeFs({});
+    const harness = makeIo({ fs, env: { HOME } });
+    const result = await mcpInstallCommand({ command: 'mcp', options: {}, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), true);
+    assert.equal(await fs.exists('/work/proj/.cursor/mcp.json'), true);
+    assert.equal(await fs.exists(`${HOME}/.codex/config.toml`), false);
+    const doc = JSON.parse(await fs.readFile('/work/proj/.mcp.json'));
+    assert.equal(doc.mcpServers.tuberosa.env.TUBEROSA_STORE, 'postgres');
+  });
+
+  it('includes codex by default when ~/.codex exists, appending a marked TOML section', async () => {
+    const fs = makeFs({ [`${HOME}/.codex`]: 'dir', [`${HOME}/.codex/config.toml`]: 'model = "o3"\n' });
+    const harness = makeIo({ fs, env: { HOME } });
+    const result = await mcpInstallCommand({ command: 'mcp', options: {}, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    const toml = await fs.readFile(`${HOME}/.codex/config.toml`);
+    assert.ok(toml.startsWith('model = "o3"\n'), 'existing TOML content must be preserved');
+    assert.ok(toml.includes('# added by tuberosa mcp install'));
+    assert.ok(toml.includes('[mcp_servers.tuberosa]'));
+  });
+
+  it('skips an already-configured JSON entry and reports --force as the override', async () => {
+    const fs = makeFs({
+      '/work/proj/.mcp.json': JSON.stringify({ mcpServers: { tuberosa: { command: 'old' } } }),
+    });
+    const harness = makeIo({ fs, env: { HOME } });
+    const result = await mcpInstallCommand({ command: 'mcp', options: {}, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    const doc = JSON.parse(await fs.readFile('/work/proj/.mcp.json'));
+    assert.equal(doc.mcpServers.tuberosa.command, 'old', 'must not clobber without --force');
+    assert.ok(harness.stdout.join('\n').includes('--force'));
+  });
+
+  it('--force replaces only the tuberosa entry', async () => {
+    const fs = makeFs({
+      '/work/proj/.mcp.json': JSON.stringify({
+        mcpServers: { tuberosa: { command: 'old' }, other: { command: 'keep' } },
+      }),
+    });
+    const harness = makeIo({ fs, env: { HOME } });
+    const result = await mcpInstallCommand({ command: 'mcp', options: { force: true }, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    const doc = JSON.parse(await fs.readFile('/work/proj/.mcp.json'));
+    assert.equal(doc.mcpServers.tuberosa.command, 'npx');
+    assert.equal(doc.mcpServers.other.command, 'keep');
+  });
+
+  it('refuses unparseable JSON, prints the snippet, and exits non-zero', async () => {
+    const fs = makeFs({ '/work/proj/.mcp.json': '{broken' });
+    const harness = makeIo({ fs, env: { HOME } });
+    const result = await mcpInstallCommand({ command: 'mcp', options: {}, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 1);
+    assert.equal(await fs.readFile('/work/proj/.mcp.json'), '{broken', 'file must be untouched');
+    assert.ok(harness.stderr.join('\n').includes('.mcp.json'));
+    assert.ok(harness.stdout.join('\n').includes('"tuberosa"'), 'snippet printed for manual recovery');
+  });
+
+  it('skips a TOML file that already has the entry; --force prints manual-edit instructions', async () => {
+    const fs = makeFs({
+      [`${HOME}/.codex`]: 'dir',
+      [`${HOME}/.codex/config.toml`]: '[mcp_servers.tuberosa]\ncommand = "old"\n',
+    });
+    const harness = makeIo({ fs, env: { HOME } });
+    await mcpInstallCommand({ command: 'mcp', options: { target: 'codex' }, positional: ['install'] }, harness.io);
+    assert.equal(await fs.readFile(`${HOME}/.codex/config.toml`), '[mcp_servers.tuberosa]\ncommand = "old"\n');
+    // --force never rewrites TOML, so even the non-forced skip must point at
+    // manual editing instead of suggesting --force.
+    assert.ok(harness.stdout.join('\n').includes('manual'), 'non-forced skip must point at manual editing');
+    const forced = await mcpInstallCommand({ command: 'mcp', options: { target: 'codex', force: true }, positional: ['install'] }, harness.io);
+    assert.equal(forced.exitCode, 0);
+    assert.equal(await fs.readFile(`${HOME}/.codex/config.toml`), '[mcp_servers.tuberosa]\ncommand = "old"\n', 'we never rewrite TOML we did not author');
+    assert.ok(harness.stdout.join('\n').includes('manual'), 'must point at manual editing');
+  });
+
+  it('rejects --target codex when HOME is unset', async () => {
+    const fs = makeFs({});
+    const harness = makeIo({ fs, env: {} });
+    const result = await mcpInstallCommand({ command: 'mcp', options: { target: 'codex' }, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 1);
+    assert.ok(harness.stderr.join('\n').includes('HOME'));
+  });
+
+  it('--target claude,cursor writes both project configs', async () => {
+    const fs = makeFs({});
+    const harness = makeIo({ fs, env: { HOME: '/home/u' } });
+    const result = await mcpInstallCommand({ command: 'mcp', options: { target: 'claude,cursor' }, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), true);
+    assert.equal(await fs.exists('/work/proj/.cursor/mcp.json'), true);
+  });
+
+  it('--target restricts the set and rejects unknown targets', async () => {
+    const fs = makeFs({});
+    const harness = makeIo({ fs, env: { HOME } });
+    const result = await mcpInstallCommand({ command: 'mcp', options: { target: 'cursor' }, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), false);
+    assert.equal(await fs.exists('/work/proj/.cursor/mcp.json'), true);
+    const bad = await mcpInstallCommand({ command: 'mcp', options: { target: 'vscode' }, positional: ['install'] }, harness.io);
+    assert.equal(bad.exitCode, 1);
+    assert.ok(harness.stderr.join('\n').includes('vscode'));
+  });
+
+  it('routes `tuberosa mcp install` through mcpCommand', async () => {
+    const fs = makeFs({});
+    const harness = makeIo({ fs, env: { HOME } });
+    const result = await mcpCommand({ command: 'mcp', options: {}, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), true);
+    assert.equal(harness.spawnCalls.length, 0, 'install must not spawn the MCP server');
   });
 });

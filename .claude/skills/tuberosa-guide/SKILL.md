@@ -13,14 +13,14 @@ Tuberosa has two pillars. Think of them as two halves of one loop.
 
 | Pillar | What it does | Works on which model? |
 | --- | --- | --- |
-| **FIND** | Gives an agent the right project knowledge for its task. | ✅ All providers (`hash`, `openai`, `ollama`). |
-| **LEARN** | Turns a finished session into atoms → conventions → reusable memory, so the next agent does not repeat mistakes. | ⚠️ Needs a real model (`openai` or `ollama`). ❌ OFF under `hash`. |
+| **FIND** | Gives an agent the right project knowledge for its task. | ✅ All providers, including the default `local` (real embeddings), plus `hash`, `openai`, `ollama`. |
+| **LEARN** | Turns a finished session into atoms → conventions → reusable memory, so the next agent does not repeat mistakes. | ⚠️ Needs an LLM provider (`openai` or `ollama`). ❌ OFF under `hash` **and** the default `local`. |
 
-In short: FIND reads knowledge in. LEARN writes new knowledge back. Under the `hash` provider you still get FIND, but LEARN is off.
+In short: FIND reads knowledge in. LEARN writes new knowledge back. Under the default `local` provider (or `hash`) you still get FIND, but LEARN stays off until you configure `openai` or `ollama`.
 
 ## Tool Map
 
-The tools are grouped into three categories. The counts below are verified against `src/mcp/tool-definitions.ts`.
+The tools are grouped into three categories. The counts below are indicative (the authoritative list is what your MCP client shows for the tuberosa server).
 
 | Group | Count | What it is for | Examples |
 | --- | --- | --- | --- |
@@ -36,12 +36,12 @@ The tools are grouped into three categories. The counts below are verified again
 
 Pick the row that matches what you want, then read that file.
 
-| I want to… | Read |
+| I want to… | Do / read |
 | --- | --- |
 | Drive a coding task through Tuberosa (the session loop) | `.claude/skills/tuberosa-agent-loop/SKILL.md` |
-| Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa-operating/SKILL.md` |
-| Set up the environment | `docs/SETUP.md` |
+| Operate Tuberosa as a human (ingest, review, curate) | `.claude/skills/tuberosa-operating/SKILL.md` |
+| Set up the environment | `npx tuberosa init` (one command; run `npx tuberosa doctor` if anything fails) |
 
 ## One Note
 
-The **mandatory startup rule** lives in `CLAUDE.md` (the "Tuberosa MCP startup rule"). This skill explains the system; it does not replace that rule.
+**Standing rule:** for any non-trivial task, call `tuberosa_start_session` before reading or editing code, record a context decision, and finish the session when done. This skill explains the system; it does not replace that rule.

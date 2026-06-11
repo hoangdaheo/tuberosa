@@ -5,6 +5,7 @@ import { DEFAULT_MCP_PORT } from './types.js';
 import { composeTemplate } from './compose-template.js';
 import { BUNDLED_SKILLS_MANIFEST, parseManifest, manifestSkillFilePaths } from './bundled-skills.js';
 import { resolvePackageRoot } from './package-root.js';
+import { installMcpConfigs } from './mcp-install.js';
 
 export interface InitContext {
   root: string;
@@ -40,7 +41,7 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   }
 
   await ensureEnvFile(io, fs, context);
-  if (invocation.options['with-skills'] === true) {
+  if (invocation.options['no-skills'] !== true) {
     await copyBundledSkills(io, fs, context.root);
   }
 
@@ -99,6 +100,38 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
     io.err('Re-run later with `pnpm run reembed` (in the Tuberosa package) or `npx tuberosa init`.');
   }
 
+  if (invocation.options['no-mcp-config'] !== true) {
+    // Best-effort, like reembed: a config-write problem (bad JSON, EACCES, …)
+    // must never fail init after the stack already came up healthy.
+    try {
+      const outcomes = await installMcpConfigs(fs, {
+        root: context.root,
+        homeDir: io.env.HOME ?? '',
+        postgresPort: context.postgresPort,
+        redisPort: context.redisPort,
+        force: false,
+      });
+      for (const outcome of outcomes) {
+        switch (outcome.status) {
+          case 'written':
+            io.out(`✓ MCP config: wrote ${outcome.path}`);
+            break;
+          case 'refused_invalid':
+            io.err(`MCP config: ${outcome.path} is not valid JSON (${outcome.detail}); file left untouched — run \`npx tuberosa mcp install\` after fixing it.`);
+            break;
+          case 'skipped_exists':
+          case 'skipped_manual':
+            io.out(`· MCP config: ${outcome.path} already configured`);
+            break;
+          default:
+            outcome.status satisfies never;
+        }
+      }
+    } catch (error) {
+      io.err(`MCP config write failed: ${(error as Error).message} — run \`npx tuberosa mcp install\` manually.`);
+    }
+  }
+
   printSuccess(io, context);
   return { exitCode: 0 };
 }
@@ -131,7 +164,8 @@ async function ensureEnvFile(io: CommandIo, fs: FsAdapter, context: InitContext)
 }
 
 /**
- * `--with-skills` — copy the package's bundled agent skills into `<root>/.claude/skills/`.
+ * Default skills install — copy the package's bundled agent skills into
+ * `<root>/.claude/skills/`. Runs on every `init` unless `--no-skills`.
  *
  * Source resolution, in order:
  *   1. `TUBEROSA_SKILLS_SRC` env var (points directly at the skills root) — escape hatch + test seam.
@@ -144,19 +178,19 @@ async function ensureEnvFile(io: CommandIo, fs: FsAdapter, context: InitContext)
 async function copyBundledSkills(io: CommandIo, fs: FsAdapter, root: string): Promise<void> {
   const srcRoot = await resolveSkillsSource(io, fs);
   if (!srcRoot) {
-    io.err('--with-skills: could not locate bundled skills manifest. Set TUBEROSA_SKILLS_SRC to the skills root.');
+    io.err('skills: could not locate bundled skills manifest. Set TUBEROSA_SKILLS_SRC to the skills root.');
     return;
   }
   const manifestPath = `${srcRoot}/${BUNDLED_SKILLS_MANIFEST}`;
   if (!(await fs.exists(manifestPath))) {
-    io.err(`--with-skills: bundled skills manifest missing at ${manifestPath}; skipping.`);
+    io.err(`skills: bundled skills manifest missing at ${manifestPath}; skipping.`);
     return;
   }
   let relPaths: string[];
   try {
     relPaths = manifestSkillFilePaths(parseManifest(await fs.readFile(manifestPath)));
   } catch (error) {
-    io.err(`--with-skills: invalid bundled skills manifest: ${(error as Error).message}; skipping.`);
+    io.err(`skills: invalid bundled skills manifest: ${(error as Error).message}; skipping.`);
     return;
   }
   let copied = 0;
@@ -164,7 +198,7 @@ async function copyBundledSkills(io: CommandIo, fs: FsAdapter, root: string): Pr
     const srcPath = `${srcRoot}/${rel}`;
     const destPath = `${root}/.claude/skills/${rel}`;
     if (!(await fs.exists(srcPath))) {
-      io.err(`--with-skills: bundled skill missing at ${srcPath}; skipping.`);
+      io.err(`skills: bundled skill missing at ${srcPath}; skipping.`);
       continue;
     }
     if (await fs.exists(destPath)) {
@@ -329,7 +363,7 @@ function printSuccess(io: CommandIo, context: InitContext): void {
   io.out(`  Postgres: 127.0.0.1:${context.postgresPort}`);
   io.out(`  Redis:    127.0.0.1:${context.redisPort}`);
   io.out('');
-  io.out('MCP snippet (Claude Code / Codex / Cursor):');
+  io.out('Reference MCP snippet (init writes these configs automatically; manual fallback):');
   io.out(mcpSnippet(context));
   io.out('Re-run `npx tuberosa init` to reconcile a missing compose file or .env.');
 }

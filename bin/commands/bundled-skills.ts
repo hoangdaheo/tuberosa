@@ -2,7 +2,7 @@
  * Single source of truth for which agent skills Tuberosa bundles and ships.
  *
  * The manifest (`.claude/skills/bundled-skills.json`) is authoritative. Both the
- * runtime copier (`init --with-skills`) and the publish-time gate
+ * runtime copier (init's default skills install) and the publish-time gate
  * (`scripts/verify-bundled-skills.ts`) derive their behaviour from it, so the
  * package's `files` allowlist can never silently drift from what `init` copies.
  *

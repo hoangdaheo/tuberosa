@@ -13,8 +13,8 @@ import {
 /**
  * prepack gate: the bundled-skills manifest is the single source of truth. Fail the
  * pack/publish if the manifest, the on-disk skill files, and package.json "files"
- * disagree — so the package can never ship a skill `init --with-skills` won't copy,
- * or promise a skill it doesn't ship.
+ * disagree — so the package can never ship a skill init's default skills install
+ * won't copy, or promise a skill it doesn't ship.
  */
 async function main(): Promise<void> {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,6 +43,31 @@ async function main(): Promise<void> {
   for (const rel of manifestSkillFilePaths(manifest)) {
     if (!existsSync(resolve(repoRoot, '.claude/skills', rel))) {
       errors.push(`manifest references a missing file: .claude/skills/${rel}`);
+    }
+  }
+
+  // 4. Consumer-safety: shipped SKILL.md files must not reference repo-internal
+  //    paths or contributor commands that don't exist in a consumer project.
+  //    The lookbehind `(?<![a-zA-Z])eval\/` (not a bare `eval/`) keeps the match
+  //    index on `eval/` itself, so reported line numbers stay correct, while still
+  //    making sure `retrieval/ingest` doesn't false-positive.
+  const FORBIDDEN: Array<{ pattern: RegExp; label: string }> = [
+    { pattern: /docs\//, label: 'repo-internal docs/ path' },
+    { pattern: /pnpm run/, label: 'contributor-only pnpm script' },
+    { pattern: /(?<![a-zA-Z])eval\//, label: 'repo-internal eval/ path' },
+  ];
+  for (const rel of manifestSkillFilePaths(manifest)) {
+    if (!rel.endsWith('SKILL.md')) continue;
+    const fullPath = resolve(repoRoot, '.claude/skills', rel);
+    if (!existsSync(fullPath)) continue; // already reported by check 3
+    const contents = await readFile(fullPath, 'utf8');
+    for (const { pattern, label } of FORBIDDEN) {
+      // First occurrence per pattern is deliberate: one hit fails the gate; rerun after fixing.
+      const match = pattern.exec(contents);
+      if (match) {
+        const line = contents.slice(0, match.index).split('\n').length;
+        errors.push(`.claude/skills/${rel}:${line} contains a ${label} — shipped skills must be consumer-safe`);
+      }
     }
   }
 

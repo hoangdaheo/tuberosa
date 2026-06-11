@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import type { CliInvocation, CommandIo, CommandResult } from './types.js';
 import { resolvePackageRoot } from './package-root.js';
+import { mcpInstallCommand } from './mcp-install.js';
 
 /**
  * `tuberosa mcp` — quick path to the MCP stdio server with sensible defaults.
@@ -26,6 +27,9 @@ import { resolvePackageRoot } from './package-root.js';
  *     project-relative paths land in the user's project, not in node_modules.
  */
 export async function mcpCommand(invocation: CliInvocation, io: CommandIo): Promise<CommandResult> {
+  if (invocation.positional[0] === 'install') {
+    return mcpInstallCommand(invocation, io);
+  }
   if (!io.spawn || !io.fs) {
     io.err('mcp requires fs + spawn adapters');
     return { exitCode: 1 };

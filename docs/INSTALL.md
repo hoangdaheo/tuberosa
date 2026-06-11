@@ -33,11 +33,11 @@ Confirm the dry-run output includes — and nothing secret leaks in:
 | `bin/**` | the `tsx` fallback entry used in a fresh checkout |
 | `migrations/**` | Postgres schema (`pnpm run migrate`) |
 | `.env.example` | the env template `init` copies to `.env` |
-| `.claude/skills/tuberosa-onboard-project/SKILL.md` | the skill `init --with-skills` installs |
+| `.claude/skills/tuberosa-onboard-project/SKILL.md` | the skill `init` installs by default |
 | `LICENSE`, `README.md`, `package.json` | npm always includes these |
 
 > **Bundled skills are gated.** `.claude/skills/bundled-skills.json` is the single
-> source of truth for which skills ship and which `init --with-skills` copies. The
+> source of truth for which skills ship and which `init` copies by default. The
 > `prepack` hook runs `verify:bundled-skills`, which fails the pack/publish if the
 > manifest, the on-disk skill files, and the `package.json` `files` allowlist
 > disagree. To add a skill to the package: (1) add its folder under
@@ -102,11 +102,7 @@ npx tuberosa mcp         # run the MCP stdio server (full stack: Postgres + Redi
 
 ### B2. Skill injection (canonical mechanism)
 
-Tuberosa bundles the **project-comprehension** skill and installs it for you:
-
-```bash
-npx tuberosa init --with-skills      # copies bundled skills → ./.claude/skills/<name>/SKILL.md
-```
+`npx tuberosa init` copies all bundled agent skills into `./.claude/skills/` by default. Pass `--no-skills` to skip.
 
 - Skills are written to a **flat** path (`.claude/skills/tuberosa-onboard-project/SKILL.md`) —
   required, because Claude Code only auto-discovers skills exactly one level under a skills root.
@@ -122,6 +118,8 @@ Once installed, the skill drives onboarding: `init → doctor → bootstrap --de
 and keeping knowledge fresh via `sync` + `hook install`.
 
 ### B3. Register as an MCP server (local-first, zero external services)
+
+> **Zero-touch:** `npx tuberosa init` writes the agent MCP config files for you (`.mcp.json`, `.cursor/mcp.json`, `~/.codex/config.toml`). Run `npx tuberosa mcp install` to re-write them on demand — merge-only, it never clobbers other servers in an existing config. Pass `--no-mcp-config` to `init` to skip writing them. The snippets below are the manual fallback.
 
 Claude Code / Codex / Cursor read a TOML/JSON MCP block. The full-stack defaults (Postgres + Redis + local embeddings) need no API key — just run `npx tuberosa init` first. For volatile trial mode, add `TUBEROSA_EMBEDDED = "1"`:
 
