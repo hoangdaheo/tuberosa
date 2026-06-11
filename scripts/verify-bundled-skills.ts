@@ -48,11 +48,13 @@ async function main(): Promise<void> {
 
   // 4. Consumer-safety: shipped SKILL.md files must not reference repo-internal
   //    paths or contributor commands that don't exist in a consumer project.
-  //    `(^|[^a-zA-Z])eval/` (not a bare `eval/`) so `retrieval/ingest` doesn't false-positive.
+  //    The lookbehind `(?<![a-zA-Z])eval\/` (not a bare `eval/`) keeps the match
+  //    index on `eval/` itself, so reported line numbers stay correct, while still
+  //    making sure `retrieval/ingest` doesn't false-positive.
   const FORBIDDEN: Array<{ pattern: RegExp; label: string }> = [
     { pattern: /docs\//, label: 'repo-internal docs/ path' },
     { pattern: /pnpm run/, label: 'contributor-only pnpm script' },
-    { pattern: /(^|[^a-zA-Z])eval\//m, label: 'repo-internal eval/ path' },
+    { pattern: /(?<![a-zA-Z])eval\//, label: 'repo-internal eval/ path' },
   ];
   for (const rel of manifestSkillFilePaths(manifest)) {
     if (!rel.endsWith('SKILL.md')) continue;
@@ -60,6 +62,7 @@ async function main(): Promise<void> {
     if (!existsSync(fullPath)) continue; // already reported by check 3
     const contents = await readFile(fullPath, 'utf8');
     for (const { pattern, label } of FORBIDDEN) {
+      // First occurrence per pattern is deliberate: one hit fails the gate; rerun after fixing.
       const match = pattern.exec(contents);
       if (match) {
         const line = contents.slice(0, match.index).split('\n').length;
