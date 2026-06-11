@@ -23,7 +23,7 @@ export interface ParityFixture {
   forbiddenSourceUris?: string[];
 }
 
-const DIMS = 1536;
+const DIMS = 384;
 
 function baseEmbedding(seed = 0.001): number[] {
   return new Array(DIMS).fill(seed);

@@ -19,13 +19,16 @@ export interface InitContext {
  * `tuberosa init` — bootstrap the local stack in one command.
  *
  * Behaviour:
- *   1. Detect Docker. If present (and not `--no-docker`), write `.tuberosa/compose.yml`
- *      from the embedded template and `docker compose up -d`. Wait for Postgres health,
- *      apply the package's bundled migrations in-package, and print the MCP snippet.
- *   2. If Docker is absent (or `--no-docker`), fall back to embedded-mode: print the
- *      `TUBEROSA_STORE=memory …` env vars the user needs and skip docker entirely.
- *   3. Copy `.env.example → .env` when missing.
- *   4. Idempotent: re-running just re-prints the snippet and reconciles missing files.
+ *   1. Detect Docker. If absent (and not `--embedded` / `--no-docker`), hard-fail with
+ *      install guidance — no silent fallback.
+ *   2. If Docker is present: write `.tuberosa/compose.yml` from the embedded template,
+ *      run `docker compose up -d`, wait for Postgres health, apply bundled migrations,
+ *      warm up the embedding model (fatal on failure), backfill embeddings (warn on failure),
+ *      and print the MCP snippet.
+ *   3. If `--embedded` (or deprecated `--no-docker`): print volatile trial-mode instructions
+ *      and exit 0 without touching Docker.
+ *   4. Copy `.env.example → .env` when missing.
+ *   5. Idempotent: re-running reconciles missing files and re-prints the snippet.
  */
 export async function initCommand(invocation: CliInvocation, io: CommandIo): Promise<CommandResult> {
   const context = resolveContext(invocation, io);
@@ -40,9 +43,21 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   if (invocation.options['with-skills'] === true) {
     await copyBundledSkills(io, fs, context.root);
   }
-  const dockerAvailable = !context.forceEmbedded && (await detectDocker(spawn));
+
+  if (context.forceEmbedded) {
+    if (invocation.options['no-docker'] === true) {
+      io.err('--no-docker is deprecated; use --embedded.');
+    }
+    return printEmbeddedMode(io, context, 'requested via --embedded');
+  }
+
+  const dockerAvailable = await detectDocker(spawn);
   if (!dockerAvailable) {
-    return printEmbeddedMode(io, context, context.forceEmbedded ? 'forced by --no-docker' : 'docker not detected');
+    io.err('✗ Docker not found.');
+    io.err('Tuberosa needs Docker for persistent storage and real vector search.');
+    io.err('  - Install Docker: https://docs.docker.com/get-docker/');
+    io.err('  - Or opt into volatile trial mode: npx tuberosa init --embedded');
+    return { exitCode: 1 };
   }
 
   await fs.mkdir(`${context.root}/.tuberosa`, true);
@@ -56,8 +71,8 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   });
   if (composeResult.exitCode !== 0) {
     io.err(`docker compose failed (exit ${composeResult.exitCode}): ${composeResult.stderr.trim() || composeResult.stdout.trim()}`);
-    io.err('Falling back to embedded-mode instructions; fix Docker and re-run `npx tuberosa init` to switch back.');
-    return printEmbeddedMode(io, context, 'docker compose returned non-zero');
+    io.err('Fix Docker and re-run `npx tuberosa init`, or use `npx tuberosa init --embedded` for volatile trial mode.');
+    return { exitCode: 1 };
   }
 
   const healthy = await waitForPostgresHealth(io, spawn, composePath, context.root);
@@ -69,6 +84,19 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   if (!context.skipMigrate) {
     const migrateExit = await runMigrations(io, fs, spawn, context);
     if (migrateExit !== 0) return { exitCode: migrateExit };
+  }
+
+  const warmupExit = await runPackageScript(io, fs, spawn, context, 'warmup-embeddings');
+  if (warmupExit !== 0) {
+    io.err('Embedding model warm-up failed — the default install must not silently degrade.');
+    io.err('Fix the network/proxy and re-run `npx tuberosa init`, or use `npx tuberosa init --embedded`.');
+    return { exitCode: 1 };
+  }
+
+  const reembedExit = await runPackageScript(io, fs, spawn, context, 'reembed');
+  if (reembedExit !== 0) {
+    io.err('Re-embed backfill failed; searches work but older knowledge has no vectors yet.');
+    io.err('Re-run later with `pnpm run reembed` (in the Tuberosa package) or `npx tuberosa init`.');
   }
 
   printSuccess(io, context);
@@ -84,7 +112,7 @@ function resolveContext(invocation: CliInvocation, io: CommandIo): InitContext {
     port,
     postgresPort: 5432,
     redisPort: 6379,
-    forceEmbedded: invocation.options['no-docker'] === true,
+    forceEmbedded: invocation.options.embedded === true || invocation.options['no-docker'] === true,
     skipMigrate: invocation.options['skip-migrate'] === true,
   };
 }
@@ -225,7 +253,55 @@ async function runMigrations(io: CommandIo, fs: FsAdapter, spawn: SpawnFn, conte
     io.err(`migrations failed (exit ${migrate.exitCode}): ${migrate.stderr.trim() || migrate.stdout.trim()}`);
     return 1;
   }
+  forwardChildOutput(io, migrate);
   return 0;
+}
+
+/**
+ * Surface a successful child's captured output. Warm-up and reembed report all
+ * progress on their own stderr (model name, dims, backfill counts) and the
+ * default-install promise is that the user sees those lines, not a silent gap
+ * while the model downloads. Failure paths print their own summary instead.
+ */
+function forwardChildOutput(io: CommandIo, result: { stdout: string; stderr: string }): void {
+  const stdout = result.stdout.trim();
+  if (stdout) for (const line of stdout.split('\n')) io.out(line);
+  const stderr = result.stderr.trim();
+  if (stderr) for (const line of stderr.split('\n')) io.err(line);
+}
+
+/** Run one of the package's bundled scripts (dist build preferred, tsx checkout fallback). */
+async function runPackageScript(
+  io: CommandIo,
+  fs: FsAdapter,
+  spawn: SpawnFn,
+  context: InitContext,
+  name: 'warmup-embeddings' | 'reembed',
+): Promise<number> {
+  const packageRoot = await resolvePackageRoot(io.env, fs);
+  if (!packageRoot) {
+    io.err(`Could not locate the Tuberosa package root to run ${name}. Set TUBEROSA_PACKAGE_ROOT.`);
+    return 1;
+  }
+  const distEntry = `${packageRoot}/dist/scripts/${name}.js`;
+  const tsxEntry = `${packageRoot}/scripts/${name}.ts`;
+  const args: string[] = (await fs.exists(distEntry)) ? [distEntry] : ['--import', 'tsx', tsxEntry];
+  // warm-up: first model download can take minutes on slow links.
+  // reembed: the backfill runs at a few chunks per second, so thousands of chunks
+  // need tens of minutes — a 300s cap killed real runs mid-backfill. The step is
+  // resumable (only NULL embeddings are touched), so the cap is a hang guard only.
+  const timeoutMs = name === 'reembed' ? 1_800_000 : 600_000;
+  const result = await spawn('node', args, {
+    cwd: packageRoot,
+    env: { ...io.env, DATABASE_URL: io.env.DATABASE_URL ?? `postgres://tuberosa:tuberosa@127.0.0.1:${context.postgresPort}/tuberosa` },
+    timeoutMs,
+  });
+  if (result.exitCode !== 0) {
+    io.err(`${name} failed (exit ${result.exitCode}): ${result.stderr.trim() || result.stdout.trim()}`);
+  } else {
+    forwardChildOutput(io, result);
+  }
+  return result.exitCode;
 }
 
 async function waitForPostgresHealth(io: CommandIo, spawn: SpawnFn, composePath: string, cwd: string): Promise<boolean> {
@@ -260,8 +336,9 @@ function printSuccess(io: CommandIo, context: InitContext): void {
 
 function printEmbeddedMode(io: CommandIo, context: InitContext, reason: string): CommandResult {
   io.out('');
-  io.out(`Embedded-mode init (${reason}).`);
-  io.out('  Data is volatile — no Postgres, no Redis. Useful for trying Tuberosa.');
+  io.out(`Embedded trial mode (${reason}).`);
+  io.out('  ⚠ volatile: no Postgres, no Redis, hash embeddings — data is lost when the process exits.');
+  io.out('  For the full product (real vector search + persistence), install Docker and run `npx tuberosa init`.');
   io.out('');
   io.out('Run the MCP stdio server with embedded defaults:');
   io.out('  npx tuberosa mcp');

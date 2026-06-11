@@ -6,9 +6,12 @@ import { resolvePackageRoot } from './package-root.js';
  * `tuberosa mcp` — quick path to the MCP stdio server with sensible defaults.
  *
  * Strategy:
- *   - Default to embedded-mode (TUBEROSA_STORE=memory, TUBEROSA_CACHE=memory,
- *     TUBEROSA_MODEL_PROVIDER=hash) so users can try Tuberosa without Postgres / Redis.
- *   - Preserve any value the user already exported (they may have a real DB running).
+ *   - Default to the full-feature stack (TUBEROSA_STORE=postgres, TUBEROSA_CACHE=redis,
+ *     TUBEROSA_MODEL_PROVIDER=local), matching what `tuberosa init` provisions.
+ *   - Preserve any value the user already exported (they may override store, cache, etc.).
+ *   - Pass --embedded (or set TUBEROSA_EMBEDDED=1) to opt into the volatile trial stack
+ *     (memory/memory/hash) — useful when Postgres / Redis are unavailable or for quick
+ *     experiments. Embedded mode overrides any exported env values.
  *   - Forward stdio inheriting (stdin → server stdin, server stdout → client stdout,
  *     server stderr → terminal). CRITICAL: stdout MUST stay JSON-RPC clean — this
  *     command never writes to stdout itself.
@@ -35,7 +38,7 @@ export async function mcpCommand(invocation: CliInvocation, io: CommandIo): Prom
   }
   const distEntry = `${searchRoot}/dist/src/mcp-stdio.js`;
   const tsxEntry = `${searchRoot}/src/mcp-stdio.ts`;
-  const env = buildEnv(io.env);
+  const env = buildEnv(io.env, { embedded: invocation.options.embedded === true });
 
   if (await io.fs.exists(distEntry)) {
     return runChild(io, 'node', [distEntry], { cwd: io.cwd, env, inheritStdio: true });
@@ -47,12 +50,27 @@ export async function mcpCommand(invocation: CliInvocation, io: CommandIo): Prom
   return { exitCode: 1 };
 }
 
-export function buildEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+export function buildEnv(
+  env: Record<string, string | undefined>,
+  options: { embedded?: boolean } = {},
+): Record<string, string | undefined> {
+  const embedded =
+    options.embedded === true || env.TUBEROSA_EMBEDDED === '1' || env.TUBEROSA_EMBEDDED === 'true';
+  if (embedded) {
+    // Volatile trial mode — explicit opt-in, so it overrides exported values.
+    return {
+      ...env,
+      TUBEROSA_STORE: 'memory',
+      TUBEROSA_CACHE: 'memory',
+      TUBEROSA_MODEL_PROVIDER: 'hash',
+      TUBEROSA_AUTO_MIGRATE: 'false',
+    };
+  }
   return {
     ...env,
-    TUBEROSA_STORE: env.TUBEROSA_STORE ?? 'memory',
-    TUBEROSA_CACHE: env.TUBEROSA_CACHE ?? 'memory',
-    TUBEROSA_MODEL_PROVIDER: env.TUBEROSA_MODEL_PROVIDER ?? 'hash',
+    TUBEROSA_STORE: env.TUBEROSA_STORE ?? 'postgres',
+    TUBEROSA_CACHE: env.TUBEROSA_CACHE ?? 'redis',
+    TUBEROSA_MODEL_PROVIDER: env.TUBEROSA_MODEL_PROVIDER ?? 'local',
     TUBEROSA_AUTO_MIGRATE: env.TUBEROSA_AUTO_MIGRATE ?? 'false',
   };
 }

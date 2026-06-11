@@ -1,12 +1,27 @@
 import { createAppServices } from './app.js';
+import type { AppServices } from './app.js';
 import { appErrorToJsonRpcError } from './errors.js';
 import { handleMcpRequest } from './mcp/server.js';
 
+// TUBEROSA_EMBEDDED is now handled centrally in loadConfig() — no env mutation needed here.
+// Non-embedded direct-launch fallback: keep cache in-process so the MCP server can
+// initialize without Redis even when started without `tuberosa mcp`.
 if (!process.env.TUBEROSA_CACHE) {
   process.env.TUBEROSA_CACHE = 'memory';
 }
 
-const services = await createAppServices();
+let services: AppServices;
+try {
+  services = await createAppServices();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`[tuberosa] MCP server startup failed: ${message}\n`);
+  process.stderr.write(
+    "[tuberosa] If the store is unreachable, run 'npx tuberosa init' first, " +
+      'or set TUBEROSA_EMBEDDED=1 for volatile trial mode.\n',
+  );
+  process.exit(1);
+}
 let buffer = Buffer.alloc(0);
 
 // Hard ceiling on a single JSON-RPC frame to prevent OOM from a malformed/malicious

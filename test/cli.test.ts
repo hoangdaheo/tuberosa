@@ -5,6 +5,7 @@ import { doctorCommand, runDoctorChecks } from '../bin/commands/doctor.js';
 import { initCommand } from '../bin/commands/init.js';
 import { buildEnv, mcpCommand } from '../bin/commands/mcp.js';
 import { composeTemplate } from '../bin/commands/compose-template.js';
+import { defaultSpawn } from '../bin/commands/io.js';
 import { dispatch } from '../bin/tuberosa.js';
 import type { CommandIo, FsAdapter, SpawnFn, SpawnResult } from '../bin/commands/types.js';
 
@@ -13,6 +14,7 @@ interface RecordedSpawn {
   args: string[];
   cwd?: string;
   env?: Record<string, string | undefined>;
+  timeoutMs?: number;
 }
 
 interface IoHarness {
@@ -47,7 +49,7 @@ function makeFs(initial: Record<string, string> = {}): FsAdapter {
 
 function makeSpawn(handler: (command: string, args: string[]) => SpawnResult, calls: RecordedSpawn[]): SpawnFn {
   return async (command, args, options) => {
-    calls.push({ command, args, cwd: options?.cwd, env: options?.env });
+    calls.push({ command, args, cwd: options?.cwd, env: options?.env, timeoutMs: options?.timeoutMs });
     return handler(command, args);
   };
 }
@@ -171,6 +173,31 @@ describe('doctor command', () => {
   });
 });
 
+describe('doctor embedding model check', () => {
+  it('reports ok when the model is cached', async () => {
+    const fs = makeFs({ '/home/u/.cache/tuberosa/models/Xenova/bge-small-en-v1.5': 'dir' });
+    const harness = makeIo({ fs, env: { HOME: '/home/u' } });
+    const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
+    const check = checks.find((entry) => entry.name === 'embedding model');
+    assert.equal(check?.status, 'ok');
+  });
+
+  it('warns with warm-up remediation when the model is missing', async () => {
+    const harness = makeIo({ env: { HOME: '/home/u' } });
+    const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
+    const check = checks.find((entry) => entry.name === 'embedding model');
+    assert.equal(check?.status, 'warn');
+    assert.ok(check?.remediation?.includes('tuberosa init'));
+  });
+
+  it('skips when the provider is not local', async () => {
+    const harness = makeIo({ env: { HOME: '/home/u', TUBEROSA_MODEL_PROVIDER: 'openai' } });
+    const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
+    const check = checks.find((entry) => entry.name === 'embedding model');
+    assert.equal(check?.status, 'skip');
+  });
+});
+
 describe('init command', () => {
   it('runs docker compose + migrate and prints the MCP snippet when docker is present', async () => {
     const calls: RecordedSpawn[] = [];
@@ -187,6 +214,8 @@ describe('init command', () => {
       '/work/proj/.env.example': 'X=1\n',
       '/pkg/package.json': '{"name":"tuberosa"}',
       '/pkg/dist/scripts/migrate.js': '',
+      '/pkg/dist/scripts/warmup-embeddings.js': '',
+      '/pkg/dist/scripts/reembed.js': '',
     });
     const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
@@ -218,7 +247,9 @@ describe('init command', () => {
     const fs = makeFs({
       '/work/proj/.env.example': 'X=1\n',
       '/pkg/package.json': '{"name":"tuberosa"}',
-      // no dist/ — only the TypeScript source is present
+      // no dist/ — only the TypeScript source is present; warmup + reembed tsx sources exist
+      '/pkg/scripts/warmup-embeddings.ts': '',
+      '/pkg/scripts/reembed.ts': '',
     });
     const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
@@ -250,33 +281,117 @@ describe('init command', () => {
       if (command === 'docker' && args.includes('exec')) return { exitCode: 0, stdout: 'accepting', stderr: '' };
       return { exitCode: 0, stdout: '', stderr: '' };
     }, calls);
-    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
-    const harness = makeIo({ fs, spawn });
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      '/pkg/dist/scripts/warmup-embeddings.js': '',
+      '/pkg/dist/scripts/reembed.js': '',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     const result = await initCommand({ command: 'init', options: { 'skip-migrate': true }, positional: [] }, harness.io);
     assert.equal(result.exitCode, 0);
-    assert.ok(!calls.some((c) => /migrate/.test(c.args.join(' '))), 'no migrate child should be spawned');
+    assert.ok(!calls.some((c) => /migrate\./.test(c.args.join(' '))), 'no migrate child should be spawned');
   });
 
-  it('falls back to embedded mode when docker is absent', async () => {
-    const spawn = makeSpawn((command) => {
-      if (command === 'docker') return { exitCode: 127, stdout: '', stderr: 'command not found' };
-      return { exitCode: 0, stdout: '', stderr: '' };
-    }, []);
-    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
-    const harness = makeIo({ fs, spawn });
+  it('hard-fails with guidance when Docker is missing', async () => {
+    const harness = makeIo({
+      spawn: makeSpawn((command) => (
+        command === 'docker' ? { exitCode: 1, stdout: '', stderr: 'not found' } : { exitCode: 0, stdout: '', stderr: '' }
+      ), []),
+    });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 1);
+    assert.ok(harness.stderr.join('\n').includes('docs.docker.com'));
+    assert.ok(harness.stderr.join('\n').includes('--embedded'));
+  });
+
+  it('--embedded prints trial-mode instructions and exits 0 without Docker', async () => {
+    const harness = makeIo({
+      spawn: makeSpawn(() => ({ exitCode: 1, stdout: '', stderr: '' }), []),
+    });
+    const result = await initCommand({ command: 'init', options: { embedded: true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.ok(harness.stdout.join('\n').includes('volatile'));
+  });
+
+  it('--no-docker still works but prints a deprecation note', async () => {
+    const harness = makeIo({
+      spawn: makeSpawn(() => ({ exitCode: 1, stdout: '', stderr: '' }), []),
+    });
+    const result = await initCommand({ command: 'init', options: { 'no-docker': true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.ok(harness.stderr.join('\n').includes('deprecated'));
+  });
+
+  it('fails when the embedding warm-up fails', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/migrations': 'dir' });
+    const harness = makeIo({
+      fs,
+      env: { TUBEROSA_PACKAGE_ROOT: '/pkg' },
+      spawn: makeSpawn((command, args) => {
+        if (args.some((arg) => arg.includes('warmup-embeddings'))) return { exitCode: 1, stdout: '', stderr: 'model download failed' };
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }, []),
+    });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 1);
+    assert.ok(harness.stderr.join('\n').includes('--embedded'));
+  });
+
+  it('runs the reembed backfill after migrations and only warns on failure', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const spawnCalls: RecordedSpawn[] = [];
+    const harness = makeIo({
+      fs,
+      env: { TUBEROSA_PACKAGE_ROOT: '/pkg' },
+      spawn: makeSpawn((command, args) => {
+        if (args.some((arg) => arg.includes('reembed'))) return { exitCode: 1, stdout: '', stderr: 'transient' };
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }, spawnCalls),
+    });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0); // reembed failure is a warning, not fatal
+    const indexOf = (needle: string) => spawnCalls.findIndex((call) => call.args.some((arg) => arg.includes(needle)));
+    assert.ok(indexOf('reembed') >= 0);
+    assert.ok(indexOf('migrate') < indexOf('warmup-embeddings'), 'migrate must run before warm-up');
+    assert.ok(indexOf('warmup-embeddings') < indexOf('reembed'), 'warm-up must run before reembed');
+    assert.ok(harness.stderr.join('\n').includes('reembed'));
+  });
+
+  it('forwards migrate/warmup/reembed child output so init shows real progress', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const harness = makeIo({
+      fs,
+      env: { TUBEROSA_PACKAGE_ROOT: '/pkg' },
+      spawn: makeSpawn((command, args) => {
+        if (args.some((arg) => arg.includes('migrate'))) return { exitCode: 0, stdout: 'Applied 014_embedding_dim_384.sql\n', stderr: '' };
+        if (args.some((arg) => arg.includes('warmup-embeddings'))) return { exitCode: 0, stdout: '', stderr: '[tuberosa] embedding model ready (Xenova/bge-small-en-v1.5, 384 dims).\n' };
+        if (args.some((arg) => arg.includes('reembed'))) return { exitCode: 0, stdout: '', stderr: '[tuberosa] reembed knowledge_items: 42\n' };
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }, []),
+    });
     const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
     assert.equal(result.exitCode, 0);
-    assert.ok(harness.stdout.some((line) => /Embedded-mode init/.test(line)));
-    assert.ok(harness.stdout.some((line) => /TUBEROSA_STORE=memory/.test(line)));
-    assert.equal(await fs.exists('/work/proj/.tuberosa/compose.yml'), false, 'no compose file in embedded mode');
+    assert.ok(harness.stdout.some((line) => line.includes('Applied 014_embedding_dim_384.sql')), 'migrate stdout must be forwarded');
+    assert.ok(harness.stderr.some((line) => line.includes('embedding model ready (Xenova/bge-small-en-v1.5, 384 dims)')), 'warm-up progress must be forwarded');
+    assert.ok(harness.stderr.some((line) => line.includes('reembed knowledge_items: 42')), 'reembed progress must be forwarded');
   });
 
-  it('honours --no-docker by forcing embedded mode', async () => {
-    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: 'docker 24', stderr: '' }), []);
-    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
-    const harness = makeIo({ fs, spawn });
-    await initCommand({ command: 'init', options: { 'no-docker': true }, positional: [] }, harness.io);
-    assert.ok(harness.stdout.some((line) => /forced by --no-docker/.test(line)));
+  it('gives warm-up and reembed timeouts sized for slow downloads and large backfills', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const spawnCalls: RecordedSpawn[] = [];
+    const harness = makeIo({
+      fs,
+      env: { TUBEROSA_PACKAGE_ROOT: '/pkg' },
+      spawn: makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), spawnCalls),
+    });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    const callFor = (needle: string) => spawnCalls.find((call) => call.args.some((arg) => arg.includes(needle)));
+    assert.equal(callFor('warmup-embeddings')?.timeoutMs, 600_000, 'warm-up must allow a slow first model download');
+    // A 300s cap killed real reembed backfills mid-run (~4 chunks/s ⇒ thousands of
+    // chunks need tens of minutes); the kill was then misreported as success.
+    assert.equal(callFor('reembed')?.timeoutMs, 1_800_000, 'reembed must allow a large-corpus backfill');
   });
 
   it('copies the bundled comprehension skill into .claude/skills when --with-skills is passed', async () => {
@@ -374,8 +489,8 @@ describe('mcp command', () => {
     assert.equal(calls[0]!.command, 'node');
     assert.deepEqual(calls[0]!.args, ['/pkg/dist/src/mcp-stdio.js']);
     assert.equal(calls[0]!.cwd, '/work/proj', 'child cwd is the user project, so the mirror lands there');
-    assert.equal(calls[0]!.env?.TUBEROSA_STORE, 'memory');
-    assert.equal(calls[0]!.env?.TUBEROSA_MODEL_PROVIDER, 'hash');
+    assert.equal(calls[0]!.env?.TUBEROSA_STORE, 'postgres');
+    assert.equal(calls[0]!.env?.TUBEROSA_MODEL_PROVIDER, 'local');
   });
 
   it('falls back to tsx entry when dist is missing', async () => {
@@ -413,8 +528,47 @@ describe('mcp command', () => {
   it('preserves user-set env vars instead of overwriting them', () => {
     const env = buildEnv({ TUBEROSA_STORE: 'postgres', PATH: '/bin' });
     assert.equal(env.TUBEROSA_STORE, 'postgres');
-    assert.equal(env.TUBEROSA_CACHE, 'memory');
+    assert.equal(env.TUBEROSA_CACHE, 'redis');
     assert.equal(env.PATH, '/bin');
+  });
+
+  it('mcp --embedded spawns the server with the trial env', async () => {
+    const fs = makeFs({ '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/src/mcp-stdio.js': 'compiled' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' } });
+    const result = await mcpCommand({ command: 'mcp', options: { embedded: true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(harness.spawnCalls[0]?.env?.TUBEROSA_STORE, 'memory');
+    assert.equal(harness.spawnCalls[0]?.env?.TUBEROSA_MODEL_PROVIDER, 'hash');
+  });
+});
+
+describe('mcp buildEnv (Spec A defaults)', () => {
+  it('defaults to the full-feature stack', () => {
+    const env = buildEnv({});
+    assert.equal(env.TUBEROSA_STORE, 'postgres');
+    assert.equal(env.TUBEROSA_CACHE, 'redis');
+    assert.equal(env.TUBEROSA_MODEL_PROVIDER, 'local');
+    assert.equal(env.TUBEROSA_AUTO_MIGRATE, 'false');
+  });
+
+  it('preserves user-exported values', () => {
+    const env = buildEnv({ TUBEROSA_STORE: 'memory', TUBEROSA_MODEL_PROVIDER: 'openai' });
+    assert.equal(env.TUBEROSA_STORE, 'memory');
+    assert.equal(env.TUBEROSA_MODEL_PROVIDER, 'openai');
+    assert.equal(env.TUBEROSA_CACHE, 'redis');
+  });
+
+  it('--embedded forces the volatile trial stack', () => {
+    const env = buildEnv({ TUBEROSA_STORE: 'postgres' }, { embedded: true });
+    assert.equal(env.TUBEROSA_STORE, 'memory');
+    assert.equal(env.TUBEROSA_CACHE, 'memory');
+    assert.equal(env.TUBEROSA_MODEL_PROVIDER, 'hash');
+  });
+
+  it('TUBEROSA_EMBEDDED=1 in the environment triggers embedded mode', () => {
+    const env = buildEnv({ TUBEROSA_EMBEDDED: '1' });
+    assert.equal(env.TUBEROSA_STORE, 'memory');
+    assert.equal(env.TUBEROSA_MODEL_PROVIDER, 'hash');
   });
 });
 
@@ -433,5 +587,20 @@ describe('compose template', () => {
     assert.ok(yaml.includes('pg_isready'));
     assert.ok(yaml.includes('redis-cli'));
     assert.ok(yaml.includes('127.0.0.1:5432:5432'));
+  });
+});
+
+describe('defaultSpawn', () => {
+  it('reports a non-zero exit when the timeout kills the child', async () => {
+    // Regression: a SIGTERM-killed child closes with code=null, which was mapped
+    // to exit 0 — init then reported success for a backfill that died mid-run.
+    const result = await defaultSpawn('node', ['-e', 'setTimeout(() => {}, 60000)'], { timeoutMs: 200 });
+    assert.notEqual(result.exitCode, 0);
+    assert.ok(result.stderr.includes('timed out'), `stderr should explain the kill, got: ${result.stderr}`);
+  });
+
+  it('still reports exit 0 for a child that finishes in time', async () => {
+    const result = await defaultSpawn('node', ['-e', 'process.exit(0)'], { timeoutMs: 30_000 });
+    assert.equal(result.exitCode, 0);
   });
 });

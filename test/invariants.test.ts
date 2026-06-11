@@ -1,20 +1,37 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
 import { doesNotThrow, equal, match, ok } from 'node:assert/strict';
 
-test('CLAUDE.md invariant: embedding dimension in config matches vector(N) in migrations/001_init.sql', async () => {
-  const sql = await readFile('migrations/001_init.sql', 'utf8');
-  const matches = [...sql.matchAll(/vector\((\d+)\)/g)];
-  ok(matches.length >= 1, 'expected at least one vector(N) declaration in 001_init.sql');
-  const sqlDims = new Set(matches.map((m) => Number(m[1])));
-  equal(sqlDims.size, 1, `all vector(N) declarations in 001_init.sql must agree, got ${[...sqlDims].join(',')}`);
-  const declared = matches[0]![1]!;
+test('CLAUDE.md invariant: all migrations agree on one embedding dimension that matches the config default', async () => {
+  // Read every .sql file in the migrations/ directory.
+  const dir = 'migrations';
+  const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
+  ok(files.length >= 1, 'expected at least one .sql file in migrations/');
+
+  // Collect every vector(N) occurrence across all migration files.
+  // Strip `--` line comments first so prose like "-- vector(1536)" cannot
+  // trip the scan — only real declarations count.
+  const found: Array<{ file: string; dim: number }> = [];
+  for (const file of files) {
+    const sql = await readFile(`${dir}/${file}`, 'utf8');
+    const withoutComments = sql.replace(/--[^\n]*/g, '');
+    const hits = [...withoutComments.matchAll(/vector\((\d+)\)/g)];
+    for (const m of hits) {
+      found.push({ file, dim: Number(m[1]) });
+    }
+  }
+
+  ok(found.length >= 1, 'expected at least one vector(N) declaration across all migrations');
+  const sqlDims = new Set(found.map((f) => f.dim));
+  const byFile = [...new Set(found.map((f) => `${f.file}=${f.dim}`))].join(', ');
+  equal(sqlDims.size, 1, `all vector(N) declarations across all migrations must agree on one dimension; dimension mismatch: ${byFile}`);
+  const declared = found[0]!.dim;
 
   const { loadConfig } = await import('../src/config.js');
   const config = loadConfig();
-  equal(config.model.embeddingDimensions, Number(declared),
-    `EMBEDDING_DIMENSIONS=${config.model.embeddingDimensions} must equal vector(${declared}) in migrations/001_init.sql`);
+  equal(config.model.embeddingDimensions, declared,
+    `EMBEDDING_DIMENSIONS=${config.model.embeddingDimensions} must equal vector(${declared}) across all migrations`);
 });
 
 test('CLAUDE.md invariant: mcp-stdio writes only JSON-RPC frames to stdout', async () => {

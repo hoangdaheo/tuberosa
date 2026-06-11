@@ -43,6 +43,7 @@ const defaultConfig: AppConfig = {
     provider: 'hash',
     openAiTimeoutMs: 30_000,
     embeddingDimensions: 1536,
+    embeddingModel: 'Xenova/bge-small-en-v1.5',
     openAiEmbeddingModel: 'text-embedding-3-small',
     llmCriticEnabled: false,
   },

@@ -28,7 +28,7 @@ export interface RegistryEntry {
 /**
  * Phase 4 — Provider registry that composes capabilities across providers.
  *
- * Goal: let a user run `hash embeddings + local cross-encoder rerank` (i.e., no OpenAI key
+ * Goal: let a user run `local embeddings + local cross-encoder rerank (hash as fallback)` (i.e., no OpenAI key
  * but with the ~150MB BGE reranker download) without writing new wiring. The composed
  * provider implements `ModelProvider` so it drops into `RetrievalService` unchanged.
  */
@@ -98,9 +98,9 @@ export class ProviderRegistry implements ModelProvider {
 /**
  * Build a composed ModelProvider from AppConfig. Selection rules:
  *
- * - `TUBEROSA_MODEL_PROVIDER=hash` (default): pure hash provider, no registry needed.
+ * - `TUBEROSA_MODEL_PROVIDER=hash`: pure hash provider, no registry needed.
  * - `TUBEROSA_MODEL_PROVIDER=openai`: keep current OpenAI behaviour (handled by createModelProvider).
- * - `TUBEROSA_MODEL_PROVIDER=local`: hash embeddings + local cross-encoder rerank.
+ * - `TUBEROSA_MODEL_PROVIDER=local` (default): local embeddings (bge-small) + local cross-encoder rerank.
  *
  * Returns the underlying `ModelProvider` so callers don't need to import the registry type.
  */
@@ -109,15 +109,20 @@ export function buildProviderRegistry(config: AppConfig): ModelProvider | null {
 
   const hash = new HashModelProvider(config.model.embeddingDimensions);
   const registry = new ProviderRegistry(hash);
+  const local = new LocalCrossEncoderProvider({
+    embeddingDimensions: config.model.embeddingDimensions,
+    embeddingModelId: config.model.embeddingModel,
+    fallback: hash,
+  });
   registry.register(asCapabilityProvider({
     name: 'hash',
     provider: hash,
-    capabilities: ['embed', 'rewriteQuery'],
+    capabilities: ['rewriteQuery'],
   }));
   registry.register(asCapabilityProvider({
     name: 'local-cross-encoder',
-    provider: new LocalCrossEncoderProvider({ embeddingDimensions: config.model.embeddingDimensions, fallback: hash }),
-    capabilities: ['rerank'],
+    provider: local,
+    capabilities: ['embed', 'rerank'],
   }));
   return registry;
 }

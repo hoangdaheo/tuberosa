@@ -410,7 +410,8 @@ claude mcp add --transport stdio --scope project tuberosa -- \
 [mcp_servers.tuberosa]
 command = "npx"
 args    = ["tuberosa", "mcp"]
-env     = { TUBEROSA_STORE = "memory", TUBEROSA_CACHE = "memory", TUBEROSA_MODEL_PROVIDER = "hash" }
+# No env block needed: defaults to full stack (Postgres + Redis + local embeddings).
+# For volatile trial mode (no Docker required): add env = { TUBEROSA_EMBEDDED = "1" }
 ```
 
 **GitHub Copilot** (VS Code Agent mode) — `.vscode/mcp.json`:
@@ -499,7 +500,7 @@ Copy `.env.example → .env`. The variables that matter most:
 | `TUBEROSA_IMPORT_BASE_DIR` | `.tuberosa/imports` | Confines import-pack inputs. |
 | `OPENAI_API_KEY` | _empty_ | Needed only when `TUBEROSA_MODEL_PROVIDER=openai`. |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Must match `EMBEDDING_DIMENSIONS`. |
-| `EMBEDDING_DIMENSIONS` | `1536` | Must equal the `vector(N)` column in `migrations/001_init.sql`. |
+| `EMBEDDING_DIMENSIONS` | `384` | Must equal the `vector(N)` column. Default matches `Xenova/bge-small-en-v1.5` and `migrations/014_embedding_dim_384.sql`. |
 
 > ⚠️ **Changing `EMBEDDING_DIMENSIONS` requires a new migration.** The pgvector column dimension and the embedding length must agree, or you'll hit `vector dimension mismatch`.
 

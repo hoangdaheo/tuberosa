@@ -41,7 +41,7 @@ Use the bundled `docker compose up --build -d`. The defaults already point at th
 | `openai` | `OPENAI_API_KEY` | real embeddings + rerank via OpenAI; also turns the LLM critic on by default |
 | `ollama` | `TUBEROSA_OLLAMA_URL` | local models via an Ollama server |
 
-If you set `OPENAI_API_KEY` and don't set `TUBEROSA_MODEL_PROVIDER`, the provider defaults to `openai`.
+If neither `OPENAI_API_KEY` nor `TUBEROSA_MODEL_PROVIDER` is set, the provider defaults to `local` (real embeddings via `Xenova/bge-small-en-v1.5`, downloaded on first use). If `OPENAI_API_KEY` is set, the provider defaults to `openai`. Set `TUBEROSA_EMBEDDED=1` to force the `hash` (no-dependency) trial stack.
 
 > Note: the automatic "learn from sessions" loop (atom extraction + LLM critic) is wired to a shipping provider. Under `ollama`, set `TUBEROSA_OLLAMA_EXTRACT_MODEL` (e.g. `qwen2.5:3b-instruct`; thinking models like `qwen3.5:latest` need GPU-class hardware to answer in reasonable time); under `openai` it uses `OPENAI_RERANK_MODEL`. Leave it unset to turn atom extraction off — retrieval (FIND) is unaffected on all providers.
 
@@ -61,8 +61,8 @@ You will not normally touch these — they exist for tuning. Listed by the group
 | | `DATABASE_URL` | `postgres://tuberosa:tuberosa@localhost:5432/tuberosa` |
 | | `REDIS_URL` | `redis://localhost:6379` |
 | | `TUBEROSA_AUTO_MIGRATE` | `true` |
-| **model** | `TUBEROSA_MODEL_PROVIDER` | `openai` if `OPENAI_API_KEY` set, else `hash` |
-| | `EMBEDDING_DIMENSIONS` | `1536` |
+| **model** | `TUBEROSA_MODEL_PROVIDER` | `openai` if `OPENAI_API_KEY` set, else `local` |
+| | `EMBEDDING_DIMENSIONS` | `384` (matches `Xenova/bge-small-en-v1.5` and migration 014) |
 | | `OPENAI_API_KEY` | (unset) |
 | | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` |
 | | `OPENAI_REWRITE_MODEL` / `OPENAI_RERANK_MODEL` | (unset) |

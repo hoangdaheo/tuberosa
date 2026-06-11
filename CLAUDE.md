@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## User Rules
+- **MUST** generate the output to be similar to `Explain Like I'm 5 or intern`
+- Ensure the AI user will know and understand well, even if for non-native English developer
+- Make sure the Human deeply understand when working with you, like the incredible, effectively teacher
+
 ## Tuberosa MCP startup rule
 
 For any non-trivial implementation, debugging, review, or planning task in this repo, call Tuberosa before reading or editing code.
@@ -58,7 +63,7 @@ pnpm run test:integration # Docker-gated Postgres + Redis integration tests (ski
 
 Run a single test file:
 ```bash
-node --test --import tsx test/retrieval.test.ts
+TUBEROSA_DISABLE_LOCAL_MODELS=true node --test --import tsx test/retrieval.test.ts
 ```
 
 Node version: `.nvmrc` pins `22.21.1`. If the shell uses an older version, prefix commands:
@@ -113,10 +118,11 @@ The core flow in `RetrievalService.searchContext` (`src/retrieval/service.ts`):
 
 `ModelProvider` interface: `embed`, `rewriteQuery`, `rerank`.
 
-- `HashModelProvider` — deterministic, no API key, used in all tests.
+- `LocalCrossEncoderProvider` (via `ProviderRegistry`) — **default** provider (`TUBEROSA_MODEL_PROVIDER=local`). Real embeddings via `@xenova/transformers` (`Xenova/bge-small-en-v1.5`, 384-dim), downloaded once to `~/.cache/tuberosa/models` on first use.
+- `HashModelProvider` — deterministic, no API key, used in all tests. Also the embedded trial mode provider.
 - `OpenAiModelProvider` — embeddings via `/v1/embeddings`, rewrite/rerank via `/v1/responses` with structured JSON output schemas.
 
-Selected by `TUBEROSA_MODEL_PROVIDER` env var.
+Selected by `TUBEROSA_MODEL_PROVIDER` env var. Defaults to `local` unless `OPENAI_API_KEY` is set (then `openai`) or `TUBEROSA_EMBEDDED=1` is set (then `hash`).
 
 ### Ingestion (`src/ingest/`)
 
@@ -138,7 +144,7 @@ When `TUBEROSA_PHYSICAL_MIRROR_ENABLED=true`, every write to Postgres is debounc
 
 **Retrieval eval must be green.** Run `pnpm run eval:retrieval` before any change to classifier, fusion weights, reranking, context-pack assembly, or context-fit logic. The eval fixture (`eval/retrieval-fixtures.json`) asserts `hitRate=1`, `staleRejectionRate=1`, and all exact classification rates at 1. Do not adjust thresholds to make tests pass — fix the logic.
 
-**Embedding dimensions must be consistent.** `EMBEDDING_DIMENSIONS` in config must match the `vector(N)` column dimension in `migrations/001_init.sql`. The default is 1536 (matching `text-embedding-3-small`). Changing dimensions requires a new migration.
+**Embedding dimensions must be consistent.** `EMBEDDING_DIMENSIONS` in config must match the `vector(N)` column dimension. The current default is 384 (matching `Xenova/bge-small-en-v1.5` and `migrations/014_embedding_dim_384.sql`; the original 001 and 005 migrations also track this). Changing dimensions requires a new migration.
 
 **MCP stdout is protocol-only.** The MCP stdio process must write only JSON-RPC frames to stdout. Do not add any `console.log` or `process.stdout.write` calls in the MCP code path; use `stderr` for diagnostics.
 
@@ -147,7 +153,7 @@ When `TUBEROSA_PHYSICAL_MIRROR_ENABLED=true`, every write to Postgres is debounc
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **tuberosa** (10233 symbols, 22075 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **tuberosa** (9871 symbols, 21739 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

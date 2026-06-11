@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe, it } from 'node:test';
 import { equal } from 'node:assert/strict';
 import { loadConfig } from '../src/config.js';
 
@@ -47,6 +47,51 @@ test('config byte caps fall back to defaults on missing or invalid env', () => {
   );
   equal(configured.http.maxRequestBytes, 1024);
   equal(configured.ingest.maxContentBytes, 512);
+});
+
+describe('TUBEROSA_EMBEDDED centralization', () => {
+  it('TUBEROSA_EMBEDDED=1 flips store/cache/provider to the trial stack', () => {
+    const config = withEnv(
+      { TUBEROSA_EMBEDDED: '1', TUBEROSA_STORE: undefined, TUBEROSA_CACHE: undefined, TUBEROSA_MODEL_PROVIDER: undefined },
+      () => loadConfig(),
+    );
+    equal(config.storage.store, 'memory');
+    equal(config.storage.cache, 'memory');
+    equal(config.model.provider, 'hash');
+  });
+
+  it('explicit TUBEROSA_STORE wins over TUBEROSA_EMBEDDED', () => {
+    const config = withEnv(
+      { TUBEROSA_EMBEDDED: '1', TUBEROSA_STORE: 'postgres', TUBEROSA_MODEL_PROVIDER: undefined, OPENAI_API_KEY: undefined },
+      () => loadConfig(),
+    );
+    equal(config.storage.store, 'postgres');
+    // provider is still hash because TUBEROSA_MODEL_PROVIDER was not explicitly set
+    equal(config.model.provider, 'hash');
+  });
+});
+
+describe('full-featured defaults (Spec A)', () => {
+  it('defaults the model provider to local when no OpenAI key is set', () => {
+    const config = withEnv({ TUBEROSA_MODEL_PROVIDER: undefined, OPENAI_API_KEY: undefined }, () => loadConfig());
+    equal(config.model.provider, 'local');
+  });
+
+  it('still prefers openai when an API key is present', () => {
+    const config = withEnv({ TUBEROSA_MODEL_PROVIDER: undefined, OPENAI_API_KEY: 'sk-test' }, () => loadConfig());
+    equal(config.model.provider, 'openai');
+  });
+
+  it('defaults embedding dimensions to 384 and the model to bge-small', () => {
+    const config = withEnv({ EMBEDDING_DIMENSIONS: undefined, TUBEROSA_EMBEDDING_MODEL: undefined }, () => loadConfig());
+    equal(config.model.embeddingDimensions, 384);
+    equal(config.model.embeddingModel, 'Xenova/bge-small-en-v1.5');
+  });
+
+  it('honors TUBEROSA_EMBEDDING_MODEL', () => {
+    const config = withEnv({ TUBEROSA_EMBEDDING_MODEL: 'Xenova/other-model' }, () => loadConfig());
+    equal(config.model.embeddingModel, 'Xenova/other-model');
+  });
 });
 
 function withEnv<T>(patch: Record<string, string | undefined>, run: () => T): T {

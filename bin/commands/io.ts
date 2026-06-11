@@ -52,7 +52,8 @@ function spawnProcess(command: string, args: string[], options: SpawnOptions = {
     };
     if (options.inheritStdio) {
       const child = nodeSpawn(command, args, { ...spawnOptions, stdio: 'inherit' });
-      child.on('close', (code) => resolveResult({ exitCode: code ?? 0, stdout: '', stderr: '' }));
+      // code is null when a signal killed the child — that is a failure, not exit 0.
+      child.on('close', (code, signal) => resolveResult({ exitCode: code ?? (signal ? 1 : 0), stdout: '', stderr: '' }));
       child.on('error', () => resolveResult({ exitCode: 1, stdout: '', stderr: 'spawn error' }));
       return;
     }
@@ -63,14 +64,21 @@ function spawnProcess(command: string, args: string[], options: SpawnOptions = {
     child.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
     child.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
     let timer: NodeJS.Timeout | undefined;
+    let timedOut = false;
     if (options.timeoutMs && Number.isFinite(options.timeoutMs)) {
       timer = setTimeout(() => {
+        timedOut = true;
         child.kill('SIGTERM');
       }, options.timeoutMs);
     }
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       if (timer) clearTimeout(timer);
-      resolveResult({ exitCode: code ?? 0, stdout, stderr });
+      if (timedOut) {
+        stderr = `${stderr}${stderr.endsWith('\n') || stderr === '' ? '' : '\n'}timed out after ${options.timeoutMs}ms (SIGTERM)\n`;
+      }
+      // code is null when a signal killed the child (e.g. our timeout SIGTERM);
+      // mapping that to 0 made init report success for half-finished backfills.
+      resolveResult({ exitCode: code ?? (signal ? 1 : 0), stdout, stderr });
     });
     child.on('error', (error) => {
       if (timer) clearTimeout(timer);

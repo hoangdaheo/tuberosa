@@ -13,6 +13,7 @@ function openAiConfig(overrides: Record<string, unknown> = {}) {
     model: {
       provider: 'openai',
       embeddingDimensions: 1536,
+      embeddingModel: 'Xenova/bge-small-en-v1.5',
       openAiEmbeddingModel: 'text-embedding-3-small',
       openAiTimeoutMs: 30_000,
       llmCriticEnabled: false,

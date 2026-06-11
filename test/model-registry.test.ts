@@ -19,12 +19,12 @@ test('buildProviderRegistry returns null when modelProvider is not local', () =>
   equal(buildProviderRegistry(baseConfig({ provider: 'ollama' })), null);
 });
 
-test('buildProviderRegistry composes hash + local cross-encoder when modelProvider=local', () => {
+test('buildProviderRegistry composes local cross-encoder + hash when modelProvider=local', () => {
   const registry = buildProviderRegistry(baseConfig({ provider: 'local' }));
   ok(registry instanceof ProviderRegistry, 'expected a ProviderRegistry instance');
   const description = (registry as ProviderRegistry).describe();
   const capabilities = new Map(description.map((entry) => [entry.capability, entry.providerName]));
-  equal(capabilities.get('embed'), 'hash');
+  equal(capabilities.get('embed'), 'local-cross-encoder');
   equal(capabilities.get('rewriteQuery'), 'hash');
   equal(capabilities.get('rerank'), 'local-cross-encoder');
 });
@@ -73,6 +73,16 @@ test('ProviderRegistry.register is first-write-wins per capability', () => {
   const description = registry.describe();
   const embed = description.find((entry) => entry.capability === 'embed');
   equal(embed?.providerName, 'first', 'second register should not overwrite first');
+});
+
+test('local registry routes embed through local-cross-encoder, not hash (Spec A)', () => {
+  const registry = buildProviderRegistry(baseConfig({ provider: 'local' }));
+  ok(registry instanceof ProviderRegistry, 'expected a ProviderRegistry instance');
+  const entries = (registry as ProviderRegistry).describe();
+  const embedEntry = entries.find((entry) => entry.capability === 'embed');
+  equal(embedEntry?.providerName, 'local-cross-encoder');
+  const rewriteEntry = entries.find((entry) => entry.capability === 'rewriteQuery');
+  equal(rewriteEntry?.providerName, 'hash');
 });
 
 test('ProviderRegistry falls back to fallback provider when capability is missing', async () => {

@@ -48,6 +48,7 @@
     "mcp": "node --import tsx src/mcp-stdio.ts",
     "worker": "tsx src/worker.ts",
     "migrate": "tsx scripts/migrate.ts",
+    "reembed": "tsx scripts/reembed.ts",
     "import:docs": "tsx scripts/import-docs.ts",
     "seed:self": "tsx scripts/seed-tuberosa-src.ts",
     "backfill:domains": "tsx scripts/backfill-domains.ts",
@@ -75,11 +76,12 @@
     "test:integration": "node --test --import tsx test/integration.test.ts",
     "export-pack": "node --import tsx scripts/export-pack.ts",
     "import-pack": "node --import tsx scripts/import-pack.ts",
-    "test": "node --test --import tsx test/*.test.ts",
+    "test": "TUBEROSA_DISABLE_LOCAL_MODELS=true node --test --import tsx test/*.test.ts",
     "verify:bundled-skills": "node --import tsx scripts/verify-bundled-skills.ts",
     "prepack": "pnpm run build && pnpm run verify:bundled-skills"
   },
   "dependencies": {
+    "@xenova/transformers": "^2.17.2",
     "js-yaml": "^4.1.1",
     "pg": "^8.13.1",
     "redis": "^4.7.0",
