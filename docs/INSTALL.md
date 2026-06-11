@@ -2,10 +2,11 @@
 
 Tuberosa ships as an npm package with a `tuberosa` binary, so consumers run it through `npx`
 exactly like other MCP-aware CLIs (`npx gitnexus analyze`, `npx <pkg> <command>`). This guide
-has two halves:
+has three parts:
 
 - **Part A — Maintainer: publish to npm/pnpm** (build → pack → version → publish → verify).
 - **Part B — End user: install & wire it up** (quick start, skill injection, MCP registration, Docker).
+- **Part C — Script triage: who runs what** (end user vs operator vs contributor script classification).
 
 Everything here is **local-first**: the default runtime uses the deterministic `hash` model
 provider and the in-memory store, so it works offline with **zero external API calls**. An
@@ -159,6 +160,24 @@ npx tuberosa mcp --embedded    # same for the MCP server
 ```
 
 Switching the model provider to `ollama` or `openai` (to turn on automatic atom extraction / the LEARN pillar) is a separate, opt-in choice — see `docs/SETUP.md` and `.claude/skills/tuberosa-operating/SKILL.md` §6.
+
+---
+
+## Part C — Script triage: who runs what
+
+`package.json` has ~40 scripts with no audience signal. They fall into three buckets — and end users
+need **none** of them, because the `npx tuberosa` CLI covers the whole consumer surface. The scripts
+themselves are deliberately untouched: renaming or regrouping them would churn CI and contributor
+muscle memory for zero end-user gain.
+
+| Audience | Scripts | Notes |
+| --- | --- | --- |
+| **End user (consumer project)** | _none_ | Use the CLI instead: `npx tuberosa init`, `doctor`, `mcp`, `mcp install`, `bootstrap`, `sync`, `hook install`. |
+| **Operator (requires this repo checked out)** | `backup`, `restore`, `error-logs`, `context-quality`, `organization`, `export-pack`, `import-pack` | Maintenance tasks with no CLI subcommand yet (promotion to `tuberosa <cmd>` is future work). Run as `pnpm run <script>` from the repo root. Several have MCP tool equivalents (`tuberosa_export_pack`, `tuberosa_import_pack`, `tuberosa_list_error_logs`, `tuberosa_collect_context_quality_feedback`). |
+| **Contributor (Tuberosa development only)** | Everything else: `eval:*`, `sandbox`, `sandbox:ablate`, `calibrate-fusion`, `benchmark`, `reembed`, `seed:self`, `backfill:domains`, `archival-sweep`, `infer-co-change`, `prune-stale-edges`, `cluster-user-corrections`, `migrate-knowledge-to-atoms`, `import:docs`, `build`, `test`, `test:integration`, `verify:bundled-skills`, `migrate`, `dev`, `start`, `worker`, `mcp`, `prepack` | These gate development of Tuberosa itself. If you are not changing Tuberosa's code, you never run them. The list is illustrative — any script not in the operator row above is contributor-only. |
+
+The same classification ships to end users as the `tuberosa-using` bundled skill
+(`.claude/skills/tuberosa-using/SKILL.md`), installed by `npx tuberosa init` alongside the other skills.
 
 ---
 
