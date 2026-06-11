@@ -762,10 +762,30 @@ describe('mcp install command', () => {
     const harness = makeIo({ fs, env: { HOME } });
     await mcpInstallCommand({ command: 'mcp', options: { target: 'codex' }, positional: ['install'] }, harness.io);
     assert.equal(await fs.readFile(`${HOME}/.codex/config.toml`), '[mcp_servers.tuberosa]\ncommand = "old"\n');
+    // --force never rewrites TOML, so even the non-forced skip must point at
+    // manual editing instead of suggesting --force.
+    assert.ok(harness.stdout.join('\n').includes('manual'), 'non-forced skip must point at manual editing');
     const forced = await mcpInstallCommand({ command: 'mcp', options: { target: 'codex', force: true }, positional: ['install'] }, harness.io);
     assert.equal(forced.exitCode, 0);
     assert.equal(await fs.readFile(`${HOME}/.codex/config.toml`), '[mcp_servers.tuberosa]\ncommand = "old"\n', 'we never rewrite TOML we did not author');
     assert.ok(harness.stdout.join('\n').includes('manual'), 'must point at manual editing');
+  });
+
+  it('rejects --target codex when HOME is unset', async () => {
+    const fs = makeFs({});
+    const harness = makeIo({ fs, env: {} });
+    const result = await mcpInstallCommand({ command: 'mcp', options: { target: 'codex' }, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 1);
+    assert.ok(harness.stderr.join('\n').includes('HOME'));
+  });
+
+  it('--target claude,cursor writes both project configs', async () => {
+    const fs = makeFs({});
+    const harness = makeIo({ fs, env: { HOME: '/home/u' } });
+    const result = await mcpInstallCommand({ command: 'mcp', options: { target: 'claude,cursor' }, positional: ['install'] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), true);
+    assert.equal(await fs.exists('/work/proj/.cursor/mcp.json'), true);
   });
 
   it('--target restricts the set and rejects unknown targets', async () => {

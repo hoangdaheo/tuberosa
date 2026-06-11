@@ -1,3 +1,6 @@
+import { dirname, resolve } from 'node:path';
+import type { CliInvocation, CommandIo, CommandResult, FsAdapter } from './types.js';
+
 /**
  * Spec B — `tuberosa mcp install`: write agent MCP configs so users never
  * hand-edit them from a printed snippet.
@@ -97,9 +100,6 @@ export function tomlHasTuberosaEntry(existing: string): boolean {
   return /^\s*\[mcp_servers\.tuberosa\]/m.test(existing);
 }
 
-import { resolve } from 'node:path';
-import type { CliInvocation, CommandIo, CommandResult, FsAdapter } from './types.js';
-
 const VALID_TARGETS = ['claude', 'cursor', 'codex'] as const;
 export type InstallTarget = (typeof VALID_TARGETS)[number];
 
@@ -130,7 +130,7 @@ export async function installMcpConfigs(fs: FsAdapter, context: InstallContext):
 
   for (const target of targets) {
     if (target === 'codex') {
-      outcomes.push(await installToml(fs, `${context.homeDir}/.codex/config.toml`, entry, context.force));
+      outcomes.push(await installToml(fs, `${context.homeDir}/.codex/config.toml`, entry));
     } else {
       const path = target === 'claude'
         ? `${context.root}/.mcp.json`
@@ -162,8 +162,7 @@ async function installJson(
   if (merged.status === 'exists') {
     return { target, path, status: 'skipped_exists' };
   }
-  const dir = path.slice(0, path.lastIndexOf('/'));
-  await fs.mkdir(dir, true);
+  await fs.mkdir(dirname(path), true);
   await fs.writeFile(path, merged.contents);
   return { target, path, status: 'written' };
 }
@@ -172,16 +171,15 @@ async function installToml(
   fs: FsAdapter,
   path: string,
   entry: McpServerEntry,
-  force: boolean,
 ): Promise<InstallOutcome> {
   const existing = (await fs.exists(path)) ? await fs.readFile(path) : '';
   if (tomlHasTuberosaEntry(existing)) {
-    // We never rewrite TOML we didn't author — even --force only points at manual editing.
-    return { target: 'codex', path, status: force ? 'skipped_manual' : 'skipped_exists' };
+    // We never rewrite TOML we didn't author — --force does not apply here, so
+    // always point at manual editing (suggesting --force would be a lie).
+    return { target: 'codex', path, status: 'skipped_manual' };
   }
   const next = existing === '' ? renderTomlSection(entry).trimStart() : existing + renderTomlSection(entry);
-  const dir = path.slice(0, path.lastIndexOf('/'));
-  await fs.mkdir(dir, true);
+  await fs.mkdir(dirname(path), true);
   await fs.writeFile(path, next);
   return { target: 'codex', path, status: 'written' };
 }
@@ -205,13 +203,17 @@ export async function mcpInstallCommand(invocation: CliInvocation, io: CommandIo
       return { exitCode: 1 };
     }
     targets = requested as InstallTarget[];
+    if (targets.includes('codex') && homeDir === '') {
+      io.err('HOME is not set; cannot locate ~/.codex/config.toml.');
+      return { exitCode: 1 };
+    }
   }
 
+  const ports = { postgresPort: 5432, redisPort: 6379 };
   const outcomes = await installMcpConfigs(fs, {
     root,
     homeDir,
-    postgresPort: 5432,
-    redisPort: 6379,
+    ...ports,
     force: invocation.options.force === true,
     targets,
   });
@@ -232,7 +234,7 @@ export async function mcpInstallCommand(invocation: CliInvocation, io: CommandIo
       case 'refused_invalid':
         io.err(`✗ ${outcome.target}: ${outcome.path} is not valid JSON (${outcome.detail}); file left untouched.`);
         io.out('Add this entry manually:');
-        io.out(JSON.stringify({ mcpServers: { tuberosa: buildServerEntry({ postgresPort: 5432, redisPort: 6379 }) } }, null, 2));
+        io.out(JSON.stringify({ mcpServers: { tuberosa: buildServerEntry(ports) } }, null, 2));
         exitCode = 1;
         break;
     }
