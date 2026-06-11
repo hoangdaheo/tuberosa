@@ -171,6 +171,31 @@ describe('doctor command', () => {
   });
 });
 
+describe('doctor embedding model check', () => {
+  it('reports ok when the model is cached', async () => {
+    const fs = makeFs({ '/home/u/.cache/tuberosa/models/Xenova/bge-small-en-v1.5': 'dir' });
+    const harness = makeIo({ fs, env: { HOME: '/home/u' } });
+    const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
+    const check = checks.find((entry) => entry.name === 'embedding model');
+    assert.equal(check?.status, 'ok');
+  });
+
+  it('warns with warm-up remediation when the model is missing', async () => {
+    const harness = makeIo({ env: { HOME: '/home/u' } });
+    const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
+    const check = checks.find((entry) => entry.name === 'embedding model');
+    assert.equal(check?.status, 'warn');
+    assert.ok(check?.remediation?.includes('tuberosa init'));
+  });
+
+  it('skips when the provider is not local', async () => {
+    const harness = makeIo({ env: { HOME: '/home/u', TUBEROSA_MODEL_PROVIDER: 'openai' } });
+    const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
+    const check = checks.find((entry) => entry.name === 'embedding model');
+    assert.equal(check?.status, 'skip');
+  });
+});
+
 describe('init command', () => {
   it('runs docker compose + migrate and prints the MCP snippet when docker is present', async () => {
     const calls: RecordedSpawn[] = [];

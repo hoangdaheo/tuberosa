@@ -52,6 +52,7 @@ export async function runDoctorChecks(invocation: CliInvocation, io: CommandIo):
   checks.push(await checkPostgres(io));
   checks.push(await checkMigrations(io, packageRoot));
   checks.push(await checkMcpStdio(io, packageRoot));
+  checks.push(await checkEmbeddingModel(io));
   return checks;
 }
 
@@ -173,6 +174,26 @@ async function checkMigrations(io: CommandIo, packageRoot: string): Promise<Doct
     };
   }
   return { name: 'migrations', status: 'ok', detail: 'migrations/ present (bundled with the package)' };
+}
+
+async function checkEmbeddingModel(io: CommandIo): Promise<DoctorCheck> {
+  const provider = io.env.TUBEROSA_MODEL_PROVIDER ?? (io.env.OPENAI_API_KEY ? 'openai' : 'local');
+  if (provider !== 'local') {
+    return { name: 'embedding model', status: 'skip', detail: `provider is '${provider}' — no local model needed` };
+  }
+  if (!io.fs) return { name: 'embedding model', status: 'skip', detail: 'fs unavailable' };
+  const cacheDir = io.env.TUBEROSA_MODEL_CACHE_DIR ?? `${io.env.HOME ?? '~'}/.cache/tuberosa/models`;
+  const model = io.env.TUBEROSA_EMBEDDING_MODEL ?? 'Xenova/bge-small-en-v1.5';
+  const modelPath = `${cacheDir}/${model}`;
+  if (await io.fs.exists(modelPath)) {
+    return { name: 'embedding model', status: 'ok', detail: `${model} cached at ${modelPath}` };
+  }
+  return {
+    name: 'embedding model',
+    status: 'warn',
+    detail: `${model} not found in ${cacheDir} — first query will download it (or fall back to hash)`,
+    remediation: 'Run `npx tuberosa init` (its warm-up step downloads the model).',
+  };
 }
 
 async function checkMcpStdio(io: CommandIo, packageRoot: string): Promise<DoctorCheck> {
