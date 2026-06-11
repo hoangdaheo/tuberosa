@@ -5,6 +5,7 @@ import { doctorCommand, runDoctorChecks } from '../bin/commands/doctor.js';
 import { initCommand } from '../bin/commands/init.js';
 import { buildEnv, mcpCommand } from '../bin/commands/mcp.js';
 import { composeTemplate } from '../bin/commands/compose-template.js';
+import { defaultSpawn } from '../bin/commands/io.js';
 import { dispatch } from '../bin/tuberosa.js';
 import type { CommandIo, FsAdapter, SpawnFn, SpawnResult } from '../bin/commands/types.js';
 
@@ -13,6 +14,7 @@ interface RecordedSpawn {
   args: string[];
   cwd?: string;
   env?: Record<string, string | undefined>;
+  timeoutMs?: number;
 }
 
 interface IoHarness {
@@ -47,7 +49,7 @@ function makeFs(initial: Record<string, string> = {}): FsAdapter {
 
 function makeSpawn(handler: (command: string, args: string[]) => SpawnResult, calls: RecordedSpawn[]): SpawnFn {
   return async (command, args, options) => {
-    calls.push({ command, args, cwd: options?.cwd, env: options?.env });
+    calls.push({ command, args, cwd: options?.cwd, env: options?.env, timeoutMs: options?.timeoutMs });
     return handler(command, args);
   };
 }
@@ -356,6 +358,42 @@ describe('init command', () => {
     assert.ok(harness.stderr.join('\n').includes('reembed'));
   });
 
+  it('forwards migrate/warmup/reembed child output so init shows real progress', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const harness = makeIo({
+      fs,
+      env: { TUBEROSA_PACKAGE_ROOT: '/pkg' },
+      spawn: makeSpawn((command, args) => {
+        if (args.some((arg) => arg.includes('migrate'))) return { exitCode: 0, stdout: 'Applied 014_embedding_dim_384.sql\n', stderr: '' };
+        if (args.some((arg) => arg.includes('warmup-embeddings'))) return { exitCode: 0, stdout: '', stderr: '[tuberosa] embedding model ready (Xenova/bge-small-en-v1.5, 384 dims).\n' };
+        if (args.some((arg) => arg.includes('reembed'))) return { exitCode: 0, stdout: '', stderr: '[tuberosa] reembed knowledge_items: 42\n' };
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }, []),
+    });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.ok(harness.stdout.some((line) => line.includes('Applied 014_embedding_dim_384.sql')), 'migrate stdout must be forwarded');
+    assert.ok(harness.stderr.some((line) => line.includes('embedding model ready (Xenova/bge-small-en-v1.5, 384 dims)')), 'warm-up progress must be forwarded');
+    assert.ok(harness.stderr.some((line) => line.includes('reembed knowledge_items: 42')), 'reembed progress must be forwarded');
+  });
+
+  it('gives warm-up and reembed timeouts sized for slow downloads and large backfills', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const spawnCalls: RecordedSpawn[] = [];
+    const harness = makeIo({
+      fs,
+      env: { TUBEROSA_PACKAGE_ROOT: '/pkg' },
+      spawn: makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), spawnCalls),
+    });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    const callFor = (needle: string) => spawnCalls.find((call) => call.args.some((arg) => arg.includes(needle)));
+    assert.equal(callFor('warmup-embeddings')?.timeoutMs, 600_000, 'warm-up must allow a slow first model download');
+    // A 300s cap killed real reembed backfills mid-run (~4 chunks/s ⇒ thousands of
+    // chunks need tens of minutes); the kill was then misreported as success.
+    assert.equal(callFor('reembed')?.timeoutMs, 1_800_000, 'reembed must allow a large-corpus backfill');
+  });
+
   it('copies the bundled comprehension skill into .claude/skills when --with-skills is passed', async () => {
     const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
     const fs = makeFs({
@@ -549,5 +587,20 @@ describe('compose template', () => {
     assert.ok(yaml.includes('pg_isready'));
     assert.ok(yaml.includes('redis-cli'));
     assert.ok(yaml.includes('127.0.0.1:5432:5432'));
+  });
+});
+
+describe('defaultSpawn', () => {
+  it('reports a non-zero exit when the timeout kills the child', async () => {
+    // Regression: a SIGTERM-killed child closes with code=null, which was mapped
+    // to exit 0 — init then reported success for a backfill that died mid-run.
+    const result = await defaultSpawn('node', ['-e', 'setTimeout(() => {}, 60000)'], { timeoutMs: 200 });
+    assert.notEqual(result.exitCode, 0);
+    assert.ok(result.stderr.includes('timed out'), `stderr should explain the kill, got: ${result.stderr}`);
+  });
+
+  it('still reports exit 0 for a child that finishes in time', async () => {
+    const result = await defaultSpawn('node', ['-e', 'process.exit(0)'], { timeoutMs: 30_000 });
+    assert.equal(result.exitCode, 0);
   });
 });

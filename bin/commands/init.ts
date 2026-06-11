@@ -253,7 +253,21 @@ async function runMigrations(io: CommandIo, fs: FsAdapter, spawn: SpawnFn, conte
     io.err(`migrations failed (exit ${migrate.exitCode}): ${migrate.stderr.trim() || migrate.stdout.trim()}`);
     return 1;
   }
+  forwardChildOutput(io, migrate);
   return 0;
+}
+
+/**
+ * Surface a successful child's captured output. Warm-up and reembed report all
+ * progress on their own stderr (model name, dims, backfill counts) and the
+ * default-install promise is that the user sees those lines, not a silent gap
+ * while the model downloads. Failure paths print their own summary instead.
+ */
+function forwardChildOutput(io: CommandIo, result: { stdout: string; stderr: string }): void {
+  const stdout = result.stdout.trim();
+  if (stdout) for (const line of stdout.split('\n')) io.out(line);
+  const stderr = result.stderr.trim();
+  if (stderr) for (const line of stderr.split('\n')) io.err(line);
 }
 
 /** Run one of the package's bundled scripts (dist build preferred, tsx checkout fallback). */
@@ -272,13 +286,20 @@ async function runPackageScript(
   const distEntry = `${packageRoot}/dist/scripts/${name}.js`;
   const tsxEntry = `${packageRoot}/scripts/${name}.ts`;
   const args: string[] = (await fs.exists(distEntry)) ? [distEntry] : ['--import', 'tsx', tsxEntry];
+  // warm-up: first model download can take minutes on slow links.
+  // reembed: the backfill runs at a few chunks per second, so thousands of chunks
+  // need tens of minutes — a 300s cap killed real runs mid-backfill. The step is
+  // resumable (only NULL embeddings are touched), so the cap is a hang guard only.
+  const timeoutMs = name === 'reembed' ? 1_800_000 : 600_000;
   const result = await spawn('node', args, {
     cwd: packageRoot,
     env: { ...io.env, DATABASE_URL: io.env.DATABASE_URL ?? `postgres://tuberosa:tuberosa@127.0.0.1:${context.postgresPort}/tuberosa` },
-    timeoutMs: 300_000, // model download can take minutes on slow links
+    timeoutMs,
   });
   if (result.exitCode !== 0) {
     io.err(`${name} failed (exit ${result.exitCode}): ${result.stderr.trim() || result.stdout.trim()}`);
+  } else {
+    forwardChildOutput(io, result);
   }
   return result.exitCode;
 }
