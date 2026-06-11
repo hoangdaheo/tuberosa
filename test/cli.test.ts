@@ -401,7 +401,7 @@ describe('init command', () => {
     assert.equal(callFor('reembed')?.timeoutMs, 1_800_000, 'reembed must allow a large-corpus backfill');
   });
 
-  it('copies the bundled comprehension skill into .claude/skills when --with-skills is passed', async () => {
+  it('copies bundled skills into .claude/skills by default', async () => {
     const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
     const fs = makeFs({
       '/work/proj/.env.example': 'X=1\n',
@@ -413,7 +413,7 @@ describe('init command', () => {
     });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
     const result = await initCommand(
-      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      { command: 'init', options: { 'no-docker': true }, positional: [] },
       harness.io,
     );
     assert.equal(result.exitCode, 0);
@@ -429,7 +429,28 @@ describe('init command', () => {
     assert.ok(harness.stdout.some((line) => /tuberosa-onboard-project/.test(line)));
   });
 
-  it('does not overwrite an existing skill file when --with-skills is passed', async () => {
+  it('--no-skills skips the skills copy', async () => {
+    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/.claude/skills/bundled-skills.json':
+        '{"skills":[{"name":"tuberosa-onboard-project","files":["SKILL.md"]}]}',
+      '/pkg/.claude/skills/tuberosa-onboard-project/SKILL.md': '# onboard skill\n',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
+    const result = await initCommand(
+      { command: 'init', options: { 'no-docker': true, 'no-skills': true }, positional: [] },
+      harness.io,
+    );
+    assert.equal(result.exitCode, 0);
+    assert.equal(
+      await fs.exists('/work/proj/.claude/skills/tuberosa-onboard-project/SKILL.md'),
+      false,
+      'skill file must not be copied when --no-skills is passed',
+    );
+  });
+
+  it('does not overwrite an existing skill file', async () => {
     const spawn = makeSpawn(() => ({ exitCode: 0, stdout: '', stderr: '' }), []);
     const fs = makeFs({
       '/work/proj/.env.example': 'X=1\n',
@@ -440,7 +461,7 @@ describe('init command', () => {
     });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
     await initCommand(
-      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      { command: 'init', options: { 'no-docker': true }, positional: [] },
       harness.io,
     );
     assert.equal(
@@ -461,7 +482,7 @@ describe('init command', () => {
     });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
     await initCommand(
-      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      { command: 'init', options: { 'no-docker': true }, positional: [] },
       harness.io,
     );
     assert.equal(await fs.readFile('/work/proj/.claude/skills/skill-a/SKILL.md'), '# a\n');
@@ -473,11 +494,23 @@ describe('init command', () => {
     const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
     const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' }, spawn });
     const result = await initCommand(
-      { command: 'init', options: { 'no-docker': true, 'with-skills': true }, positional: [] },
+      { command: 'init', options: { 'no-docker': true }, positional: [] },
       harness.io,
     );
     assert.equal(result.exitCode, 0, 'a missing manifest must not fail init');
     assert.ok(harness.stderr.some((line) => /manifest/i.test(line)), 'should warn about the missing manifest');
+  });
+
+  it('copies skills by default in --embedded mode too', async () => {
+    const fs = makeFs({
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      '/pkg/.claude/skills/bundled-skills.json': '{"skills":[{"name":"tuberosa-guide","files":["SKILL.md"]}]}',
+      '/pkg/.claude/skills/tuberosa-guide/SKILL.md': '# guide',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_SKILLS_SRC: '/pkg/.claude/skills' } });
+    const result = await initCommand({ command: 'init', options: { embedded: true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.claude/skills/tuberosa-guide/SKILL.md'), true);
   });
 
   it('writes MCP configs after the stack is up and reports them', async () => {

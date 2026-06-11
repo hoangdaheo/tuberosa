@@ -41,7 +41,7 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   }
 
   await ensureEnvFile(io, fs, context);
-  if (invocation.options['with-skills'] === true) {
+  if (invocation.options['no-skills'] !== true) {
     await copyBundledSkills(io, fs, context.root);
   }
 
@@ -164,7 +164,8 @@ async function ensureEnvFile(io: CommandIo, fs: FsAdapter, context: InitContext)
 }
 
 /**
- * `--with-skills` — copy the package's bundled agent skills into `<root>/.claude/skills/`.
+ * Default skills install — copy the package's bundled agent skills into
+ * `<root>/.claude/skills/`. Runs on every `init` unless `--no-skills`.
  *
  * Source resolution, in order:
  *   1. `TUBEROSA_SKILLS_SRC` env var (points directly at the skills root) — escape hatch + test seam.
@@ -177,19 +178,19 @@ async function ensureEnvFile(io: CommandIo, fs: FsAdapter, context: InitContext)
 async function copyBundledSkills(io: CommandIo, fs: FsAdapter, root: string): Promise<void> {
   const srcRoot = await resolveSkillsSource(io, fs);
   if (!srcRoot) {
-    io.err('--with-skills: could not locate bundled skills manifest. Set TUBEROSA_SKILLS_SRC to the skills root.');
+    io.err('skills: could not locate bundled skills manifest. Set TUBEROSA_SKILLS_SRC to the skills root.');
     return;
   }
   const manifestPath = `${srcRoot}/${BUNDLED_SKILLS_MANIFEST}`;
   if (!(await fs.exists(manifestPath))) {
-    io.err(`--with-skills: bundled skills manifest missing at ${manifestPath}; skipping.`);
+    io.err(`skills: bundled skills manifest missing at ${manifestPath}; skipping.`);
     return;
   }
   let relPaths: string[];
   try {
     relPaths = manifestSkillFilePaths(parseManifest(await fs.readFile(manifestPath)));
   } catch (error) {
-    io.err(`--with-skills: invalid bundled skills manifest: ${(error as Error).message}; skipping.`);
+    io.err(`skills: invalid bundled skills manifest: ${(error as Error).message}; skipping.`);
     return;
   }
   let copied = 0;
@@ -197,7 +198,7 @@ async function copyBundledSkills(io: CommandIo, fs: FsAdapter, root: string): Pr
     const srcPath = `${srcRoot}/${rel}`;
     const destPath = `${root}/.claude/skills/${rel}`;
     if (!(await fs.exists(srcPath))) {
-      io.err(`--with-skills: bundled skill missing at ${srcPath}; skipping.`);
+      io.err(`skills: bundled skill missing at ${srcPath}; skipping.`);
       continue;
     }
     if (await fs.exists(destPath)) {
