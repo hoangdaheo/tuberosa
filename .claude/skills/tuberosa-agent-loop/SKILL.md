@@ -1,13 +1,13 @@
 ---
 name: tuberosa-agent-loop
-description: "Use when an agent is about to start a non-trivial coding task in this repo and needs the Tuberosa session loop: start a session, read the fit, record a decision, finish, and let it learn. Examples: \"How do I use Tuberosa for this task?\", \"Start a Tuberosa session\""
+description: "Use when an agent is about to start a non-trivial coding task in your project and needs the Tuberosa session loop: start a session, read the fit, record a decision, finish, and let it learn. Examples: \"How do I use Tuberosa for this task?\", \"Start a Tuberosa session\""
 ---
 
 # Tuberosa Agent Loop
 
 This skill teaches you **how** to run a Tuberosa session for a coding task.
 
-> The **rule** that says you *must* do this lives in [`CLAUDE.md`](../../../CLAUDE.md) under "Tuberosa MCP startup rule". This skill does not repeat the rule — it shows you how to follow it. For an overview of all Tuberosa tools, read [`tuberosa-guide`](../tuberosa-guide/SKILL.md).
+> **Standing rule:** for any non-trivial task, call `tuberosa_start_session` before reading or editing code, record a context decision, and finish the session when done. This skill shows you how to follow that rule. For an overview of all Tuberosa tools, read [`tuberosa-guide`](../tuberosa-guide/SKILL.md).
 
 The loop has 6 steps, always in this order:
 
@@ -91,7 +91,7 @@ When the task is done, call `tuberosa_finish_session` with:
 - `outcome` — how it ended.
 - `summary` — a short plain-language recap.
 
-On finish, a learning gate runs. It either **auto-approves** a small memory atom or leaves a **reviewable draft** for later. Learning needs a real model provider (the `hash` provider does not produce useful atoms) — see [`tuberosa-guide`](../tuberosa-guide/SKILL.md).
+On finish, a learning gate runs. It either **auto-approves** a small memory atom or leaves a **reviewable draft** for later. Learning needs an LLM provider — `openai` or `ollama` (the default `local` and the `hash` providers do not extract atoms) — see [`tuberosa-guide`](../tuberosa-guide/SKILL.md).
 
 ## The loop, at a glance
 
@@ -101,5 +101,4 @@ start → read fit/orientation/brief → (verify if weak) → record decision �
 
 ## See also
 
-- [`CLAUDE.md`](../../../CLAUDE.md) — "Tuberosa MCP startup rule" (the binding rule this skill helps you follow).
 - [`tuberosa-guide`](../tuberosa-guide/SKILL.md) — overview of all Tuberosa tools and resources.

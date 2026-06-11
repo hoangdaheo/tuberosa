@@ -27,8 +27,10 @@ This file is grouped by **what you want to do** (a human action), not by tool ca
 ## 1. Ingest sources
 
 - **When:** You added or changed docs, specs, or code and want Tuberosa to know about them.
-- **How:** Call `tuberosa_sync_sources`. (HTTP equivalent: `POST /ingest/files`.)
-- **What to expect:** An upsert summary — a `results` array, one entry per stored item. ✅ Items appear in the array. ❌ An empty array means nothing was ingested — check the paths you passed.
+- **How (two steps):**
+  1. Call `tuberosa_sync_sources` — this is a **dry-run**. It returns a `planId`, a `plan` (added / changed / renamed / deleted files), and an `instruction`. Nothing is ingested yet.
+  2. Call it again with `apply: true` and the `planId` to apply the plan.
+- **What to expect:** Ingestion happens only on the second call. ⚠️ If the plan is **destructive** (deleted files), show the deletion list to a human before re-calling with `apply: true`. ❌ An empty plan means nothing changed — check the paths you passed.
 
 ## 2. Review reflection drafts
 
@@ -42,9 +44,9 @@ Tuberosa proposes **draft lessons** from agent sessions. A human approves the go
 
 ## 3. Propose curation
 
-- **When:** The knowledge base feels noisy, duplicated, or out of date.
+- **When:** Un-curated atoms have piled up and you want to distill them into reusable conventions.
 - **How:** Call `tuberosa_propose_curation`.
-- **What to expect:** A curation suggestion — **merge**, **split**, or **retire** candidates. These are suggestions only; you decide what to act on. ✅ Use it to keep the base small and sharp.
+- **What to expect:** Deterministic **clusters** of un-curated atoms. The tool does no reasoning — you (the agent or human) distill each cluster into one convention via `tuberosa_reflect`. For merge / stale / superseded cleanup, use `tuberosa_propose_maintenance` instead (reviewer-gated, never auto-applied). ✅ Use both to keep the base small and sharp.
 
 ## 4. Read the atlas
 
@@ -52,20 +54,20 @@ Tuberosa proposes **draft lessons** from agent sessions. A human approves the go
 - **How:** Call `tuberosa_get_atlas`.
 - **What to expect:** Sections such as **project-map**, **flows**, and **commands**. ✅ A good way to sanity-check what Tuberosa knows before trusting its answers.
 
-## 5. Run evals
+## 5. Check quality
 
-Quality evals (`retrieval`, `agent-context`, `knowledge-completeness`) are contributor tooling that runs inside the Tuberosa checkout — as an operator of an installed Tuberosa you never run them. If retrieval quality looks wrong, use `tuberosa doctor` and the feedback tools (`tuberosa_feedback_context`) instead.
+Quality evals (`retrieval`, `agent-context`, `knowledge-completeness`) are contributor tooling that runs inside the Tuberosa checkout — as an operator of an installed Tuberosa you never run them. If retrieval quality looks wrong, use `npx tuberosa doctor` and the feedback tools (`tuberosa_feedback_context`) instead.
 
 ## 6. Turn on learning (atom extraction)
 
-The LEARN loop pulls small reusable facts ("atoms") out of content. It is **OFF** under the `hash` provider. It works on **both** `ollama` and `openai`.
+The LEARN loop pulls small reusable facts ("atoms") out of content. It is **OFF** under both the default `local` provider and `hash` — extraction needs an LLM. It works on **both** `ollama` and `openai`.
 
 - **When:** You want Tuberosa to start extracting atoms automatically.
 - **How (pick one, then restart the MCP server):**
   - **Ollama:** set `TUBEROSA_OLLAMA_EXTRACT_MODEL=qwen2.5:3b-instruct`
   - **OpenAI:** set `OPENAI_RERANK_MODEL=<an OpenAI model id>` (any current OpenAI model id works; pick a small one for cost)
   - Then **restart the MCP server** so the provider re-registers. The env var alone does nothing until restart.
-- **What to expect:** After restart, ingestion and sessions begin producing atoms. ✅ New sessions produce atoms (check with `tuberosa_atom_gate_stats`). ❌ Still no atoms under `hash` — that provider has extraction off by design.
+- **What to expect:** After restart, ingestion and sessions begin producing atoms. ✅ New sessions produce atoms (check with `tuberosa_atom_gate_stats`). ❌ Still no atoms under the default `local` or under `hash` — those providers have extraction off by design.
 
 > For the full provider/env matrix (which keys each provider needs), see the Configuration section of the Tuberosa README (shipped with the package). Do not memorize it from here.
 

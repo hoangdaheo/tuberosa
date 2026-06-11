@@ -7,7 +7,7 @@ description: "Use when an agent approaches an unfamiliar repo, before a non-triv
 
 This skill teaches you to load a project's knowledge **into** Tuberosa so future agents (and you) get a useful context pack instead of a cold start. It **reuses the existing engine** — `tuberosa` CLI commands and `tuberosa_*` MCP tools. You never re-implement ingestion, atlas, or sync.
 
-> Related: [`tuberosa-guide`](../tuberosa-guide/SKILL.md) (what Tuberosa is, FIND vs LEARN), [`tuberosa-agent-loop`](../tuberosa-agent-loop/SKILL.md) (consuming knowledge during a task), [`tuberosa-operating`](../tuberosa-operating/SKILL.md) (human review of drafts/evals).
+> Related: [`tuberosa-guide`](../tuberosa-guide/SKILL.md) (what Tuberosa is, FIND vs LEARN), [`tuberosa-agent-loop`](../tuberosa-agent-loop/SKILL.md) (consuming knowledge during a task), [`tuberosa-operating`](../tuberosa-operating/SKILL.md) (human review of drafts).
 
 ## Local-first — no external APIs
 
@@ -41,11 +41,11 @@ Quick signal: run a throwaway `tuberosa_start_session`. If `context.handbook.exi
 ### A1. Make sure the local stack is up
 
 ```bash
-npx tuberosa init      # Docker present → Postgres+Redis+migrate. No Docker → prints embedded-mode (memory) instructions.
+npx tuberosa init      # Requires Docker → Postgres+Redis+migrate. No Docker → fails with install guidance.
 npx tuberosa doctor    # Verify Node ≥22.13, pnpm, port, Postgres reachability, MCP stdout sanity.
 ```
 
-- `init` is idempotent and falls back to **embedded mode** automatically when Docker is absent (or pass `--no-docker`). Embedded mode is volatile (memory store) — fine for trying Tuberosa, not for durable onboarding.
+- `init` is idempotent and **requires Docker** — without it, init exits non-zero with install guidance. Volatile **embedded trial mode** (memory store) is an explicit opt-in via `npx tuberosa init --embedded` — fine for trying Tuberosa, not for durable onboarding. (`--no-docker` is deprecated; use `--embedded`.)
 - ✅ Proceed when `doctor` shows no `✗ fail` lines.
 
 ### A2. Seed knowledge deterministically
@@ -54,7 +54,7 @@ npx tuberosa doctor    # Verify Node ≥22.13, pnpm, port, Postgres reachability
 npx tuberosa bootstrap --project <name> --deep
 ```
 
-This single command (see `bin/commands/bootstrap.ts` → `src/bootstrap/service.ts`) does, in order:
+This single command does, in order:
 
 1. **Sync (additive only)** — discovers/ingests source + docs. Bootstrap **never archives** anything (deletions are deferred, not applied).
 2. **Deep graph enrichment** (`--deep`) — co-change edge inference + atom graph-density snapshot.
@@ -161,15 +161,15 @@ changed? ─ B ── sync (dry-run) → sync --apply [--yes for deletes] → re
 
 ## Reuse, don't reinvent
 
-| Need | Use (already exists) | Source |
-| --- | --- | --- |
-| Stand up stack | `npx tuberosa init` / `doctor` | `bin/commands/init.ts`, `doctor.ts` |
-| Seed knowledge | `npx tuberosa bootstrap --deep` | `src/bootstrap/service.ts` |
-| Ingest changes | `npx tuberosa sync` / `tuberosa_sync_sources` | `bin/commands/sync.ts`, `src/source-sync/` |
-| Auto-refresh | `npx tuberosa hook install` | `bin/commands/sync.ts` |
-| Read overview | `tuberosa_get_atlas` | `src/atlas/builders.ts` |
-| Convention evidence | `tuberosa_bootstrap_handbook` | `src/curation/service.ts` |
-| Write understanding | `tuberosa_reflect` (drafts) | `src/agent-session/` |
-| Approve knowledge | `tuberosa_list/get/review_reflection_draft` | `src/mcp/server.ts` |
+| Need | Use (already exists) |
+| --- | --- |
+| Stand up stack | `npx tuberosa init` / `doctor` |
+| Seed knowledge | `npx tuberosa bootstrap --deep` |
+| Ingest changes | `npx tuberosa sync` / `tuberosa_sync_sources` |
+| Auto-refresh | `npx tuberosa hook install` |
+| Read overview | `tuberosa_get_atlas` |
+| Convention evidence | `tuberosa_bootstrap_handbook` |
+| Write understanding | `tuberosa_reflect` (drafts) |
+| Approve knowledge | `tuberosa_list/get/review_reflection_draft` |
 
 If you think a genuinely new command is missing (e.g. a one-shot `tuberosa comprehend`), do **not** bolt it on. Propose it to the Tuberosa maintainers instead — workarounds layered on top of the CLI tend to rot.
