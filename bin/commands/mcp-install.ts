@@ -71,16 +71,21 @@ export function mergeMcpJson(
   return { status: 'written', contents: `${JSON.stringify(doc, null, 2)}\n` };
 }
 
+/** Escape a string for a TOML basic (double-quoted) string: backslash and quote. */
+function escapeTomlBasicString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 export function renderTomlSection(entry: McpServerEntry): string {
   const envLines = Object.entries(entry.env)
-    .map(([key, value]) => `${key} = "${value}"`)
+    .map(([key, value]) => `${key} = "${escapeTomlBasicString(value)}"`)
     .join('\n');
   return [
     '',
     '# added by tuberosa mcp install',
     '[mcp_servers.tuberosa]',
-    `command = "${entry.command}"`,
-    `args = [${entry.args.map((a) => `"${a}"`).join(', ')}]`,
+    `command = "${escapeTomlBasicString(entry.command)}"`,
+    `args = [${entry.args.map((a) => `"${escapeTomlBasicString(a)}"`).join(', ')}]`,
     '',
     '[mcp_servers.tuberosa.env]',
     envLines,

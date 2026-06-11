@@ -673,6 +673,16 @@ describe('mcp install pure helpers', () => {
     assert.ok(toml.includes('DATABASE_URL = "postgres://tuberosa:tuberosa@127.0.0.1:5432/tuberosa"'));
   });
 
+  it('escapes quotes and backslashes in TOML string values', () => {
+    const entry = {
+      command: 'npx',
+      args: ['tuberosa', 'mcp'],
+      env: { DATABASE_URL: 'postgres://u:p"w\\x@host/db' },
+    };
+    const toml = renderTomlSection(entry);
+    assert.ok(toml.includes('DATABASE_URL = "postgres://u:p\\"w\\\\x@host/db"'));
+  });
+
   it('detects an existing [mcp_servers.tuberosa] TOML entry', () => {
     assert.equal(tomlHasTuberosaEntry('[mcp_servers.tuberosa]\ncommand = "x"\n'), true);
     assert.equal(tomlHasTuberosaEntry('  [mcp_servers.tuberosa]\n'), true);
