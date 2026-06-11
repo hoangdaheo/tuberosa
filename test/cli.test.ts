@@ -498,6 +498,22 @@ describe('init command', () => {
     assert.equal(await fs.exists('/work/proj/.mcp.json'), false);
   });
 
+  it('an fs error during config write warns but does not fail init', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const throwingFs: FsAdapter = {
+      ...fs,
+      async writeFile(path, contents) {
+        if (path.endsWith('.mcp.json')) throw new Error('EACCES: permission denied');
+        return fs.writeFile(path, contents);
+      },
+    };
+    const harness = makeIo({ fs: throwingFs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.ok(harness.stderr.some((line) => line.includes('MCP config write failed')));
+    assert.ok(harness.stdout.some((line) => /Tuberosa is up/.test(line)), 'success banner still prints');
+  });
+
   it('a config-writer refusal (invalid JSON) warns but does not fail init', async () => {
     const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/work/proj/.mcp.json': '{broken', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
     const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });

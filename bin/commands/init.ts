@@ -101,18 +101,34 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   }
 
   if (invocation.options['no-mcp-config'] !== true) {
-    const outcomes = await installMcpConfigs(fs, {
-      root: context.root,
-      homeDir: io.env.HOME ?? '',
-      postgresPort: context.postgresPort,
-      redisPort: context.redisPort,
-      force: false,
-    });
-    for (const outcome of outcomes) {
-      if (outcome.status === 'written') io.out(`✓ MCP config: wrote ${outcome.path}`);
-      else if (outcome.status === 'refused_invalid') {
-        io.err(`MCP config: ${outcome.path} is not valid JSON (${outcome.detail}); file left untouched — run \`npx tuberosa mcp install\` after fixing it.`);
-      } else io.out(`· MCP config: ${outcome.path} already configured`);
+    // Best-effort, like reembed: a config-write problem (bad JSON, EACCES, …)
+    // must never fail init after the stack already came up healthy.
+    try {
+      const outcomes = await installMcpConfigs(fs, {
+        root: context.root,
+        homeDir: io.env.HOME ?? '',
+        postgresPort: context.postgresPort,
+        redisPort: context.redisPort,
+        force: false,
+      });
+      for (const outcome of outcomes) {
+        switch (outcome.status) {
+          case 'written':
+            io.out(`✓ MCP config: wrote ${outcome.path}`);
+            break;
+          case 'refused_invalid':
+            io.err(`MCP config: ${outcome.path} is not valid JSON (${outcome.detail}); file left untouched — run \`npx tuberosa mcp install\` after fixing it.`);
+            break;
+          case 'skipped_exists':
+          case 'skipped_manual':
+            io.out(`· MCP config: ${outcome.path} already configured`);
+            break;
+          default:
+            outcome.status satisfies never;
+        }
+      }
+    } catch (error) {
+      io.err(`MCP config write failed: ${(error as Error).message} — run \`npx tuberosa mcp install\` manually.`);
     }
   }
 
@@ -346,7 +362,7 @@ function printSuccess(io: CommandIo, context: InitContext): void {
   io.out(`  Postgres: 127.0.0.1:${context.postgresPort}`);
   io.out(`  Redis:    127.0.0.1:${context.redisPort}`);
   io.out('');
-  io.out('MCP snippet (Claude Code / Codex / Cursor):');
+  io.out('Reference snippet (configs were written above; for other agents):');
   io.out(mcpSnippet(context));
   io.out('Re-run `npx tuberosa init` to reconcile a missing compose file or .env.');
 }
