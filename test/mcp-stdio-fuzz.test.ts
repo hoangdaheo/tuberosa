@@ -25,8 +25,10 @@ test('mcp-stdio survives a malformed JSON frame and answers the next valid frame
   child.stdin.write('{not valid json\n');
   child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 'probe-1', method: 'tools/list' })}\n`);
 
-  // Wait for both replies (parse error + tools/list).
-  const deadline = Date.now() + 4000;
+  // Wait for both replies (parse error + tools/list). The budget must cover the
+  // child's full tsx compile of the app graph, which can take >4s when the rest
+  // of the suite runs in parallel — a tight budget made this test flaky under load.
+  const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     if (stdout.includes('-32700') && stdout.includes('"id":"probe-1"')) break;
     await new Promise((r) => setTimeout(r, 50));
@@ -35,7 +37,7 @@ test('mcp-stdio survives a malformed JSON frame and answers the next valid frame
   child.stdin.end();
   await new Promise<void>((resolve) => {
     child.once('exit', () => resolve());
-    setTimeout(() => { child.kill(); resolve(); }, 1500);
+    setTimeout(() => { child.kill(); resolve(); }, 5000);
   });
 
   match(stdout, /-32700/, `expected -32700 Parse error frame in stdout. stderr=${stderr}`);
