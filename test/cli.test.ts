@@ -503,6 +503,7 @@ describe('init command', () => {
 
   it('copies skills by default in --embedded mode too', async () => {
     const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
       '/pkg/package.json': '{"name":"tuberosa"}',
       '/pkg/.claude/skills/bundled-skills.json': '{"skills":[{"name":"tuberosa-guide","files":["SKILL.md"]}]}',
       '/pkg/.claude/skills/tuberosa-guide/SKILL.md': '# guide',

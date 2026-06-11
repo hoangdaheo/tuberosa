@@ -363,7 +363,7 @@ function printSuccess(io: CommandIo, context: InitContext): void {
   io.out(`  Postgres: 127.0.0.1:${context.postgresPort}`);
   io.out(`  Redis:    127.0.0.1:${context.redisPort}`);
   io.out('');
-  io.out('Reference snippet (configs were written above; for other agents):');
+  io.out('Reference MCP snippet (init writes these configs automatically; manual fallback):');
   io.out(mcpSnippet(context));
   io.out('Re-run `npx tuberosa init` to reconcile a missing compose file or .env.');
 }

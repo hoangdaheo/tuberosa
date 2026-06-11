@@ -371,7 +371,7 @@ Run from anywhere with `npx tuberosa <command>` (or `pnpm run <command>` inside 
 
 | Command | What it's for |
 |---|---|
-| `tuberosa init` | Bootstrap the local stack. `--with-skills` copies bundled agent skills into `.claude/skills/`. `--no-docker` forces embedded mode. |
+| `tuberosa init` | Bootstrap the local stack. Copies bundled agent skills into `.claude/skills/` and writes agent MCP configs by default. `--no-skills` / `--no-mcp-config` to skip either. `--no-docker` forces embedded mode. |
 | `tuberosa doctor` | Diagnose Node, pnpm, Docker, port 3027, Postgres reachability, and MCP stdout sanity. |
 | `tuberosa mcp` | Run the MCP stdio server with safe embedded defaults (memory + hash). |
 | `tuberosa bootstrap` | **First-run project knowledge**: additive sync + atlas + a health summary. Add `--deep` for a deeper pass, `--export` to also write a bundle. |
@@ -396,6 +396,10 @@ npx tuberosa mcp    # from anywhere
 > ⚠️ The MCP process writes **only JSON-RPC** to stdout. All diagnostics go to stderr. (A stray `console.log` would break every MCP client.)
 
 ### Client setup snippets
+
+> **Zero-touch:** `npx tuberosa init` writes these files for you (and `npx tuberosa mcp install`
+> re-writes them on demand — merge-only, it never clobbers other servers in an existing config).
+> The snippets below are the manual fallback.
 
 **Claude Code** — project-scoped:
 
