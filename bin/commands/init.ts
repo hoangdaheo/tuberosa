@@ -5,6 +5,7 @@ import { DEFAULT_MCP_PORT } from './types.js';
 import { composeTemplate } from './compose-template.js';
 import { BUNDLED_SKILLS_MANIFEST, parseManifest, manifestSkillFilePaths } from './bundled-skills.js';
 import { resolvePackageRoot } from './package-root.js';
+import { installMcpConfigs } from './mcp-install.js';
 
 export interface InitContext {
   root: string;
@@ -97,6 +98,22 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
   if (reembedExit !== 0) {
     io.err('Re-embed backfill failed; searches work but older knowledge has no vectors yet.');
     io.err('Re-run later with `pnpm run reembed` (in the Tuberosa package) or `npx tuberosa init`.');
+  }
+
+  if (invocation.options['no-mcp-config'] !== true) {
+    const outcomes = await installMcpConfigs(fs, {
+      root: context.root,
+      homeDir: io.env.HOME ?? '',
+      postgresPort: context.postgresPort,
+      redisPort: context.redisPort,
+      force: false,
+    });
+    for (const outcome of outcomes) {
+      if (outcome.status === 'written') io.out(`✓ MCP config: wrote ${outcome.path}`);
+      else if (outcome.status === 'refused_invalid') {
+        io.err(`MCP config: ${outcome.path} is not valid JSON (${outcome.detail}); file left untouched — run \`npx tuberosa mcp install\` after fixing it.`);
+      } else io.out(`· MCP config: ${outcome.path} already configured`);
+    }
   }
 
   printSuccess(io, context);

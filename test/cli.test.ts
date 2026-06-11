@@ -479,6 +479,33 @@ describe('init command', () => {
     assert.equal(result.exitCode, 0, 'a missing manifest must not fail init');
     assert.ok(harness.stderr.some((line) => /manifest/i.test(line)), 'should warn about the missing manifest');
   });
+
+  it('writes MCP configs after the stack is up and reports them', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), true);
+    assert.equal(await fs.exists('/work/proj/.cursor/mcp.json'), true);
+    assert.ok(harness.stdout.some((line) => line.includes('.mcp.json')));
+  });
+
+  it('--no-mcp-config skips the config writer', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });
+    const result = await initCommand({ command: 'init', options: { 'no-mcp-config': true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(await fs.exists('/work/proj/.mcp.json'), false);
+  });
+
+  it('a config-writer refusal (invalid JSON) warns but does not fail init', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/work/proj/.mcp.json': '{broken', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg', HOME: '/home/u' } });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0, 'init succeeded — config write is best-effort');
+    assert.equal(await fs.readFile('/work/proj/.mcp.json'), '{broken');
+    assert.ok(harness.stderr.some((line) => line.includes('not valid JSON')));
+  });
 });
 
 describe('mcp command', () => {
