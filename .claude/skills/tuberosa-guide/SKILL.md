@@ -40,7 +40,7 @@ Pick the row that matches what you want, then read that file.
 | --- | --- |
 | Drive a coding task through Tuberosa (the session loop) | `.claude/skills/tuberosa-agent-loop/SKILL.md` |
 | Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa-operating/SKILL.md` |
-| Set up the environment | `docs/SETUP.md` |
+| Set up the environment | `npx tuberosa init` (one command; run `npx tuberosa doctor` if anything fails) |
 
 ## One Note
 
