@@ -187,6 +187,8 @@ describe('init command', () => {
       '/work/proj/.env.example': 'X=1\n',
       '/pkg/package.json': '{"name":"tuberosa"}',
       '/pkg/dist/scripts/migrate.js': '',
+      '/pkg/dist/scripts/warmup-embeddings.js': '',
+      '/pkg/dist/scripts/reembed.js': '',
     });
     const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
@@ -218,7 +220,9 @@ describe('init command', () => {
     const fs = makeFs({
       '/work/proj/.env.example': 'X=1\n',
       '/pkg/package.json': '{"name":"tuberosa"}',
-      // no dist/ — only the TypeScript source is present
+      // no dist/ — only the TypeScript source is present; warmup + reembed tsx sources exist
+      '/pkg/scripts/warmup-embeddings.ts': '',
+      '/pkg/scripts/reembed.ts': '',
     });
     const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
@@ -250,33 +254,78 @@ describe('init command', () => {
       if (command === 'docker' && args.includes('exec')) return { exitCode: 0, stdout: 'accepting', stderr: '' };
       return { exitCode: 0, stdout: '', stderr: '' };
     }, calls);
-    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
-    const harness = makeIo({ fs, spawn });
+    const fs = makeFs({
+      '/work/proj/.env.example': 'X=1\n',
+      '/pkg/package.json': '{"name":"tuberosa"}',
+      '/pkg/dist/scripts/warmup-embeddings.js': '',
+      '/pkg/dist/scripts/reembed.js': '',
+    });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' }, spawn });
     const result = await initCommand({ command: 'init', options: { 'skip-migrate': true }, positional: [] }, harness.io);
     assert.equal(result.exitCode, 0);
-    assert.ok(!calls.some((c) => /migrate/.test(c.args.join(' '))), 'no migrate child should be spawned');
+    assert.ok(!calls.some((c) => /migrate\./.test(c.args.join(' '))), 'no migrate child should be spawned');
   });
 
-  it('falls back to embedded mode when docker is absent', async () => {
-    const spawn = makeSpawn((command) => {
-      if (command === 'docker') return { exitCode: 127, stdout: '', stderr: 'command not found' };
-      return { exitCode: 0, stdout: '', stderr: '' };
-    }, []);
-    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
-    const harness = makeIo({ fs, spawn });
+  it('hard-fails with guidance when Docker is missing', async () => {
+    const harness = makeIo({
+      spawn: makeSpawn((command) => (
+        command === 'docker' ? { exitCode: 1, stdout: '', stderr: 'not found' } : { exitCode: 0, stdout: '', stderr: '' }
+      ), []),
+    });
     const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
-    assert.equal(result.exitCode, 0);
-    assert.ok(harness.stdout.some((line) => /Embedded-mode init/.test(line)));
-    assert.ok(harness.stdout.some((line) => /TUBEROSA_STORE=memory/.test(line)));
-    assert.equal(await fs.exists('/work/proj/.tuberosa/compose.yml'), false, 'no compose file in embedded mode');
+    assert.equal(result.exitCode, 1);
+    assert.ok(harness.stderr.join('\n').includes('docs.docker.com'));
+    assert.ok(harness.stderr.join('\n').includes('--embedded'));
   });
 
-  it('honours --no-docker by forcing embedded mode', async () => {
-    const spawn = makeSpawn(() => ({ exitCode: 0, stdout: 'docker 24', stderr: '' }), []);
-    const fs = makeFs({ '/work/proj/.env.example': 'X=1\n' });
-    const harness = makeIo({ fs, spawn });
-    await initCommand({ command: 'init', options: { 'no-docker': true }, positional: [] }, harness.io);
-    assert.ok(harness.stdout.some((line) => /forced by --no-docker/.test(line)));
+  it('--embedded prints trial-mode instructions and exits 0 without Docker', async () => {
+    const harness = makeIo({
+      spawn: makeSpawn(() => ({ exitCode: 1, stdout: '', stderr: '' }), []),
+    });
+    const result = await initCommand({ command: 'init', options: { embedded: true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.ok(harness.stdout.join('\n').includes('volatile'));
+  });
+
+  it('--no-docker still works but prints a deprecation note', async () => {
+    const harness = makeIo({
+      spawn: makeSpawn(() => ({ exitCode: 1, stdout: '', stderr: '' }), []),
+    });
+    const result = await initCommand({ command: 'init', options: { 'no-docker': true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.ok(harness.stderr.join('\n').includes('deprecated'));
+  });
+
+  it('fails when the embedding warm-up fails', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/migrations': 'dir' });
+    const harness = makeIo({
+      fs,
+      env: { TUBEROSA_PACKAGE_ROOT: '/pkg' },
+      spawn: makeSpawn((command, args) => {
+        if (args.some((arg) => arg.includes('warmup-embeddings'))) return { exitCode: 1, stdout: '', stderr: 'model download failed' };
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }, []),
+    });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 1);
+    assert.ok(harness.stderr.join('\n').includes('--embedded'));
+  });
+
+  it('runs the reembed backfill after migrations and only warns on failure', async () => {
+    const fs = makeFs({ '/work/proj/.env.example': 'X=1', '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/scripts/migrate.js': 'm', '/pkg/dist/scripts/warmup-embeddings.js': 'w', '/pkg/dist/scripts/reembed.js': 'r', '/pkg/migrations': 'dir' });
+    const spawnCalls: RecordedSpawn[] = [];
+    const harness = makeIo({
+      fs,
+      env: { TUBEROSA_PACKAGE_ROOT: '/pkg' },
+      spawn: makeSpawn((command, args) => {
+        if (args.some((arg) => arg.includes('reembed'))) return { exitCode: 1, stdout: '', stderr: 'transient' };
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }, spawnCalls),
+    });
+    const result = await initCommand({ command: 'init', options: {}, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0); // reembed failure is a warning, not fatal
+    assert.ok(spawnCalls.some((call) => call.args.some((arg) => arg.includes('reembed'))));
+    assert.ok(harness.stderr.join('\n').includes('reembed'));
   });
 
   it('copies the bundled comprehension skill into .claude/skills when --with-skills is passed', async () => {
