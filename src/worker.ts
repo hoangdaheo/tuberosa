@@ -1,10 +1,22 @@
 import { createAppServices } from './app.js';
+import type { AppServices } from './app.js';
 import { runArchivalSweep } from './atoms/archival.js';
 import { inferCoChangeLinks } from './atoms/inference/co-change.js';
 import { pruneStaleEdges } from './atoms/inference/prune.js';
 import { clusterUserCorrections } from './user-style/clusterer.js';
 
-const services = await createAppServices();
+let services: AppServices;
+try {
+  services = await createAppServices();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`[tuberosa] worker startup failed: ${message}\n`);
+  process.stderr.write(
+    "[tuberosa] If the store is unreachable, run 'npx tuberosa init' first, " +
+      'or set TUBEROSA_EMBEDDED=1 for volatile trial mode.\n',
+  );
+  process.exit(1);
+}
 
 console.log('Tuberosa worker started. Ingestion is currently API-driven; queued jobs can be added behind this process.');
 

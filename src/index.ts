@@ -1,7 +1,19 @@
 import { createAppServices } from './app.js';
+import type { AppServices } from './app.js';
 import { createHttpServer } from './http/server.js';
 
-const services = await createAppServices();
+let services: AppServices;
+try {
+  services = await createAppServices();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`[tuberosa] HTTP server startup failed: ${message}\n`);
+  process.stderr.write(
+    "[tuberosa] If the store is unreachable, run 'npx tuberosa init' first, " +
+      'or set TUBEROSA_EMBEDDED=1 for volatile trial mode.\n',
+  );
+  process.exit(1);
+}
 
 // Fail-fast: do not bind to a non-loopback host with no authentication.
 const isLoopbackHost = ['127.0.0.1', '::1', 'localhost'].includes(services.config.http.host);

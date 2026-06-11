@@ -1,12 +1,34 @@
 import { createAppServices } from './app.js';
+import type { AppServices } from './app.js';
 import { appErrorToJsonRpcError } from './errors.js';
 import { handleMcpRequest } from './mcp/server.js';
 
-if (!process.env.TUBEROSA_CACHE) {
+// Embedded mode: TUBEROSA_EMBEDDED=1/true opts into the volatile trial stack
+// (memory store, no Redis, hash embeddings). Useful when Postgres / Redis are
+// unavailable and the caller cannot pass CLI flags directly (e.g. MCP configs
+// that only support env vars).
+if (process.env.TUBEROSA_EMBEDDED === '1' || process.env.TUBEROSA_EMBEDDED === 'true') {
+  process.env.TUBEROSA_STORE = 'memory';
+  process.env.TUBEROSA_CACHE = 'memory';
+  process.env.TUBEROSA_MODEL_PROVIDER = 'hash';
+} else if (!process.env.TUBEROSA_CACHE) {
+  // Non-embedded direct-launch fallback: keep cache in-process so the MCP
+  // server can initialize without Redis even when started without `tuberosa mcp`.
   process.env.TUBEROSA_CACHE = 'memory';
 }
 
-const services = await createAppServices();
+let services: AppServices;
+try {
+  services = await createAppServices();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`[tuberosa] MCP server startup failed: ${message}\n`);
+  process.stderr.write(
+    "[tuberosa] If the store is unreachable, run 'npx tuberosa init' first, " +
+      'or set TUBEROSA_EMBEDDED=1 for volatile trial mode.\n',
+  );
+  process.exit(1);
+}
 let buffer = Buffer.alloc(0);
 
 // Hard ceiling on a single JSON-RPC frame to prevent OOM from a malformed/malicious

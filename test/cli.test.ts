@@ -374,8 +374,8 @@ describe('mcp command', () => {
     assert.equal(calls[0]!.command, 'node');
     assert.deepEqual(calls[0]!.args, ['/pkg/dist/src/mcp-stdio.js']);
     assert.equal(calls[0]!.cwd, '/work/proj', 'child cwd is the user project, so the mirror lands there');
-    assert.equal(calls[0]!.env?.TUBEROSA_STORE, 'memory');
-    assert.equal(calls[0]!.env?.TUBEROSA_MODEL_PROVIDER, 'hash');
+    assert.equal(calls[0]!.env?.TUBEROSA_STORE, 'postgres');
+    assert.equal(calls[0]!.env?.TUBEROSA_MODEL_PROVIDER, 'local');
   });
 
   it('falls back to tsx entry when dist is missing', async () => {
@@ -413,8 +413,47 @@ describe('mcp command', () => {
   it('preserves user-set env vars instead of overwriting them', () => {
     const env = buildEnv({ TUBEROSA_STORE: 'postgres', PATH: '/bin' });
     assert.equal(env.TUBEROSA_STORE, 'postgres');
-    assert.equal(env.TUBEROSA_CACHE, 'memory');
+    assert.equal(env.TUBEROSA_CACHE, 'redis');
     assert.equal(env.PATH, '/bin');
+  });
+
+  it('mcp --embedded spawns the server with the trial env', async () => {
+    const fs = makeFs({ '/pkg/package.json': '{"name":"tuberosa"}', '/pkg/dist/src/mcp-stdio.js': 'compiled' });
+    const harness = makeIo({ fs, env: { TUBEROSA_PACKAGE_ROOT: '/pkg' } });
+    const result = await mcpCommand({ command: 'mcp', options: { embedded: true }, positional: [] }, harness.io);
+    assert.equal(result.exitCode, 0);
+    assert.equal(harness.spawnCalls[0]?.env?.TUBEROSA_STORE, 'memory');
+    assert.equal(harness.spawnCalls[0]?.env?.TUBEROSA_MODEL_PROVIDER, 'hash');
+  });
+});
+
+describe('mcp buildEnv (Spec A defaults)', () => {
+  it('defaults to the full-feature stack', () => {
+    const env = buildEnv({});
+    assert.equal(env.TUBEROSA_STORE, 'postgres');
+    assert.equal(env.TUBEROSA_CACHE, 'redis');
+    assert.equal(env.TUBEROSA_MODEL_PROVIDER, 'local');
+    assert.equal(env.TUBEROSA_AUTO_MIGRATE, 'false');
+  });
+
+  it('preserves user-exported values', () => {
+    const env = buildEnv({ TUBEROSA_STORE: 'memory', TUBEROSA_MODEL_PROVIDER: 'openai' });
+    assert.equal(env.TUBEROSA_STORE, 'memory');
+    assert.equal(env.TUBEROSA_MODEL_PROVIDER, 'openai');
+    assert.equal(env.TUBEROSA_CACHE, 'redis');
+  });
+
+  it('--embedded forces the volatile trial stack', () => {
+    const env = buildEnv({ TUBEROSA_STORE: 'postgres' }, { embedded: true });
+    assert.equal(env.TUBEROSA_STORE, 'memory');
+    assert.equal(env.TUBEROSA_CACHE, 'memory');
+    assert.equal(env.TUBEROSA_MODEL_PROVIDER, 'hash');
+  });
+
+  it('TUBEROSA_EMBEDDED=1 in the environment triggers embedded mode', () => {
+    const env = buildEnv({ TUBEROSA_EMBEDDED: '1' });
+    assert.equal(env.TUBEROSA_STORE, 'memory');
+    assert.equal(env.TUBEROSA_MODEL_PROVIDER, 'hash');
   });
 });
 
