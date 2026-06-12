@@ -93,7 +93,7 @@ Tuberosa has exactly two pillars. Everything else supports one of them.
 | **FIND** | Retrieve the right knowledge for the task right now | The librarian who hands you the 3 books you need | `tuberosa_search_context` |
 | **LEARN** | Turn a finished task into a reviewed lesson for next time | The notebook of "things we learned the hard way" | `tuberosa_start_session` → `tuberosa_finish_session` |
 
-> **Important nuance:** LEARN only *automatically extracts* new lessons when a smart model provider (`ollama` or `openai`) is turned on. With the default `hash` provider, FIND works fully, and you can still record lessons manually — but automatic lesson extraction is off. (See [Configuration](#configuration).)
+> **Important nuance:** LEARN only *automatically extracts* new lessons when a generation-capable model provider (`ollama` or `openai`) is turned on. With the default `local` provider (real embeddings, no API key) and with `hash`, FIND works fully and you can still record lessons manually — but automatic lesson extraction is off. (See [Configuration](#configuration).)
 
 ---
 
@@ -102,16 +102,20 @@ Tuberosa has exactly two pillars. Everything else supports one of them.
 You need **Node 22+** and **pnpm 11+**. Three commands get you running:
 
 ```bash
-npx tuberosa init      # set up the local stack (Docker if present, embedded fallback otherwise)
+npx tuberosa init      # set up the local stack (Docker required; --embedded for a volatile trial)
 npx tuberosa doctor    # health check: Node / pnpm / Docker / port / Postgres / MCP
-npx tuberosa mcp       # run the MCP server an agent talks to (safe local defaults)
+npx tuberosa mcp       # run the MCP server an agent talks to (full stack by default)
 ```
 
 What each one does, in plain words:
 
-- **`init`** — gets you ready. If Docker is installed it writes `.tuberosa/compose.yml`, starts Postgres + Redis, waits for them to be healthy, runs the database migrations, and copies `.env.example → .env`. If Docker is missing, it falls back to *embedded mode* (everything in memory). Safe to run again — it won't clobber what's already there.
+- **`init`** — gets you ready. **Docker is required.** It writes `.tuberosa/compose.yml`, starts Postgres + Redis, waits for them to be healthy, runs the database migrations, warms up the local embedding model, and copies `.env.example → .env`. It also:
+  - writes agent MCP configs — `.mcp.json`, `.cursor/mcp.json`, and `~/.codex/config.toml` (Codex only when `~/.codex/` exists). Skip with `--no-mcp-config`.
+  - copies the 5 bundled agent skills into `.claude/skills/`. Skip with `--no-skills`.
+
+  No Docker? init **fails with install guidance**. For a quick look without Docker, `npx tuberosa init --embedded` runs the volatile trial mode (memory store, hash embeddings, data lost on exit). Safe to run again — it never overwrites what's already there.
 - **`doctor`** — tells you *why* something is broken before you waste time guessing.
-- **`mcp`** — starts the server your agent connects to. It defaults to memory store + memory cache + `hash` provider, so it works with **zero external services**.
+- **`mcp`** — starts the server your agent connects to. It defaults to the **full stack** (Postgres + Redis + local embeddings), matching what `init` provisioned. Add `--embedded` for the zero-dependency volatile trial stack.
 
 ### Want to try it with literally zero setup?
 
@@ -129,6 +133,7 @@ This runs Tuberosa entirely in memory. ✅ Great for poking at the API. ❌ Lose
 ```bash
 corepack enable
 pnpm install
+cp .env.example .env       # compose reads it; sets TUBEROSA_MODEL_PROVIDER=local
 docker compose up --build -d
 curl http://localhost:3027/health
 ```
@@ -143,9 +148,11 @@ A healthy stack replies:
   "durability": "persistent",
   "backupDir": ".tuberosa/backups",
   "cache": "redis",
-  "modelProvider": "hash"
+  "modelProvider": "local"
 }
 ```
+
+(`modelProvider` echoes `TUBEROSA_MODEL_PROVIDER`. Without a `.env`, `docker compose` falls back to `hash` — see `docker-compose.yml`.)
 
 Stop it with `docker compose down` (add `-v` to also wipe the Postgres data).
 
@@ -275,7 +282,7 @@ When an agent asks for context, the request walks a short assembly line. Each st
 | 2 | **Rewrite (only if needed)** | Probe first. If the top results already look strong, skip rewriting. Otherwise ask the model for a better-angled query, reusing the probe's embedding. |
 | 3 | **Search in parallel** | Five sources at once: labels & references, full-text search, vector similarity, approved memories — then expand through the knowledge/atom graph from the best hits. |
 | 4 | **Fuse** | Weighted reciprocal-rank fusion across all five lists. |
-| 5 | **Rerank** | Re-order the top slice (`hash` by default, or `openai` / `ollama`). |
+| 5 | **Rerank** | Re-order the top slice (local cross-encoder by default, with `hash` as fallback; or `openai` / `ollama`). |
 | 6–7 | **Adjust** | Boost items with positive feedback; penalize stale, superseded, or evidence-mismatched items. |
 | 8 | **Check fit** | Emit `ready` / `needs_confirmation` / `insufficient` and list missing signals. `noiseTolerance="strict"` drops weak items here. |
 | 9 | **Assemble** | Split survivors into `essential` / `supporting` / `optional` within the token budget. |
@@ -371,9 +378,10 @@ Run from anywhere with `npx tuberosa <command>` (or `pnpm run <command>` inside 
 
 | Command | What it's for |
 |---|---|
-| `tuberosa init` | Bootstrap the local stack. Copies bundled agent skills into `.claude/skills/` and writes agent MCP configs by default. `--no-skills` / `--no-mcp-config` to skip either. `--no-docker` forces embedded mode. |
+| `tuberosa init` | Bootstrap the local stack — **Docker required** (hard-fails with install guidance if missing). Copies the 5 bundled agent skills into `.claude/skills/` and writes agent MCP configs by default (`--no-skills` / `--no-mcp-config` to skip; never overwrites existing files). `--embedded` opts into the volatile trial stack instead (`--no-docker` is a deprecated alias). |
 | `tuberosa doctor` | Diagnose Node, pnpm, Docker, port 3027, Postgres reachability, and MCP stdout sanity. |
 | `tuberosa mcp` | Run the MCP stdio server — full stack by default (postgres + redis + local embeddings); `--embedded` for the volatile trial stack. |
+| `tuberosa mcp install` | (Re)write agent MCP configs on demand: `.mcp.json`, `.cursor/mcp.json`, `~/.codex/config.toml` (Codex only when `~/.codex/` exists). Merge-only — never clobbers other servers in an existing config; the TOML is append-only with a marker. |
 | `tuberosa bootstrap` | **First-run project knowledge**: additive sync + atlas + a health summary. Add `--deep` for a deeper pass, `--export` to also write a bundle. |
 | `tuberosa sync` | Detect added / changed / renamed / deleted files and review or apply a cleanup plan. `--apply` applies additive ops; archiving deleted files also needs `--yes`. |
 | `tuberosa hook` | Manage git hooks — `tuberosa hook install` wires **additive-only auto-sync** so knowledge stays fresh on every commit. |
@@ -495,7 +503,7 @@ Copy `.env.example → .env`. The variables that matter most:
 | `TUBEROSA_STORE` | `postgres` | `postgres` or `memory`. |
 | `TUBEROSA_CACHE` | `redis` | `redis`, `memory`, or `none`. MCP stdio defaults to `memory`. |
 | `TUBEROSA_AUTO_MIGRATE` | `true` | Run migrations on app start. |
-| `TUBEROSA_MODEL_PROVIDER` | `hash` | `hash` (offline, deterministic), `openai`, or `ollama`. |
+| `TUBEROSA_MODEL_PROVIDER` | `local` | `local` (real embeddings via `Xenova/bge-small-en-v1.5`, offline after the one-time model download), `hash` (deterministic, zero downloads), `openai`, or `ollama`. Auto-selection: `openai` when `OPENAI_API_KEY` is set; `hash` when `TUBEROSA_EMBEDDED=1`. |
 | `TUBEROSA_CONTEXT_MODE` | `layered` | `layered` adds deep-context expansion; `compact` is shortlist only. |
 | `TUBEROSA_DEEP_CONTEXT_BUDGET` | `60000` | Tokens. Clamped 30k–100k. |
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Context-pack cache lifetime. |
@@ -552,7 +560,7 @@ The extended seed wraps each file in its own try/catch — `IngestionService.ing
 
 ```bash
 pnpm run build           # TypeScript compile to dist/
-pnpm test                # full unit suite (157 test files)
+pnpm test                # full unit suite (all test/*.test.ts)
 pnpm run dev             # HTTP server in watch mode (port 3027)
 pnpm run mcp             # MCP stdio server
 pnpm run migrate         # apply SQL migrations
@@ -569,6 +577,7 @@ pnpm run sandbox:ablate         # disable each retrieval source in turn to measu
 pnpm run calibrate-fusion       # emit a calibrated config/retrieval-policy.json patch
 
 pnpm run test:integration       # Docker-gated Postgres+Redis tests (skips if the stack is down)
+pnpm run verify:bundled-skills  # prepack gate: skills manifest ↔ package.json files ↔ disk parity + consumer-safety grep
 ```
 
 Older Node in your shell? Either `nvm use` or prefix the command:
@@ -633,13 +642,14 @@ Everything below is a file that **actually exists** in this repo (the old `wiki/
 | **README.md** (this file) | The one-page overview. |
 | [`docs/SETUP.md`](docs/SETUP.md) | Environment setup + the full model-provider matrix. |
 | [`docs/MINIMAL_ENV.md`](docs/MINIMAL_ENV.md) | The smallest set of env vars to get running. |
-| [`docs/INSTALL.md`](docs/INSTALL.md) | Publish to npm/pnpm *and* the end-user install + MCP wiring guide. |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Publish to npm/pnpm, the end-user install + MCP wiring guide, and the script triage (which `package.json` scripts are for end users / operators / contributors). |
 | [`docs/EXAMPLES.md`](docs/EXAMPLES.md) | Verified, copy-pasteable scenarios. |
 | [`docs/tuberosa-project.md`](docs/tuberosa-project.md) | Project intent and original design notes. |
 | `.claude/skills/tuberosa-guide/SKILL.md` | What Tuberosa is, the full tool list, FIND vs LEARN. |
 | `.claude/skills/tuberosa-agent-loop/SKILL.md` | Drive one coding task through the session loop. |
 | `.claude/skills/tuberosa-onboard-project/SKILL.md` | Onboard / comprehend a whole project into Tuberosa, and keep it fresh. |
 | `.claude/skills/tuberosa-operating/SKILL.md` | Operate Tuberosa as a human: ingest, review drafts, run evals, turn on learning. |
+| `.claude/skills/tuberosa-using/SKILL.md` | End-user usage map: the daily tool loop, the install lifecycle, operator maintenance tasks, and which repo scripts to ignore. |
 
 External references:
 
