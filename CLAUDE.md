@@ -41,6 +41,7 @@ If ToolSearch says no matching `tuberosa_*` tools exist, or the MCP server disco
 | Drive a coding task through the session loop | `.claude/skills/tuberosa-agent-loop/SKILL.md` |
 | Onboard / comprehend a project into Tuberosa (and keep it fresh) | `.claude/skills/tuberosa-onboard-project/SKILL.md` |
 | Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa-operating/SKILL.md` |
+| Which command/tool does what day to day (session loop, lifecycle, maintenance tasks) | `.claude/skills/tuberosa-using/SKILL.md` |
 | Set up the environment | `docs/SETUP.md` |
 
 These teach the rule above; they do not replace it. The skills live at a **flat** path (`.claude/skills/<name>/SKILL.md`) so Claude Code's Skill tool discovers them — skills nested two levels deep are never auto-loaded.
@@ -59,6 +60,7 @@ pnpm run sandbox          # Knowledge-mapping sandbox: tiered synthetic corpus +
 pnpm run sandbox:ablate   # Sandbox with per-source ablation rows (lexical/vector/metadata/memory/graph each disabled in turn)
 pnpm run calibrate-fusion # Phase 4: re-run the sandbox and emit a calibrated config/retrieval-policy.json patch (sourceWeights + per-task profiles)
 pnpm run test:integration # Docker-gated Postgres + Redis integration tests (skips if stack is down)
+pnpm run verify:bundled-skills # Prepack gate: bundled-skills manifest ↔ package.json files ↔ on-disk parity + consumer-safety grep
 ```
 
 Run a single test file:
@@ -99,7 +101,7 @@ The core flow in `RetrievalService.searchContext` (`src/retrieval/service.ts`):
 2. **Query rewrite** (`model/provider.ts`) — optional OpenAI-backed expansion of the lexical query.
 3. **Parallel search** — metadata labels/references, Postgres FTS (`searchLexical`), pgvector (`searchVector`), approved-memory (`searchMemories`) run concurrently; then graph relation expansion (`searchGraphRelations`) uses seed IDs from those results.
 4. **Fuse** (`fusion.ts`) — weighted reciprocal-rank fusion across all five candidate lists.
-5. **Rerank** (`model/provider.ts`) — deterministic hash reranker (default) or OpenAI structured-output reranker.
+5. **Rerank** (`model/provider.ts`) — local cross-encoder by default, with hash as fallback; or the OpenAI / Ollama rerankers.
 6. **Ranking adjustments** (`service.ts`) — apply feedback score deltas and intent-suppression penalties (stale, superseded, evidence mismatch).
 7. **Context fit** (`context-fit.ts`) — emit `ready/needs_confirmation/insufficient` and list missing signals.
 8. **Assemble** (`context-pack.ts`) — split into `essential/supporting/optional` sections within token budget.
@@ -121,6 +123,7 @@ The core flow in `RetrievalService.searchContext` (`src/retrieval/service.ts`):
 - `LocalCrossEncoderProvider` (via `ProviderRegistry`) — **default** provider (`TUBEROSA_MODEL_PROVIDER=local`). Real embeddings via `@xenova/transformers` (`Xenova/bge-small-en-v1.5`, 384-dim), downloaded once to `~/.cache/tuberosa/models` on first use.
 - `HashModelProvider` — deterministic, no API key, used in all tests. Also the embedded trial mode provider.
 - `OpenAiModelProvider` — embeddings via `/v1/embeddings`, rewrite/rerank via `/v1/responses` with structured JSON output schemas.
+- `OllamaRerankProvider` / `OllamaGenerationProvider` (`ollama-provider.ts`, `ollama-generation.ts`) — rerank via Ollama's `/api/rerank` (hash fallback); atom extraction for LEARN only when `TUBEROSA_OLLAMA_EXTRACT_MODEL` is set.
 
 Selected by `TUBEROSA_MODEL_PROVIDER` env var. Defaults to `local` unless `OPENAI_API_KEY` is set (then `openai`) or `TUBEROSA_EMBEDDED=1` is set (then `hash`).
 
@@ -150,10 +153,12 @@ When `TUBEROSA_PHYSICAL_MIRROR_ENABLED=true`, every write to Postgres is debounc
 
 **Retrieval improvements require eval coverage first.** Do not add heuristics or weight tweaks without a fixture case that would fail without the change.
 
+**Bundled skills must stay consumer-safe.** The skills listed in `.claude/skills/bundled-skills.json` ship into end-user projects via `npx tuberosa init`. Their SKILL.md files must contain no literal `docs/`, `pnpm run`, or `eval/` strings — those paths only exist in this checkout, not in a consumer repo. Adding a skill means three things in one change: a manifest entry, a `package.json` `files` entry, and the SKILL.md on disk. `pnpm run verify:bundled-skills` must pass before any commit that touches them.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **tuberosa** (9871 symbols, 21739 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **tuberosa**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

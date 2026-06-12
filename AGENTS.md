@@ -74,10 +74,10 @@ The v1 architecture is:
 - HTTP API for CRUD, ingestion, retrieval, feedback, and reflection review.
 - Postgres plus pgvector for durable knowledge, labels, references, chunks, vectors, context packs, feedback, and reflection memory.
 - Redis for short-lived context-pack caching and coordination.
-- Provider-pluggable model adapter, with deterministic hash embeddings for local development and OpenAI embeddings when configured.
+- Provider-pluggable model adapter: local embeddings by default (`Xenova/bge-small-en-v1.5`), deterministic hash embeddings for tests and embedded trial mode, OpenAI or Ollama when configured.
 - Docker Compose deployment for Postgres, Redis, app, and worker.
 
-Before substantial work, read `tuberosa-project.md` for the product intent and `handoff.md` for current work state, recent verification, known failures, and next-step recommendations.
+Before substantial work, read `docs/tuberosa-project.md` for the product intent.
 
 ## Stack And Runtime
 
@@ -209,7 +209,7 @@ Run `git diff --check` before handing off changes.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **tuberosa** (10233 symbols, 22075 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **tuberosa**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
