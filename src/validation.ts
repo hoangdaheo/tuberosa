@@ -418,12 +418,56 @@ export function validateSubmitSessionAtomsInput(args: unknown): {
       return { ...ev, kind } as ExtractedAtomCandidate['evidence'][number];
     }) : [];
     const trigger = (a.trigger && typeof a.trigger === 'object') ? a.trigger as ExtractedAtomCandidate['trigger'] : {};
+    // Coerce trigger array fields: only keep arrays of strings
+    const cleanTrigger: ExtractedAtomCandidate['trigger'] = {};
+    if (Array.isArray(trigger.errors)) {
+      cleanTrigger.errors = trigger.errors.filter((e) => typeof e === 'string') as string[];
+      if (cleanTrigger.errors.length === 0) delete cleanTrigger.errors;
+    }
+    if (Array.isArray(trigger.files)) {
+      cleanTrigger.files = trigger.files.filter((f) => typeof f === 'string') as string[];
+      if (cleanTrigger.files.length === 0) delete cleanTrigger.files;
+    }
+    if (Array.isArray(trigger.symbols)) {
+      cleanTrigger.symbols = trigger.symbols.filter((s) => typeof s === 'string') as string[];
+      if (cleanTrigger.symbols.length === 0) delete cleanTrigger.symbols;
+    }
+    if (Array.isArray(trigger.taskTypes)) {
+      cleanTrigger.taskTypes = trigger.taskTypes.filter((t) => typeof t === 'string') as string[];
+      if (cleanTrigger.taskTypes.length === 0) delete cleanTrigger.taskTypes;
+    }
+    if (Array.isArray(trigger.intentTags)) {
+      cleanTrigger.intentTags = trigger.intentTags.filter((tag) => typeof tag === 'string') as string[];
+      if (cleanTrigger.intentTags.length === 0) delete cleanTrigger.intentTags;
+    }
+    // Clean verification: only keep string command/assertion and valid testRef
+    let verification: ExtractedAtomCandidate['verification'] | undefined;
+    if (a.verification && typeof a.verification === 'object' && !Array.isArray(a.verification)) {
+      verification = {};
+      const v = a.verification as Record<string, unknown>;
+      if (typeof v.command === 'string') {
+        verification.command = v.command;
+      }
+      if (typeof v.assertion === 'string') {
+        verification.assertion = v.assertion;
+      }
+      if (v.testRef && typeof v.testRef === 'object' && !Array.isArray(v.testRef)) {
+        const testRef = v.testRef as Record<string, unknown>;
+        if (typeof testRef.path === 'string' && typeof testRef.testName === 'string') {
+          verification.testRef = { path: testRef.path, testName: testRef.testName };
+        }
+      }
+      // If verification is now empty, omit it
+      if (Object.keys(verification).length === 0) {
+        verification = undefined;
+      }
+    }
     return {
       claim,
       type: type as ExtractedAtomCandidate['type'],
       evidence,
-      trigger,
-      verification: a.verification as ExtractedAtomCandidate['verification'],
+      trigger: cleanTrigger,
+      verification,
       pitfalls: Array.isArray(a.pitfalls) ? a.pitfalls.map(String) : undefined,
     } satisfies ExtractedAtomCandidate;
   });

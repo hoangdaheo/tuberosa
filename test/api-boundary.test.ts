@@ -1029,6 +1029,63 @@ test('tuberosa_submit_session_atoms rejects a missing atoms array', async () => 
   );
 });
 
+test('tuberosa_submit_session_atoms cleanses verification.command and trigger array fields', async () => {
+  const storedAtoms: unknown[] = [];
+  const services = fakeServices({
+    agentSessions: {
+      startSession: async () => ({
+        session: {
+          id: 'session-1',
+          project: 'agent-memory',
+          prompt: 'Test atoms',
+          status: 'active',
+          initialContextPackId: 'pack-1',
+          reflectionDraftIds: [],
+          metadata: {},
+          createdAt: new Date().toISOString(),
+        },
+        contextPack: samplePack(),
+        policy: { action: 'proceed', instruction: 'Context fit is ready.' },
+      }),
+      submitSessionAtoms: async (input: { sessionId: string; atoms: unknown[] }) => {
+        storedAtoms.push(...input.atoms);
+        return {
+          stored: [{ id: 'atom-1', claim: 'Bad verification.command should be dropped.' }],
+          rejected: [],
+          queuedLegacyMigrations: [],
+        };
+      },
+    },
+  });
+
+  const result = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_submit_session_atoms',
+      arguments: {
+        sessionId: 'session-1',
+        atoms: [
+          {
+            claim: 'Bad verification.command should be dropped.',
+            type: 'fact',
+            evidence: [{ kind: 'file', path: 'src/index.ts' }],
+            trigger: { files: ['src/main.ts'], taskTypes: ['implementation'] },
+            verification: { command: 42, assertion: 'test passes' },
+          },
+        ],
+      },
+    },
+  }) as { structuredContent?: { stored?: unknown[]; rejected?: unknown[]; instruction?: string } };
+
+  ok(result.structuredContent?.stored !== undefined || result.structuredContent?.rejected !== undefined);
+  equal(storedAtoms.length, 1);
+  const atom = storedAtoms[0] as any;
+  equal(atom?.verification?.command, undefined, 'numeric command should be dropped');
+  equal(atom?.verification?.assertion, 'test passes', 'string assertion should be preserved');
+  deepEqual(atom?.trigger?.files, ['src/main.ts'], 'files array should be preserved');
+  deepEqual(atom?.trigger?.taskTypes, ['implementation'], 'taskTypes array should be preserved');
+});
+
 test('MCP tools: 37 tools, each categorized, wire response excludes category', async () => {
   const list = tools();
   equal(list.length, 37);
