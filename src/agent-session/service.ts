@@ -36,6 +36,7 @@ import type {
   FinishAgentSessionInput,
   HandbookStatus,
   LabelInput,
+  LearningHandoff,
   ReferenceInput,
   ResearchTraceSummary,
   RecordAgentContextDecisionInput,
@@ -210,6 +211,24 @@ export class AgentSessionService {
         : undefined;
     }
 
+    const extractorAvailable = Boolean(this.models?.extractAtoms);
+    const learningHandoff: LearningHandoff | undefined =
+      (!reflectionDraft && !extractorAvailable)
+        ? {
+          reason: 'No model atom-extractor is configured. You (the agent) are the highest-quality source of lessons for this session.',
+          instruction: 'Reflect on what was learned and submit generalizable atoms with tuberosa_submit_session_atoms (or a free-text lesson with tuberosa_reflect).',
+          submitTool: 'tuberosa_submit_session_atoms',
+          session: {
+            sessionId: input.sessionId,
+            project: existingSession.project,
+            summary: input.summary ?? input.agentOutputSummary,
+            changedFiles: input.changedFiles,
+            verificationCommands: input.verificationCommands,
+            decisions: decisions.map((d) => ({ decision: d.decision, reason: d.reason })),
+          },
+        }
+        : undefined;
+
     return {
       session,
       reflectionDraft: reflectionDraft ?? learning.draft,
@@ -218,6 +237,7 @@ export class AgentSessionService {
       learningDecision: learning.decision,
       compliance,
       curationNudge,
+      learningHandoff,
     };
   }
 

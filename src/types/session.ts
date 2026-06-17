@@ -279,6 +279,20 @@ export interface AgentSessionDecisionResult {
   policy?: AgentSessionPolicy;
 }
 
+export interface LearningHandoff {
+  reason: string;
+  instruction: string;
+  submitTool: 'tuberosa_submit_session_atoms';
+  session: {
+    sessionId: string;
+    project?: string;
+    summary?: string;
+    changedFiles?: string[];
+    verificationCommands?: string[];
+    decisions: Array<{ decision: string; reason?: string }>;
+  };
+}
+
 export interface AgentSessionFinishResult {
   session: AgentSession;
   reflectionDraft?: ReflectionDraft;
@@ -292,6 +306,12 @@ export interface AgentSessionFinishResult {
    * the agent is invited to call `tuberosa_propose_curation`.
    */
   curationNudge?: { count: number; prompt: string; toolCall: string };
+  /**
+   * Emitted when no model atom-extractor is configured AND the agent did not
+   * supply a reflectionDraft. Nudges the calling agent to reflect and submit
+   * lessons via `tuberosa_submit_session_atoms`.
+   */
+  learningHandoff?: LearningHandoff;
 }
 
 export interface AgentSessionPolicy {

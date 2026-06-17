@@ -536,6 +536,46 @@ test('post-finish session note appends notes and optionally records feedback', a
   ok(notes?.some((entry) => entry.note.includes('noisy with backup memories')));
 });
 
+test('finishSession emits learningHandoff when no extractor and no draft', async () => {
+  const { sessions, startedSessionId } = await setupAgentSession({ withExtractor: false });
+  const finished = await sessions.finishSession({ sessionId: startedSessionId, outcome: 'completed' });
+  ok(finished.learningHandoff, 'expected a handoff');
+  equal(finished.learningHandoff?.submitTool, 'tuberosa_submit_session_atoms');
+});
+
+test('finishSession omits learningHandoff when an extractor is present', async () => {
+  const { sessions, startedSessionId } = await setupAgentSession({ withExtractor: true });
+  const finished = await sessions.finishSession({ sessionId: startedSessionId, outcome: 'completed' });
+  equal(finished.learningHandoff, undefined);
+});
+
+test('finishSession omits learningHandoff when the agent supplies a reflectionDraft', async () => {
+  const { sessions, startedSessionId } = await setupAgentSession({ withExtractor: false });
+  const finished = await sessions.finishSession({
+    sessionId: startedSessionId,
+    outcome: 'completed',
+    reflectionDraft: { title: 'Test reflection title', summary: 'Test summary text for session', content: 'Test content body for learning handoff omission.', triggerType: 'manual' },
+  });
+  equal(finished.learningHandoff, undefined);
+});
+
+async function setupAgentSession({ withExtractor }: { withExtractor: boolean }) {
+  const store = new MemoryKnowledgeStore();
+  const cache = new MemoryCache();
+  const baseModels = new HashModelProvider(1536);
+  // HashModelProvider has extractAtoms (returns fixture atoms), so it counts as
+  // "has extractor". For the "no extractor" case we omit models from the service
+  // so this.models is undefined — the same pattern createTestServices() uses.
+  const ingestion = new IngestionService(store, baseModels);
+  const retrieval = new RetrievalService(store, cache, baseModels, config);
+  const reflection = new ReflectionService(store, ingestion);
+  const sessions = withExtractor
+    ? new AgentSessionService(store, retrieval, reflection, baseModels)
+    : new AgentSessionService(store, retrieval, reflection);
+  const started = await sessions.startSession({ project: 'handoff-test', cwd: '/repo', prompt: 'Test handoff' });
+  return { sessions, startedSessionId: started.session.id };
+}
+
 function createTestServices() {
   const store = new MemoryKnowledgeStore();
   const cache = new MemoryCache();
