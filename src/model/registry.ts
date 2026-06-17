@@ -124,6 +124,12 @@ export function buildProviderRegistry(config: AppConfig): ModelProvider | null {
     provider: local,
     capabilities: ['embed', 'rerank'],
   }));
+  if (config.model.ollamaExtractModel) {
+    registry.registerExtraction('ollama-generation', new OllamaGenerationProvider({
+      modelId: config.model.ollamaExtractModel,
+      ollamaUrl: config.model.ollamaUrl,
+    }));
+  }
   return registry;
 }
 

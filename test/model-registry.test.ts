@@ -125,3 +125,21 @@ test('registry passes extractAtoms + judgeAtomUtility through when extract model
   equal(capabilities.get('extractAtoms'), 'ollama-generation');
   equal(capabilities.get('judgeAtomUtility'), 'ollama-generation');
 });
+
+test('local provider composes ollama extraction when extract model is set', () => {
+  const config = baseConfig({
+    provider: 'local',
+    embeddingDimensions: 384,
+    ollamaExtractModel: 'qwen2.5:3b-instruct',
+    ollamaUrl: 'http://localhost:11434',
+  });
+  const registry = buildProviderRegistry(config);
+  ok(registry, 'registry should be built for local provider');
+  equal(typeof (registry as ProviderRegistry).extractAtoms, 'function', 'extraction should be wired from ollama');
+});
+
+test('local provider has no extraction when extract model is unset', () => {
+  const config = baseConfig({ provider: 'local', embeddingDimensions: 384 });
+  const registry = buildProviderRegistry(config);
+  equal((registry as ProviderRegistry).extractAtoms, undefined);
+});
