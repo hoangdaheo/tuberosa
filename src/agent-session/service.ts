@@ -1,8 +1,9 @@
 import { NotFoundError } from '../errors.js';
 import type { AppConfig } from '../config.js';
 import type { Cache } from '../cache.js';
-import { AtomExtractor } from '../atoms/extractor.js';
+import { AtomExtractor, type ExtractFromSessionResult } from '../atoms/extractor.js';
 import { AtomCritic } from '../atoms/critic.js';
+import type { ExtractedAtomCandidate } from '../model/provider.js';
 import { routeUserPreferenceSignal } from '../user-style/finish-session-router.js';
 import type { ModelProvider } from '../model/provider.js';
 import {
@@ -282,6 +283,33 @@ export class AgentSessionService {
         metadata: { source: 'atom_critic', candidate: rejected.candidate },
       });
     }
+  }
+
+  /**
+   * Accept agent-authored atom candidates and run them through the same
+   * critic/embed/store pipeline used by extractSessionAtoms. The calling agent
+   * must supply a valid session id; the project defaults to the session's stored
+   * project when omitted.
+   */
+  async submitSessionAtoms(input: {
+    sessionId: string;
+    project?: string;
+    atoms: ExtractedAtomCandidate[];
+  }): Promise<ExtractFromSessionResult> {
+    const session = await this.store.getAgentSession(input.sessionId);
+    if (!session) {
+      throw new NotFoundError(`Agent session not found: ${input.sessionId}`);
+    }
+    if (!this.models) {
+      throw new Error('No model provider configured; cannot embed submitted atoms.');
+    }
+    const project = input.project ?? session.project ?? 'unknown';
+    const critic = new AtomCritic(this.store, this.models, {
+      cache: this.cache,
+      llmCriticEnabled: this.config.model?.llmCriticEnabled,
+    });
+    const extractor = new AtomExtractor(this.store, this.models, critic);
+    return extractor.ingestCandidates(input.atoms, { project, sessionId: input.sessionId });
   }
 
   /**

@@ -965,9 +965,73 @@ test('malformed MCP tool inputs map to JSON-RPC invalid params errors', async ()
   equal(rpcError.data.status, 400);
 });
 
-test('MCP tools: 36 tools, each categorized, wire response excludes category', async () => {
+test('tuberosa_submit_session_atoms validates and routes agent atoms', async () => {
+  const storedAtoms: unknown[] = [];
+  const services = fakeServices({
+    agentSessions: {
+      startSession: async () => ({
+        session: {
+          id: 'session-1',
+          project: 'agent-memory',
+          prompt: 'Test atoms',
+          status: 'active',
+          initialContextPackId: 'pack-1',
+          reflectionDraftIds: [],
+          metadata: {},
+          createdAt: new Date().toISOString(),
+        },
+        contextPack: samplePack(),
+        policy: { action: 'proceed', instruction: 'Context fit is ready.' },
+      }),
+      submitSessionAtoms: async (input: { sessionId: string; atoms: unknown[] }) => {
+        storedAtoms.push(...input.atoms);
+        return {
+          stored: [{ id: 'atom-1', claim: 'Always read before edit.' }],
+          rejected: [],
+          queuedLegacyMigrations: [],
+        };
+      },
+    },
+  });
+
+  const result = await handleMcpRequest(services, {
+    method: 'tools/call',
+    params: {
+      name: 'tuberosa_submit_session_atoms',
+      arguments: {
+        sessionId: 'session-1',
+        atoms: [
+          {
+            claim: 'Always read before edit.',
+            type: 'convention',
+            evidence: [{ kind: 'file', path: 'src/index.ts' }],
+            trigger: { taskTypes: ['implementation'] },
+          },
+        ],
+      },
+    },
+  }) as { structuredContent?: { stored?: unknown[]; rejected?: unknown[]; instruction?: string } };
+
+  ok(result.structuredContent?.stored !== undefined || result.structuredContent?.rejected !== undefined);
+  equal(storedAtoms.length, 1);
+});
+
+test('tuberosa_submit_session_atoms rejects a missing atoms array', async () => {
+  await rejects(
+    () => handleMcpRequest(fakeServices(), {
+      method: 'tools/call',
+      params: {
+        name: 'tuberosa_submit_session_atoms',
+        arguments: { sessionId: 'session-1' },
+      },
+    }),
+    /atoms/,
+  );
+});
+
+test('MCP tools: 37 tools, each categorized, wire response excludes category', async () => {
   const list = tools();
-  equal(list.length, 36);
+  equal(list.length, 37);
   const cats = new Set(['core', 'admin-ops', 'diagnostics']);
   for (const t of list) {
     equal(cats.has((t as { category?: string }).category ?? ''), true, `tool ${t.name} missing valid category`);
@@ -978,7 +1042,7 @@ test('MCP tools: 36 tools, each categorized, wire response excludes category', a
   for (const wireTool of wireResponse.tools) {
     equal('category' in wireTool, false, `wire tool ${wireTool.name} must not expose category`);
   }
-  equal(wireResponse.tools.length, 36);
+  equal(wireResponse.tools.length, 37);
 });
 
 function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
@@ -1035,6 +1099,9 @@ function fakeServices(overrides: Record<string, unknown> = {}): AppServices {
       },
       finishSession: async () => {
         throw new Error('Unexpected session finish call.');
+      },
+      submitSessionAtoms: async () => {
+        throw new Error('Unexpected submitSessionAtoms call.');
       },
     },
     sessionReplay: {

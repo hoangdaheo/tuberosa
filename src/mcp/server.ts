@@ -54,6 +54,7 @@ import {
   validateStartAgentSessionInput,
   validateReflectionDraftReviewInput,
   validateResolveErrorLogInput,
+  validateSubmitSessionAtomsInput,
 } from '../validation.js';
 
 export async function handleMcpRequest(services: AppServices, request: JsonRpcRequest): Promise<unknown> {
@@ -158,6 +159,19 @@ async function callTool(services: AppServices, params: Record<string, unknown>) 
         throw new NotFoundError(`Context pack not found: ${id}`);
       }
       return toolJson(pack);
+    }
+
+    case 'tuberosa_submit_session_atoms': {
+      const result = await services.agentSessions.submitSessionAtoms(
+        validateSubmitSessionAtomsInput(args),
+      );
+      services.operations.requestPhysicalMirror('agent-session-atoms-submitted');
+      return toolJson({
+        ...result,
+        instruction: result.stored.length > 0
+          ? `Stored ${result.stored.length} atom(s). Rejected ${result.rejected.length}. Stored atoms are searchable after review per your project policy.`
+          : `No atoms stored (${result.rejected.length} rejected). Inspect rejected[].reasons and resubmit sharper, generalizable claims.`,
+      });
     }
 
     case 'tuberosa_reflect': {

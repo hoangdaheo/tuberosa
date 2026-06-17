@@ -1,4 +1,5 @@
 import type { IngestFileInput, IngestionMode } from './ingest/service.js';
+import type { ExtractedAtomCandidate } from './model/provider.js';
 import type {
   AppendAgentSessionNoteInput,
   BackupRetentionInput,
@@ -373,4 +374,58 @@ function expectObject(value: unknown, path: string): Record<string, unknown> {
   }
 
   return value as Record<string, unknown>;
+}
+
+const ATOM_TYPES = ['fact', 'procedure', 'decision', 'gotcha', 'convention'] as const;
+const EVIDENCE_KINDS = ['file', 'commit', 'test', 'url', 'prior_session'] as const;
+
+function requireString(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    const message = `${path}: must be a non-empty string.`;
+    throw new ValidationError(message, [{ path, message }]);
+  }
+  return value;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
+export function validateSubmitSessionAtomsInput(args: unknown): {
+  sessionId: string;
+  project?: string;
+  atoms: ExtractedAtomCandidate[];
+} {
+  const record = expectRecord(args, 'tuberosa_submit_session_atoms arguments');
+  const sessionId = requireString(record.sessionId, 'arguments.sessionId');
+  const project = optionalString(record.project);
+  if (!Array.isArray(record.atoms) || record.atoms.length === 0) {
+    throw new ValidationError('tuberosa_submit_session_atoms arguments.atoms must be a non-empty array');
+  }
+  const atoms = record.atoms.map((raw, i) => {
+    const a = expectRecord(raw, `arguments.atoms[${i}]`);
+    const claim = requireString(a.claim, `arguments.atoms[${i}].claim`);
+    const type = requireString(a.type, `arguments.atoms[${i}].type`);
+    if (!ATOM_TYPES.includes(type as (typeof ATOM_TYPES)[number])) {
+      throw new ValidationError(`arguments.atoms[${i}].type must be one of ${ATOM_TYPES.join(', ')}`);
+    }
+    const evidence = Array.isArray(a.evidence) ? a.evidence.map((e, j) => {
+      const ev = expectRecord(e, `arguments.atoms[${i}].evidence[${j}]`);
+      const kind = requireString(ev.kind, `arguments.atoms[${i}].evidence[${j}].kind`);
+      if (!EVIDENCE_KINDS.includes(kind as (typeof EVIDENCE_KINDS)[number])) {
+        throw new ValidationError(`evidence[${j}].kind must be one of ${EVIDENCE_KINDS.join(', ')}`);
+      }
+      return { ...ev, kind } as ExtractedAtomCandidate['evidence'][number];
+    }) : [];
+    const trigger = (a.trigger && typeof a.trigger === 'object') ? a.trigger as ExtractedAtomCandidate['trigger'] : {};
+    return {
+      claim,
+      type: type as ExtractedAtomCandidate['type'],
+      evidence,
+      trigger,
+      verification: a.verification as ExtractedAtomCandidate['verification'],
+      pitfalls: Array.isArray(a.pitfalls) ? a.pitfalls.map(String) : undefined,
+    } satisfies ExtractedAtomCandidate;
+  });
+  return { sessionId, project, atoms };
 }

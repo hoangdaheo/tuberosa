@@ -330,6 +330,60 @@ export function tools(): ToolEntry[] {
       },
     },
     {
+      name: 'tuberosa_submit_session_atoms',
+      title: 'Submit Agent Session Atoms',
+      description: 'Submit agent-authored atom candidates for an active session. Candidates flow through the same critic/embed/store pipeline as auto-extracted atoms. Rejected candidates are logged as knowledge gaps.',
+      category: 'core',
+      inputSchema: {
+        type: 'object',
+        required: ['sessionId', 'atoms'],
+        properties: {
+          sessionId: { type: 'string' },
+          project: { type: 'string', description: 'Defaults to the session project when omitted.' },
+          atoms: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              required: ['claim', 'type'],
+              properties: {
+                claim: { type: 'string', description: 'The generalizable lesson or fact.' },
+                type: { type: 'string', enum: ['fact', 'procedure', 'decision', 'gotcha', 'convention'] },
+                evidence: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['kind'],
+                    properties: {
+                      kind: { type: 'string', enum: ['file', 'commit', 'test', 'url', 'prior_session'] },
+                    },
+                  },
+                },
+                trigger: {
+                  type: 'object',
+                  properties: {
+                    errors: { type: 'array', items: { type: 'string' } },
+                    files: { type: 'array', items: { type: 'string' } },
+                    symbols: { type: 'array', items: { type: 'string' } },
+                    taskTypes: { type: 'array', items: { type: 'string' } },
+                    intentTags: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+                verification: {
+                  type: 'object',
+                  properties: {
+                    command: { type: 'string' },
+                    assertion: { type: 'string' },
+                  },
+                },
+                pitfalls: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
       name: 'tuberosa_record_user_style',
       title: 'Record User-Style Preference',
       description: 'Record a cross-project personal style preference (scope=user atom). When userId is omitted, falls back to TUBEROSA_USER_ID.',
