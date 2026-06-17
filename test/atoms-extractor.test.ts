@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { MemoryKnowledgeStore } from '../src/storage/memory-store.js';
-import { HashModelProvider } from '../src/model/provider.js';
+import { HashModelProvider, type ExtractedAtomCandidate } from '../src/model/provider.js';
 import { AtomCritic } from '../src/atoms/critic.js';
 import { AtomExtractor } from '../src/atoms/extractor.js';
 
@@ -85,4 +85,28 @@ test('AtomExtractor: queue_legacy_migration surfaces the matched legacy item and
   });
   assert.equal(result.stored.length, 0);
   assert.equal(result.queuedLegacyMigrations.length, 1);
+});
+
+test('ingestCandidates stores agent-supplied atoms without a model extractor', async () => {
+  const store = new MemoryKnowledgeStore();
+  const models = new HashModelProvider(384); // no extractAtoms -> proves model path is not required
+  const critic = new AtomCritic(store, models, {});
+  const extractor = new AtomExtractor(store, models, critic);
+
+  const candidates: ExtractedAtomCandidate[] = [{
+    claim: 'Run pnpm run eval:retrieval before touching fusion weights.',
+    type: 'procedure',
+    evidence: [{ kind: 'file', path: 'eval/retrieval-fixtures.json' }],
+    trigger: { files: ['src/retrieval/fusion.ts'], taskTypes: ['refactor'] },
+  }];
+
+  const result = await extractor.ingestCandidates(candidates, {
+    project: 'tuberosa',
+    sessionId: '11111111-1111-1111-1111-111111111111',
+  });
+
+  assert.equal(result.stored.length + result.rejected.length, 1);
+  if (result.stored.length === 1) {
+    assert.equal(result.stored[0]!.claim, candidates[0].claim);
+  }
 });

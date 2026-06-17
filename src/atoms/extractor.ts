@@ -1,4 +1,4 @@
-import type { ModelProvider } from '../model/provider.js';
+import type { ModelProvider, ExtractedAtomCandidate } from '../model/provider.js';
 import type { KnowledgeStore } from '../storage/store.js';
 import type { KnowledgeAtom, KnowledgeAtomInput } from '../types/atoms.js';
 import { KnowledgeSafetyService } from '../security/knowledge-safety.js';
@@ -49,7 +49,19 @@ export class AtomExtractor {
       decisions: input.decisions,
       verificationCommands: input.verificationCommands,
     });
+    return this.ingestCandidates(candidates, { project: input.project, sessionId: input.sessionId });
+  }
 
+  /**
+   * Run agent- OR model-supplied atom candidates through the shared write gate:
+   * redact -> critic -> embed -> store -> semantic-neighbor link. Identical
+   * acceptance semantics whether the candidates came from a model extractor or
+   * from a calling agent via tuberosa_submit_session_atoms.
+   */
+  async ingestCandidates(
+    candidates: ExtractedAtomCandidate[],
+    input: { project: string; sessionId: string },
+  ): Promise<ExtractFromSessionResult> {
     const stored: KnowledgeAtom[] = [];
     const rejected: ExtractFromSessionResult['rejected'] = [];
     const queuedLegacyMigrations: string[] = [];
