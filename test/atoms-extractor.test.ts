@@ -107,6 +107,6 @@ test('ingestCandidates stores agent-supplied atoms without a model extractor', a
 
   assert.equal(result.stored.length + result.rejected.length, 1);
   if (result.stored.length === 1) {
-    assert.equal(result.stored[0]!.claim, candidates[0].claim);
+    assert.equal(result.stored[0]!.claim, candidates[0]!.claim);
   }
 });
