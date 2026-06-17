@@ -31,10 +31,29 @@ docker compose down -v
 | Provider | Needs | FIND (retrieval) | LEARN (atom extraction) |
 |---|---|---|---|
 | `hash` | nothing | ✅ offline, deterministic | ❌ none |
+| `local` | nothing extra | ✅ real bge-small embeddings + cross-encoder rerank | ✅ agent-delegated (see below) |
 | `openai` | `OPENAI_API_KEY` | ✅ real embeddings + rerank | ✅ requires `OPENAI_RERANK_MODEL` set |
-| `ollama` | `TUBEROSA_OLLAMA_URL` | ✅ local models | ✅ set `TUBEROSA_OLLAMA_EXTRACT_MODEL` (e.g. `qwen2.5:3b-instruct`) |
+| `ollama` | `TUBEROSA_OLLAMA_URL` | ✅ local rerank only (no Ollama embeddings) | ✅ set `TUBEROSA_OLLAMA_EXTRACT_MODEL` |
 
-FIND works on every provider. LEARN needs a real model (`openai` or `ollama`). After you set the extract model, **restart the MCP server** so it takes effect.
+FIND works on every provider. LEARN is agent-delegated by default — see the section below.
+
+## Self-learning (LEARN)
+
+Self-learning is **agent-delegated by default**. When a session finishes and no model extractor is configured, `tuberosa_finish_session` returns a `learningHandoff` in the response. This nudges the calling agent to author lesson atoms itself and submit them via `tuberosa_submit_session_atoms`.
+
+**`provider=local`** is the recommended base. It gives real `bge-small-en-v1.5` embeddings (384-dim, downloaded once to `~/.cache/tuberosa/models`) and a local cross-encoder reranker. Note: Ollama has **no embedding support** in this project — embeddings always run through bge-small under `local`, even when you also configure an Ollama reranker or extractor.
+
+**Headless fallback** — if you run in a context where no agent is present (CI pipelines, batch ingestion, unattended servers), set `TUBEROSA_OLLAMA_EXTRACT_MODEL` to activate automatic Ollama-based extraction. Leave it **unset** for interactive sessions so the `learningHandoff` fires instead.
+
+```bash
+# Interactive default — agent-delegated learning (recommended)
+# TUBEROSA_OLLAMA_EXTRACT_MODEL is not set
+
+# Headless fallback — Ollama extracts automatically
+TUBEROSA_OLLAMA_EXTRACT_MODEL=qwen2.5:3b-instruct
+```
+
+After changing `TUBEROSA_OLLAMA_EXTRACT_MODEL`, restart the MCP server so it takes effect.
 
 ## Verify it's alive
 
