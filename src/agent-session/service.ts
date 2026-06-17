@@ -1,4 +1,4 @@
-import { NotFoundError } from '../errors.js';
+import { NotFoundError, ModelProviderError } from '../errors.js';
 import type { AppConfig } from '../config.js';
 import type { Cache } from '../cache.js';
 import { AtomExtractor, type ExtractFromSessionResult } from '../atoms/extractor.js';
@@ -301,7 +301,7 @@ export class AgentSessionService {
       throw new NotFoundError(`Agent session not found: ${input.sessionId}`);
     }
     if (!this.models) {
-      throw new Error('No model provider configured; cannot embed submitted atoms.');
+      throw new ModelProviderError('No model provider configured; cannot embed submitted atoms.');
     }
     const project = input.project ?? session.project ?? 'unknown';
     const critic = new AtomCritic(this.store, this.models, {
