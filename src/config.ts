@@ -33,6 +33,8 @@ export interface AppConfig {
     ollamaTimeoutMs?: number;
     /** Concern D — enable the stage-4 LLM critic. Defaults to whether the provider can judge. */
     llmCriticEnabled: boolean;
+    /** When true, the real-world path may fall back to the hash provider. Off by default. */
+    allowHashFallback: boolean;
   };
   context: {
     mode?: 'compact' | 'layered';
@@ -148,6 +150,7 @@ export function loadConfig(): AppConfig {
         process.env.TUBEROSA_LLM_CRITIC_ENABLED,
         (process.env.TUBEROSA_MODEL_PROVIDER ?? (process.env.OPENAI_API_KEY ? 'openai' : 'local')) === 'openai',
       ),
+      allowHashFallback: readBoolean(process.env.TUBEROSA_ALLOW_HASH_FALLBACK, false),
     },
     context: {
       mode: readEnum(process.env.TUBEROSA_CONTEXT_MODE, ['compact', 'layered'] as Array<'compact' | 'layered'>, 'layered'),
