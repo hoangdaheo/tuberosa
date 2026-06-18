@@ -30,6 +30,7 @@ const config: AppConfig = {
     openAiEmbeddingModel: 'text-embedding-3-small',
     openAiTimeoutMs: 30_000,
     llmCriticEnabled: false,
+    allowHashFallback: false,
   },
   context: {
     mode: 'layered',

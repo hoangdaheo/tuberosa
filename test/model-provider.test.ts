@@ -19,6 +19,7 @@ function openAiConfig(overrides: Record<string, unknown> = {}) {
       llmCriticEnabled: false,
       openAiApiKey: 'test-key',
       openAiRerankModel: 'gpt-test',
+      allowHashFallback: false,
       ...overrides,
     },
   });

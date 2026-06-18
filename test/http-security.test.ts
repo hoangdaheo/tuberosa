@@ -127,6 +127,7 @@ function baseConfig(httpOverrides: Partial<AppConfig['http']>): AppConfig {
       openAiEmbeddingModel: 'text-embedding-3-small',
       openAiTimeoutMs: 30_000,
       llmCriticEnabled: false,
+      allowHashFallback: false,
     },
     context: {
       cacheTtlSeconds: 300,

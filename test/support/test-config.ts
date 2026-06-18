@@ -27,6 +27,7 @@ const DEFAULTS: AppConfig = {
     openAiEmbeddingModel: 'text-embedding-3-small',
     openAiTimeoutMs: 30_000,
     llmCriticEnabled: false,
+    allowHashFallback: false,
   },
   context: {
     cacheTtlSeconds: 60,
