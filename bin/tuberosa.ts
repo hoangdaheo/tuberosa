@@ -10,6 +10,7 @@ import { atlasCommand } from './commands/atlas.js';
 import { makeAtlasService } from './commands/atlas-factory.js';
 import { bootstrapCommand } from './commands/bootstrap.js';
 import { makeBootstrapService } from './commands/bootstrap-factory.js';
+import { setupModelsCommand } from './commands/setup-models.js';
 import type { CliInvocation, CommandIo, CommandResult } from './commands/types.js';
 
 /**
@@ -43,6 +44,8 @@ export async function dispatch(invocation: CliInvocation, io: CommandIo): Promis
       return atlasCommand(invocation, io, { makeService: () => makeAtlasService() });
     case 'bootstrap':
       return bootstrapCommand(invocation, io, { makeService: () => makeBootstrapService() });
+    case 'setup-models':
+      return setupModelsCommand(invocation, io);
     case 'help':
     default:
       io.out(usage());
