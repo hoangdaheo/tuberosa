@@ -172,6 +172,7 @@ export class LocalCrossEncoderProvider implements ModelProvider {
     }
     const scorer = await this.loadScorer();
     if (!scorer) {
+      if (this.strict) throw new ModelProviderError('local cross-encoder unavailable; run `npx tuberosa setup-models`');
       return this.fallback.rerank(input);
     }
 
@@ -187,6 +188,7 @@ export class LocalCrossEncoderProvider implements ModelProvider {
     try {
       scores = await scorer.score(input.prompt, payload);
     } catch (error) {
+      if (this.strict) throw new ModelProviderError(`local reranker scoring threw: ${error instanceof Error ? error.message : String(error)}`);
       this.logLoadFailure(`local reranker scoring threw: ${error instanceof Error ? error.message : String(error)}`);
       return this.fallback.rerank(input);
     }

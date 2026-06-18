@@ -33,3 +33,23 @@ test('verifyReady reports true when scorer + embedder are injected', async () =>
   const report = await provider.verifyReady();
   assert.deepEqual(report, { embedder: true, reranker: true, dims: 3 });
 });
+
+test('strict rerank throws when the scorer is unavailable', async () => {
+  process.env.TUBEROSA_DISABLE_LOCAL_MODELS = 'true';
+  const provider = new LocalCrossEncoderProvider({ strict: true, embeddingDimensions: 384 });
+  await assert.rejects(() => provider.rerank({
+    prompt: 'q',
+    classified: { project: 'p', taskType: 'unknown', confidence: 1, files: [], symbols: [], errors: [], technologies: [], businessAreas: [], exactTerms: [], lexicalQuery: 'q', intent: 'find' } as any,
+    candidates: [{ knowledgeId: 'A', title: 'A', summary: 'A', content: 'A', contextualContent: 'A', fusedScore: 0.5, trustLevel: 50, rank: 1, finalScore: 0.5, rerankScore: 0.5, matchReasons: [], references: [], labels: [], itemType: 'wiki', project: 'p' } as any],
+  }), ModelProviderError);
+});
+
+test('strict rerank with a working scorer still blends normally', async () => {
+  const provider = new LocalCrossEncoderProvider({ strict: true, embeddingDimensions: 3, scorer: { score: async (_p, items) => items.map(() => 0.9) } });
+  const result = await provider.rerank({
+    prompt: 'q',
+    classified: { project: 'p', taskType: 'unknown', confidence: 1, files: [], symbols: [], errors: [], technologies: [], businessAreas: [], exactTerms: [], lexicalQuery: 'q', intent: 'find' } as any,
+    candidates: [{ knowledgeId: 'A', title: 'A', summary: 'A', content: 'A', contextualContent: 'A', fusedScore: 0.5, trustLevel: 50, rank: 1, finalScore: 0.5, rerankScore: 0.5, matchReasons: [], references: [], labels: [], itemType: 'wiki', project: 'p' } as any],
+  });
+  assert.equal(result.candidates.length, 1);
+});
