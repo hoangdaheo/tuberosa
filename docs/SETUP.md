@@ -55,6 +55,29 @@ TUBEROSA_OLLAMA_EXTRACT_MODEL=qwen2.5:3b-instruct
 
 After changing `TUBEROSA_OLLAMA_EXTRACT_MODEL`, restart the MCP server so it takes effect.
 
+## Local models (real search, no API key)
+
+Tuberosa's default `local` provider uses two models downloaded once to
+`~/.cache/tuberosa/models`:
+
+- `Xenova/bge-small-en-v1.5` — 384-dim embeddings (vector search)
+- `onnx-community/bge-reranker-v2-m3-ONNX` — cross-encoder reranking
+
+Download and verify them:
+
+```bash
+npx tuberosa setup-models   # downloads + verifies both models
+npx tuberosa doctor --deep  # confirms they actually load
+```
+
+If the models are missing, a real-world server **refuses to start** rather than
+silently returning fake results. Override only for debugging with
+`TUBEROSA_ALLOW_HASH_FALLBACK=true` (degraded, lexical-only search). Tests and
+CI use `TUBEROSA_MODEL_PROVIDER=hash` for determinism — that is expected.
+
+Air-gapped machines: run `setup-models` once on a connected machine and copy
+`~/.cache/tuberosa/models` to the target.
+
 ## Verify it's alive
 
 ```bash
