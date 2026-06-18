@@ -7,6 +7,7 @@ import { ErrorLogInsightService } from './error-log/insights.js';
 import { ErrorLogService } from './error-log/service.js';
 import { IngestionService } from './ingest/service.js';
 import { MaintenanceService } from './maintenance/service.js';
+import { assertModelsReady } from './model/health.js';
 import { createModelProvider } from './model/factory.js';
 import type { ModelProvider } from './model/provider.js';
 import { OperationsService } from './operations/service.js';
@@ -49,6 +50,7 @@ export async function createAppServices(): Promise<AppServices> {
   const store = createKnowledgeStore(config);
   const cache = await createCache(config);
   const models = createModelProvider(config);
+  await assertModelsReady(models, config);
   const safety = new KnowledgeSafetyService();
   const errorLogs = new ErrorLogService({
     rootDir: config.errorLog.dir,
