@@ -189,12 +189,12 @@ describe('doctor embedding model check', () => {
     assert.equal(check?.status, 'ok');
   });
 
-  it('warns with warm-up remediation when the model is missing', async () => {
+  it('warns with setup-models remediation when the model is missing', async () => {
     const harness = makeIo({ env: { HOME: '/home/u' } });
     const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
     const check = checks.find((entry) => entry.name === 'embedding model');
     assert.equal(check?.status, 'warn');
-    assert.ok(check?.remediation?.includes('tuberosa init'));
+    assert.ok(check?.remediation?.includes('setup-models'));
   });
 
   it('skips when the provider is not local', async () => {
@@ -202,6 +202,19 @@ describe('doctor embedding model check', () => {
     const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, harness.io);
     const check = checks.find((entry) => entry.name === 'embedding model');
     assert.equal(check?.status, 'skip');
+  });
+});
+
+describe('doctor reranker model check', () => {
+  it('doctor checks the reranker model and points to setup-models', async () => {
+    const io = makeIo({ env: { TUBEROSA_MODEL_PROVIDER: 'local', HOME: '/no/such/home' } });
+    const checks = await runDoctorChecks({ command: 'doctor', options: {}, positional: [] }, io.io);
+    const reranker = checks.find((c) => c.name === 'reranker model');
+    assert.ok(reranker, 'expected a reranker model check');
+    assert.match(reranker!.remediation ?? '', /setup-models/);
+    const embedding = checks.find((c) => c.name === 'embedding model');
+    assert.match(embedding!.remediation ?? '', /setup-models/);
+    assert.doesNotMatch(embedding!.detail + (embedding!.remediation ?? ''), /fall back to hash/);
   });
 });
 
