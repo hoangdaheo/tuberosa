@@ -9,6 +9,7 @@ import type {
 import { clamp, truncate } from '../util/text.js';
 import { HashModelProvider } from './provider.js';
 import type { ModelProvider } from './provider.js';
+import { ModelProviderError } from '../errors.js';
 
 /**
  * Phase 4 — Local cross-encoder reranker.
@@ -50,6 +51,8 @@ export interface LocalRerankerOptions {
    * loading the ONNX pipeline. Tests rely on this to stay deterministic/offline.
    */
   embedder?: LocalEmbedder;
+  /** When true, embed/rerank throw ModelProviderError instead of silently using hash. */
+  strict?: boolean;
 }
 
 export interface LocalCrossEncoderScorer {
@@ -80,6 +83,7 @@ export class LocalCrossEncoderProvider implements ModelProvider {
   private readonly cacheDir: string;
   private readonly embeddingModelId: string;
   private readonly expectedDimensions?: number;
+  private readonly strict: boolean;
   private scorerPromise: Promise<LocalCrossEncoderScorer | null> | null = null;
   private embedderPromise: Promise<LocalEmbedder | null> | null = null;
   private hasLoggedLoadFailure = false;
@@ -92,6 +96,7 @@ export class LocalCrossEncoderProvider implements ModelProvider {
     this.cacheDir = options.cacheDir ?? process.env.TUBEROSA_MODEL_CACHE_DIR ?? DEFAULT_CACHE_DIR;
     this.embeddingModelId = options.embeddingModelId ?? process.env.TUBEROSA_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL_ID;
     this.expectedDimensions = options.embeddingDimensions;
+    this.strict = options.strict ?? false;
     if (options.scorer) {
       this.scorerPromise = Promise.resolve(options.scorer);
     }
@@ -103,20 +108,22 @@ export class LocalCrossEncoderProvider implements ModelProvider {
   async embed(text: string): Promise<number[]> {
     const embedder = await this.loadEmbedder();
     if (!embedder) {
+      if (this.strict) throw new ModelProviderError('local embedding model unavailable; run `npx tuberosa setup-models`');
       return this.fallback.embed(text);
     }
     try {
       const vector = await embedder.embed(text);
       if (this.expectedDimensions !== undefined && vector.length !== this.expectedDimensions) {
-        this.logEmbedFailure(
-          `local embedder returned ${vector.length} dims, expected ${this.expectedDimensions}; check TUBEROSA_EMBEDDING_MODEL vs EMBEDDING_DIMENSIONS`,
-        );
-        // Latch: disable the embedder so subsequent calls skip ONNX inference entirely.
+        const message = `local embedder returned ${vector.length} dims, expected ${this.expectedDimensions}; check TUBEROSA_EMBEDDING_MODEL vs EMBEDDING_DIMENSIONS`;
+        if (this.strict) throw new ModelProviderError(message);
+        this.logEmbedFailure(message);
         this.embedderPromise = Promise.resolve(null);
         return this.fallback.embed(text);
       }
       return vector;
     } catch (error) {
+      if (error instanceof ModelProviderError) throw error;
+      if (this.strict) throw new ModelProviderError(`local embedder threw: ${error instanceof Error ? error.message : String(error)}`);
       this.logEmbedFailure(`local embedder threw: ${error instanceof Error ? error.message : String(error)}`);
       return this.fallback.embed(text);
     }
@@ -141,6 +148,18 @@ export class LocalCrossEncoderProvider implements ModelProvider {
     } catch {
       return null;
     }
+  }
+
+  /** True when the real local cross-encoder is loadable. */
+  async hasLocalReranker(): Promise<boolean> {
+    return (await this.loadScorer()) !== null;
+  }
+
+  /** Probe both models without falling back. Used by setup-models and the startup health check. */
+  async verifyReady(): Promise<{ embedder: boolean; reranker: boolean; dims: number | null }> {
+    const dims = await this.probeEmbeddingDimensions();
+    const reranker = await this.hasLocalReranker();
+    return { embedder: dims !== null, reranker, dims };
   }
 
   async rewriteQuery(input: QueryRewriteInput): Promise<QueryRewriteResult | undefined> {
