@@ -45,9 +45,19 @@ export class ProviderRegistry implements ModelProvider {
   private readonly entries = new Map<ModelCapability, CapabilityProvider>();
   private readonly extractionEntries: RegistryEntry[] = [];
   private readonly fallback: ModelProvider;
+  private healthProvider?: { verifyReady(): Promise<{ embedder: boolean; reranker: boolean; dims: number | null }> };
 
   constructor(fallback: ModelProvider) {
     this.fallback = fallback;
+  }
+
+  setHealthProvider(provider: { verifyReady(): Promise<{ embedder: boolean; reranker: boolean; dims: number | null }> }): void {
+    this.healthProvider = provider;
+  }
+
+  async verifyReady(): Promise<{ embedder: boolean; reranker: boolean; dims: number | null }> {
+    if (!this.healthProvider) return { embedder: true, reranker: true, dims: null };
+    return this.healthProvider.verifyReady();
   }
 
   register(provider: CapabilityProvider): void {
@@ -113,6 +123,7 @@ export function buildProviderRegistry(config: AppConfig): ModelProvider | null {
     embeddingDimensions: config.model.embeddingDimensions,
     embeddingModelId: config.model.embeddingModel,
     fallback: hash,
+    strict: !config.model.allowHashFallback,
   });
   registry.register(asCapabilityProvider({
     name: 'hash',
@@ -124,6 +135,7 @@ export function buildProviderRegistry(config: AppConfig): ModelProvider | null {
     provider: local,
     capabilities: ['embed', 'rerank'],
   }));
+  registry.setHealthProvider(local);
   if (config.model.ollamaExtractModel) {
     registry.registerExtraction('ollama-generation', new OllamaGenerationProvider({
       modelId: config.model.ollamaExtractModel,

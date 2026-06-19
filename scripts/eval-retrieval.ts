@@ -44,6 +44,7 @@ const defaultConfig: AppConfig = {
     embeddingModel: 'Xenova/bge-small-en-v1.5',
     openAiEmbeddingModel: 'text-embedding-3-small',
     llmCriticEnabled: false,
+    allowHashFallback: false,
   },
   context: {
     cacheTtlSeconds: 0,

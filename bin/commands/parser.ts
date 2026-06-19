@@ -49,7 +49,7 @@ export function parseArgs(argv: string[]): CliInvocation {
       if (
         token === 'init' || token === 'doctor' || token === 'mcp'
         || token === 'sync' || token === 'hook' || token === 'atlas'
-        || token === 'bootstrap' || token === 'help'
+        || token === 'bootstrap' || token === 'setup-models' || token === 'help'
       ) {
         command = token;
       } else {
@@ -76,8 +76,9 @@ export function usage(): string {
     '  mcp       Run the MCP stdio server (full stack by default; --embedded for the volatile trial stack). `mcp install` writes agent configs: .mcp.json, .cursor/mcp.json, ~/.codex/config.toml.',
     '  sync      Detect added/changed/renamed/deleted files and review/apply a cleanup plan.',
     '  hook      Manage git hooks (e.g. `tuberosa hook install`) for additive-only auto-sync.',
-    '  bootstrap First-run project knowledge: sync (additive) + atlas + health summary, optional --export / --deep.',
-    '  help      Show this help message.',
+    '  bootstrap     First-run project knowledge: sync (additive) + atlas + health summary, optional --export / --deep.',
+    '  setup-models  Download + verify the local embedding model and cross-encoder (real search; no API key).',
+    '  help          Show this help message.',
     '',
     'Common options:',
     '  --json              Emit machine-readable JSON instead of text (doctor, sync).',

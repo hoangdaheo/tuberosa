@@ -94,6 +94,17 @@ export async function initCommand(invocation: CliInvocation, io: CommandIo): Pro
     return { exitCode: 1 };
   }
 
+  // The cross-encoder is a separate model from embeddings; load it now so the
+  // first real search doesn't pay the download and never silently degrades.
+  try {
+    const { LocalCrossEncoderProvider } = await import('../../src/model/local-provider.js');
+    const dims = io.env.EMBEDDING_DIMENSIONS ? Number(io.env.EMBEDDING_DIMENSIONS) : 384;
+    const hasReranker = await new LocalCrossEncoderProvider({ embeddingDimensions: dims }).hasLocalReranker();
+    io.out(hasReranker ? '✓ cross-encoder reranker ready' : '! cross-encoder not cached yet — run `npx tuberosa setup-models`');
+  } catch {
+    io.out('! could not verify the cross-encoder — run `npx tuberosa setup-models`');
+  }
+
   const reembedExit = await runPackageScript(io, fs, spawn, context, 'reembed');
   if (reembedExit !== 0) {
     io.err('Re-embed backfill failed; searches work but older knowledge has no vectors yet.');

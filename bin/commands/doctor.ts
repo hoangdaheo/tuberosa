@@ -53,6 +53,10 @@ export async function runDoctorChecks(invocation: CliInvocation, io: CommandIo):
   checks.push(await checkMigrations(io, packageRoot));
   checks.push(await checkMcpStdio(io, packageRoot));
   checks.push(await checkEmbeddingModel(io));
+  checks.push(await checkRerankerModel(io));
+  if (invocation.options.deep === true) {
+    checks.push(await checkModelsLoad(io));
+  }
   return checks;
 }
 
@@ -194,9 +198,43 @@ async function checkEmbeddingModel(io: CommandIo): Promise<DoctorCheck> {
   return {
     name: 'embedding model',
     status: 'warn',
-    detail: `${model} not found in ${cacheDir} — first query will download it (or fall back to hash)`,
-    remediation: 'Run `npx tuberosa init` (its warm-up step downloads the model).',
+    detail: `${model} not found in ${cacheDir} — real search needs it`,
+    remediation: 'Run `npx tuberosa setup-models` to download the local models.',
   };
+}
+
+async function checkRerankerModel(io: CommandIo): Promise<DoctorCheck> {
+  const provider = io.env.TUBEROSA_MODEL_PROVIDER ?? (io.env.OPENAI_API_KEY ? 'openai' : 'local');
+  if (provider !== 'local') {
+    return { name: 'reranker model', status: 'skip', detail: `provider is '${provider}' — no local reranker needed` };
+  }
+  if (!io.fs) return { name: 'reranker model', status: 'skip', detail: 'fs unavailable' };
+  const cacheDir = io.env.TUBEROSA_MODEL_CACHE_DIR ?? `${io.env.HOME ?? '~'}/.cache/tuberosa/models`;
+  const model = io.env.TUBEROSA_RERANKER_MODEL ?? 'onnx-community/bge-reranker-v2-m3-ONNX';
+  const modelPath = `${cacheDir}/${model}`;
+  if (await io.fs.exists(modelPath)) {
+    return { name: 'reranker model', status: 'ok', detail: `${model} cached at ${modelPath}` };
+  }
+  return {
+    name: 'reranker model',
+    status: 'warn',
+    detail: `${model} not found in ${cacheDir} — real reranking needs it`,
+    remediation: 'Run `npx tuberosa setup-models` to download the local models.',
+  };
+}
+
+async function checkModelsLoad(io: CommandIo): Promise<DoctorCheck> {
+  const provider = io.env.TUBEROSA_MODEL_PROVIDER ?? (io.env.OPENAI_API_KEY ? 'openai' : 'local');
+  if (provider !== 'local') return { name: 'models load (deep)', status: 'skip', detail: `provider is '${provider}'` };
+  try {
+    const { LocalCrossEncoderProvider } = await import('../../src/model/local-provider.js');
+    const dims = io.env.EMBEDDING_DIMENSIONS ? Number(io.env.EMBEDDING_DIMENSIONS) : 384;
+    const report = await new LocalCrossEncoderProvider({ embeddingDimensions: dims }).verifyReady();
+    if (report.embedder && report.reranker) return { name: 'models load (deep)', status: 'ok', detail: `both models loaded (${report.dims} dims)` };
+    return { name: 'models load (deep)', status: 'fail', detail: `embedder=${report.embedder} reranker=${report.reranker}`, remediation: 'Run `npx tuberosa setup-models`.' };
+  } catch (error) {
+    return { name: 'models load (deep)', status: 'fail', detail: (error as Error).message, remediation: 'Run `npx tuberosa setup-models`.' };
+  }
 }
 
 async function checkMcpStdio(io: CommandIo, packageRoot: string): Promise<DoctorCheck> {

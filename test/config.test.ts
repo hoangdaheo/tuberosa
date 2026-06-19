@@ -1,5 +1,5 @@
 import test, { describe, it } from 'node:test';
-import { equal } from 'node:assert/strict';
+import assert, { equal } from 'node:assert/strict';
 import { loadConfig } from '../src/config.js';
 
 test('config enables startup migrations by default and supports opt out', () => {
@@ -92,6 +92,14 @@ describe('full-featured defaults (Spec A)', () => {
     const config = withEnv({ TUBEROSA_EMBEDDING_MODEL: 'Xenova/other-model' }, () => loadConfig());
     equal(config.model.embeddingModel, 'Xenova/other-model');
   });
+});
+
+test('allowHashFallback defaults to false and reads the env flag', () => {
+  delete process.env.TUBEROSA_ALLOW_HASH_FALLBACK;
+  assert.equal(loadConfig().model.allowHashFallback, false);
+  process.env.TUBEROSA_ALLOW_HASH_FALLBACK = 'true';
+  assert.equal(loadConfig().model.allowHashFallback, true);
+  delete process.env.TUBEROSA_ALLOW_HASH_FALLBACK;
 });
 
 function withEnv<T>(patch: Record<string, string | undefined>, run: () => T): T {
