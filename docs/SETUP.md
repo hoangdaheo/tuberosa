@@ -80,6 +80,13 @@ CI use `TUBEROSA_MODEL_PROVIDER=hash` for determinism — that is expected.
 Air-gapped machines: run `setup-models` once on a connected machine and copy
 `~/.cache/tuberosa/models` to the target.
 
+Validate the real reranker actually ranks correctly (the deterministic `hash`
+evals cannot — they never load the cross-encoder):
+
+```bash
+pnpm run eval:local-model   # opt-in; SKIPS when models are unavailable
+```
+
 ## Verify it's alive
 
 ```bash

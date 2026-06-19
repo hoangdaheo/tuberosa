@@ -78,6 +78,7 @@
     "sandbox:ablate": "tsx scripts/sandbox.ts --ablate",
     "calibrate-fusion": "tsx scripts/calibrate-fusion.ts",
     "test:integration": "node --test --import tsx test/integration.test.ts",
+    "eval:local-model": "node --test --import tsx test/local-model-smoke.test.ts",
     "export-pack": "node --import tsx scripts/export-pack.ts",
     "import-pack": "node --import tsx scripts/import-pack.ts",
     "test": "TUBEROSA_DISABLE_LOCAL_MODELS=true node --test --import tsx test/*.test.ts",
