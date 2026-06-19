@@ -102,9 +102,10 @@ Tuberosa has exactly two pillars. Everything else supports one of them.
 You need **Node 22+** and **pnpm 11+**. Three commands get you running:
 
 ```bash
-npx tuberosa init      # set up the local stack (Docker required; --embedded for a volatile trial)
-npx tuberosa doctor    # health check: Node / pnpm / Docker / port / Postgres / MCP
-npx tuberosa mcp       # run the MCP server an agent talks to (full stack by default)
+npx tuberosa init          # set up the local stack (Docker required; --embedded for a volatile trial)
+npx tuberosa setup-models  # download + verify the local embedding model and cross-encoder (real search, no API key)
+npx tuberosa doctor        # health check: Node / pnpm / Docker / port / Postgres / MCP / local models
+npx tuberosa mcp           # run the MCP server an agent talks to (full stack by default)
 ```
 
 What each one does, in plain words:
@@ -114,8 +115,11 @@ What each one does, in plain words:
   - copies the 5 bundled agent skills into `.claude/skills/`. Skip with `--no-skills`.
 
   No Docker? init **fails with install guidance**. For a quick look without Docker, `npx tuberosa init --embedded` runs the volatile trial mode (memory store, hash embeddings, data lost on exit). Safe to run again — it never overwrites what's already there.
-- **`doctor`** — tells you *why* something is broken before you waste time guessing.
+- **`setup-models`** — downloads the local embedding model (`Xenova/bge-small-en-v1.5`) and the cross-encoder reranker (`onnx-community/bge-reranker-v2-m3-ONNX`) to `~/.cache/tuberosa/models`, then loads each one to prove it works. This is what makes search *real* instead of fake. Skip it only for the `hash` trial mode.
+- **`doctor`** — tells you *why* something is broken before you waste time guessing. It now also checks that the local models exist (`--deep` actually loads them).
 - **`mcp`** — starts the server your agent connects to. It defaults to the **full stack** (Postgres + Redis + local embeddings), matching what `init` provisioned. Add `--embedded` for the zero-dependency volatile trial stack.
+
+> **🔒 No silent fake search (new).** Tuberosa uses a deterministic `hash` provider for tests — fast, but its "search" is meaningless. As of the local-first backbone, the real-world server **refuses to start** rather than silently serve hash results: under the default `local` provider it fails loud if the embedding model or cross-encoder won't load (fix: `npx tuberosa setup-models`), and the `ollama` provider (real rerank, *fake* embeddings) also refuses to start. To deliberately accept degraded hash mode, set `TUBEROSA_ALLOW_HASH_FALLBACK=true`.
 
 ### Want to try it with literally zero setup?
 
@@ -379,7 +383,8 @@ Run from anywhere with `npx tuberosa <command>` (or `pnpm run <command>` inside 
 | Command | What it's for |
 |---|---|
 | `tuberosa init` | Bootstrap the local stack — **Docker required** (hard-fails with install guidance if missing). Copies the 5 bundled agent skills into `.claude/skills/` and writes agent MCP configs by default (`--no-skills` / `--no-mcp-config` to skip; never overwrites existing files). `--embedded` opts into the volatile trial stack instead (`--no-docker` is a deprecated alias). |
-| `tuberosa doctor` | Diagnose Node, pnpm, Docker, port 3027, Postgres reachability, and MCP stdout sanity. |
+| `tuberosa doctor` | Diagnose Node, pnpm, Docker, port 3027, Postgres reachability, MCP stdout sanity, and the local models (embedding model + reranker). Add `--deep` to actually load the models and prove they run, not just that the files exist. |
+| `tuberosa setup-models` | Download **and verify** the local embedding model and cross-encoder so real (non-hash) search works with no API key. Run it once per machine, or whenever `doctor` reports a missing model. |
 | `tuberosa mcp` | Run the MCP stdio server — full stack by default (postgres + redis + local embeddings); `--embedded` for the volatile trial stack. |
 | `tuberosa mcp install` | (Re)write agent MCP configs on demand: `.mcp.json`, `.cursor/mcp.json`, `~/.codex/config.toml` (Codex only when `~/.codex/` exists). Merge-only — never clobbers other servers in an existing config; the TOML is append-only with a marker. |
 | `tuberosa bootstrap` | **First-run project knowledge**: additive sync + atlas + a health summary. Add `--deep` for a deeper pass, `--export` to also write a bundle. |
@@ -503,7 +508,8 @@ Copy `.env.example → .env`. The variables that matter most:
 | `TUBEROSA_STORE` | `postgres` | `postgres` or `memory`. |
 | `TUBEROSA_CACHE` | `redis` | `redis`, `memory`, or `none`. MCP stdio defaults to `memory`. |
 | `TUBEROSA_AUTO_MIGRATE` | `true` | Run migrations on app start. |
-| `TUBEROSA_MODEL_PROVIDER` | `local` | `local` (real embeddings via `Xenova/bge-small-en-v1.5`, offline after the one-time model download), `hash` (deterministic, zero downloads), `openai`, or `ollama`. Auto-selection: `openai` when `OPENAI_API_KEY` is set; `hash` when `TUBEROSA_EMBEDDED=1`. |
+| `TUBEROSA_MODEL_PROVIDER` | `local` | `local` (real embeddings via `Xenova/bge-small-en-v1.5` + cross-encoder rerank, offline after the one-time `setup-models` download), `hash` (deterministic, zero downloads — **tests only**, not real search), `openai`, or `ollama`. Auto-selection: `openai` when `OPENAI_API_KEY` is set; `hash` when `TUBEROSA_EMBEDDED=1`. |
+| `TUBEROSA_ALLOW_HASH_FALLBACK` | `false` | The escape hatch for the no-silent-fake-search guard. When `false` (default) the server fails loud if real models can't load. Set `true` to opt into degraded `hash` search instead of failing. |
 | `TUBEROSA_CONTEXT_MODE` | `layered` | `layered` adds deep-context expansion; `compact` is shortlist only. |
 | `TUBEROSA_DEEP_CONTEXT_BUDGET` | `60000` | Tokens. Clamped 30k–100k. |
 | `CONTEXT_CACHE_TTL_SECONDS` | `300` | Context-pack cache lifetime. |
@@ -566,7 +572,8 @@ pnpm run mcp             # MCP stdio server
 pnpm run migrate         # apply SQL migrations
 pnpm run worker          # background worker process
 
-pnpm run eval:retrieval              # deterministic retrieval-quality eval (gate)
+pnpm run eval:retrieval              # deterministic retrieval-quality eval (gate, hash provider)
+pnpm run eval:local-model            # opt-in LIVE cross-encoder smoke eval — proves the real reranker scores pairs (self-skips if models aren't downloaded)
 pnpm run eval:agent-context          # agent-session compliance eval
 pnpm run eval:knowledge-completeness # LEARN-loop / atoms eval
 pnpm run eval:context-mapping
@@ -603,6 +610,10 @@ The fixture seeds an in-memory store, runs each prompt through the real ingestio
 
 > **Rule:** never tweak a weight or add a heuristic without first adding a fixture case that would fail *without* the change. Matching improves through measured retrieval quality, not hand-tuned weights.
 
+The deterministic evals run on the `hash` provider, so they can't see the *real* cross-encoder. `pnpm run eval:local-model` closes that gap: it drives the live `LocalCrossEncoderProvider` and asserts the real reranker actually scores query↔passage pairs (it self-skips when the models aren't downloaded). Run it after any change to the reranker.
+
+Two recent classifier-quality fixes that the fixtures now lock in: the cross-encoder reranker was fixed to tokenize pairs directly (it had been silently degrading to fused order), and the symbol/label extractor was tightened so ALL-CAPS prose (`NEVER`, `TDD`), words that merely precede a `(`, and back-ticked English words no longer leak in as `symbol:` labels — while real identifiers (`TransformersScorer`, `bge-reranker-v2-m3-ONNX`, `dotted.path`) still classify.
+
 ---
 
 ## Security
@@ -626,6 +637,7 @@ The fixture seeds an in-memory store, runs each prompt through the real ingestio
 | "Refusing to start: TUBEROSA_HTTP_HOST=0.0.0.0 …" | Set `TUBEROSA_API_KEY` (recommended) or set `TUBEROSA_HTTP_HOST=127.0.0.1`. |
 | `/operations/export-pack` returns 400 "absolute path is not allowed" | Use a path *relative* to `TUBEROSA_EXPORT_BASE_DIR` (default `.tuberosa/exports`). |
 | `vector dimension mismatch` | `EMBEDDING_DIMENSIONS` must equal the `vector(N)` in `migrations/001_init.sql`. |
+| "Local embedding model / cross-encoder is unavailable — refusing to start with fake search" | The no-silent-fake-search guard fired. Run `npx tuberosa setup-models` to download the models, or set `TUBEROSA_ALLOW_HASH_FALLBACK=true` to accept degraded hash mode. |
 | MCP client sees no tools | Use the absolute repo path, check the command's `PATH` for Node/pnpm, verify with MCP Inspector, ensure stdout is JSON-RPC only. |
 | `tuberosa doctor` says `DATABASE_URL not set` even though it's in `.mcp.json` | `.mcp.json` `env` is only seen by the MCP server your agent spawns, **not** your interactive shell. Export it in the shell to check a real DB: `DATABASE_URL=… tuberosa doctor`. |
 | `npx tuberosa mcp` / `migrate` fails with `Missing script` or `Could not find MCP entrypoint` | Update Tuberosa — older versions resolved bundled assets from your cwd instead of the installed package. The CLI now finds `migrations/` and the MCP entry inside the package automatically. |
