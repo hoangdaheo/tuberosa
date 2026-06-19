@@ -41,3 +41,12 @@ test('skips when allowHashFallback is set', async () => {
   const models = { ...baseModel, verifyReady: async () => ({ embedder: false, reranker: false, dims: null }) };
   await assertModelsReady(models as any, cfg('local', true));
 });
+
+test('throws for ollama without allowHashFallback (ollama embeddings are fake hash)', async () => {
+  // ollama gives real reranking but hash embeddings — refuse to silently serve fake search.
+  await assert.rejects(() => assertModelsReady(baseModel as any, cfg('ollama')), ModelProviderError);
+});
+
+test('allows ollama when allowHashFallback opts into hash embeddings', async () => {
+  await assertModelsReady(baseModel as any, cfg('ollama', true));
+});

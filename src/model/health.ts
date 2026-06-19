@@ -14,8 +14,20 @@ function hasVerifyReady(models: ModelProvider): models is ModelProvider & Readin
  * is the boundary that stops Tuberosa silently serving fake (hash) search.
  */
 export async function assertModelsReady(models: ModelProvider, config: AppConfig): Promise<void> {
-  if (config.model.provider !== 'local' || config.model.allowHashFallback) return;
+  if (config.model.allowHashFallback) return;
   if (config.env === 'test') return; // unit/integration tests construct providers directly
+
+  if (config.model.provider === 'ollama') {
+    // The ollama provider gives real reranking but HASH (fake) embeddings — there is no
+    // real ollama embedder wired. Refuse to start rather than silently serve fake search.
+    throw new ModelProviderError(
+      'The ollama provider uses fake hash embeddings (it only provides real reranking) — refusing to start with silent fake search. '
+      + 'Use TUBEROSA_MODEL_PROVIDER=local (run `npx tuberosa setup-models`) or =openai for real embeddings, '
+      + 'or set TUBEROSA_ALLOW_HASH_FALLBACK=true to accept hash embeddings with ollama reranking.',
+    );
+  }
+
+  if (config.model.provider !== 'local') return;
   if (!hasVerifyReady(models)) return;
 
   const report = await models.verifyReady();

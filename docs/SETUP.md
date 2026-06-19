@@ -33,7 +33,7 @@ docker compose down -v
 | `hash` | nothing | ✅ offline, deterministic | ❌ none |
 | `local` | nothing extra | ✅ real bge-small embeddings + cross-encoder rerank | ✅ agent-delegated (see below) |
 | `openai` | `OPENAI_API_KEY` | ✅ real embeddings + rerank | ✅ requires `OPENAI_RERANK_MODEL` set |
-| `ollama` | `TUBEROSA_OLLAMA_URL` | ✅ local rerank only (no Ollama embeddings) | ✅ set `TUBEROSA_OLLAMA_EXTRACT_MODEL` |
+| `ollama` | `TUBEROSA_OLLAMA_URL` + `TUBEROSA_ALLOW_HASH_FALLBACK=true` | ⚠️ real Ollama rerank but **hash (fake) embeddings** | ✅ set `TUBEROSA_OLLAMA_EXTRACT_MODEL` |
 
 FIND works on every provider. LEARN is agent-delegated by default — see the section below.
 
@@ -41,7 +41,9 @@ FIND works on every provider. LEARN is agent-delegated by default — see the se
 
 Self-learning is **agent-delegated by default**. When a session finishes and no model extractor is configured, `tuberosa_finish_session` returns a `learningHandoff` in the response. This nudges the calling agent to author lesson atoms itself and submit them via `tuberosa_submit_session_atoms`.
 
-**`provider=local`** is the recommended base. It gives real `bge-small-en-v1.5` embeddings (384-dim, downloaded once to `~/.cache/tuberosa/models`) and a local cross-encoder reranker. Note: Ollama has **no embedding support** in this project — embeddings always run through bge-small under `local`, even when you also configure an Ollama reranker or extractor.
+**`provider=local`** is the recommended base. It gives real `bge-small-en-v1.5` embeddings (384-dim, downloaded once to `~/.cache/tuberosa/models`) and a local cross-encoder reranker.
+
+**`provider=ollama` does not embed.** Ollama supplies a real reranker (and optional extractor) but its embeddings fall back to the deterministic **hash** provider — i.e. fake search vectors. To avoid silently serving fake search, Tuberosa **refuses to start** under `provider=ollama` unless you opt in with `TUBEROSA_ALLOW_HASH_FALLBACK=true`. For real embeddings, use `provider=local` (run `npx tuberosa setup-models`) or `provider=openai`.
 
 **Headless fallback** — if you run in a context where no agent is present (CI pipelines, batch ingestion, unattended servers), set `TUBEROSA_OLLAMA_EXTRACT_MODEL` to activate automatic Ollama-based extraction. Leave it **unset** for interactive sessions so the `learningHandoff` fires instead.
 
