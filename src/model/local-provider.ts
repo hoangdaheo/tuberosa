@@ -308,7 +308,9 @@ export class LocalCrossEncoderProvider implements ModelProvider {
       const pipeline = await transformers.pipeline('text-classification', this.modelId, {
         quantized: true,
       });
-      return new TransformersScorer(pipeline);
+      // The pipeline object exposes `.tokenizer` and `.model`; the scorer drives
+      // pair tokenization directly (see RerankPipeline).
+      return new TransformersScorer(pipeline as unknown as RerankPipeline);
     } catch (error) {
       this.logLoadFailure(`local reranker init failed: ${error instanceof Error ? error.message : String(error)}`);
       return null;
@@ -327,21 +329,78 @@ interface TransformersPipeline {
   (input: unknown, options?: unknown): Promise<unknown>;
 }
 
+/**
+ * The transformers.js pipeline object is callable AND exposes its underlying
+ * `tokenizer` and `model`. A cross-encoder reranker needs sentence-PAIR
+ * tokenization (query + passage), which the `text-classification` pipeline's
+ * own `_call` does NOT expose — it forwards its input straight to the tokenizer
+ * as `text`, so handing it `{text, text_pair}` objects makes the tokenizer call
+ * `.split` on an object and throw `text.split is not a function`. We therefore
+ * drive `tokenizer({text_pair})` + `model()` directly.
+ * @internal exported for tests.
+ */
+export interface RerankPipeline {
+  tokenizer: (text: string[], options?: Record<string, unknown>) => unknown;
+  model: (inputs: unknown) => Promise<{ logits: { data: ArrayLike<number>; dims: number[] } }>;
+}
+
 interface TransformersModule {
   pipeline: (task: string, model: string, options?: Record<string, unknown>) => Promise<TransformersPipeline>;
   env?: { cacheDir?: string };
 }
 
-class TransformersScorer implements LocalCrossEncoderScorer {
-  constructor(private readonly pipeline: TransformersPipeline) {}
+/**
+ * Scores query→passage relevance with a transformers.js cross-encoder.
+ * @internal exported for tests.
+ */
+export class TransformersScorer implements LocalCrossEncoderScorer {
+  constructor(private readonly pipeline: RerankPipeline) {}
 
   async score(prompt: string, candidates: Array<{ knowledgeId: string; text: string }>): Promise<number[]> {
     if (candidates.length === 0) return [];
-    const pairs = candidates.map((candidate) => ({ text: prompt, text_pair: candidate.text }));
-    const raw = await this.pipeline(pairs, { topk: 1 });
-    if (!Array.isArray(raw)) return candidates.map(() => 0);
-    return raw.map((entry) => normalizeScore(entry));
+    const passages = candidates.map((candidate) => candidate.text);
+    const queries = passages.map(() => prompt);
+    // Pair tokenization: `queries[i]` is encoded against `passages[i]` (text_pair).
+    const inputs = this.pipeline.tokenizer(queries, {
+      text_pair: passages,
+      padding: true,
+      truncation: true,
+    });
+    const output = await this.pipeline.model(inputs);
+    return logitsToScores(output.logits, candidates.length);
   }
+}
+
+/**
+ * Cross-encoder heads emit either one logit per pair (shape [n, 1]) or a
+ * [neg, pos] pair (shape [n, 2]). Map a single logit through sigmoid; for the
+ * binary head take the softmax probability of the positive class. Either way
+ * the result is a relevance score in [0, 1].
+ * @internal exported for tests.
+ */
+export function logitsToScores(logits: { data: ArrayLike<number>; dims: number[] }, count: number): number[] {
+  const data = logits.data;
+  const width = count > 0 ? Math.max(1, Math.floor(data.length / count)) : 1;
+  const scores: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    if (width >= 2) {
+      const neg = Number(data[index * width] ?? 0);
+      const pos = Number(data[index * width + 1] ?? 0);
+      const maxLogit = Math.max(neg, pos);
+      const expNeg = Math.exp(neg - maxLogit);
+      const expPos = Math.exp(pos - maxLogit);
+      const prob = expPos / (expNeg + expPos);
+      scores.push(clamp(Number.isFinite(prob) ? prob : 0, 0, 1));
+    } else {
+      const raw = Number(data[index] ?? 0);
+      scores.push(clamp(Number.isFinite(raw) ? sigmoid(raw) : 0, 0, 1));
+    }
+  }
+  return scores;
+}
+
+function sigmoid(value: number): number {
+  return 1 / (1 + Math.exp(-value));
 }
 
 function localModelsDisabled(): boolean {
@@ -373,17 +432,6 @@ export function toVector(raw: unknown): number[] {
   throw new Error('unexpected feature-extraction output shape');
 }
 
-function normalizeScore(entry: unknown): number {
-  if (Array.isArray(entry)) {
-    return normalizeScore(entry[0]);
-  }
-  if (typeof entry === 'object' && entry !== null && 'score' in entry) {
-    const value = (entry as { score?: unknown }).score;
-    if (typeof value === 'number' && Number.isFinite(value)) return clamp(value, 0, 1);
-  }
-  if (typeof entry === 'number' && Number.isFinite(entry)) return clamp(entry, 0, 1);
-  return 0;
-}
 
 /** Indirection so bundlers / tsc don't try to resolve the optional package statically. */
 async function dynamicImport(specifier: string): Promise<{ module: unknown } | { error: Error }> {
