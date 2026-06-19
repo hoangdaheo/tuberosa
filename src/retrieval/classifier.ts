@@ -495,14 +495,32 @@ function extractContinuationFiles(lower: string): string[] {
 }
 
 function extractSymbols(prompt: string): string[] {
-  const codeSpans = [...prompt.matchAll(/`([^`]+)`/g)].map((match) => match[1]!).filter((value) => /^[A-Za-z_$][\w$.:#-]+$/.test(value));
+  // Back-ticked spans only count when they have identifier shape — bare English
+  // words inside back-ticks (`true`, `bug`, `assertion`) are prose, not symbols.
+  const codeSpans = [...prompt.matchAll(/`([^`]+)`/g)]
+    .map((match) => match[1]!)
+    .filter((value) => /^[A-Za-z_$][\w$.:#-]+$/.test(value))
+    .filter((value) => looksLikeIdentifier(value));
   const camelCase = prompt.match(/\b[A-Z][A-Za-z0-9_]*(?:Service|Controller|Repository|Provider|Handler|Store|Model|Schema|Config|Client)\b/g) ?? [];
   const pascalCase = (prompt.match(/\b[A-Z][A-Za-z0-9_]{2,}\b/g) ?? [])
     .filter((value) => !isLikelyDocumentIdentifier(value))
     .filter((value) => hasSymbolStructure(value));
-  const functions = [...prompt.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((match) => match[1]!);
+  // Require the call paren to immediately follow the name. `foo()` is a call;
+  // prose like "the test ran (twice)" has a space and must not yield `ran`.
+  const functions = [...prompt.matchAll(/\b([a-zA-Z_$][\w$]*)\(/g)].map((match) => match[1]!);
   return uniqueStrings([...codeSpans, ...camelCase, ...pascalCase, ...functions])
     .filter((value) => !isSymbolStopWord(value, prompt));
+}
+
+// A code identifier carries structure a plain word lacks: a structural separator
+// (._:#-), a digit or underscore, or a genuine camelCase / PascalCase hump
+// (an upper-then-lower or lower-then-upper transition). Bare lowercase words
+// (`ran`, `bug`) and bare ALL-CAPS words (`TDD`, `REAL`) have none.
+function looksLikeIdentifier(value: string): boolean {
+  if (/[._:#\-0-9_]/.test(value)) {
+    return true;
+  }
+  return /[A-Z][a-z]|[a-z][A-Z]/.test(value);
 }
 
 function extractUuidHints(prompt: string): string[] {
@@ -911,10 +929,19 @@ function isLikelyDocumentIdentifier(value: string): boolean {
 // A real PascalCase code symbol has internal structure: an inner capital (FooBar),
 // a digit (Sha256), or an underscore (Foo_Bar). A lone capitalized English word
 // (Simplify, Provide, Build, Create) has none and must not be treated as a symbol.
+// A fully ALL-CAPS word (NEVER, REAL, TDD, RED) is prose or a bare acronym — its
+// "inner capital" is an artifact of the casing, not a camelCase hump — so it must
+// not pass either (unless it carries a digit or underscore, e.g. SHA_256).
 // Explicitly back-ticked identifiers, known suffixes (…Service), and foo() calls are
 // captured by the other lanes in extractSymbols, so this only gates the broad PascalCase lane.
 function hasSymbolStructure(value: string): boolean {
-  return /[A-Z]/.test(value.slice(1)) || /[0-9_]/.test(value);
+  if (/[0-9_]/.test(value)) {
+    return true;
+  }
+  if (!/[a-z]/.test(value)) {
+    return false;
+  }
+  return /[A-Z]/.test(value.slice(1));
 }
 
 function extractCompoundTerms(prompt: string): string[] {

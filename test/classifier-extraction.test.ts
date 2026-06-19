@@ -99,3 +99,96 @@ test('classifier emits no domain label when no src/X/ file is present', () => {
   const labels = labelsFromClassification(classified);
   equal(labels.find((label) => label.type === 'domain'), undefined);
 });
+
+// Label-pruning pass: the extractor used to emit ALL-CAPS prose, prose words
+// that merely precede a parenthetical, and back-ticked common English words as
+// `symbol:` labels. Those junk symbols become noisy reflection-memory labels and
+// dilute label-based recall. Each banned word below was observed leaking from a
+// real session prompt; each kept identifier must still survive (no false negatives).
+
+test('classifier does not surface ALL-CAPS prose words as symbols', () => {
+  const cases: { prompt: string; banned: string[] }[] = [
+    {
+      prompt: 'Real-world runs must NEVER silently serve fake hash search. Use REAL models or fail loud.',
+      banned: ['NEVER', 'REAL'],
+    },
+    {
+      prompt: 'Drive the smoke eval RED then GREEN under TDD discipline.',
+      banned: ['RED', 'GREEN', 'TDD'],
+    },
+  ];
+
+  for (const { prompt, banned } of cases) {
+    const classified = classifyQuery({ prompt, cwd: '/home/nash/tuberosa' });
+    for (const word of banned) {
+      equal(
+        classified.symbols.includes(word),
+        false,
+        `ALL-CAPS prose word "${word}" must not be a symbol (prompt="${prompt}")`,
+      );
+    }
+  }
+});
+
+test('classifier does not surface prose words that merely precede a parenthetical as symbols', () => {
+  const classified = classifyQuery({
+    prompt:
+      'The test ran (twice) and the assertion failed (once); is the value true (proves it)? Found a bug (in rerank).',
+    cwd: '/home/nash/tuberosa',
+  });
+
+  for (const word of ['ran', 'failed', 'true', 'bug']) {
+    equal(
+      classified.symbols.includes(word),
+      false,
+      `prose word "${word}" before a parenthetical must not be a symbol`,
+    );
+  }
+});
+
+test('classifier does not surface back-ticked common English words as symbols', () => {
+  const classified = classifyQuery({
+    prompt: 'The `ran` flag, a `bug`, the `assertion`, `true`, and `unavailable` all leaked into labels.',
+    cwd: '/home/nash/tuberosa',
+  });
+
+  for (const word of ['ran', 'bug', 'assertion', 'true', 'unavailable']) {
+    equal(
+      classified.symbols.includes(word),
+      false,
+      `back-ticked English word "${word}" must not be a symbol`,
+    );
+  }
+});
+
+test('classifier still extracts real code identifiers (no false negatives from pruning)', () => {
+  const classified = classifyQuery({
+    prompt:
+      'Refactor `TransformersScorer` and `hasLocalReranker` in the `RerankPipeline`; load `bge-reranker-v2-m3-ONNX`, read `snake_case` and `dotted.path`.',
+    cwd: '/home/nash/tuberosa',
+  });
+
+  for (const symbol of [
+    'TransformersScorer',
+    'hasLocalReranker',
+    'RerankPipeline',
+    'bge-reranker-v2-m3-ONNX',
+    'snake_case',
+    'dotted.path',
+  ]) {
+    ok(
+      classified.symbols.includes(symbol),
+      `real identifier "${symbol}" must still be extracted as a symbol`,
+    );
+  }
+});
+
+test('classifier still extracts genuine function-call identifiers', () => {
+  const classified = classifyQuery({
+    prompt: 'Call searchContext() then hasLocalReranker() to verify the path.',
+    cwd: '/home/nash/tuberosa',
+  });
+
+  ok(classified.symbols.includes('searchContext'), 'searchContext() should classify as a symbol');
+  ok(classified.symbols.includes('hasLocalReranker'), 'hasLocalReranker() should classify as a symbol');
+});
