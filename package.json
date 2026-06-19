@@ -1,6 +1,6 @@
 {
   "name": "tuberosa",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Local-first MCP context broker for agentic AI knowledge matching and reflection memory.",
   "type": "module",
   "license": "MIT",
