@@ -17,6 +17,11 @@ test('skips the check in the test env', async () => {
   await assertModelsReady(baseModel as any, cfg('local', false, 'test'));
 });
 
+test('skips when the provider lacks a verifyReady probe (e.g. plain hash provider)', async () => {
+  // baseModel has no verifyReady; a strict-local config must not crash on it.
+  await assertModelsReady(baseModel as any, cfg('local'));
+});
+
 test('throws when the local embedder is unavailable', async () => {
   const models = { ...baseModel, verifyReady: async () => ({ embedder: false, reranker: true, dims: null }) };
   await assert.rejects(() => assertModelsReady(models as any, cfg('local')), ModelProviderError);

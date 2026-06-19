@@ -180,8 +180,13 @@ async function checkMigrations(io: CommandIo, packageRoot: string): Promise<Doct
   return { name: 'migrations', status: 'ok', detail: 'migrations/ present (bundled with the package)' };
 }
 
+/** Mirror config.ts's provider default: explicit env wins, else OpenAI key implies openai, else local. */
+function detectModelProvider(io: CommandIo): string {
+  return io.env.TUBEROSA_MODEL_PROVIDER ?? (io.env.OPENAI_API_KEY ? 'openai' : 'local');
+}
+
 async function checkEmbeddingModel(io: CommandIo): Promise<DoctorCheck> {
-  const provider = io.env.TUBEROSA_MODEL_PROVIDER ?? (io.env.OPENAI_API_KEY ? 'openai' : 'local');
+  const provider = detectModelProvider(io);
   if (provider !== 'local') {
     return { name: 'embedding model', status: 'skip', detail: `provider is '${provider}' — no local model needed` };
   }
@@ -204,7 +209,7 @@ async function checkEmbeddingModel(io: CommandIo): Promise<DoctorCheck> {
 }
 
 async function checkRerankerModel(io: CommandIo): Promise<DoctorCheck> {
-  const provider = io.env.TUBEROSA_MODEL_PROVIDER ?? (io.env.OPENAI_API_KEY ? 'openai' : 'local');
+  const provider = detectModelProvider(io);
   if (provider !== 'local') {
     return { name: 'reranker model', status: 'skip', detail: `provider is '${provider}' — no local reranker needed` };
   }
@@ -224,7 +229,7 @@ async function checkRerankerModel(io: CommandIo): Promise<DoctorCheck> {
 }
 
 async function checkModelsLoad(io: CommandIo): Promise<DoctorCheck> {
-  const provider = io.env.TUBEROSA_MODEL_PROVIDER ?? (io.env.OPENAI_API_KEY ? 'openai' : 'local');
+  const provider = detectModelProvider(io);
   if (provider !== 'local') return { name: 'models load (deep)', status: 'skip', detail: `provider is '${provider}'` };
   try {
     const { LocalCrossEncoderProvider } = await import('../../src/model/local-provider.js');

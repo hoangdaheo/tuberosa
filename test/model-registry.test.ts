@@ -99,6 +99,34 @@ test('ProviderRegistry falls back to fallback provider when capability is missin
   equal(reranked.model, 'fallback');
 });
 
+test('ProviderRegistry.verifyReady defaults to ready when no health provider is set', async () => {
+  const fallback = {
+    async embed() { return [0]; },
+    async rewriteQuery() { return undefined; },
+    async rerank() { return { candidates: [], model: 'fallback' }; },
+  };
+  const registry = new ProviderRegistry(fallback);
+  // No setHealthProvider() call — the default must not falsely report models missing.
+  const report = await registry.verifyReady();
+  equal(report.embedder, true);
+  equal(report.reranker, true);
+  equal(report.dims, null);
+});
+
+test('ProviderRegistry.verifyReady delegates to the registered health provider', async () => {
+  const fallback = {
+    async embed() { return [0]; },
+    async rewriteQuery() { return undefined; },
+    async rerank() { return { candidates: [], model: 'fallback' }; },
+  };
+  const registry = new ProviderRegistry(fallback);
+  registry.setHealthProvider({ verifyReady: async () => ({ embedder: false, reranker: true, dims: 384 }) });
+  const report = await registry.verifyReady();
+  equal(report.embedder, false);
+  equal(report.reranker, true);
+  equal(report.dims, 384);
+});
+
 test('registry has NO extractAtoms when extract model is unset (honest capability check)', () => {
   const registry = buildOllamaRegistry(baseConfig({
     provider: 'ollama',
