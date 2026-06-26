@@ -2,163 +2,46 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Detailed guidance is split into focused rule files under `.claude/rules/` and imported below. Edit a rule in its own file; keep this index short.
+
 ## User Rules
 - **MUST** generate the output to be similar to `Explain Like I'm 5 or intern`
 - Ensure the AI user will know and understand well, even if for non-native English developer
 - Make sure the Human deeply understand when working with you, like the incredible, effectively teacher
 
-## Tuberosa MCP startup rule
+## What Tuberosa is (30-second version)
 
-For any non-trivial implementation, debugging, review, or planning task in this repo, call Tuberosa before reading or editing code.
+Tuberosa is a **local-first MCP context broker** — a memory + librarian for coding agents. It has exactly two pillars:
 
-If the `tuberosa_*` tools are deferred, load them first with ToolSearch/select for:
+- **FIND** — hand the agent the *right* ranked notes for the task now (`tuberosa_search_context`). Pipeline: classify → rewrite → 5-source hybrid search → fuse → rerank → adjust → context-fit → assemble → deep-context.
+- **LEARN** — turn a finished session into a *human-reviewed* lesson for next time (`tuberosa_start_session` → `tuberosa_finish_session` → reflection draft → human gate → searchable memory).
 
-- `tuberosa_start_session`
-- `tuberosa_record_context_decision`
-- `tuberosa_finish_session`
-- `tuberosa_search_context`
-- `tuberosa_get_context_pack`
+Storage: Postgres + pgvector (source of truth), Redis (cache), `.tuberosa/current/` (one-way human-readable mirror). For the full mechanism read [`README.md`](README.md), the plain-language [`nash-readme.md`](nash-readme.md), and [`AGENTS.md`](AGENTS.md) (source map + API surface). Product intent lives in [`docs/tuberosa-project.md`](docs/tuberosa-project.md); the **live working state** (what's in flight or uncommitted) lives in [`handoff.md`](handoff.md) — check it at the start of a session.
 
-Then call `tuberosa_start_session` with:
+## Rules (always loaded)
 
-- `project: "tuberosa"`
-- `cwd: "/home/nash/tuberosa"`
-- the user's prompt as `prompt`
-- `contextMode: "layered"`
-- `noiseTolerance: "strict"`
-- `includeDeepContext: true`
-- known `files`, `symbols`, and `errors` when the prompt names them
+Short, high-value operational rules — imported into every session:
 
-Inspect `contextFit`, `orientation`, and `taskBrief` before proceeding. Record a `selected`, `selected_but_noisy`, `rejected`, `stale`, `irrelevant`, or `missing_context` decision with `tuberosa_record_context_decision` before substantive work. Finish meaningful sessions with `tuberosa_finish_session`.
+@.claude/rules/tuberosa-startup.md
+@.claude/rules/commands.md
+@.claude/rules/key-constraints.md
+@.claude/rules/workflow.md
 
-If ToolSearch says no matching `tuberosa_*` tools exist, or the MCP server disconnects, state that explicitly in the response and continue from direct repo evidence. Do not rationalize skipping Tuberosa as a product judgment unless the tool call was actually attempted or the task is trivial.
+## Deep reference (read on demand)
 
-### Tuberosa skills (teaching layer)
+These are not auto-loaded — open the one you need:
 
-| Task | Read this skill |
-|------|-----------------|
-| What is Tuberosa? Which tools exist? FIND vs LEARN | `.claude/skills/tuberosa-guide/SKILL.md` |
-| Drive a coding task through the session loop | `.claude/skills/tuberosa-agent-loop/SKILL.md` |
-| Onboard / comprehend a project into Tuberosa (and keep it fresh) | `.claude/skills/tuberosa-onboard-project/SKILL.md` |
-| Operate Tuberosa as a human (ingest, review, evals) | `.claude/skills/tuberosa-operating/SKILL.md` |
-| Which command/tool does what day to day (session loop, lifecycle, maintenance tasks) | `.claude/skills/tuberosa-using/SKILL.md` |
-| Set up the environment | `docs/SETUP.md` |
-
-These teach the rule above; they do not replace it. The skills live at a **flat** path (`.claude/skills/<name>/SKILL.md`) so Claude Code's Skill tool discovers them — skills nested two levels deep are never auto-loaded.
-
-## Commands
-
-```bash
-pnpm install              # Install dependencies (requires Node 22+, pnpm 11+)
-pnpm run build            # TypeScript compile to dist/
-pnpm test                 # Full unit test suite (all test/*.test.ts)
-pnpm run dev              # HTTP server in watch mode (port 3027)
-pnpm run migrate          # Apply SQL migrations to Postgres
-pnpm run eval:retrieval   # Deterministic retrieval quality eval (must pass before merging retrieval changes)
-pnpm run eval:agent-context # Agent session compliance eval
-pnpm run sandbox          # Knowledge-mapping sandbox: tiered synthetic corpus + golden prompts + per-source ablation. Emits eval/sandbox/report.md.
-pnpm run sandbox:ablate   # Sandbox with per-source ablation rows (lexical/vector/metadata/memory/graph each disabled in turn)
-pnpm run calibrate-fusion # Phase 4: re-run the sandbox and emit a calibrated config/retrieval-policy.json patch (sourceWeights + per-task profiles)
-pnpm run test:integration # Docker-gated Postgres + Redis integration tests (skips if stack is down)
-pnpm run verify:bundled-skills # Prepack gate: bundled-skills manifest ↔ package.json files ↔ on-disk parity + consumer-safety grep
-```
-
-Run a single test file:
-```bash
-TUBEROSA_DISABLE_LOCAL_MODELS=true node --test --import tsx test/retrieval.test.ts
-```
-
-Node version: `.nvmrc` pins `22.21.1`. If the shell uses an older version, prefix commands:
-```bash
-PATH=/home/nash/.nvm/versions/node/v22.21.1/bin:$PATH pnpm test
-```
-
-Docker stack (Postgres + Redis + HTTP server with auto-migration):
-```bash
-docker compose up --build -d
-docker compose down -v    # also removes Postgres data
-```
-
-Local no-dependency mode (no Postgres, no Redis, data lost on exit):
-```bash
-TUBEROSA_STORE=memory TUBEROSA_CACHE=memory TUBEROSA_MODEL_PROVIDER=hash pnpm run dev
-```
-
-## Architecture
-
-Tuberosa is a local-first MCP context broker. It retrieves ranked project knowledge for coding agents and stores reviewed reflection memories so future agents avoid repeating mistakes.
-
-### Two entry points
-
-- **`src/index.ts`** — HTTP server (`src/http/server.ts`). All REST endpoints live here.
-- **`src/mcp-stdio.ts`** — MCP stdio server (`src/mcp/server.ts`). Exposes retrieval, agent-session, reflection-review, feedback, and error-log tools, including `tuberosa_search_context`, `tuberosa_start_session`, `tuberosa_record_context_decision`, `tuberosa_finish_session`, and `tuberosa_append_session_note`. The MCP entry point defaults `TUBEROSA_CACHE=memory` so clients can initialize without Redis.
-
-### Retrieval pipeline (`src/retrieval/`)
-
-The core flow in `RetrievalService.searchContext` (`src/retrieval/service.ts`):
-
-1. **Classify** (`classifier.ts`) — extract project, task type, files, symbols, errors, technologies, business areas from the prompt.
-2. **Query rewrite** (`model/provider.ts`) — optional OpenAI-backed expansion of the lexical query.
-3. **Parallel search** — metadata labels/references, Postgres FTS (`searchLexical`), pgvector (`searchVector`), approved-memory (`searchMemories`) run concurrently; then graph relation expansion (`searchGraphRelations`) uses seed IDs from those results.
-4. **Fuse** (`fusion.ts`) — weighted reciprocal-rank fusion across all five candidate lists.
-5. **Rerank** (`model/provider.ts`) — local cross-encoder by default, with hash as fallback; or the OpenAI / Ollama rerankers.
-6. **Ranking adjustments** (`service.ts`) — apply feedback score deltas and intent-suppression penalties (stale, superseded, evidence mismatch).
-7. **Context fit** (`context-fit.ts`) — emit `ready/needs_confirmation/insufficient` and list missing signals.
-8. **Assemble** (`context-pack.ts`) — split into `essential/supporting/optional` sections within token budget.
-9. **Deep context** (layered mode) — expand selected knowledge IDs into full chunks up to `deepContextBudget`.
-
-### Storage (`src/storage/`)
-
-`KnowledgeStore` interface (`store.ts`) has two implementations:
-
-- `PostgresKnowledgeStore` (`postgres-store.ts`) — production store with pgvector, FTS, graph relations, and all tables.
-- `MemoryKnowledgeStore` (`memory-store.ts`) — in-process test/dev store; same interface, no persistence.
-
-`StorageFactory` (`factory.ts`) selects the implementation based on `TUBEROSA_STORE`. A Redis or in-memory cache wraps the store for repeated context lookups (`src/cache.ts`).
-
-### Model provider (`src/model/provider.ts`)
-
-`ModelProvider` interface: `embed`, `rewriteQuery`, `rerank`.
-
-- `LocalCrossEncoderProvider` (via `ProviderRegistry`) — **default** provider (`TUBEROSA_MODEL_PROVIDER=local`). Real embeddings via `@xenova/transformers` (`Xenova/bge-small-en-v1.5`, 384-dim), downloaded once to `~/.cache/tuberosa/models` on first use.
-- `HashModelProvider` — deterministic, no API key, used in all tests. Also the embedded trial mode provider.
-- `OpenAiModelProvider` — embeddings via `/v1/embeddings`, rewrite/rerank via `/v1/responses` with structured JSON output schemas.
-- `OllamaRerankProvider` / `OllamaGenerationProvider` (`ollama-provider.ts`, `ollama-generation.ts`) — rerank via Ollama's `/api/rerank` (hash fallback); atom extraction for LEARN only when `TUBEROSA_OLLAMA_EXTRACT_MODEL` is set.
-
-Selected by `TUBEROSA_MODEL_PROVIDER` env var. Defaults to `local` unless `OPENAI_API_KEY` is set (then `openai`) or `TUBEROSA_EMBEDDED=1` is set (then `hash`).
-
-### Ingestion (`src/ingest/`)
-
-`IngestionService` chunks content, embeds each chunk, infers knowledge relations (`relations/inference.ts`), and upserts to the store. Large Markdown files are atomized into headed sections first (`document-atomizer.ts`). File ingestion infers `itemType` from the file path (`.md` → `wiki`, spec-like → `spec`, otherwise `code_ref`).
-
-### Agent session lifecycle (`src/agent-session/`)
-
-`tuberosa_start_session` → `tuberosa_record_context_decision` → `tuberosa_finish_session`. On finish, an automatic learning gate decides whether to auto-approve a reflection memory or leave it as a reviewable draft.
-
-### Security (`src/security/knowledge-safety.ts`)
-
-Secrets are redacted from content before storage and from search prompts before embedding. Prompt-injection patterns are blocked at ingestion. Retrieved candidates are sanitized before returning.
-
-### Physical mirror
-
-When `TUBEROSA_PHYSICAL_MIRROR_ENABLED=true`, every write to Postgres is debounced and synced to `.tuberosa/current/` as human-readable `.md` and `.jsonl` files. The MCP server also exposes these as resources.
-
-## Key constraints
-
-**Retrieval eval must be green.** Run `pnpm run eval:retrieval` before any change to classifier, fusion weights, reranking, context-pack assembly, or context-fit logic. The eval fixture (`eval/retrieval-fixtures.json`) asserts `hitRate=1`, `staleRejectionRate=1`, and all exact classification rates at 1. Do not adjust thresholds to make tests pass — fix the logic.
-
-**Embedding dimensions must be consistent.** `EMBEDDING_DIMENSIONS` in config must match the `vector(N)` column dimension. The current default is 384 (matching `Xenova/bge-small-en-v1.5` and `migrations/014_embedding_dim_384.sql`; the original 001 and 005 migrations also track this). Changing dimensions requires a new migration.
-
-**MCP stdout is protocol-only.** The MCP stdio process must write only JSON-RPC frames to stdout. Do not add any `console.log` or `process.stdout.write` calls in the MCP code path; use `stderr` for diagnostics.
-
-**Retrieval improvements require eval coverage first.** Do not add heuristics or weight tweaks without a fixture case that would fail without the change.
-
-**Bundled skills must stay consumer-safe.** The skills listed in `.claude/skills/bundled-skills.json` ship into end-user projects via `npx tuberosa init`. Their SKILL.md files must contain no literal `docs/`, `pnpm run`, or `eval/` strings — those paths only exist in this checkout, not in a consumer repo. Adding a skill means three things in one change: a manifest entry, a `package.json` `files` entry, and the SKILL.md on disk. `pnpm run verify:bundled-skills` must pass before any commit that touches them.
+| Doc | Read it for |
+|-----|-------------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System structure, components, data flow, data model, deploy topology |
+| [`docs/FEATURES.md`](docs/FEATURES.md) | Feature inventory, domain model, business rules, glossary, invariants |
+| [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Code style, naming, testing, error handling, and the add-endpoint / add-MCP-tool cookbook |
+| [`docs/SETUP.md`](docs/SETUP.md) | Environment setup + the full model-provider matrix |
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **tuberosa**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **tuberosa** (10121 symbols, 22129 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

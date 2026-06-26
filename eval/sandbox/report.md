@@ -10,48 +10,51 @@
 | Metric | Value |
 | --- | --- |
 | hit rate | 93.2% |
-| MRR | 0.4771 |
+| MRR | 0.4658 |
 | noise rate | 9.1% |
 | stale suppression | 100.0% |
 | duplicate suppression | 100.0% |
 | adversarial block rate | 100.0% |
-| itemType "memory" catch-all rate | 39.0% |
-| itemType diagonal rate (Phase 3) | 69.4% |
-| label diagonal rate (Phase 3) | 7.7% |
-| latency p50 / p95 / max (ms) | 22 / 43 / 85 |
+| itemType "memory" catch-all rate | 37.7% |
+| itemType diagonal rate (Phase 3) | 68.0% |
+| label diagonal rate (Phase 3) | 7.9% |
+| latency p50 / p95 / max (ms) | 31 / 74 / 91 |
 
 ## Per-Tier Selection
 
 | Tier | selected | expected selected | suppressed | expected suppressed |
 | --- | --- | --- | --- | --- |
-| A | 217 | 36 | 0 | 0 |
+| A | 218 | 36 | 0 | 0 |
 | B | 9 | 0 | 72 | 76 |
-| C | 182 | 4 | 4 | 4 |
-| D | 53 | 4 | 4 | 4 |
-| E | 6 | 0 | 8 | 8 |
+| C | 174 | 4 | 4 | 4 |
+| D | 47 | 4 | 4 | 4 |
+| E | 5 | 0 | 8 | 8 |
 | F | 0 | 0 | 0 | 0 |
 
 ## Per-ItemType Hits
 
 | itemType | selected | expected | correct | precision | recall |
 | --- | --- | --- | --- | --- | --- |
-| memory | 182 | 7 | 7 | 3.8% | 100.0% |
-| workflow | 168 | 9 | 8 | 4.8% | 88.9% |
+| memory | 171 | 7 | 7 | 4.1% | 100.0% |
+| workflow | 163 | 9 | 8 | 4.9% | 88.9% |
 | code_ref | 28 | 12 | 8 | 28.6% | 66.7% |
-| wiki | 28 | 2 | 2 | 7.1% | 100.0% |
+| wiki | 29 | 2 | 2 | 6.9% | 100.0% |
 | bugfix | 31 | 6 | 6 | 19.4% | 100.0% |
-| spec | 30 | 8 | 6 | 20.0% | 75.0% |
+| spec | 31 | 8 | 7 | 22.6% | 87.5% |
 
 ## Per-Source Fusion Contribution (toward expected items)
 
 | source | aggregated contribution |
 | --- | --- |
-| metadata | 0.8750 |
-| lexical | 0.8555 |
+| metadata | 0.8578 |
+| lexical | 0.8328 |
 | memory | 0.4062 |
-| vector | 0.5404 |
+| vector | 0.5439 |
 | graph | 0.5917 |
 | worktree | 0.0000 |
+| atoms | 0.0000 |
+| userStyle | 0.0000 |
+| convention | 0.0000 |
 
 ## Filter Telemetry
 
